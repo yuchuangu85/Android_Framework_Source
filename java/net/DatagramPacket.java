@@ -43,7 +43,7 @@ package java.net;
 public final
 class DatagramPacket {
 
-    // BEGIN Android-removed: Android doesn't need to load native net library
+    // BEGIN Android-removed: Android doesn't need to load native net library.
     /**
      * Perform class initialization
      *
@@ -58,7 +58,7 @@ class DatagramPacket {
         init();
     }
     */
-    // END Android-removed: init method has been removed
+    // END Android-removed: Android doesn't need to load native net library.
 
     /*
      * The fields of this class are package-private since DatagramSocketImpl

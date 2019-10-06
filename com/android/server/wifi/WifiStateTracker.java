@@ -56,7 +56,7 @@ public class WifiStateTracker {
     /**
      * Inform the WifiState to this tracker to translate into the
      * WifiState corresponding to BatteryStats.
-     * @param state state corresponding to the WifiStateMachine state
+     * @param state state corresponding to the ClientModeImpl state
      */
     public void updateState(int state) {
         int reportState = BatteryStats.WIFI_STATE_OFF;

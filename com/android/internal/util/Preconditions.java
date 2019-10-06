@@ -18,6 +18,7 @@ package com.android.internal.util;
 
 import android.annotation.IntRange;
 import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.text.TextUtils;
 
 import java.util.Collection;
@@ -28,6 +29,7 @@ import java.util.Collection;
  */
 public class Preconditions {
 
+    @UnsupportedAppUsage
     public static void checkArgument(boolean expression) {
         if (!expression) {
             throw new IllegalArgumentException();
@@ -42,6 +44,7 @@ public class Preconditions {
      *     be converted to a string using {@link String#valueOf(Object)}
      * @throws IllegalArgumentException if {@code expression} is false
      */
+    @UnsupportedAppUsage
     public static void checkArgument(boolean expression, final Object errorMessage) {
         if (!expression) {
             throw new IllegalArgumentException(String.valueOf(errorMessage));
@@ -106,6 +109,7 @@ public class Preconditions {
      * @return the non-null reference that was validated
      * @throws NullPointerException if {@code reference} is null
      */
+    @UnsupportedAppUsage
     public static @NonNull <T> T checkNotNull(final T reference) {
         if (reference == null) {
             throw new NullPointerException();
@@ -123,6 +127,7 @@ public class Preconditions {
      * @return the non-null reference that was validated
      * @throws NullPointerException if {@code reference} is null
      */
+    @UnsupportedAppUsage
     public static @NonNull <T> T checkNotNull(final T reference, final Object errorMessage) {
         if (reference == null) {
             throw new NullPointerException(String.valueOf(errorMessage));
@@ -158,6 +163,7 @@ public class Preconditions {
      * @param message exception message
      * @throws IllegalStateException if {@code expression} is false
      */
+    @UnsupportedAppUsage
     public static void checkState(final boolean expression, String message) {
         if (!expression) {
             throw new IllegalStateException(message);
@@ -171,6 +177,7 @@ public class Preconditions {
      * @param expression a boolean expression
      * @throws IllegalStateException if {@code expression} is false
      */
+    @UnsupportedAppUsage
     public static void checkState(final boolean expression) {
         checkState(expression, null);
     }
@@ -192,7 +199,7 @@ public class Preconditions {
     }
 
     /**
-     * Ensures that that the argument numeric value is non-negative.
+     * Ensures that that the argument numeric value is non-negative (greater than or equal to 0).
      *
      * @param value a numeric int value
      * @param errorMessage the exception message to use if the check fails
@@ -209,7 +216,7 @@ public class Preconditions {
     }
 
     /**
-     * Ensures that that the argument numeric value is non-negative.
+     * Ensures that that the argument numeric value is non-negative (greater than or equal to 0).
      *
      * @param value a numeric int value
      *
@@ -225,7 +232,7 @@ public class Preconditions {
     }
 
     /**
-     * Ensures that that the argument numeric value is non-negative.
+     * Ensures that that the argument numeric value is non-negative (greater than or equal to 0).
      *
      * @param value a numeric long value
      * @return the validated numeric value
@@ -240,7 +247,7 @@ public class Preconditions {
     }
 
     /**
-     * Ensures that that the argument numeric value is non-negative.
+     * Ensures that that the argument numeric value is non-negative (greater than or equal to 0).
      *
      * @param value a numeric long value
      * @param errorMessage the exception message to use if the check fails
@@ -256,7 +263,7 @@ public class Preconditions {
     }
 
     /**
-     * Ensures that that the argument numeric value is positive.
+     * Ensures that that the argument numeric value is positive (greater than 0).
      *
      * @param value a numeric int value
      * @param errorMessage the exception message to use if the check fails
@@ -264,6 +271,36 @@ public class Preconditions {
      * @throws IllegalArgumentException if {@code value} was not positive
      */
     public static int checkArgumentPositive(final int value, final String errorMessage) {
+        if (value <= 0) {
+            throw new IllegalArgumentException(errorMessage);
+        }
+
+        return value;
+    }
+
+    /**
+     * Ensures that the argument floating point value is non-negative (greater than or equal to 0).
+     * @param value a floating point value
+     * @param errorMessage the exteption message to use if the check fails
+     * @return the validated numeric value
+     * @throws IllegalArgumentException if {@code value} was negative
+     */
+    public static float checkArgumentNonNegative(final float value, final String errorMessage) {
+        if (value < 0) {
+            throw new IllegalArgumentException(errorMessage);
+        }
+
+        return value;
+    }
+
+    /**
+     * Ensures that the argument floating point value is positive (greater than 0).
+     * @param value a floating point value
+     * @param errorMessage the exteption message to use if the check fails
+     * @return the validated numeric value
+     * @throws IllegalArgumentException if {@code value} was not positive
+     */
+    public static float checkArgumentPositive(final float value, final String errorMessage) {
         if (value <= 0) {
             throw new IllegalArgumentException(errorMessage);
         }
@@ -338,6 +375,7 @@ public class Preconditions {
      *
      * @throws IllegalArgumentException if {@code value} was not within the range
      */
+    @UnsupportedAppUsage
     public static int checkArgumentInRange(int value, int lower, int upper,
             String valueName) {
         if (value < lower) {

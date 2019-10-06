@@ -66,7 +66,7 @@ public final class MediaProjectionManager {
     }
 
     /**
-     * Returns an Intent that <b>must</b> passed to startActivityForResult()
+     * Returns an Intent that <b>must</b> be passed to startActivityForResult()
      * in order to start screen capture. The activity will prompt
      * the user whether to allow screen capture.  The result of this
      * activity should be passed to getMediaProjection.
@@ -90,6 +90,8 @@ public final class MediaProjectionManager {
      * int, android.content.Intent)}
      * @param resultData The resulting data from {@link android.app.Activity#onActivityResult(int,
      * int, android.content.Intent)}
+     * @throws IllegalStateException on pre-Q devices if a previously gotten MediaProjection
+     * from the same {@code resultData} has not yet been stopped
      */
     public MediaProjection getMediaProjection(int resultCode, @NonNull Intent resultData) {
         if (resultCode != Activity.RESULT_OK || resultData == null) {

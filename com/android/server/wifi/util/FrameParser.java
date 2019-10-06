@@ -476,13 +476,26 @@ public class FrameParser {
         }
     }
 
-    private static final byte IEEE_80211_FRAME_CTRL_TYPE_MGMT = 0x00;
-    private static final byte IEEE_80211_FRAME_CTRL_SUBTYPE_ASSOC_REQ = 0x00;
-    private static final byte IEEE_80211_FRAME_CTRL_SUBTYPE_ASSOC_RESP = 0x01;
-    private static final byte IEEE_80211_FRAME_CTRL_SUBTYPE_PROBE_REQ = 0x04;
-    private static final byte IEEE_80211_FRAME_CTRL_SUBTYPE_PROBE_RESP = 0x05;
-    private static final byte IEEE_80211_FRAME_CTRL_SUBTYPE_AUTH = 0x0b;
-    private static final byte IEEE_80211_FRAME_CTRL_FLAG_ORDER = (byte) (1 << 7); // bit 8
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT = 0b00;
+    // Per 802.11-2016 Table 9-1
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_ASSOC_REQ = 0b0000;
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_ASSOC_RESP = 0b0001;
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_REASSOC_REQ = 0b0010;
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_REASSOC_RESP = 0b0011;
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_PROBE_REQ = 0b0100;
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_PROBE_RESP = 0b0101;
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_TIMING_AD = 0b0110;
+    // 0b0111 reserved
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_BEACON = 0b1000;
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_ATIM = 0b1001;
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_DISASSOC = 0b1010;
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_AUTH = 0b1011;
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_DEAUTH = 0b1100;
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_ACTION = 0b1101;
+    private static final byte IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_ACTION_NO_ACK = 0b1110;
+    // 0b1111 reserved
+
+    private static final byte IEEE_80211_FRAME_FLAG_ORDER = (byte) (1 << 7); // bit 8
     private static final byte IEEE_80211_DURATION_LEN = 2;
     private static final byte IEEE_80211_ADDR1_LEN = 6;
     private static final byte IEEE_80211_ADDR2_LEN = 6;
@@ -511,7 +524,7 @@ public class FrameParser {
         }
 
         byte ieee80211FrameType = parseIeee80211FrameCtrlType(frameControlVersionTypeSubtype);
-        if (ieee80211FrameType != IEEE_80211_FRAME_CTRL_TYPE_MGMT) {
+        if (ieee80211FrameType != IEEE_80211_FRAME_TYPE_MGMT) {
             Log.e(TAG, "Unexpected frame type " + ieee80211FrameType);
             return;
         }
@@ -521,29 +534,62 @@ public class FrameParser {
         data.position(data.position() + IEEE_80211_DURATION_LEN + IEEE_80211_ADDR1_LEN
                 + IEEE_80211_ADDR2_LEN + IEEE_80211_ADDR3_LEN + IEEE_80211_SEQUENCE_CONTROL_LEN);
 
-        if ((frameControlFlags & IEEE_80211_FRAME_CTRL_FLAG_ORDER) != 0) {
+        if ((frameControlFlags & IEEE_80211_FRAME_FLAG_ORDER) != 0) {
             // Per 802.11-2012 Sec 8.2.4.1.10.
             data.position(data.position() + IEEE_80211_HT_CONTROL_LEN);
         }
 
         byte ieee80211FrameSubtype = parseIeee80211FrameCtrlSubtype(frameControlVersionTypeSubtype);
         switch (ieee80211FrameSubtype) {
-            case IEEE_80211_FRAME_CTRL_SUBTYPE_ASSOC_REQ:
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_ASSOC_REQ:
                 mTypeString = "Association Request";
                 return;
-            case IEEE_80211_FRAME_CTRL_SUBTYPE_ASSOC_RESP:
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_ASSOC_RESP:
                 mTypeString = "Association Response";
                 parseAssociationResponse(data);
                 return;
-            case IEEE_80211_FRAME_CTRL_SUBTYPE_PROBE_REQ:
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_REASSOC_REQ:
+                mTypeString = "Reassociation Request";
+                return;
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_REASSOC_RESP:
+                mTypeString = "Reassociation Response";
+                return;
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_PROBE_REQ:
                 mTypeString = "Probe Request";
                 return;
-            case IEEE_80211_FRAME_CTRL_SUBTYPE_PROBE_RESP:
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_PROBE_RESP:
                 mTypeString = "Probe Response";
                 return;
-            case IEEE_80211_FRAME_CTRL_SUBTYPE_AUTH:
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_TIMING_AD:
+                mTypeString = "Timing Advertisement";
+                return;
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_BEACON:
+                mTypeString = "Beacon";
+                return;
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_ATIM:
+                mTypeString = "ATIM";
+                return;
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_DISASSOC:
+                mTypeString = "Disassociation";
+                parseDisassociationFrame(data);
+                return;
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_AUTH:
                 mTypeString = "Authentication";
                 parseAuthenticationFrame(data);
+                return;
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_DEAUTH:
+                mTypeString = "Deauthentication";
+                parseDeauthenticationFrame(data);
+                return;
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_ACTION:
+                mTypeString = "Action";
+                return;
+            case IEEE_80211_FRAME_TYPE_MGMT_SUBTYPE_ACTION_NO_ACK:
+                mTypeString = "Action No Ack";
+                return;
+            case 0b0111:
+            case 0b1111:
+                mTypeString = "Reserved";
                 return;
             default:
                 mTypeString = "Unexpected subtype " + ieee80211FrameSubtype;
@@ -558,6 +604,12 @@ public class FrameParser {
         short resultCode = data.getShort();
         mResultString = String.format(
                 "%d: %s", resultCode, decodeIeee80211StatusCode(resultCode));
+    }
+
+    // Per 802.11-2016 Sec 9.3.3.5
+    private void parseDisassociationFrame(ByteBuffer data) {
+        short reasonCode = data.getShort();
+        mResultString = String.format("%d: %s", reasonCode, decodeIeee80211ReasonCode(reasonCode));
     }
 
     // Per 802.11-2012 Secs 8.3.3.11 and 8.4.1.
@@ -592,6 +644,174 @@ public class FrameParser {
             short resultCode = data.getShort();
             mResultString = String.format(
                     "%d: %s", resultCode, decodeIeee80211StatusCode(resultCode));
+        }
+    }
+
+    // Per 802.11-2016 Sec 9.3.3.13
+    private void parseDeauthenticationFrame(ByteBuffer data) {
+        short reasonCode = data.getShort();
+        mResultString = String.format("%d: %s", reasonCode, decodeIeee80211ReasonCode(reasonCode));
+    }
+
+    // Per 802.11-2016 Table 9-45
+    private String decodeIeee80211ReasonCode(short reasonCode) {
+        switch (reasonCode) {
+            case 0:
+                return "Reserved";
+            case 1:
+                return "Unspecified reason";
+            case 2:
+                return "Previous authentication no longer valid";
+            case 3:
+                return "Deauthenticated because sending STA is leaving (or has left) IBSS or ESS";
+            case 4:
+                return "Disassociated due to inactivity";
+            case 5:
+                return "Disassociated because AP is unable to handle all currently associated STAs";
+            case 6:
+                return "Class 2 frame received from nonauthenticated STA";
+            case 7:
+                return "Class 3 frame received from nonassociated STA";
+            case 8:
+                return "Disassociated because sending STA is leaving (or has left) BSS";
+            case 9:
+                return "STA requesting (re)association is not authenticated with responding STA";
+            case 10:
+                return "Disassociated because the information in the Power Capability element is "
+                        + "unacceptable";
+            case 11:
+                return "Disassociated because the information in the Supported Channels element "
+                        + "is unacceptable";
+            case 12:
+                return "Disassociated due to BSS transition management";
+            case 13:
+                return "Invalid element, i.e., an element defined in this standard for which the "
+                        + "content does not meet the specifications in Clause 9";
+            case 14:
+                return "Message integrity code (MIC) failure";
+            case 15:
+                return "4-way handshake timeout";
+            case 16:
+                return "Group key handshake timeout";
+            case 17:
+                return "Element in 4-way handshake different from (Re)Association Request/Probe "
+                        + "Response/Beacon frame";
+            case 18:
+                return "Invalid group cipher";
+            case 19:
+                return "Invalid pairwise cipher";
+            case 20:
+                return "Invalid AKMP";
+            case 21:
+                return "Unsupported RSNE version";
+            case 22:
+                return "Invalid RSNE capabilities";
+            case 23:
+                return "IEEE 802.1X authentication failed";
+            case 24:
+                return "Cipher suite rejected because of the security policy";
+            case 25:
+                return "TDLS direct-link teardown due to TDLS peer STA unreachable via the TDLS "
+                        + "direct link";
+            case 26:
+                return "TDLS direct-link teardown for unspecified reason";
+            case 27:
+                return "Disassociated because session terminated by SSP request";
+            case 28:
+                return "Disassociated because of lack of SSP roaming agreement";
+            case 29:
+                return "Requested service rejected because of SSP cipher suite or AKM requirement";
+            case 30:
+                return "Requested service not authorized in this location";
+            case 31:
+                return "TS deleted because QoS AP lacks sufficient bandwidth for this QoS STA due"
+                        + " to a change in BSS service characteristics or operational mode (e.g.,"
+                        + " an HT BSS change from 40 MHz channel to 20 MHz channel)";
+            case 32:
+                return "Disassociated for unspecified, QoS-related reason";
+            case 33:
+                return "Disassociated because QoS AP lacks sufficient bandwidth for this QoS STA";
+            case 34:
+                return "Disassociated because excessive number of frames need to be acknowledged,"
+                        + " but are not acknowledged due to AP transmissions and/or poor channel "
+                        + "conditions";
+            case 35:
+                return "Disassociated because STA is transmitting outside the limits of its TXOPs";
+            case 36:
+                return "Requesting STA is leaving the BSS (or resetting)";
+            case 37:
+                return "Requesting STA is no longer using the stream or session";
+            case 38:
+                return "Requesting STA received frames using a mechanism for which a setup has "
+                        + "not been completed";
+            case 39:
+                return "Requested from peer STA due to timeout";
+            case 40:
+            case 41:
+            case 42:
+            case 43:
+            case 44:
+                return "<unspecified>";
+            case 45:
+                return "Peer STA does not support the requested cipher suite";
+            case 46:
+                return "In a DLS Teardown frame: The teardown was initiated by the DLS peer. In a"
+                        + " Disassociation frame: Disassociated because authorized access limit "
+                        + "reached";
+            case 47:
+                return "In a DLS Teardown frame: The teardown was initiated by the AP. In a "
+                        + "Disassociation frame: Disassociated due to external service "
+                        + "requirements";
+            case 48:
+                return "Invalid FT Action frame count";
+            case 49:
+                return "Invalid pairwise master key identifier (PMKID)";
+            case 50:
+                return "Invalid MDE";
+            case 51:
+                return "Invalid FTE";
+            case 52:
+                return "Mesh peering canceled for unknown reasons";
+            case 53:
+                return "The mesh STA has reached the supported maximum number of peer mesh STAs";
+            case 54:
+                return "The received information violates the Mesh Configuration policy "
+                        + "configured in the mesh STA profile";
+            case 55:
+                return "The mesh STA has received a Mesh Peering Close frame requesting to close "
+                        + "the mesh peering.";
+            case 56:
+                return "The mesh STA has resent dot11MeshMaxRetries Mesh Peering Open frames, "
+                        + "without receiving a Mesh Peering Confirm frame.";
+            case 57:
+                return "The confirmTimer for the mesh peering instance times out.";
+            case 58:
+                return "The mesh STA fails to unwrap the GTK or the values in the wrapped "
+                        + "contents do not match";
+            case 59:
+                return "The mesh STA receives inconsistent information about the mesh parameters "
+                        + "between mesh peering Management frames";
+            case 60:
+                return "The mesh STA fails the authenticated mesh peering exchange because due to"
+                        + " failure in selecting either the pairwise ciphersuite or group "
+                        + "ciphersuite";
+            case 61:
+                return "The mesh STA does not have proxy information for this external "
+                        + "destination.";
+            case 62:
+                return "The mesh STA does not have forwarding information for this destination.";
+            case 63:
+                return "The mesh STA determines that the link to the next hop of an active path "
+                        + "in its forwarding information is no longer usable.";
+            case 64:
+                return "The Deauthentication frame was sent because the MAC address of the STA "
+                        + "already exists in the mesh BSS. See 11.3.6.";
+            case 65:
+                return "The mesh STA performs channel switch to meet regulatory requirements.";
+            case 66:
+                return "The mesh STA performs channel switching with unspecified reason.";
+            default:
+                return "Reserved";
         }
     }
 

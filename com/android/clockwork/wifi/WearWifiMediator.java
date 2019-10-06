@@ -32,7 +32,7 @@ import com.android.clockwork.bluetooth.CompanionTracker;
 import com.android.clockwork.common.EventHistory;
 import com.android.clockwork.common.PartialWakeLock;
 import com.android.clockwork.common.RadioToggler;
-import com.android.clockwork.flags.UserAbsentRadiosOffObserver;
+import com.android.clockwork.flags.BooleanFlag;
 import com.android.clockwork.power.PowerTracker;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.IndentingPrintWriter;
@@ -51,7 +51,6 @@ import static com.android.clockwork.wifi.WearWifiMediatorSettings.WIFI_SETTING_O
  * Details: go/cw-wifi-state-management-f  go/cw-wifi-settings-management-f
  */
 public class WearWifiMediator implements
-        UserAbsentRadiosOffObserver.Listener,
         PowerTracker.Listener,
         WearWifiMediatorSettings.Listener,
         WifiBackoff.Listener {
@@ -82,7 +81,7 @@ public class WearWifiMediator implements
     private final CompanionTracker mCompanionTracker;
     private final PowerTracker mPowerTracker;
 
-    private final UserAbsentRadiosOffObserver mUserAbsentRadiosOff;
+    private final BooleanFlag mUserAbsentRadiosOff;
 
     private final WifiBackoff mWifiBackoff;
     private final WifiManager mWifiManager;
@@ -168,7 +167,7 @@ public class WearWifiMediator implements
                             WearWifiMediatorSettings wifiMediatorSettings,
                             CompanionTracker companionTracker,
                             PowerTracker powerTracker,
-                            UserAbsentRadiosOffObserver userAbsentRadiosOffObserver,
+                            BooleanFlag userAbsentRadiosOff,
                             WifiBackoff wifiBackoff,
                             WifiManager wifiManager,
                             WifiLogger wifiLogger) {
@@ -180,8 +179,8 @@ public class WearWifiMediator implements
         mPowerTracker = powerTracker;
         mPowerTracker.addListener(this);
 
-        mUserAbsentRadiosOff = userAbsentRadiosOffObserver;
-        mUserAbsentRadiosOff.addListener(this);
+        mUserAbsentRadiosOff = userAbsentRadiosOff;
+        mUserAbsentRadiosOff.addListener(this::onUserAbsentRadiosOffChanged);
 
         mWifiBackoff = wifiBackoff;
         mWifiBackoff.setListener(this);
@@ -304,7 +303,6 @@ public class WearWifiMediator implements
         }
     }
 
-    @Override
     public void onUserAbsentRadiosOffChanged(boolean isEnabled) {
         updateWifiState("UserAbsentRadiosOff flag changed: " + isEnabled);
     }
@@ -503,7 +501,7 @@ public class WearWifiMediator implements
      * while minimally affecting wifi behavior in all other scenarios.
      */
     private void refreshBackoffStatus() {
-        if (!mWifiConnected && connectivityServiceWantsWifi()) {
+        if (!mWifiConnected && connectivityServiceWantsWifi() && !mPowerTracker.isCharging()) {
             mWifiBackoff.scheduleBackoff();
         } else {
             mWifiBackoff.cancelBackoff();

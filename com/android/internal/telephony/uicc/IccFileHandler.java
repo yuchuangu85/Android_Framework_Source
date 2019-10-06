@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.*;
 
 import com.android.internal.telephony.CommandsInterface;
@@ -95,21 +96,27 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
     static protected final int EVENT_GET_RECORD_SIZE_IMG_DONE = 11;
 
      // member variables
+    @UnsupportedAppUsage
     protected final CommandsInterface mCi;
+    @UnsupportedAppUsage
     protected final UiccCardApplication mParentApp;
+    @UnsupportedAppUsage
     protected final String mAid;
 
     static class LoadLinearFixedContext {
 
         int mEfid;
+        @UnsupportedAppUsage
         int mRecordNum, mRecordSize, mCountRecords;
         boolean mLoadAll;
         String mPath;
 
         Message mOnLoaded;
 
+        @UnsupportedAppUsage
         ArrayList<byte[]> results;
 
+        @UnsupportedAppUsage
         LoadLinearFixedContext(int efid, int recordNum, Message onLoaded) {
             mEfid = efid;
             mRecordNum = recordNum;
@@ -168,6 +175,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * ((AsyncResult)(onLoaded.obj)).result is the byte[]
      *
      */
+    @UnsupportedAppUsage
     public void loadEFLinearFixed(int fileid, String path, int recordNum, Message onLoaded) {
         String efPath = (path == null) ? getEFPath(fileid) : path;
         Message response
@@ -188,6 +196,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * ((AsyncResult)(onLoaded.obj)).result is the byte[]
      *
      */
+    @UnsupportedAppUsage
     public void loadEFLinearFixed(int fileid, int recordNum, Message onLoaded) {
         loadEFLinearFixed(fileid, getEFPath(fileid), recordNum, onLoaded);
     }
@@ -222,6 +231,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      *        file int[3] is the number of records in the EF file So int[0] *
      *        int[3] = int[1]
      */
+    @UnsupportedAppUsage
     public void getEFLinearRecordSize(int fileid, String path, Message onLoaded) {
         String efPath = (path == null) ? getEFPath(fileid) : path;
         Message response
@@ -240,6 +250,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      *        file int[3] is the number of records in the EF file So int[0] *
      *        int[3] = int[1]
      */
+    @UnsupportedAppUsage
     public void getEFLinearRecordSize(int fileid, Message onLoaded) {
         getEFLinearRecordSize(fileid, getEFPath(fileid), onLoaded);
     }
@@ -254,6 +265,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * ((AsyncResult)(onLoaded.obj)).result is an ArrayList<byte[]>
      *
      */
+    @UnsupportedAppUsage
     public void loadEFLinearFixedAll(int fileid, String path, Message onLoaded) {
         String efPath = (path == null) ? getEFPath(fileid) : path;
         Message response = obtainMessage(EVENT_GET_RECORD_SIZE_DONE,
@@ -272,6 +284,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * ((AsyncResult)(onLoaded.obj)).result is an ArrayList<byte[]>
      *
      */
+    @UnsupportedAppUsage
     public void loadEFLinearFixedAll(int fileid, Message onLoaded) {
         loadEFLinearFixedAll(fileid, getEFPath(fileid), onLoaded);
     }
@@ -286,6 +299,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      *
      */
 
+    @UnsupportedAppUsage
     public void loadEFTransparent(int fileid, Message onLoaded) {
         Message response = obtainMessage(EVENT_GET_BINARY_SIZE_DONE,
                         fileid, 0, onLoaded);
@@ -351,6 +365,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * @param onComplete onComplete.obj will be an AsyncResult
      *                   onComplete.obj.userObj will be a IccIoResult on success
      */
+    @UnsupportedAppUsage
     public void updateEFLinearFixed(int fileid, String path, int recordNum, byte[] data,
             String pin2, Message onComplete) {
         String efPath = (path == null) ? getEFPath(fileid) : path;
@@ -368,6 +383,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * @param onComplete onComplete.obj will be an AsyncResult
      *                   onComplete.obj.userObj will be a IccIoResult on success
      */
+    @UnsupportedAppUsage
     public void updateEFLinearFixed(int fileid, int recordNum, byte[] data,
             String pin2, Message onComplete) {
         mCi.iccIOForApp(COMMAND_UPDATE_RECORD, fileid, getEFPath(fileid),
@@ -380,6 +396,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * @param fileid EF id
      * @param data must be exactly as long as the EF
      */
+    @UnsupportedAppUsage
     public void updateEFTransparent(int fileid, byte[] data, Message onComplete) {
         mCi.iccIOForApp(COMMAND_UPDATE_BINARY, fileid, getEFPath(fileid),
                         0, 0, data.length,
@@ -634,6 +651,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
         return null;
     }
 
+    @UnsupportedAppUsage
     protected abstract String getEFPath(int efid);
     protected abstract void logd(String s);
     protected abstract void loge(String s);

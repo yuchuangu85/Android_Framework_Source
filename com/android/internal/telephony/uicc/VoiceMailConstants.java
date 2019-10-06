@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Environment;
 import android.util.Xml;
 import android.telephony.Rlog;
@@ -46,6 +47,7 @@ class VoiceMailConstants {
     static final int TAG = 2;
     static final int SIZE = 3;
 
+    @UnsupportedAppUsage
     VoiceMailConstants () {
         CarrierVmMap = new HashMap<String, String[]>();
         loadVoiceMail();

@@ -9,6 +9,7 @@ import static com.android.clockwork.bluetooth.WearBluetoothConstants.KEY_COMPANI
 import static com.android.clockwork.bluetooth.WearBluetoothConstants.SETTINGS_COLUMN_KEY;
 import static com.android.clockwork.bluetooth.WearBluetoothConstants.SETTINGS_COLUMN_VALUE;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothClass;
@@ -147,28 +148,35 @@ public class CompanionTracker {
             return;
         }
 
-        // retrieve the pairing state indirectly by checking the legacy Bluetooth Mode
-        int legacyBtMode = getIntValueForKey(BLUETOOTH_URI, KEY_BLUETOOTH_MODE,
-                BLUETOOTH_MODE_UNKNOWN);
-        Log.d(TAG, "Migrating legacy Companion address with Bluetooth mode : " + legacyBtMode);
-
-        if (legacyBtMode == BLUETOOTH_MODE_ALT) {
-            for (BluetoothDevice device : bondedDevices) {
-                if (device.getType() == BluetoothDevice.DEVICE_TYPE_LE
-                        || device.getType() == BluetoothDevice.DEVICE_TYPE_DUAL) {
+        /** 
+         * retrieve the pairing state by finding the most possible device.
+         * This is the best-effort fix. Because there is no way to know whether a LE paired device
+         * is a phone or not.
+         * retrieve the pairing state by following step:
+         * 1. Try to find whether there is a paired classic bluetooth device which is a phone. 
+         * 2. If there is one, then it's Android companion
+         * 3. If there isn't, then try to find whether there is a LE paired device, we guess the first
+         * one is the companion.
+         */
+        Log.d(TAG, "Migrating legacy Companion address");
+        for (BluetoothDevice device : bondedDevices) {
+            if (device.getType() == BluetoothDevice.DEVICE_TYPE_CLASSIC) {
+                final BluetoothClass btClass = device.getBluetoothClass();
+                if (btClass != null && btClass.getMajorDeviceClass()
+                        == BluetoothClass.Device.Major.PHONE) {
+                    Log.d(TAG, "Found Android companion: " + device.getAddress());
                     mCompanion = device;
                     break;
                 }
             }
-        } else if (legacyBtMode == BLUETOOTH_MODE_NON_ALT) {
+        }
+        if (mCompanion == null) {
             for (BluetoothDevice device : bondedDevices) {
-                if (device.getType() == BluetoothDevice.DEVICE_TYPE_CLASSIC) {
-                    final BluetoothClass btClass = device.getBluetoothClass();
-                    if (btClass != null && btClass.getMajorDeviceClass()
-                            == BluetoothClass.Device.Major.PHONE) {
-                        mCompanion = device;
-                        break;
-                    }
+                if (device.getType() == BluetoothDevice.DEVICE_TYPE_LE
+                        || device.getType() == BluetoothDevice.DEVICE_TYPE_DUAL) {
+                    Log.d(TAG, "Found LE device: " + device.getAddress());
+                    mCompanion = device;
+                    break;
                 }
             }
         }
@@ -178,6 +186,20 @@ public class CompanionTracker {
             ContentValues values = new ContentValues();
             values.put(KEY_COMPANION_ADDRESS, mCompanion.getAddress());
             mContentResolver.update(BLUETOOTH_URI, values, null, null);
+        }
+    }
+
+    /**
+     * A bluetooth device has just bonded.
+     *
+     * Check if the newly bonded device is our companion and notify
+     * if we don't already have a companion initialized.
+     */
+    void receivedBondedAction(@NonNull final BluetoothDevice device) {
+        final String companionAddress
+            = getStringValueForKey(BLUETOOTH_URI, KEY_COMPANION_ADDRESS, null);
+        if (mCompanion == null && device.getAddress().equals(companionAddress)) {
+            notifyIfCompanionChanged(device.getAddress());
         }
     }
 
@@ -194,21 +216,30 @@ public class CompanionTracker {
             if (uri.equals(BLUETOOTH_URI)) {
                 String newCompanionAddress = getStringValueForKey(
                         BLUETOOTH_URI, KEY_COMPANION_ADDRESS, null);
-                if (newCompanionAddress != null) {
-                    if (updateCompanionDevice(newCompanionAddress)) {
-                        for (Listener listener : mListeners) {
-                            listener.onCompanionChanged();
-                        }
-                    }
+                notifyIfCompanionChanged(newCompanionAddress);
+            }
+        }
+    }
+
+    private void notifyIfCompanionChanged(@Nullable final String newCompanionAddress) {
+        if (newCompanionAddress != null) {
+            if (updateCompanionDevice(newCompanionAddress)) {
+                for (Listener listener : mListeners) {
+                    listener.onCompanionChanged();
                 }
             }
         }
     }
 
     /**
-     * Returns true if the Companion device actually changed.
+     * Returns true if the specified bluetooth device address matches a
+     * currently bonded device.  If they match the companion
+     * device address is updated to point to the specified bluetooth device.
+     *
+     * @param newDeviceAddr specified bluetooth device address.
+     * @return
      */
-    private boolean updateCompanionDevice(String newDeviceAddr) {
+    private boolean updateCompanionDevice(final String newDeviceAddr) {
         if (mBtAdapter == null) {
             return false;
         }

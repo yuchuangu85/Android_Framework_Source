@@ -19,6 +19,8 @@ package android.net;
 import static android.util.Patterns.GOOD_IRI_CHAR;
 
 import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
+import android.os.Build;
 
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -45,9 +47,13 @@ import java.util.regex.Pattern;
 @SystemApi
 public class WebAddress {
 
+    @UnsupportedAppUsage
     private String mScheme;
+    @UnsupportedAppUsage
     private String mHost;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int mPort;
+    @UnsupportedAppUsage
     private String mPath;
     private String mAuthInfo;
 
@@ -147,16 +153,19 @@ public class WebAddress {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public String getScheme() {
       return mScheme;
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public void setHost(String host) {
       mHost = host;
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public String getHost() {
       return mHost;
     }
@@ -167,16 +176,19 @@ public class WebAddress {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public int getPort() {
       return mPort;
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public void setPath(String path) {
       mPath = path;
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public String getPath() {
       return mPath;
     }
@@ -187,6 +199,7 @@ public class WebAddress {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public String getAuthInfo() {
       return mAuthInfo;
     }

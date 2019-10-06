@@ -18,6 +18,7 @@ package android.hardware;
 
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.Build;
 import android.os.Handler;
@@ -368,6 +369,7 @@ public abstract class SensorManager {
     /**
      * {@hide}
      */
+    @UnsupportedAppUsage
     public SensorManager() {
     }
 
@@ -902,7 +904,6 @@ public abstract class SensorManager {
      * @throws NullPointerException when mem is null.
      * @throws UncheckedIOException if not able to create channel.
      * @see SensorDirectChannel#close()
-     * @see #configureDirectChannel(SensorDirectChannel, Sensor, int)
      */
     public SensorDirectChannel createDirectChannel(MemoryFile mem) {
         return createDirectChannelImpl(mem, null);
@@ -925,7 +926,6 @@ public abstract class SensorManager {
      * @throws NullPointerException when mem is null.
      * @throws UncheckedIOException if not able to create channel.
      * @see SensorDirectChannel#close()
-     * @see #configureDirectChannel(SensorDirectChannel, Sensor, int)
      */
     public SensorDirectChannel createDirectChannel(HardwareBuffer mem) {
         return createDirectChannelImpl(null, mem);
@@ -983,7 +983,7 @@ public abstract class SensorManager {
      *        {@link android.hardware.SensorManager.DynamicSensorCallback
      *        DynamicSensorCallback}
      *        interface for receiving callbacks.
-     * @see #addDynamicSensorCallback(DynamicSensorCallback, Handler)
+     * @see #registerDynamicSensorCallback(DynamicSensorCallback, Handler)
      *
      * @throws IllegalArgumentException when callback is null.
      */

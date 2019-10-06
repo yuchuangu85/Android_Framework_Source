@@ -16,6 +16,7 @@
 
 package com.android.server.wifi;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.Context;
 import android.database.ContentObserver;
@@ -32,8 +33,8 @@ import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.LocalLog;
 import android.util.Log;
-import android.util.Pair;
 
+import com.android.server.wifi.WifiNetworkSelector.NetworkEvaluator.OnConnectableListener;
 import com.android.server.wifi.util.ScanResultUtil;
 import com.android.server.wifi.util.WifiPermissionsUtil;
 
@@ -126,7 +127,7 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
     public WifiConfiguration evaluateNetworks(List<ScanDetail> scanDetails,
             WifiConfiguration currentNetwork, String currentBssid, boolean connected,
             boolean untrustedNetworkAllowed,
-            List<Pair<ScanDetail, WifiConfiguration>> connectableNetworks) {
+            @NonNull OnConnectableListener onConnectableListener) {
         if (!mNetworkRecommendationsEnabled) {
             mLocalLog.log("Skipping evaluateNetworks; Network recommendations disabled.");
             return null;
@@ -144,7 +145,7 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
             }
             final WifiConfiguration configuredNetwork =
                     mWifiConfigManager.getConfiguredNetworkForScanDetailAndCache(scanDetail);
-            boolean untrustedScanResult = configuredNetwork == null || configuredNetwork.ephemeral;
+            boolean untrustedScanResult = configuredNetwork == null || !configuredNetwork.trusted;
 
             if (!untrustedNetworkAllowed && untrustedScanResult) {
                 continue;
@@ -153,13 +154,13 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
             // Track scan results for open wifi networks
             if (configuredNetwork == null) {
                 if (ScanResultUtil.isScanResultForOpenNetwork(scanResult)) {
-                    scoreTracker.trackUntrustedCandidate(scanResult);
+                    scoreTracker.trackUntrustedCandidate(scanDetail);
                 }
                 continue;
             }
 
-            // Ignore non-ephemeral and non-externally scored networks
-            if (!configuredNetwork.ephemeral && !configuredNetwork.useExternalScores) {
+            // Ignore trusted and non-externally scored networks
+            if (configuredNetwork.trusted && !configuredNetwork.useExternalScores) {
                 continue;
             }
 
@@ -173,19 +174,18 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
             boolean isCurrentNetwork = currentNetwork != null
                     && currentNetwork.networkId == configuredNetwork.networkId
                     && TextUtils.equals(currentBssid, scanResult.BSSID);
-            if (configuredNetwork.ephemeral) {
+            if (!configuredNetwork.trusted) {
                 scoreTracker.trackUntrustedCandidate(
                         scanResult, configuredNetwork, isCurrentNetwork);
             } else {
                 scoreTracker.trackExternallyScoredCandidate(
                         scanResult, configuredNetwork, isCurrentNetwork);
             }
-            if (connectableNetworks != null) {
-                connectableNetworks.add(Pair.create(scanDetail, configuredNetwork));
-            }
+            onConnectableListener.onConnectable(scanDetail, configuredNetwork, 0);
         }
 
-        return scoreTracker.getCandidateConfiguration();
+
+        return scoreTracker.getCandidateConfiguration(onConnectableListener);
     }
 
     /** Used to track the network with the highest score. */
@@ -199,6 +199,7 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
         private WifiConfiguration mEphemeralConfig;
         private WifiConfiguration mSavedConfig;
         private ScanResult mScanResultCandidate;
+        private ScanDetail mScanDetailCandidate;
 
         /**
          * Returns the available external network score or null if no score is available.
@@ -220,12 +221,14 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
             return null;
         }
 
-        /** Track an untrusted {@link ScanResult}. */
-        void trackUntrustedCandidate(ScanResult scanResult) {
+        /** Track an untrusted {@link ScanDetail}. */
+        void trackUntrustedCandidate(ScanDetail scanDetail) {
+            ScanResult scanResult = scanDetail.getScanResult();
             Integer score = getNetworkScore(scanResult, false /* isCurrentNetwork */);
             if (score != null && score > mHighScore) {
                 mHighScore = score;
                 mScanResultCandidate = scanResult;
+                mScanDetailCandidate = scanDetail;
                 mBestCandidateType = EXTERNAL_SCORED_UNTRUSTED_NETWORK;
                 debugLog(WifiNetworkSelector.toScanId(scanResult)
                         + " becomes the new untrusted candidate.");
@@ -242,6 +245,7 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
             if (score != null && score > mHighScore) {
                 mHighScore = score;
                 mScanResultCandidate = scanResult;
+                mScanDetailCandidate = null;
                 mBestCandidateType = EXTERNAL_SCORED_UNTRUSTED_NETWORK;
                 mEphemeralConfig = config;
                 mWifiConfigManager.setNetworkCandidateScanResult(config.networkId, scanResult, 0);
@@ -263,6 +267,7 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
                 mHighScore = score;
                 mSavedConfig = config;
                 mScanResultCandidate = scanResult;
+                mScanDetailCandidate = null;
                 mBestCandidateType = EXTERNAL_SCORED_SAVED_NETWORK;
                 mWifiConfigManager.setNetworkCandidateScanResult(config.networkId, scanResult, 0);
                 debugLog(WifiNetworkSelector.toScanId(scanResult)
@@ -272,7 +277,8 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
 
         /** Returns the best candidate network tracked by this {@link ScoreTracker}. */
         @Nullable
-        WifiConfiguration getCandidateConfiguration() {
+        WifiConfiguration getCandidateConfiguration(
+                @NonNull OnConnectableListener onConnectableListener) {
             int candidateNetworkId = WifiConfiguration.INVALID_NETWORK_ID;
             switch (mBestCandidateType) {
                 case ScoreTracker.EXTERNAL_SCORED_UNTRUSTED_NETWORK:
@@ -290,6 +296,8 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
                             ScanResultUtil.createNetworkFromScanResult(mScanResultCandidate);
                     // Mark this config as ephemeral so it isn't persisted.
                     mEphemeralConfig.ephemeral = true;
+                    // Mark this network as untrusted.
+                    mEphemeralConfig.trusted = false;
                     mEphemeralConfig.meteredHint = mScoreCache.getMeteredHint(mScanResultCandidate);
                     NetworkUpdateResult result =
                             mWifiConfigManager.addOrUpdateNetwork(mEphemeralConfig,
@@ -304,6 +312,11 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
                         break;
                     }
                     candidateNetworkId = result.getNetworkId();
+                    if (mScanDetailCandidate == null) {
+                        // This should never happen, but if it does, WNS will log a wtf.
+                        // A message here might help with the diagnosis.
+                        Log.e(TAG, "mScanDetailCandidate is null!");
+                    }
                     mWifiConfigManager.setNetworkCandidateScanResult(candidateNetworkId,
                             mScanResultCandidate, 0);
                     mLocalLog.log(String.format("new ephemeral candidate %s network ID:%d, "
@@ -323,7 +336,13 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
                     mLocalLog.log("ScoredNetworkEvaluator did not see any good candidates.");
                     break;
             }
-            return mWifiConfigManager.getConfiguredNetwork(candidateNetworkId);
+            WifiConfiguration ans = mWifiConfigManager.getConfiguredNetwork(
+                    candidateNetworkId);
+            if (ans != null && mScanDetailCandidate != null) {
+                // This is a newly created config, so we need to call onConnectable.
+                onConnectableListener.onConnectable(mScanDetailCandidate, ans, 0);
+            }
+            return ans;
         }
     }
 
@@ -331,6 +350,11 @@ public class ScoredNetworkEvaluator implements WifiNetworkSelector.NetworkEvalua
         if (DEBUG) {
             mLocalLog.log(msg);
         }
+    }
+
+    @Override
+    public @EvaluatorId int getId() {
+        return EVALUATOR_ID_SCORED;
     }
 
     @Override

@@ -18,6 +18,7 @@ package android.content;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
@@ -191,6 +192,17 @@ public final class ComponentName implements Parcelable, Cloneable, Comparable<Co
     }
 
     /**
+     * Helper to get {@link #flattenToShortString()} in a {@link ComponentName} reference that can
+     * be {@code null}.
+     *
+     * @hide
+     */
+    @Nullable
+    public static String flattenToShortString(@Nullable ComponentName componentName) {
+        return componentName == null ? null : componentName.flattenToShortString();
+    }
+
+    /**
      * Return a String that unambiguously describes both the package and
      * class names contained in the ComponentName.  You can later recover
      * the ComponentName from this string through
@@ -229,12 +241,14 @@ public final class ComponentName implements Parcelable, Cloneable, Comparable<Co
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public static void appendShortString(StringBuilder sb, String packageName, String className) {
         sb.append(packageName).append('/');
         appendShortClassName(sb, packageName, className);
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public static void printShortString(PrintWriter pw, String packageName, String className) {
         pw.print(packageName);
         pw.print('/');
@@ -325,6 +339,8 @@ public final class ComponentName implements Parcelable, Cloneable, Comparable<Co
     }
 
     public void writeToParcel(Parcel out, int flags) {
+        // WARNING: If you modify this function, also update
+        // frameworks/base/libs/services/src/content/ComponentName.cpp.
         out.writeString(mPackage);
         out.writeString(mClass);
     }
@@ -362,7 +378,7 @@ public final class ComponentName implements Parcelable, Cloneable, Comparable<Co
         return pkg != null ? new ComponentName(pkg, in) : null;
     }
 
-    public static final Parcelable.Creator<ComponentName> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<ComponentName> CREATOR
             = new Parcelable.Creator<ComponentName>() {
         public ComponentName createFromParcel(Parcel in) {
             return new ComponentName(in);

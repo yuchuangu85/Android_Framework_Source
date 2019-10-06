@@ -16,6 +16,7 @@
 
 package android.location;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -98,7 +99,8 @@ public final class Geofence implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<Geofence> CREATOR = new Parcelable.Creator<Geofence>() {
+    @UnsupportedAppUsage
+    public static final @android.annotation.NonNull Parcelable.Creator<Geofence> CREATOR = new Parcelable.Creator<Geofence>() {
         @Override
         public Geofence createFromParcel(Parcel in) {
             int type = in.readInt();

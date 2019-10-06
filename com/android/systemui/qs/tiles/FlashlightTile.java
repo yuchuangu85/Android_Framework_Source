@@ -18,29 +18,31 @@ package com.android.systemui.qs.tiles;
 
 import android.app.ActivityManager;
 import android.content.Intent;
-import android.graphics.drawable.Drawable;
 import android.provider.MediaStore;
 import android.service.quicksettings.Tile;
 import android.widget.Switch;
 
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
-import com.android.systemui.Dependency;
 import com.android.systemui.R;
 import com.android.systemui.plugins.qs.QSTile.BooleanState;
 import com.android.systemui.qs.QSHost;
 import com.android.systemui.qs.tileimpl.QSTileImpl;
 import com.android.systemui.statusbar.policy.FlashlightController;
 
+import javax.inject.Inject;
+
 /** Quick settings tile: Control flashlight **/
 public class FlashlightTile extends QSTileImpl<BooleanState> implements
         FlashlightController.FlashlightListener {
 
-    private final Icon mIcon = ResourceIcon.get(R.drawable.ic_signal_flashlight);
+    private final Icon mIcon = ResourceIcon.get(com.android.internal.R.drawable.ic_qs_flashlight);
     private final FlashlightController mFlashlightController;
 
-    public FlashlightTile(QSHost host) {
+    @Inject
+    public FlashlightTile(QSHost host, FlashlightController flashlightController) {
         super(host);
-        mFlashlightController = Dependency.get(FlashlightController.class);
+        mFlashlightController = flashlightController;
+        mFlashlightController.observe(getLifecycle(), this);
     }
 
     @Override
@@ -50,16 +52,13 @@ public class FlashlightTile extends QSTileImpl<BooleanState> implements
 
     @Override
     public BooleanState newTileState() {
-        return new BooleanState();
+        BooleanState state = new BooleanState();
+        state.handlesLongClick = false;
+        return state;
     }
 
     @Override
     public void handleSetListening(boolean listening) {
-        if (listening) {
-            mFlashlightController.addCallback(this);
-        } else {
-            mFlashlightController.removeCallback(this);
-        }
     }
 
     @Override

@@ -25,6 +25,7 @@ import static com.android.internal.util.Preconditions.checkState;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanRecord;
@@ -92,6 +93,7 @@ public final class BluetoothLeDeviceFilter implements DeviceFilter<ScanResult> {
 
     /** @hide */
     @NonNull
+    @UnsupportedAppUsage
     public ScanFilter getScanFilter() {
         return mScanFilter;
     }
@@ -245,7 +247,7 @@ public final class BluetoothLeDeviceFilter implements DeviceFilter<ScanResult> {
                 '}';
     }
 
-    public static final Creator<BluetoothLeDeviceFilter> CREATOR
+    public static final @android.annotation.NonNull Creator<BluetoothLeDeviceFilter> CREATOR
             = new Creator<BluetoothLeDeviceFilter>() {
         @Override
         public BluetoothLeDeviceFilter createFromParcel(Parcel in) {

@@ -298,7 +298,7 @@ public class RuleBasedCollator extends Collator{
              */
             throw new ParseException(e.getMessage(), -1);
         }
-        // BEGIN Android-changed: Switched to ICU.
+        // END Android-changed: Switched to ICU.
     }
 
     // Android-removed: (String rules, int decomp) constructor and copy constructor.

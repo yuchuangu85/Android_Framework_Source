@@ -108,12 +108,10 @@ public final class NinePatch_Delegate {
      */
     public static NinePatchChunk getChunk(byte[] array) {
         SoftReference<NinePatchChunk> chunkRef = sChunkCache.get(array);
-        NinePatchChunk chunk = chunkRef.get();
+        NinePatchChunk chunk = chunkRef == null ? null : chunkRef.get();
         if (chunk == null) {
             ByteArrayInputStream bais = new ByteArrayInputStream(array);
-            ObjectInputStream ois = null;
-            try {
-                ois = new ObjectInputStream(bais);
+            try (ObjectInputStream ois = new ObjectInputStream(bais)) {
                 chunk = (NinePatchChunk) ois.readObject();
 
                 // put back the chunk in the cache
@@ -128,13 +126,6 @@ public final class NinePatch_Delegate {
                 Bridge.getLog().error(LayoutLog.TAG_BROKEN,
                         "Failed to deserialize NinePatchChunk class.", e, null /*data*/);
                 return null;
-            } finally {
-                if (ois != null) {
-                    try {
-                        ois.close();
-                    } catch (IOException ignored) {
-                    }
-                }
             }
         }
 
@@ -170,7 +161,8 @@ public final class NinePatch_Delegate {
 
 
     @LayoutlibDelegate
-    /*package*/ static long nativeGetTransparentRegion(Bitmap bitmap, long chunk, Rect location) {
+    /*package*/ static long nativeGetTransparentRegion(long bitmapHandle, long chunk,
+            Rect location) {
         return 0;
     }
 
@@ -182,4 +174,7 @@ public final class NinePatch_Delegate {
         return null;
     }
 
+    public static void clearCache() {
+        sChunkCache.clear();
+    }
 }

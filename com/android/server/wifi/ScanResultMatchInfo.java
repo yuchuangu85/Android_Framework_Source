@@ -26,11 +26,6 @@ import java.util.Objects;
  * Class to store the info needed to match a scan result to the provided network configuration.
  */
 public class ScanResultMatchInfo {
-    public static final int NETWORK_TYPE_OPEN = 0;
-    public static final int NETWORK_TYPE_WEP = 1;
-    public static final int NETWORK_TYPE_PSK = 2;
-    public static final int NETWORK_TYPE_EAP = 3;
-
     /**
      * SSID of the network.
      */
@@ -38,7 +33,37 @@ public class ScanResultMatchInfo {
     /**
      * Security Type of the network.
      */
-    public int networkType;
+    public @WifiConfiguration.SecurityType int networkType;
+    /**
+     * Special flag for PSK-SAE in transition mode
+     */
+    public boolean pskSaeInTransitionMode;
+    /**
+     * Special flag for OWE in transition mode
+     */
+    public boolean oweInTransitionMode;
+
+    /**
+     * Fetch network type from network configuration.
+     */
+    public static @WifiConfiguration.SecurityType int getNetworkType(WifiConfiguration config) {
+        if (WifiConfigurationUtil.isConfigForSaeNetwork(config)) {
+            return WifiConfiguration.SECURITY_TYPE_SAE;
+        } else if (WifiConfigurationUtil.isConfigForPskNetwork(config)) {
+            return WifiConfiguration.SECURITY_TYPE_PSK;
+        } else if (WifiConfigurationUtil.isConfigForEapNetwork(config)) {
+            return WifiConfiguration.SECURITY_TYPE_EAP;
+        } else if (WifiConfigurationUtil.isConfigForEapSuiteBNetwork(config)) {
+            return WifiConfiguration.SECURITY_TYPE_EAP_SUITE_B;
+        } else if (WifiConfigurationUtil.isConfigForWepNetwork(config)) {
+            return WifiConfiguration.SECURITY_TYPE_WEP;
+        } else if (WifiConfigurationUtil.isConfigForOweNetwork(config)) {
+            return WifiConfiguration.SECURITY_TYPE_OWE;
+        } else if (WifiConfigurationUtil.isConfigForOpenNetwork(config)) {
+            return WifiConfiguration.SECURITY_TYPE_OPEN;
+        }
+        throw new IllegalArgumentException("Invalid WifiConfiguration: " + config);
+    }
 
     /**
      * Get the ScanResultMatchInfo for the given WifiConfiguration
@@ -46,18 +71,31 @@ public class ScanResultMatchInfo {
     public static ScanResultMatchInfo fromWifiConfiguration(WifiConfiguration config) {
         ScanResultMatchInfo info = new ScanResultMatchInfo();
         info.networkSsid = config.SSID;
-        if (WifiConfigurationUtil.isConfigForPskNetwork(config)) {
-            info.networkType = NETWORK_TYPE_PSK;
-        } else if (WifiConfigurationUtil.isConfigForEapNetwork(config)) {
-            info.networkType = NETWORK_TYPE_EAP;
-        } else if (WifiConfigurationUtil.isConfigForWepNetwork(config)) {
-            info.networkType = NETWORK_TYPE_WEP;
-        } else if (WifiConfigurationUtil.isConfigForOpenNetwork(config)) {
-            info.networkType = NETWORK_TYPE_OPEN;
-        } else {
-            throw new IllegalArgumentException("Invalid WifiConfiguration: " + config);
-        }
+        info.networkType = getNetworkType(config);
         return info;
+    }
+
+    /**
+     * Fetch network type from scan result.
+     */
+    public static @WifiConfiguration.SecurityType int getNetworkType(ScanResult scanResult) {
+        if (ScanResultUtil.isScanResultForSaeNetwork(scanResult)) {
+            return WifiConfiguration.SECURITY_TYPE_SAE;
+        } else if (ScanResultUtil.isScanResultForPskNetwork(scanResult)) {
+            return WifiConfiguration.SECURITY_TYPE_PSK;
+        } else if (ScanResultUtil.isScanResultForEapSuiteBNetwork(scanResult)) {
+            return WifiConfiguration.SECURITY_TYPE_EAP_SUITE_B;
+        } else if (ScanResultUtil.isScanResultForEapNetwork(scanResult)) {
+            return WifiConfiguration.SECURITY_TYPE_EAP;
+        } else if (ScanResultUtil.isScanResultForWepNetwork(scanResult)) {
+            return WifiConfiguration.SECURITY_TYPE_WEP;
+        } else if (ScanResultUtil.isScanResultForOweNetwork(scanResult)) {
+            return WifiConfiguration.SECURITY_TYPE_OWE;
+        } else if (ScanResultUtil.isScanResultForOpenNetwork(scanResult)) {
+            return WifiConfiguration.SECURITY_TYPE_OPEN;
+        } else {
+            throw new IllegalArgumentException("Invalid ScanResult: " + scanResult);
+        }
     }
 
     /**
@@ -70,16 +108,17 @@ public class ScanResultMatchInfo {
         // However, according to our public documentation ths {@link WifiConfiguration#SSID} can
         // either have a hex string or quoted ASCII string SSID.
         info.networkSsid = ScanResultUtil.createQuotedSSID(scanResult.SSID);
-        if (ScanResultUtil.isScanResultForPskNetwork(scanResult)) {
-            info.networkType = NETWORK_TYPE_PSK;
-        } else if (ScanResultUtil.isScanResultForEapNetwork(scanResult)) {
-            info.networkType = NETWORK_TYPE_EAP;
-        } else if (ScanResultUtil.isScanResultForWepNetwork(scanResult)) {
-            info.networkType = NETWORK_TYPE_WEP;
-        } else if (ScanResultUtil.isScanResultForOpenNetwork(scanResult)) {
-            info.networkType = NETWORK_TYPE_OPEN;
-        } else {
-            throw new IllegalArgumentException("Invalid ScanResult: " + scanResult);
+        info.networkType = getNetworkType(scanResult);
+        info.oweInTransitionMode = false;
+        info.pskSaeInTransitionMode = false;
+        if (info.networkType == WifiConfiguration.SECURITY_TYPE_SAE) {
+            // Note that scan result util will always choose the highest security protocol.
+            info.pskSaeInTransitionMode =
+                    ScanResultUtil.isScanResultForPskSaeTransitionNetwork(scanResult);
+        } else  if (info.networkType == WifiConfiguration.SECURITY_TYPE_OWE) {
+            // Note that scan result util will always choose OWE.
+            info.oweInTransitionMode =
+                    ScanResultUtil.isScanResultForOweTransitionNetwork(scanResult);
         }
         return info;
     }
@@ -92,17 +131,35 @@ public class ScanResultMatchInfo {
             return false;
         }
         ScanResultMatchInfo other = (ScanResultMatchInfo) otherObj;
-        return Objects.equals(networkSsid, other.networkSsid)
-                && networkType == other.networkType;
+        if (!Objects.equals(networkSsid, other.networkSsid)) {
+            return false;
+        }
+        boolean networkTypeEquals;
+
+        // Detect <SSID, PSK+SAE> scan result and say it is equal to <SSID, PSK> configuration
+        if (other.pskSaeInTransitionMode && networkType == WifiConfiguration.SECURITY_TYPE_PSK
+                || (pskSaeInTransitionMode
+                && other.networkType == WifiConfiguration.SECURITY_TYPE_PSK)) {
+            networkTypeEquals = true;
+        } else if ((networkType == WifiConfiguration.SECURITY_TYPE_OPEN
+                && other.oweInTransitionMode) || (oweInTransitionMode
+                && other.networkType == WifiConfiguration.SECURITY_TYPE_OPEN)) {
+            // Special case we treat Enhanced Open and Open as equals. This is done to support the
+            // case where a saved network is Open but we found an OWE in transition network.
+            networkTypeEquals = true;
+        } else {
+            networkTypeEquals = networkType == other.networkType;
+        }
+        return networkTypeEquals;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(networkSsid, networkType);
+        return Objects.hash(networkSsid);
     }
 
     @Override
     public String toString() {
-        return "ScanResultMatchInfo: " + networkSsid + ", type: " + networkType;
+        return "ScanResultMatchInfo: ssid: " + networkSsid + ", type: " + networkType;
     }
 }

@@ -42,6 +42,7 @@ public class NativeUtil {
     private static final int MAC_LENGTH = 6;
     private static final int MAC_OUI_LENGTH = 3;
     private static final int MAC_STR_LENGTH = MAC_LENGTH * 2 + 5;
+    private static final int SSID_BYTES_MAX_LEN = 32;
 
     /**
      * Convert the string to byte array list.
@@ -189,7 +190,7 @@ public class NativeUtil {
     }
 
     /**
-     * Remove enclosed quotes of the provided string.
+     * Remove enclosing quotes from the provided string.
      *
      * @param quotedStr String to be unquoted.
      * @return String without the enclosing quotes.
@@ -204,9 +205,9 @@ public class NativeUtil {
     }
 
     /**
-     * Add enclosing quotes of the provided string.
+     * Add enclosing quotes to the provided string.
      *
-     * @param str String to be uoted.
+     * @param str String to be quoted.
      * @return String with the enclosing quotes.
      */
     public static String addEnclosingQuotes(String str) {
@@ -272,7 +273,11 @@ public class NativeUtil {
      * @throws IllegalArgumentException for null string.
      */
     public static ArrayList<Byte> decodeSsid(String ssidStr) {
-        return hexOrQuotedStringToBytes(ssidStr);
+        ArrayList<Byte> ssidBytes = hexOrQuotedStringToBytes(ssidStr);
+        if (ssidBytes.size() > SSID_BYTES_MAX_LEN) {
+            throw new IllegalArgumentException("ssid bytes size out of range: " + ssidBytes.size());
+        }
+        return ssidBytes;
     }
 
     /**
@@ -286,6 +291,9 @@ public class NativeUtil {
      * @throws IllegalArgumentException for null bytes.
      */
     public static String encodeSsid(ArrayList<Byte> ssidBytes) {
+        if (ssidBytes.size() > SSID_BYTES_MAX_LEN) {
+            throw new IllegalArgumentException("ssid bytes size out of range: " + ssidBytes.size());
+        }
         return bytesToHexOrQuotedString(ssidBytes);
     }
 

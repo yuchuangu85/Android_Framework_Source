@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.cdma;
 
+import android.annotation.UnsupportedAppUsage;
 import android.telephony.Rlog;
 import com.android.internal.telephony.PhoneConstants;
 
@@ -26,6 +27,7 @@ import com.android.internal.telephony.PhoneConstants;
  */
 public class CdmaCallWaitingNotification {
     static final String LOG_TAG = "CdmaCallWaitingNotification";
+    @UnsupportedAppUsage
     public String number = null;
     public int numberPresentation = 0;
     public String name = null;

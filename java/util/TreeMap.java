@@ -93,7 +93,7 @@ import java.util.function.Consumer;
  * associated map using {@code put}.)
  *
  * <p>This class is a member of the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
+ * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/collections/index.html">
  * Java Collections Framework</a>.
  *
  * @param <K> the type of keys maintained by this map
@@ -1986,7 +1986,7 @@ public class TreeMap<K,V>
             // if (!inRange(fromKey, inclusive))
             if (!inRange(fromKey) && !(!toEnd && m.compare(fromKey, hi) == 0 &&
                 !hiInclusive && !inclusive))
-            // END Android-changed
+            // END Android-changed: Fix for edge cases
                 throw new IllegalArgumentException("fromKey out of range");
             return new DescendingSubMap<>(m,
                                           fromStart, lo, loInclusive,

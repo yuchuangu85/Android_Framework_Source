@@ -16,17 +16,20 @@
 
 package com.android.server.wifi;
 
+import static android.net.wifi.WifiConfiguration.NetworkSelectionStatus.DISABLED_NO_INTERNET_PERMANENT;
 import static android.net.wifi.WifiConfiguration.NetworkSelectionStatus.DISABLED_NO_INTERNET_TEMPORARY;
 
-import static com.android.server.wifi.WifiStateMachine.WIFI_WORK_SOURCE;
+import static com.android.internal.util.Preconditions.checkNotNull;
+import static com.android.server.wifi.ClientModeImpl.WIFI_WORK_SOURCE;
 
 import android.app.AlarmManager;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.net.wifi.ScanResult;
 import android.net.wifi.SupplicantState;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
+import android.net.wifi.WifiManager.DeviceMobilityState;
 import android.net.wifi.WifiScanner;
 import android.net.wifi.WifiScanner.PnoSettings;
 import android.net.wifi.WifiScanner.ScanSettings;
@@ -39,7 +42,6 @@ import android.util.Log;
 
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.server.wifi.hotspot2.PasspointNetworkEvaluator;
 import com.android.server.wifi.util.ScanResultUtil;
 
 import java.io.FileDescriptor;
@@ -85,9 +87,17 @@ public class WifiConnectivityManager {
     // scan interval in this scenario.
     @VisibleForTesting
     public static final int MAX_PERIODIC_SCAN_INTERVAL_MS = 160 * 1000; // 160 seconds
-    // PNO scan interval in milli-seconds. This is the scan
-    // performed when screen is off and disconnected.
-    private static final int DISCONNECTED_PNO_SCAN_INTERVAL_MS = 20 * 1000; // 20 seconds
+    // Initial PNO scan interval in milliseconds when the device is moving. The scan interval backs
+    // off from this initial interval on subsequent scans. This scan is performed when screen is
+    // off and disconnected.
+    @VisibleForTesting
+    static final int MOVING_PNO_SCAN_INTERVAL_MS = 20 * 1000; // 20 seconds
+    // Initial PNO scan interval in milliseconds when the device is stationary. The scan interval
+    // backs off from this initial interval on subsequent scans. This scan is performed when screen
+    // is off and disconnected.
+    @VisibleForTesting
+    static final int STATIONARY_PNO_SCAN_INTERVAL_MS = 60 * 1000; // 1 minute
+
     // PNO scan interval in milli-seconds. This is the scan
     // performed when screen is off and connected.
     private static final int CONNECTED_PNO_SCAN_INTERVAL_MS = 160 * 1000; // 160 seconds
@@ -113,7 +123,7 @@ public class WifiConnectivityManager {
     // Max number of connection attempts in the above time interval.
     public static final int MAX_CONNECTION_ATTEMPTS_RATE = 6;
 
-    // WifiStateMachine has a bunch of states. From the
+    // ClientModeImpl has a bunch of states. From the
     // WifiConnectivityManager's perspective it only cares
     // if it is in Connected state, Disconnected state or in
     // transition between these two states.
@@ -122,16 +132,11 @@ public class WifiConnectivityManager {
     public static final int WIFI_STATE_DISCONNECTED = 2;
     public static final int WIFI_STATE_TRANSITIONING = 3;
 
-    // Saved network evaluator priority
-    private static final int SAVED_NETWORK_EVALUATOR_PRIORITY = 1;
-    private static final int PASSPOINT_NETWORK_EVALUATOR_PRIORITY = 2;
-    private static final int SCORED_NETWORK_EVALUATOR_PRIORITY = 3;
-
     // Log tag for this class
     private static final String TAG = "WifiConnectivityManager";
 
-    private final WifiStateMachine mStateMachine;
-    private final WifiScanner mScanner;
+    private final ClientModeImpl mStateMachine;
+    private final WifiInjector mWifiInjector;
     private final WifiConfigManager mConfigManager;
     private final WifiInfo mWifiInfo;
     private final WifiConnectivityHelper mConnectivityHelper;
@@ -147,13 +152,17 @@ public class WifiConnectivityManager {
     private final ScoringParams mScoringParams;
     private final LocalLog mLocalLog;
     private final LinkedList<Long> mConnectionAttemptTimeStamps;
+    private WifiScanner mScanner;
 
     private boolean mDbg = false;
     private boolean mWifiEnabled = false;
-    private boolean mWifiConnectivityManagerEnabled = true;
+    private boolean mWifiConnectivityManagerEnabled = false;
+    private boolean mRunning = false;
     private boolean mScreenOn = false;
     private int mWifiState = WIFI_STATE_UNKNOWN;
     private boolean mUntrustedConnectionAllowed = false;
+    private boolean mTrustedConnectionAllowed = false;
+    private boolean mSpecificNetworkRequestInProgress = false;
     private int mScanRestartCount = 0;
     private int mSingleScanRestartCount = 0;
     private int mTotalConnectivityAttemptsRateLimited = 0;
@@ -170,13 +179,13 @@ public class WifiConnectivityManager {
     private int mFullScanMaxRxRate;
 
     // PNO settings
-    private int mMin5GHzRssi;
-    private int mMin24GHzRssi;
-    private int mInitialScoreMax;
     private int mCurrentConnectionBonus;
     private int mSameNetworkBonus;
     private int mSecureBonus;
     private int mBand5GHzBonus;
+    private int mRssiScoreOffset;
+    private int mRssiScoreSlope;
+    private int mPnoScanIntervalMs;
 
     // BSSID blacklist
     @VisibleForTesting
@@ -326,9 +335,13 @@ public class WifiConnectivityManager {
                 return;
             }
 
+            // We treat any full band scans (with DFS or not) as "full".
+            boolean isFullBandScanResults =
+                    results[0].getBandScanned() == WifiScanner.WIFI_BAND_BOTH_WITH_DFS
+                            || results[0].getBandScanned() == WifiScanner.WIFI_BAND_BOTH;
             // Full band scan results only.
             if (mWaitForFullBandScanResults) {
-                if (!results[0].isAllChannelsScanned()) {
+                if (!isFullBandScanResults) {
                     localLog("AllSingleScanListener waiting for full band scan results.");
                     clearScanDetails();
                     return;
@@ -338,7 +351,7 @@ public class WifiConnectivityManager {
             }
             if (results.length > 0) {
                 mWifiMetrics.incrementAvailableNetworksHistograms(mScanDetails,
-                        results[0].isAllChannelsScanned());
+                        isFullBandScanResults);
             }
             if (mNumScanResultsIgnoredDueToSingleRadioChain > 0) {
                 Log.i(TAG, "Number of scan results ignored due to single radio chain scan: "
@@ -428,6 +441,7 @@ public class WifiConnectivityManager {
 
         @Override
         public void onResults(WifiScanner.ScanData[] results) {
+            mSingleScanRestartCount = 0;
         }
 
         @Override
@@ -435,7 +449,7 @@ public class WifiConnectivityManager {
         }
     }
 
-    // PNO scan results listener for both disconected and connected PNO scanning.
+    // PNO scan results listener for both disconnected and connected PNO scanning.
     // A PNO scan is initiated when screen is off.
     private class PnoScanListener implements WifiScanner.PnoScanListener {
         private List<ScanDetail> mScanDetails = new ArrayList<ScanDetail>();
@@ -552,6 +566,11 @@ public class WifiConnectivityManager {
         }
         @Override
         public void onSavedNetworkPermanentlyDisabled(int networkId, int disableReason) {
+            // For DISABLED_NO_INTERNET_PERMANENT we do not need to remove the network
+            // because supplicant won't be trying to reconnect. If this is due to a
+            // preventAutomaticReconnect request from ConnectivityService, that service
+            // will disconnect as appropriate.
+            if (disableReason == DISABLED_NO_INTERNET_PERMANENT) return;
             mConnectivityHelper.removeNetworkIfCurrent(networkId);
             updatePnoScan();
         }
@@ -569,18 +588,15 @@ public class WifiConnectivityManager {
      * WifiConnectivityManager constructor
      */
     WifiConnectivityManager(Context context, ScoringParams scoringParams,
-            WifiStateMachine stateMachine,
-            WifiScanner scanner, WifiConfigManager configManager, WifiInfo wifiInfo,
+            ClientModeImpl stateMachine,
+            WifiInjector injector, WifiConfigManager configManager, WifiInfo wifiInfo,
             WifiNetworkSelector networkSelector, WifiConnectivityHelper connectivityHelper,
             WifiLastResortWatchdog wifiLastResortWatchdog, OpenNetworkNotifier openNetworkNotifier,
             CarrierNetworkNotifier carrierNetworkNotifier,
             CarrierNetworkConfig carrierNetworkConfig, WifiMetrics wifiMetrics, Looper looper,
-            Clock clock, LocalLog localLog, boolean enable, FrameworkFacade frameworkFacade,
-            SavedNetworkEvaluator savedNetworkEvaluator,
-            ScoredNetworkEvaluator scoredNetworkEvaluator,
-            PasspointNetworkEvaluator passpointNetworkEvaluator) {
+            Clock clock, LocalLog localLog) {
         mStateMachine = stateMachine;
-        mScanner = scanner;
+        mWifiInjector = injector;
         mConfigManager = configManager;
         mWifiInfo = wifiInfo;
         mNetworkSelector = networkSelector;
@@ -597,9 +613,6 @@ public class WifiConnectivityManager {
         mScoringParams = scoringParams;
         mConnectionAttemptTimeStamps = new LinkedList<>();
 
-        //TODO(b/74793980) - handle these more dynamically
-        mMin5GHzRssi = mScoringParams.getEntryRssi(ScoringParams.BAND5);
-        mMin24GHzRssi = mScoringParams.getEntryRssi(ScoringParams.BAND2);
         mBand5GHzBonus = context.getResources().getInteger(
                 R.integer.config_wifi_framework_5GHz_preference_boost_factor);
         mCurrentConnectionBonus = context.getResources().getInteger(
@@ -608,52 +621,40 @@ public class WifiConnectivityManager {
                 R.integer.config_wifi_framework_SAME_BSSID_AWARD);
         mSecureBonus = context.getResources().getInteger(
                 R.integer.config_wifi_framework_SECURITY_AWARD);
+        mRssiScoreOffset = context.getResources().getInteger(
+                R.integer.config_wifi_framework_RSSI_SCORE_OFFSET);
+        mRssiScoreSlope = context.getResources().getInteger(
+                R.integer.config_wifi_framework_RSSI_SCORE_SLOPE);
         mEnableAutoJoinWhenAssociated = context.getResources().getBoolean(
                 R.bool.config_wifi_framework_enable_associated_network_selection);
         mUseSingleRadioChainScanResults = context.getResources().getBoolean(
                 R.bool.config_wifi_framework_use_single_radio_chain_scan_results_network_selection);
-        mInitialScoreMax = (Math.max(mScoringParams.getGoodRssi(ScoringParams.BAND2),
-                                     mScoringParams.getGoodRssi(ScoringParams.BAND5))
-                            + context.getResources().getInteger(
-                                    R.integer.config_wifi_framework_RSSI_SCORE_OFFSET))
-                * context.getResources().getInteger(
-                        R.integer.config_wifi_framework_RSSI_SCORE_SLOPE);
+
+
         mFullScanMaxTxRate = context.getResources().getInteger(
                 R.integer.config_wifi_framework_max_tx_rate_for_full_scan);
         mFullScanMaxRxRate = context.getResources().getInteger(
                 R.integer.config_wifi_framework_max_rx_rate_for_full_scan);
 
-        localLog("PNO settings:" + " min5GHzRssi " + mMin5GHzRssi
-                + " min24GHzRssi " + mMin24GHzRssi
+        mPnoScanIntervalMs = MOVING_PNO_SCAN_INTERVAL_MS;
+
+        localLog("PNO settings:"
+                + " min5GHzRssi " + mScoringParams.getEntryRssi(ScoringParams.BAND5)
+                + " min24GHzRssi " + mScoringParams.getEntryRssi(ScoringParams.BAND2)
                 + " currentConnectionBonus " + mCurrentConnectionBonus
                 + " sameNetworkBonus " + mSameNetworkBonus
                 + " secureNetworkBonus " + mSecureBonus
-                + " initialScoreMax " + mInitialScoreMax);
-
-        boolean hs2Enabled = context.getPackageManager().hasSystemFeature(
-                PackageManager.FEATURE_WIFI_PASSPOINT);
-        localLog("Passpoint is: " + (hs2Enabled ? "enabled" : "disabled"));
-
-        // Register the network evaluators
-        mNetworkSelector.registerNetworkEvaluator(savedNetworkEvaluator,
-                SAVED_NETWORK_EVALUATOR_PRIORITY);
-        if (hs2Enabled) {
-            mNetworkSelector.registerNetworkEvaluator(passpointNetworkEvaluator,
-                    PASSPOINT_NETWORK_EVALUATOR_PRIORITY);
-        }
-        mNetworkSelector.registerNetworkEvaluator(scoredNetworkEvaluator,
-                SCORED_NETWORK_EVALUATOR_PRIORITY);
-
-        // Register for all single scan results
-        mScanner.registerScanListener(mAllSingleScanListener);
+                + " initialScoreMax " + initialScoreMax());
 
         // Listen to WifiConfigManager network update events
         mConfigManager.setOnSavedNetworkUpdateListener(new OnSavedNetworkUpdateListener());
+    }
 
-        mWifiConnectivityManagerEnabled = enable;
-
-        localLog("ConnectivityScanManager initialized and "
-                + (enable ? "enabled" : "disabled"));
+    /** Returns maximum PNO score, before any awards/bonuses. */
+    private int initialScoreMax() {
+        return mRssiScoreSlope * (Math.max(mScoringParams.getGoodRssi(ScoringParams.BAND2),
+                                           mScoringParams.getGoodRssi(ScoringParams.BAND5))
+                                  + mRssiScoreOffset);
     }
 
     /**
@@ -724,7 +725,7 @@ public class WifiConnectivityManager {
         }
 
         if (candidate.BSSID != null
-                && !candidate.BSSID.equals(WifiStateMachine.SUPPLICANT_BSSID_ANY)
+                && !candidate.BSSID.equals(ClientModeImpl.SUPPLICANT_BSSID_ANY)
                 && !candidate.BSSID.equals(targetBssid)) {
             localLog("connecToNetwork: target BSSID " + targetBssid + " does not match the "
                     + "config specified BSSID " + candidate.BSSID + ". Drop it!");
@@ -766,8 +767,8 @@ public class WifiConnectivityManager {
             // {@link android.net.wifi.WifiManager#WIFI_FEATURE_CONTROL_ROAMING} or the
             // candidate configuration contains a specified BSSID.
             if (mConnectivityHelper.isFirmwareRoamingSupported() && (candidate.BSSID == null
-                      || candidate.BSSID.equals(WifiStateMachine.SUPPLICANT_BSSID_ANY))) {
-                targetBssid = WifiStateMachine.SUPPLICANT_BSSID_ANY;
+                      || candidate.BSSID.equals(ClientModeImpl.SUPPLICANT_BSSID_ANY))) {
+                targetBssid = ClientModeImpl.SUPPLICANT_BSSID_ANY;
                 localLog("connectToNetwork: Connect to " + candidate.SSID + ":" + targetBssid
                         + " from " + currentAssociationId);
             } else {
@@ -945,10 +946,58 @@ public class WifiConnectivityManager {
         startPeriodicSingleScan();
     }
 
+    private static int deviceMobilityStateToPnoScanIntervalMs(@DeviceMobilityState int state) {
+        switch (state) {
+            case WifiManager.DEVICE_MOBILITY_STATE_UNKNOWN:
+            case WifiManager.DEVICE_MOBILITY_STATE_LOW_MVMT:
+            case WifiManager.DEVICE_MOBILITY_STATE_HIGH_MVMT:
+                return MOVING_PNO_SCAN_INTERVAL_MS;
+            case WifiManager.DEVICE_MOBILITY_STATE_STATIONARY:
+                return STATIONARY_PNO_SCAN_INTERVAL_MS;
+            default:
+                return -1;
+        }
+    }
+
+    /**
+     * Alters the PNO scan interval based on the current device mobility state.
+     * If the device is stationary, it will likely not find many new Wifi networks. Thus, increase
+     * the interval between scans. Decrease the interval between scans if the device begins to move
+     * again.
+     * @param newState the new device mobility state
+     */
+    public void setDeviceMobilityState(@DeviceMobilityState int newState) {
+        int newPnoScanIntervalMs = deviceMobilityStateToPnoScanIntervalMs(newState);
+        if (newPnoScanIntervalMs < 0) {
+            Log.e(TAG, "Invalid device mobility state: " + newState);
+            return;
+        }
+
+        if (newPnoScanIntervalMs == mPnoScanIntervalMs) {
+            if (mPnoScanStarted) {
+                mWifiMetrics.logPnoScanStop();
+                mWifiMetrics.enterDeviceMobilityState(newState);
+                mWifiMetrics.logPnoScanStart();
+            } else {
+                mWifiMetrics.enterDeviceMobilityState(newState);
+            }
+        } else {
+            mPnoScanIntervalMs = newPnoScanIntervalMs;
+            Log.d(TAG, "PNO Scan Interval changed to " + mPnoScanIntervalMs + " ms.");
+
+            if (mPnoScanStarted) {
+                Log.d(TAG, "Restarting PNO Scan with new scan interval");
+                stopPnoScan();
+                mWifiMetrics.enterDeviceMobilityState(newState);
+                startDisconnectedPnoScan();
+            } else {
+                mWifiMetrics.enterDeviceMobilityState(newState);
+            }
+        }
+    }
+
     // Start a DisconnectedPNO scan when screen is off and Wifi is disconnected
     private void startDisconnectedPnoScan() {
-        // TODO(b/29503772): Need to change this interface.
-
         // Initialize PNO settings
         PnoSettings pnoSettings = new PnoSettings();
         List<PnoSettings.PnoNetwork> pnoNetworkList = mConfigManager.retrievePnoNetworkList();
@@ -962,9 +1011,9 @@ public class WifiConnectivityManager {
 
         pnoSettings.networkList = new PnoSettings.PnoNetwork[listSize];
         pnoSettings.networkList = pnoNetworkList.toArray(pnoSettings.networkList);
-        pnoSettings.min5GHzRssi = mMin5GHzRssi;
-        pnoSettings.min24GHzRssi = mMin24GHzRssi;
-        pnoSettings.initialScoreMax = mInitialScoreMax;
+        pnoSettings.min5GHzRssi = mScoringParams.getEntryRssi(ScoringParams.BAND5);
+        pnoSettings.min24GHzRssi = mScoringParams.getEntryRssi(ScoringParams.BAND2);
+        pnoSettings.initialScoreMax = initialScoreMax();
         pnoSettings.currentConnectionBonus = mCurrentConnectionBonus;
         pnoSettings.sameNetworkBonus = mSameNetworkBonus;
         pnoSettings.secureBonus = mSecureBonus;
@@ -975,21 +1024,22 @@ public class WifiConnectivityManager {
         scanSettings.band = getScanBand();
         scanSettings.reportEvents = WifiScanner.REPORT_EVENT_NO_BATCH;
         scanSettings.numBssidsPerScan = 0;
-        scanSettings.periodInMs = DISCONNECTED_PNO_SCAN_INTERVAL_MS;
+        scanSettings.periodInMs = mPnoScanIntervalMs;
 
         mPnoScanListener.clearScanDetails();
 
         mScanner.startDisconnectedPnoScan(scanSettings, pnoSettings, mPnoScanListener);
         mPnoScanStarted = true;
+        mWifiMetrics.logPnoScanStart();
     }
 
     // Stop PNO scan.
     private void stopPnoScan() {
-        if (mPnoScanStarted) {
-            mScanner.stopPnoScan(mPnoScanListener);
-        }
+        if (!mPnoScanStarted) return;
 
+        mScanner.stopPnoScan(mPnoScanListener);
         mPnoScanStarted = false;
+        mWifiMetrics.logPnoScanStop();
     }
 
     // Set up watchdog timer
@@ -1122,11 +1172,6 @@ public class WifiConnectivityManager {
 
         mWifiState = state;
 
-        if (mWifiState == WIFI_STATE_CONNECTED) {
-            mOpenNetworkNotifier.handleWifiConnected();
-            mCarrierNetworkNotifier.handleWifiConnected();
-        }
-
         // Reset BSSID of last connection attempt and kick off
         // the watchdog timer if entering disconnected state.
         if (mWifiState == WIFI_STATE_DISCONNECTED) {
@@ -1144,21 +1189,60 @@ public class WifiConnectivityManager {
      * @param failureCode {@link WifiMetrics.ConnectionEvent} failure code.
      */
     public void handleConnectionAttemptEnded(int failureCode) {
-        if (failureCode != WifiMetrics.ConnectionEvent.FAILURE_NONE) {
+        if (failureCode == WifiMetrics.ConnectionEvent.FAILURE_NONE) {
+            String ssid = (mWifiInfo.getWifiSsid() == null)
+                    ? null
+                    : mWifiInfo.getWifiSsid().toString();
+            mOpenNetworkNotifier.handleWifiConnected(ssid);
+            mCarrierNetworkNotifier.handleWifiConnected(ssid);
+        } else {
             mOpenNetworkNotifier.handleConnectionFailure();
             mCarrierNetworkNotifier.handleConnectionFailure();
         }
     }
 
+    // Enable auto-join if we have any pending network request (trusted or untrusted) and no
+    // specific network request in progress.
+    private void checkStateAndEnable() {
+        enable(!mSpecificNetworkRequestInProgress
+                && (mUntrustedConnectionAllowed || mTrustedConnectionAllowed));
+        startConnectivityScan(SCAN_IMMEDIATELY);
+    }
+
     /**
-     * Handler when user toggles whether untrusted connection is allowed
+     * Triggered when {@link WifiNetworkFactory} has a pending general network request.
+     */
+    public void setTrustedConnectionAllowed(boolean allowed) {
+        localLog("setTrustedConnectionAllowed: allowed=" + allowed);
+
+        if (mTrustedConnectionAllowed != allowed) {
+            mTrustedConnectionAllowed = allowed;
+            checkStateAndEnable();
+        }
+    }
+
+
+    /**
+     * Triggered when {@link UntrustedWifiNetworkFactory} has a pending ephemeral network request.
      */
     public void setUntrustedConnectionAllowed(boolean allowed) {
         localLog("setUntrustedConnectionAllowed: allowed=" + allowed);
 
         if (mUntrustedConnectionAllowed != allowed) {
             mUntrustedConnectionAllowed = allowed;
-            startConnectivityScan(SCAN_IMMEDIATELY);
+            checkStateAndEnable();
+        }
+    }
+
+    /**
+     * Triggered when {@link WifiNetworkFactory} is processing a specific network request.
+     */
+    public void setSpecificNetworkRequestInProgress(boolean inProgress) {
+        localLog("setsetSpecificNetworkRequestInProgress : inProgress=" + inProgress);
+
+        if (mSpecificNetworkRequestInProgress != inProgress) {
+            mSpecificNetworkRequestInProgress = inProgress;
+            checkStateAndEnable();
         }
     }
 
@@ -1204,6 +1288,14 @@ public class WifiConnectivityManager {
         // Remove the bssid from blacklist when it is enabled.
         if (enable) {
             return mBssidBlacklist.remove(bssid) != null;
+        }
+
+        // Do not update BSSID blacklist with information if this is the only
+        // BSSID for its SSID. By ignoring it we will cause additional failures
+        // which will trigger Watchdog.
+        if (mWifiLastResortWatchdog.shouldIgnoreBssidUpdate(bssid)) {
+            localLog("Ignore update Bssid Blacklist since Watchdog trigger is activated");
+            return false;
         }
 
         // Update the bssid's blacklist status when it is disabled because of
@@ -1349,6 +1441,19 @@ public class WifiConnectivityManager {
     }
 
     /**
+     * Helper method to populate WifiScanner handle. This is done lazily because
+     * WifiScanningService is started after WifiService.
+     */
+    private void retrieveWifiScanner() {
+        if (mScanner != null) return;
+        mScanner = mWifiInjector.getWifiScanner();
+        checkNotNull(mScanner);
+        // Register for all single scan results
+        mScanner.registerScanListener(mAllSingleScanListener);
+    }
+
+
+    /**
      * Clear the BSSID blacklist
      */
     private void clearBssidBlacklist() {
@@ -1360,15 +1465,19 @@ public class WifiConnectivityManager {
      * Start WifiConnectivityManager
      */
     private void start() {
+        if (mRunning) return;
+        retrieveWifiScanner();
         mConnectivityHelper.getFirmwareRoamingInfo();
         clearBssidBlacklist();
-        startConnectivityScan(SCAN_IMMEDIATELY);
+        mRunning = true;
     }
 
     /**
      * Stop and reset WifiConnectivityManager
      */
     private void stop() {
+        if (!mRunning) return;
+        mRunning = false;
         stopConnectivityScan();
         clearBssidBlacklist();
         resetLastPeriodicSingleScanTimeStamp();
@@ -1402,7 +1511,6 @@ public class WifiConnectivityManager {
 
         mWifiEnabled = enable;
         updateRunningState();
-
     }
 
     /**
@@ -1435,5 +1543,6 @@ public class WifiConnectivityManager {
         pw.println("WifiConnectivityManager - Log End ----");
         mOpenNetworkNotifier.dump(fd, pw, args);
         mCarrierNetworkNotifier.dump(fd, pw, args);
+        mCarrierNetworkConfig.dump(fd, pw, args);
     }
 }

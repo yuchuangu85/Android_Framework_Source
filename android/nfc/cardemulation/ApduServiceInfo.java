@@ -16,12 +16,12 @@
 
 package android.nfc.cardemulation;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
-import android.content.Context;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
-import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.Resources;
 import android.content.res.Resources.NotFoundException;
 import android.content.res.TypedArray;
@@ -29,7 +29,6 @@ import android.content.res.XmlResourceParser;
 import android.graphics.drawable.Drawable;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.os.ResultReceiver;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Xml;
@@ -54,6 +53,7 @@ public final class ApduServiceInfo implements Parcelable {
     /**
      * The service that implements this
      */
+    @UnsupportedAppUsage
     final ResolveInfo mService;
 
     /**
@@ -67,13 +67,27 @@ public final class ApduServiceInfo implements Parcelable {
     final boolean mOnHost;
 
     /**
+     * Offhost reader name.
+     * eg: SIM, eSE etc
+     */
+    String mOffHostName;
+
+    /**
+     * Offhost reader name from manifest file.
+     * Used for unsetOffHostSecureElement()
+     */
+    final String mStaticOffHostName;
+
+    /**
      * Mapping from category to static AID group
      */
+    @UnsupportedAppUsage
     final HashMap<String, AidGroup> mStaticAidGroups;
 
     /**
      * Mapping from category to dynamic AID group
      */
+    @UnsupportedAppUsage
     final HashMap<String, AidGroup> mDynamicAidGroups;
 
     /**
@@ -99,15 +113,18 @@ public final class ApduServiceInfo implements Parcelable {
     /**
      * @hide
      */
-    public ApduServiceInfo(ResolveInfo info, boolean onHost, String description,
+    @UnsupportedAppUsage
+    public ApduServiceInfo(ResolveInfo info, String description,
             ArrayList<AidGroup> staticAidGroups, ArrayList<AidGroup> dynamicAidGroups,
             boolean requiresUnlock, int bannerResource, int uid,
-            String settingsActivityName) {
+            String settingsActivityName, String offHost, String staticOffHost) {
         this.mService = info;
         this.mDescription = description;
         this.mStaticAidGroups = new HashMap<String, AidGroup>();
         this.mDynamicAidGroups = new HashMap<String, AidGroup>();
-        this.mOnHost = onHost;
+        this.mOffHostName = offHost;
+        this.mStaticOffHostName = staticOffHost;
+        this.mOnHost = (offHost == null);
         this.mRequiresDeviceUnlock = requiresUnlock;
         for (AidGroup aidGroup : staticAidGroups) {
             this.mStaticAidGroups.put(aidGroup.category, aidGroup);
@@ -120,6 +137,7 @@ public final class ApduServiceInfo implements Parcelable {
         this.mSettingsActivityName = settingsActivityName;
     }
 
+    @UnsupportedAppUsage
     public ApduServiceInfo(PackageManager pm, ResolveInfo info, boolean onHost) throws
             XmlPullParserException, IOException {
         ServiceInfo si = info.serviceInfo;
@@ -168,6 +186,8 @@ public final class ApduServiceInfo implements Parcelable {
                         com.android.internal.R.styleable.HostApduService_apduServiceBanner, -1);
                 mSettingsActivityName = sa.getString(
                         com.android.internal.R.styleable.HostApduService_settingsActivity);
+                mOffHostName = null;
+                mStaticOffHostName = mOffHostName;
                 sa.recycle();
             } else {
                 TypedArray sa = res.obtainAttributes(attrs,
@@ -180,6 +200,16 @@ public final class ApduServiceInfo implements Parcelable {
                         com.android.internal.R.styleable.OffHostApduService_apduServiceBanner, -1);
                 mSettingsActivityName = sa.getString(
                         com.android.internal.R.styleable.HostApduService_settingsActivity);
+                mOffHostName = sa.getString(
+                        com.android.internal.R.styleable.OffHostApduService_secureElementName);
+                if (mOffHostName != null) {
+                    if (mOffHostName.equals("eSE")) {
+                        mOffHostName = "eSE1";
+                    } else if (mOffHostName.equals("SIM")) {
+                        mOffHostName = "SIM1";
+                    }
+                }
+                mStaticOffHostName = mOffHostName;
                 sa.recycle();
             }
 
@@ -283,6 +313,10 @@ public final class ApduServiceInfo implements Parcelable {
                 mService.serviceInfo.name);
     }
 
+    public String getOffHostSecureElement() {
+        return mOffHostName;
+    }
+
     /**
      * Returns a consolidated list of AIDs from the AID groups
      * registered by this service. Note that if a service has both
@@ -374,24 +408,49 @@ public final class ApduServiceInfo implements Parcelable {
         return (mStaticAidGroups.containsKey(category) || mDynamicAidGroups.containsKey(category));
     }
 
+    @UnsupportedAppUsage
     public boolean isOnHost() {
         return mOnHost;
     }
 
+    @UnsupportedAppUsage
     public boolean requiresUnlock() {
         return mRequiresDeviceUnlock;
     }
 
+    @UnsupportedAppUsage
     public String getDescription() {
         return mDescription;
     }
 
+    @UnsupportedAppUsage
     public int getUid() {
         return mUid;
     }
 
     public void setOrReplaceDynamicAidGroup(AidGroup aidGroup) {
         mDynamicAidGroups.put(aidGroup.getCategory(), aidGroup);
+    }
+
+    /**
+     * Sets the off host Secure Element.
+     * @param  offHost  Secure Element to set. Only accept strings with prefix SIM or prefix eSE.
+     *                  Ref: GSMA TS.26 - NFC Handset Requirements
+     *                  TS26_NFC_REQ_069: For UICC, Secure Element Name SHALL be SIM[smartcard slot]
+     *                                    (e.g. SIM/SIM1, SIM2… SIMn).
+     *                  TS26_NFC_REQ_070: For embedded SE, Secure Element Name SHALL be eSE[number]
+     *                                    (e.g. eSE/eSE1, eSE2, etc.).
+     */
+    public void setOffHostSecureElement(String offHost) {
+        mOffHostName = offHost;
+    }
+
+    /**
+     * Resets the off host Secure Element to statically defined
+     * by the service in the manifest file.
+     */
+    public void unsetOffHostSecureElement() {
+        mOffHostName = mStaticOffHostName;
     }
 
     public CharSequence loadLabel(PackageManager pm) {
@@ -411,6 +470,7 @@ public final class ApduServiceInfo implements Parcelable {
         return mService.loadIcon(pm);
     }
 
+    @UnsupportedAppUsage
     public Drawable loadBanner(PackageManager pm) {
         Resources res;
         try {
@@ -426,6 +486,7 @@ public final class ApduServiceInfo implements Parcelable {
         }
     }
 
+    @UnsupportedAppUsage
     public String getSettingsActivityName() { return mSettingsActivityName; }
 
     @Override
@@ -469,6 +530,8 @@ public final class ApduServiceInfo implements Parcelable {
         mService.writeToParcel(dest, flags);
         dest.writeString(mDescription);
         dest.writeInt(mOnHost ? 1 : 0);
+        dest.writeString(mOffHostName);
+        dest.writeString(mStaticOffHostName);
         dest.writeInt(mStaticAidGroups.size());
         if (mStaticAidGroups.size() > 0) {
             dest.writeTypedList(new ArrayList<AidGroup>(mStaticAidGroups.values()));
@@ -483,13 +546,16 @@ public final class ApduServiceInfo implements Parcelable {
         dest.writeString(mSettingsActivityName);
     };
 
-    public static final Parcelable.Creator<ApduServiceInfo> CREATOR =
+    @UnsupportedAppUsage
+    public static final @android.annotation.NonNull Parcelable.Creator<ApduServiceInfo> CREATOR =
             new Parcelable.Creator<ApduServiceInfo>() {
         @Override
         public ApduServiceInfo createFromParcel(Parcel source) {
             ResolveInfo info = ResolveInfo.CREATOR.createFromParcel(source);
             String description = source.readString();
             boolean onHost = source.readInt() != 0;
+            String offHostName = source.readString();
+            String staticOffHostName = source.readString();
             ArrayList<AidGroup> staticAidGroups = new ArrayList<AidGroup>();
             int numStaticGroups = source.readInt();
             if (numStaticGroups > 0) {
@@ -504,9 +570,9 @@ public final class ApduServiceInfo implements Parcelable {
             int bannerResource = source.readInt();
             int uid = source.readInt();
             String settingsActivityName = source.readString();
-            return new ApduServiceInfo(info, onHost, description, staticAidGroups,
+            return new ApduServiceInfo(info, description, staticAidGroups,
                     dynamicAidGroups, requiresUnlock, bannerResource, uid,
-                    settingsActivityName);
+                    settingsActivityName, offHostName, staticOffHostName);
         }
 
         @Override
@@ -518,6 +584,13 @@ public final class ApduServiceInfo implements Parcelable {
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("    " + getComponent() +
                 " (Description: " + getDescription() + ")");
+        if (mOnHost) {
+            pw.println("    On Host Service");
+        } else {
+            pw.println("    Off-host Service");
+            pw.println("        " + "Current off-host SE:" + mOffHostName
+                    + " static off-host SE:" + mStaticOffHostName);
+        }
         pw.println("    Static AID groups:");
         for (AidGroup group : mStaticAidGroups.values()) {
             pw.println("        Category: " + group.category);

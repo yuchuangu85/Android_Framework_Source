@@ -57,8 +57,8 @@ import libcore.util.CollectionUtils;
 import libcore.util.EmptyArray;
 
 import dalvik.system.ClassExt;
-import dalvik.system.VMStack;
 import sun.reflect.CallerSensitive;
+import sun.reflect.Reflection;
 
 /**
  * Instances of the class {@code Class} represent classes and
@@ -375,7 +375,8 @@ public final class Class<T> implements java.io.Serializable,
     @CallerSensitive
     public static Class<?> forName(String className)
                 throws ClassNotFoundException {
-        return forName(className, true, VMStack.getCallingClassLoader());
+        Class<?> caller = Reflection.getCallerClass();
+        return forName(className, true, ClassLoader.getClassLoader(caller));
     }
 
 
@@ -778,6 +779,8 @@ public final class Class<T> implements java.io.Serializable,
         if (isPrimitive()) {
             return null;
         }
+        // Android-note: The RI returns null in the case where Android returns BootClassLoader.
+        // Noted in http://b/111850480#comment3
         return (classLoader == null) ? BootClassLoader.getInstance() : classLoader;
     }
 
@@ -2065,7 +2068,8 @@ public final class Class<T> implements java.io.Serializable,
         // Fail if we didn't find the method or it was expected to be public.
         if (result == null ||
             (recursivePublicMethods && !Modifier.isPublic(result.getAccessFlags()))) {
-            throw new NoSuchMethodException(name + " " + Arrays.toString(parameterTypes));
+            throw new NoSuchMethodException(getName() + "." + name + " "
+                    + Arrays.toString(parameterTypes));
         }
         return result;
     }
@@ -2324,7 +2328,8 @@ public final class Class<T> implements java.io.Serializable,
         }
         Constructor<T> result = getDeclaredConstructorInternal(parameterTypes);
         if (result == null || which == Member.PUBLIC && !Modifier.isPublic(result.getAccessFlags())) {
-            throw new NoSuchMethodException("<init> " + Arrays.toString(parameterTypes));
+            throw new NoSuchMethodException(getName() + ".<init> "
+                    + Arrays.toString(parameterTypes));
         }
         return result;
     }

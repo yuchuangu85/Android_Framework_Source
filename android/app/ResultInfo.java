@@ -16,7 +16,9 @@
 
 package android.app;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -26,11 +28,15 @@ import java.util.Objects;
  * {@hide}
  */
 public class ResultInfo implements Parcelable {
+    @UnsupportedAppUsage
     public final String mResultWho;
+    @UnsupportedAppUsage
     public final int mRequestCode;
     public final int mResultCode;
+    @UnsupportedAppUsage
     public final Intent mData;
 
+    @UnsupportedAppUsage
     public ResultInfo(String resultWho, int requestCode, int resultCode,
             Intent data) {
         mResultWho = resultWho;
@@ -60,7 +66,8 @@ public class ResultInfo implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<ResultInfo> CREATOR
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+    public static final @android.annotation.NonNull Parcelable.Creator<ResultInfo> CREATOR
             = new Parcelable.Creator<ResultInfo>() {
         public ResultInfo createFromParcel(Parcel in) {
             return new ResultInfo(in);

@@ -30,7 +30,6 @@ import android.system.ErrnoException;
 import android.system.StructPasswd;
 import android.system.StructUtsname;
 import dalvik.system.VMRuntime;
-import dalvik.system.VMStack;
 import java.io.*;
 import java.lang.annotation.Annotation;
 import java.nio.channels.Channel;
@@ -41,9 +40,10 @@ import java.util.Properties;
 import java.util.PropertyPermission;
 import libcore.icu.ICU;
 import libcore.io.Libcore;
-import libcore.util.TimeZoneDataFiles;
+import libcore.timezone.TimeZoneDataFiles;
 
 import sun.reflect.CallerSensitive;
+import sun.reflect.Reflection;
 import sun.security.util.SecurityConstants;
 /**
  * The <code>System</code> class contains several useful class fields
@@ -994,11 +994,9 @@ public final class System {
 
         StructUtsname info = Libcore.os.uname();
         p.put("os.arch", info.machine);
-        if (p.get("os.name") != null && !p.get("os.name").equals(info.sysname)) {
-            logE("Wrong compile-time assumption for os.name: " + p.get("os.name") + " vs " +
-                    info.sysname);
-            p.put("os.name", info.sysname);
-        }
+        // os.name was previously hardcoded to "Linux", but was reverted due to support
+        // for Fuchsia. b/121268567 shows initialization regressions.
+        p.put("os.name", info.sysname);
         p.put("os.version", info.release);
 
         // Android-added: Undocumented properties that exist only on Android.
@@ -1630,7 +1628,7 @@ public final class System {
      */
     @CallerSensitive
     public static void load(String filename) {
-        Runtime.getRuntime().load0(VMStack.getStackClass1(), filename);
+        Runtime.getRuntime().load0(Reflection.getCallerClass(), filename);
     }
 
     /**
@@ -1666,7 +1664,7 @@ public final class System {
      */
     @CallerSensitive
     public static void loadLibrary(String libname) {
-        Runtime.getRuntime().loadLibrary0(VMStack.getCallingClassLoader(), libname);
+        Runtime.getRuntime().loadLibrary0(Reflection.getCallerClass(), libname);
     }
 
     /**

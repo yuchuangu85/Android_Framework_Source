@@ -17,6 +17,7 @@
 package android.webkit;
 
 import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.app.ActivityManager;
 import android.app.AppGlobals;
 import android.app.Application;
@@ -46,12 +47,9 @@ public final class WebViewFactory {
     // visible for WebViewZygoteInit to look up the class by reflection and call preloadInZygote.
     /** @hide */
     private static final String CHROMIUM_WEBVIEW_FACTORY =
-            "com.android.webview.chromium.WebViewChromiumFactoryProviderForP";
+            "com.android.webview.chromium.WebViewChromiumFactoryProviderForQ";
 
     private static final String CHROMIUM_WEBVIEW_FACTORY_METHOD = "create";
-
-    public static final String CHROMIUM_WEBVIEW_VMSIZE_SIZE_PROPERTY =
-            "persist.sys.webview.vmsize";
 
     private static final String LOGTAG = "WebViewFactory";
 
@@ -59,8 +57,10 @@ public final class WebViewFactory {
 
     // Cache the factory both for efficiency, and ensure any one process gets all webviews from the
     // same provider.
+    @UnsupportedAppUsage
     private static WebViewFactoryProvider sProviderInstance;
     private static final Object sProviderLock = new Object();
+    @UnsupportedAppUsage
     private static PackageInfo sPackageInfo;
     private static Boolean sWebViewSupported;
     private static boolean sWebViewDisabled;
@@ -222,6 +222,7 @@ public final class WebViewFactory {
         return loadNativeRet;
     }
 
+    @UnsupportedAppUsage
     static WebViewFactoryProvider getProvider() {
         synchronized (sProviderLock) {
             // For now the main purpose of this function (and the factory abstraction) is to keep
@@ -320,45 +321,7 @@ public final class WebViewFactory {
         }
     }
 
-    /**
-     * If the ApplicationInfo provided is for a stub WebView, fix up the object to include the
-     * required values from the donor package. If the ApplicationInfo is for a full WebView,
-     * leave it alone. Throws MissingWebViewPackageException if the donor is missing.
-     */
-    private static void fixupStubApplicationInfo(ApplicationInfo ai, PackageManager pm)
-            throws MissingWebViewPackageException {
-        String donorPackageName = null;
-        if (ai.metaData != null) {
-            donorPackageName = ai.metaData.getString("com.android.webview.WebViewDonorPackage");
-        }
-        if (donorPackageName != null) {
-            PackageInfo donorPackage;
-            try {
-                donorPackage = pm.getPackageInfo(
-                        donorPackageName,
-                        PackageManager.GET_SHARED_LIBRARY_FILES
-                        | PackageManager.MATCH_DEBUG_TRIAGED_MISSING
-                        | PackageManager.MATCH_UNINSTALLED_PACKAGES
-                        | PackageManager.MATCH_FACTORY_ONLY);
-            } catch (PackageManager.NameNotFoundException e) {
-                throw new MissingWebViewPackageException("Failed to find donor package: " +
-                                                         donorPackageName);
-            }
-            ApplicationInfo donorInfo = donorPackage.applicationInfo;
-
-            // Replace the stub's code locations with the donor's.
-            ai.sourceDir = donorInfo.sourceDir;
-            ai.splitSourceDirs = donorInfo.splitSourceDirs;
-            ai.nativeLibraryDir = donorInfo.nativeLibraryDir;
-            ai.secondaryNativeLibraryDir = donorInfo.secondaryNativeLibraryDir;
-
-            // Copy the donor's primary and secondary ABIs, since the stub doesn't have native code
-            // and so they are unset.
-            ai.primaryCpuAbi = donorInfo.primaryCpuAbi;
-            ai.secondaryCpuAbi = donorInfo.secondaryCpuAbi;
-        }
-    }
-
+    @UnsupportedAppUsage
     private static Context getWebViewContextAndSetProvider() throws MissingWebViewPackageException {
         Application initialApplication = AppGlobals.getInitialApplication();
         try {
@@ -409,7 +372,6 @@ public final class WebViewFactory {
             verifyPackageInfo(response.packageInfo, newPackageInfo);
 
             ApplicationInfo ai = newPackageInfo.applicationInfo;
-            fixupStubApplicationInfo(ai, pm);
 
             Trace.traceBegin(Trace.TRACE_TAG_WEBVIEW,
                     "initialApplication.createApplicationContext");
@@ -428,6 +390,7 @@ public final class WebViewFactory {
         }
     }
 
+    @UnsupportedAppUsage
     private static Class<WebViewFactoryProvider> getProviderClass() {
         Context webViewContext = null;
         Application initialApplication = AppGlobals.getInitialApplication();
@@ -445,8 +408,9 @@ public final class WebViewFactory {
 
             Trace.traceBegin(Trace.TRACE_TAG_WEBVIEW, "WebViewFactory.getChromiumProviderClass()");
             try {
-                initialApplication.getAssets().addAssetPathAsSharedLibrary(
-                        webViewContext.getApplicationInfo().sourceDir);
+                for (String newAssetPath : webViewContext.getApplicationInfo().getAllApkPaths()) {
+                    initialApplication.getAssets().addAssetPathAsSharedLibrary(newAssetPath);
+                }
                 ClassLoader clazzLoader = webViewContext.getClassLoader();
 
                 Trace.traceBegin(Trace.TRACE_TAG_WEBVIEW, "WebViewFactory.loadNativeLibrary()");
@@ -490,18 +454,14 @@ public final class WebViewFactory {
      */
     public static int onWebViewProviderChanged(PackageInfo packageInfo) {
         int startedRelroProcesses = 0;
-        ApplicationInfo originalAppInfo = new ApplicationInfo(packageInfo.applicationInfo);
         try {
-            fixupStubApplicationInfo(packageInfo.applicationInfo,
-                                     AppGlobals.getInitialApplication().getPackageManager());
-
             startedRelroProcesses = WebViewLibraryLoader.prepareNativeLibraries(packageInfo);
         } catch (Throwable t) {
             // Log and discard errors at this stage as we must not crash the system server.
             Log.e(LOGTAG, "error preparing webview native library", t);
         }
 
-        WebViewZygote.onWebViewProviderChanged(packageInfo, originalAppInfo);
+        WebViewZygote.onWebViewProviderChanged(packageInfo);
 
         return startedRelroProcesses;
     }
@@ -509,6 +469,7 @@ public final class WebViewFactory {
     private static String WEBVIEW_UPDATE_SERVICE_NAME = "webviewupdate";
 
     /** @hide */
+    @UnsupportedAppUsage
     public static IWebViewUpdateService getUpdateService() {
         if (isWebViewSupported()) {
             return getUpdateServiceUnchecked();

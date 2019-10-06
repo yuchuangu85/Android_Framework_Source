@@ -20,12 +20,14 @@ import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StringRes;
+import android.annotation.UnsupportedAppUsage;
 import android.app.INotificationManager;
 import android.app.ITransientNotification;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.PixelFormat;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -93,7 +95,9 @@ public class Toast {
     public static final int LENGTH_LONG = 1;
 
     final Context mContext;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     final TN mTN;
+    @UnsupportedAppUsage
     int mDuration;
     View mNextView;
 
@@ -133,9 +137,10 @@ public class Toast {
         String pkg = mContext.getOpPackageName();
         TN tn = mTN;
         tn.mNextView = mNextView;
+        final int displayId = mContext.getDisplayId();
 
         try {
-            service.enqueueToast(pkg, tn, mDuration);
+            service.enqueueToast(pkg, tn, mDuration, displayId);
         } catch (RemoteException e) {
             // Empty
         }
@@ -252,6 +257,7 @@ public class Toast {
      * Gets the LayoutParams for the Toast window.
      * @hide
      */
+    @UnsupportedAppUsage
     public WindowManager.LayoutParams getWindowParams() {
         return mTN.mParams;
     }
@@ -335,8 +341,10 @@ public class Toast {
     // the proper ordering of these system-wide.
     // =======================================================================================
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private static INotificationManager sService;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     static private INotificationManager getService() {
         if (sService != null) {
             return sService;
@@ -346,6 +354,7 @@ public class Toast {
     }
 
     private static class TN extends ITransientNotification.Stub {
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
         private final WindowManager.LayoutParams mParams = new WindowManager.LayoutParams();
 
         private static final int SHOW = 0;
@@ -353,13 +362,18 @@ public class Toast {
         private static final int CANCEL = 2;
         final Handler mHandler;
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
         int mGravity;
-        int mX, mY;
+        int mX;
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
+        int mY;
         float mHorizontalMargin;
         float mVerticalMargin;
 
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
         View mView;
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
         View mNextView;
         int mDuration;
 
@@ -430,6 +444,7 @@ public class Toast {
          * schedule handleShow into the right thread
          */
         @Override
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
         public void show(IBinder windowToken) {
             if (localLOGV) Log.v(TAG, "SHOW: " + this);
             mHandler.obtainMessage(SHOW, windowToken).sendToTarget();
@@ -520,6 +535,7 @@ public class Toast {
             accessibilityManager.sendAccessibilityEvent(event);
         }
 
+        @UnsupportedAppUsage
         public void handleHide() {
             if (localLOGV) Log.v(TAG, "HANDLE HIDE: " + this + " mView=" + mView);
             if (mView != null) {

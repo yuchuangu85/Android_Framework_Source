@@ -20,7 +20,10 @@ import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.app.ActivityManager;
+import android.app.ActivityThread;
+import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.DatabaseErrorHandler;
@@ -33,6 +36,7 @@ import android.os.Looper;
 import android.os.OperationCanceledException;
 import android.os.SystemProperties;
 import android.text.TextUtils;
+import android.util.ArraySet;
 import android.util.EventLog;
 import android.util.Log;
 import android.util.Pair;
@@ -44,9 +48,14 @@ import dalvik.system.CloseGuard;
 
 import java.io.File;
 import java.io.FileFilter;
+import java.io.IOException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -91,6 +100,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
     // Thread-local for database sessions that belong to this database.
     // Each thread has its own database session.
     // INVARIANT: Immutable.
+    @UnsupportedAppUsage
     private final ThreadLocal<SQLiteSession> mThreadSession = ThreadLocal
             .withInitial(this::createSession);
 
@@ -124,12 +134,14 @@ public final class SQLiteDatabase extends SQLiteClosable {
 
     // The database configuration.
     // INVARIANT: Guarded by mLock.
+    @UnsupportedAppUsage
     private final SQLiteDatabaseConfiguration mConfigurationLocked;
 
     // The connection pool for the database, null when closed.
     // The pool itself is thread-safe, but the reference to it can only be acquired
     // when the lock is held.
     // INVARIANT: Guarded by mLock.
+    @UnsupportedAppUsage
     private SQLiteConnectionPool mConnectionPoolLocked;
 
     // True if the database has attached databases.
@@ -189,7 +201,9 @@ public final class SQLiteDatabase extends SQLiteClosable {
      */
     public static final int CONFLICT_NONE = 0;
 
-    private static final String[] CONFLICT_VALUES = new String[]
+    /** {@hide} */
+    @UnsupportedAppUsage
+    public static final String[] CONFLICT_VALUES = new String[]
             {"", " OR ROLLBACK ", " OR ABORT ", " OR FAIL ", " OR IGNORE ", " OR REPLACE "};
 
     /**
@@ -252,12 +266,17 @@ public final class SQLiteDatabase extends SQLiteClosable {
      */
     public static final int ENABLE_WRITE_AHEAD_LOGGING = 0x20000000;
 
+
+    // Note: The below value was only used on Android Pie.
+    // public static final int DISABLE_COMPATIBILITY_WAL = 0x40000000;
+
     /**
-     * Open flag: Flag for {@link #openDatabase} to disable Compatibility WAL when opening database.
+     * Open flag: Flag for {@link #openDatabase} to enable the legacy Compatibility WAL when opening
+     * database.
      *
      * @hide
      */
-    public static final int DISABLE_COMPATIBILITY_WAL = 0x40000000;
+    public static final int ENABLE_LEGACY_COMPATIBILITY_WAL = 0x80000000;
 
     /**
      * Absolute max value that can be set by {@link #setMaxSqlCacheSize(int)}.
@@ -295,10 +314,8 @@ public final class SQLiteDatabase extends SQLiteClosable {
         mConfigurationLocked.idleConnectionTimeoutMs = effectiveTimeoutMs;
         mConfigurationLocked.journalMode = journalMode;
         mConfigurationLocked.syncMode = syncMode;
-        if (!SQLiteGlobal.isCompatibilityWalSupported() || (
-                SQLiteCompatibilityWalFlags.areFlagsSet() && !SQLiteCompatibilityWalFlags
-                        .isCompatibilityWalSupported())) {
-            mConfigurationLocked.openFlags |= DISABLE_COMPATIBILITY_WAL;
+        if (SQLiteCompatibilityWalFlags.isLegacyCompatibilityWalEnabled()) {
+            mConfigurationLocked.openFlags |= ENABLE_LEGACY_COMPATIBILITY_WAL;
         }
     }
 
@@ -399,6 +416,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
      * @throws IllegalStateException if the thread does not yet have a session and
      * the database is not open.
      */
+    @UnsupportedAppUsage
     SQLiteSession getThreadSession() {
         return mThreadSession.get(); // initialValue() throws if database closed
     }
@@ -542,6 +560,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
         beginTransaction(transactionListener, false);
     }
 
+    @UnsupportedAppUsage
     private void beginTransaction(SQLiteTransactionListener transactionListener,
             boolean exclusive) {
         acquireReference();
@@ -641,7 +660,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
      * successful so far. Do not call setTransactionSuccessful before calling this. When this
      * returns a new transaction will have been created but not marked as successful.
      * @return true if the transaction was yielded
-     * @deprecated if the db is locked more than once (becuase of nested transactions) then the lock
+     * @deprecated if the db is locked more than once (because of nested transactions) then the lock
      *   will not be yielded. Use yieldIfContendedSafely instead.
      */
     @Deprecated
@@ -729,6 +748,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
         return openDatabase(path.getPath(), openParams);
     }
 
+    @UnsupportedAppUsage
     private static SQLiteDatabase openDatabase(@NonNull String path,
             @NonNull OpenParams openParams) {
         Preconditions.checkArgument(openParams != null, "OpenParams cannot be null");
@@ -799,6 +819,12 @@ public final class SQLiteDatabase extends SQLiteClosable {
      * @return True if the database was successfully deleted.
      */
     public static boolean deleteDatabase(@NonNull File file) {
+        return deleteDatabase(file, /*removeCheckFile=*/ true);
+    }
+
+
+    /** @hide */
+    public static boolean deleteDatabase(@NonNull File file, boolean removeCheckFile) {
         if (file == null) {
             throw new IllegalArgumentException("file must not be null");
         }
@@ -808,6 +834,9 @@ public final class SQLiteDatabase extends SQLiteClosable {
         deleted |= new File(file.getPath() + "-journal").delete();
         deleted |= new File(file.getPath() + "-shm").delete();
         deleted |= new File(file.getPath() + "-wal").delete();
+
+        // This file is not a standard SQLite file, so don't update the deleted flag.
+        new File(file.getPath() + SQLiteGlobal.WIPE_CHECK_FILE_SUFFIX).delete();
 
         File dir = file.getParentFile();
         if (dir != null) {
@@ -838,6 +867,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
      * @see #isReadOnly()
      * @hide
      */
+    @UnsupportedAppUsage
     public void reopenReadWrite() {
         synchronized (mLock) {
             throwIfNotOpenLocked();
@@ -863,9 +893,14 @@ public final class SQLiteDatabase extends SQLiteClosable {
         try {
             try {
                 openInner();
-            } catch (SQLiteDatabaseCorruptException ex) {
-                onCorruption();
-                openInner();
+            } catch (RuntimeException ex) {
+                if (SQLiteDatabaseCorruptException.isCorruptException(ex)) {
+                    Log.e(TAG, "Database corruption detected in open()", ex);
+                    onCorruption();
+                    openInner();
+                } else {
+                    throw ex;
+                }
             }
         } catch (SQLiteException ex) {
             Log.e(TAG, "Failed to open database '" + getLabel() + "'.", ex);
@@ -1748,7 +1783,8 @@ public final class SQLiteDatabase extends SQLiteClosable {
         executeSql(sql, bindArgs);
     }
 
-    private int executeSql(String sql, Object[] bindArgs) throws SQLException {
+    /** {@hide} */
+    public int executeSql(String sql, Object[] bindArgs) throws SQLException {
         acquireReference();
         try {
             final int statementType = DatabaseUtils.getSqlStatementType(sql);
@@ -2090,15 +2126,18 @@ public final class SQLiteDatabase extends SQLiteClosable {
             throwIfNotOpenLocked();
 
             final int oldFlags = mConfigurationLocked.openFlags;
-            final boolean walDisabled = (oldFlags & ENABLE_WRITE_AHEAD_LOGGING) == 0;
-            final boolean compatibilityWalDisabled = (oldFlags & DISABLE_COMPATIBILITY_WAL) != 0;
-            if (walDisabled && compatibilityWalDisabled) {
+            final boolean walEnabled = (oldFlags & ENABLE_WRITE_AHEAD_LOGGING) != 0;
+            final boolean compatibilityWalEnabled =
+                    (oldFlags & ENABLE_LEGACY_COMPATIBILITY_WAL) != 0;
+            // WAL was never enabled for this database, so there's nothing left to do.
+            if (!walEnabled && !compatibilityWalEnabled) {
                 return;
             }
 
+            // If an app explicitly disables WAL, it takes priority over any directive
+            // to use the legacy "compatibility WAL" mode.
             mConfigurationLocked.openFlags &= ~ENABLE_WRITE_AHEAD_LOGGING;
-            // If an app explicitly disables WAL, compatibility mode should be disabled too
-            mConfigurationLocked.openFlags |= DISABLE_COMPATIBILITY_WAL;
+            mConfigurationLocked.openFlags &= ~ENABLE_LEGACY_COMPATIBILITY_WAL;
 
             try {
                 mConnectionPoolLocked.reconfigure(mConfigurationLocked);
@@ -2137,6 +2176,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
         return dbStatsList;
     }
 
+    @UnsupportedAppUsage
     private void collectDbStats(ArrayList<DbStats> dbStatsList) {
         synchronized (mLock) {
             if (mConnectionPoolLocked != null) {
@@ -2145,6 +2185,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
         }
     }
 
+    @UnsupportedAppUsage
     private static ArrayList<SQLiteDatabase> getActiveDatabases() {
         ArrayList<SQLiteDatabase> databases = new ArrayList<SQLiteDatabase>();
         synchronized (sActiveDatabases) {
@@ -2157,18 +2198,58 @@ public final class SQLiteDatabase extends SQLiteClosable {
      * Dump detailed information about all open databases in the current process.
      * Used by bug report.
      */
-    static void dumpAll(Printer printer, boolean verbose) {
+    static void dumpAll(Printer printer, boolean verbose, boolean isSystem) {
+        // Use this ArraySet to collect file paths.
+        final ArraySet<String> directories = new ArraySet<>();
+
         for (SQLiteDatabase db : getActiveDatabases()) {
-            db.dump(printer, verbose);
+            db.dump(printer, verbose, isSystem, directories);
+        }
+
+        // Dump DB files in the directories.
+        if (directories.size() > 0) {
+            final String[] dirs = directories.toArray(new String[directories.size()]);
+            Arrays.sort(dirs);
+            for (String dir : dirs) {
+                dumpDatabaseDirectory(printer, new File(dir), isSystem);
+            }
         }
     }
 
-    private void dump(Printer printer, boolean verbose) {
+    private void dump(Printer printer, boolean verbose, boolean isSystem, ArraySet directories) {
         synchronized (mLock) {
             if (mConnectionPoolLocked != null) {
                 printer.println("");
-                mConnectionPoolLocked.dump(printer, verbose);
+                mConnectionPoolLocked.dump(printer, verbose, directories);
             }
+        }
+    }
+
+    private static void dumpDatabaseDirectory(Printer pw, File dir, boolean isSystem) {
+        pw.println("");
+        pw.println("Database files in " + dir.getAbsolutePath() + ":");
+        final File[] files = dir.listFiles();
+        if (files == null || files.length == 0) {
+            pw.println("  [none]");
+            return;
+        }
+        Arrays.sort(files, (a, b) -> a.getName().compareTo(b.getName()));
+
+        for (File f : files) {
+            if (isSystem) {
+                // If called within the system server, the directory contains other files too, so
+                // filter by file extensions.
+                // (If it's an app, just print all files because they may not use *.db
+                // extension.)
+                final String name = f.getName();
+                if (!(name.endsWith(".db") || name.endsWith(".db-wal")
+                        || name.endsWith(".db-journal")
+                        || name.endsWith(SQLiteGlobal.WIPE_CHECK_FILE_SUFFIX))) {
+                    continue;
+                }
+            }
+            pw.println(String.format("  %-40s %7db %s", f.getName(), f.length(),
+                    SQLiteDatabase.getFileTimestamps(f.getAbsolutePath())));
         }
     }
 
@@ -2574,10 +2655,27 @@ public final class SQLiteDatabase extends SQLiteClosable {
              * Sets the maximum number of milliseconds that SQLite connection is allowed to be idle
              * before it is closed and removed from the pool.
              *
+             * <p><b>DO NOT USE</b> this method.
+             * This feature has negative side effects that are very hard to foresee.
+             * <p>A connection timeout allows the system to internally close a connection to
+             * a SQLite database after a given timeout, which is good for reducing app's memory
+             * consumption.
+             * <b>However</b> the side effect is it <b>will reset all of SQLite's per-connection
+             * states</b>, which are typically modified with a {@code PRAGMA} statement, and
+             * these states <b>will not be restored</b> when a connection is re-established
+             * internally, and the system does not provide a callback for an app to reconfigure a
+             * connection.
+             * This feature may only be used if an app relies on none of such per-connection states.
+             *
              * @param idleConnectionTimeoutMs timeout in milliseconds. Use {@link Long#MAX_VALUE}
              * to allow unlimited idle connections.
+             *
+             * @see SQLiteOpenHelper#setIdleConnectionTimeout(long)
+             *
+             * @deprecated DO NOT USE this method. See the javadoc for the details.
              */
             @NonNull
+            @Deprecated
             public Builder setIdleConnectionTimeout(
                     @IntRange(from = 0) long idleConnectionTimeoutMs) {
                 Preconditions.checkArgument(idleConnectionTimeoutMs >= 0,
@@ -2598,7 +2696,7 @@ public final class SQLiteDatabase extends SQLiteClosable {
                 return this;
             }
 
-            /**
+            /**w
              * Sets <a href="https://sqlite.org/pragma.html#pragma_synchronous">synchronous mode</a>
              * .
              * @return
@@ -2633,5 +2731,34 @@ public final class SQLiteDatabase extends SQLiteClosable {
     @Retention(RetentionPolicy.SOURCE)
     public @interface DatabaseOpenFlags {}
 
+    /** @hide */
+    public static void wipeDetected(String filename, String reason) {
+        wtfAsSystemServer(TAG, "DB wipe detected:"
+                + " package=" + ActivityThread.currentPackageName()
+                + " reason=" + reason
+                + " file=" + filename
+                + " " + getFileTimestamps(filename)
+                + " checkfile " + getFileTimestamps(filename + SQLiteGlobal.WIPE_CHECK_FILE_SUFFIX),
+                new Throwable("STACKTRACE"));
+    }
+
+    /** @hide */
+    public static String getFileTimestamps(String path) {
+        try {
+            BasicFileAttributes attr = Files.readAttributes(
+                    FileSystems.getDefault().getPath(path), BasicFileAttributes.class);
+            return "ctime=" + attr.creationTime()
+                    + " mtime=" + attr.lastModifiedTime()
+                    + " atime=" + attr.lastAccessTime();
+        } catch (IOException e) {
+            return "[unable to obtain timestamp]";
+        }
+    }
+
+    /** @hide */
+    static void wtfAsSystemServer(String tag, String message, Throwable stacktrace) {
+        Log.e(tag, message, stacktrace);
+        ContentResolver.onDbCorruption(tag, message, stacktrace);
+    }
 }
 

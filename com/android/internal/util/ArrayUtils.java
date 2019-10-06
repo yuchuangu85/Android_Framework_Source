@@ -18,12 +18,14 @@ package com.android.internal.util;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.util.ArraySet;
 
 import dalvik.system.VMRuntime;
 
 import libcore.util.EmptyArray;
 
+import java.io.File;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,6 +34,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.IntFunction;
 
 /**
  * ArrayUtils contains some methods that you can call to find out
@@ -40,6 +43,8 @@ import java.util.Objects;
 public class ArrayUtils {
     private static final int CACHE_SIZE = 73;
     private static Object[] sCache = new Object[CACHE_SIZE];
+
+    public static final File[] EMPTY_FILE = new File[0];
 
     private ArrayUtils() { /* cannot be instantiated */ }
 
@@ -51,6 +56,7 @@ public class ArrayUtils {
         return (char[])VMRuntime.getRuntime().newUnpaddedArray(char.class, minLen);
     }
 
+    @UnsupportedAppUsage
     public static int[] newUnpaddedIntArray(int minLen) {
         return (int[])VMRuntime.getRuntime().newUnpaddedArray(int.class, minLen);
     }
@@ -71,6 +77,7 @@ public class ArrayUtils {
         return (Object[])VMRuntime.getRuntime().newUnpaddedArray(Object.class, minLen);
     }
 
+    @UnsupportedAppUsage
     @SuppressWarnings("unchecked")
     public static <T> T[] newUnpaddedArray(Class<T> clazz, int minLen) {
         return (T[])VMRuntime.getRuntime().newUnpaddedArray(clazz, minLen);
@@ -108,6 +115,7 @@ public class ArrayUtils {
      * it will return the same empty array every time to avoid reallocation,
      * although this is not guaranteed.
      */
+    @UnsupportedAppUsage
     @SuppressWarnings("unchecked")
     public static <T> T[] emptyArray(Class<T> kind) {
         if (kind == Object.class) {
@@ -144,6 +152,7 @@ public class ArrayUtils {
     /**
      * Checks if given array is null or has zero elements.
      */
+    @UnsupportedAppUsage
     public static <T> boolean isEmpty(@Nullable T[] array) {
         return array == null || array.length == 0;
     }
@@ -196,6 +205,7 @@ public class ArrayUtils {
      * @param value the value to check for
      * @return true if the value is present in the array
      */
+    @UnsupportedAppUsage
     public static <T> boolean contains(@Nullable T[] array, T value) {
         return indexOf(array, value) != -1;
     }
@@ -204,6 +214,7 @@ public class ArrayUtils {
      * Return first index of {@code value} in {@code array}, or {@code -1} if
      * not found.
      */
+    @UnsupportedAppUsage
     public static <T> int indexOf(@Nullable T[] array, T value) {
         if (array == null) return -1;
         for (int i = 0; i < array.length; i++) {
@@ -238,6 +249,7 @@ public class ArrayUtils {
         return false;
     }
 
+    @UnsupportedAppUsage
     public static boolean contains(@Nullable int[] array, int value) {
         if (array == null) return false;
         for (int element : array) {
@@ -308,10 +320,28 @@ public class ArrayUtils {
         return array;
     }
 
+    @SuppressWarnings("unchecked")
+    public static @NonNull <T> T[] concatElements(Class<T> kind, @Nullable T[] a, @Nullable T[] b) {
+        final int an = (a != null) ? a.length : 0;
+        final int bn = (b != null) ? b.length : 0;
+        if (an == 0 && bn == 0) {
+            if (kind == String.class) {
+                return (T[]) EmptyArray.STRING;
+            } else if (kind == Object.class) {
+                return (T[]) EmptyArray.OBJECT;
+            }
+        }
+        final T[] res = (T[]) Array.newInstance(kind, an + bn);
+        if (an > 0) System.arraycopy(a, 0, res, 0, an);
+        if (bn > 0) System.arraycopy(b, 0, res, an, bn);
+        return res;
+    }
+
     /**
      * Adds value to given array if not already present, providing set-like
      * behavior.
      */
+    @UnsupportedAppUsage
     @SuppressWarnings("unchecked")
     public static @NonNull <T> T[] appendElement(Class<T> kind, @Nullable T[] array, T element) {
         return appendElement(kind, array, element, false);
@@ -341,6 +371,7 @@ public class ArrayUtils {
     /**
      * Removes value from given array if present, providing set-like behavior.
      */
+    @UnsupportedAppUsage
     @SuppressWarnings("unchecked")
     public static @Nullable <T> T[] removeElement(Class<T> kind, @Nullable T[] array, T element) {
         if (array != null) {
@@ -387,6 +418,7 @@ public class ArrayUtils {
      * Adds value to given array if not already present, providing set-like
      * behavior.
      */
+    @UnsupportedAppUsage
     public static @NonNull int[] appendInt(@Nullable int[] cur, int val) {
         return appendInt(cur, val, false);
     }
@@ -492,6 +524,13 @@ public class ArrayUtils {
     }
 
     public static @Nullable long[] cloneOrNull(@Nullable long[] array) {
+        return (array != null) ? array.clone() : null;
+    }
+
+    /**
+     * Clones an array or returns null if the array is null.
+     */
+    public static @Nullable <T> T[] cloneOrNull(@Nullable T[] array) {
         return (array != null) ? array.clone() : null;
     }
 
@@ -625,5 +664,100 @@ public class ArrayUtils {
 
     public static @NonNull String[] defeatNullable(@Nullable String[] val) {
         return (val != null) ? val : EmptyArray.STRING;
+    }
+
+    public static @NonNull File[] defeatNullable(@Nullable File[] val) {
+        return (val != null) ? val : EMPTY_FILE;
+    }
+
+    /**
+     * Throws {@link ArrayIndexOutOfBoundsException} if the index is out of bounds.
+     *
+     * @param len length of the array. Must be non-negative
+     * @param index the index to check
+     * @throws ArrayIndexOutOfBoundsException if the {@code index} is out of bounds of the array
+     */
+    public static void checkBounds(int len, int index) {
+        if (index < 0 || len <= index) {
+            throw new ArrayIndexOutOfBoundsException("length=" + len + "; index=" + index);
+        }
+    }
+
+    /**
+     * Returns an array with values from {@code val} minus {@code null} values
+     *
+     * @param arrayConstructor typically {@code T[]::new} e.g. {@code String[]::new}
+     */
+    public static <T> T[] filterNotNull(T[] val, IntFunction<T[]> arrayConstructor) {
+        int nullCount = 0;
+        int size = size(val);
+        for (int i = 0; i < size; i++) {
+            if (val[i] == null) {
+                nullCount++;
+            }
+        }
+        if (nullCount == 0) {
+            return val;
+        }
+        T[] result = arrayConstructor.apply(size - nullCount);
+        int outIdx = 0;
+        for (int i = 0; i < size; i++) {
+            if (val[i] != null) {
+                result[outIdx++] = val[i];
+            }
+        }
+        return result;
+    }
+
+    public static boolean startsWith(byte[] cur, byte[] val) {
+        if (cur == null || val == null) return false;
+        if (cur.length < val.length) return false;
+        for (int i = 0; i < val.length; i++) {
+            if (cur[i] != val[i]) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Returns the first element from the array for which
+     * condition {@code predicate} is true, or null if there is no such element
+     */
+    public static @Nullable <T> T find(@Nullable T[] items,
+            @NonNull java.util.function.Predicate<T> predicate) {
+        if (isEmpty(items)) return null;
+        for (final T item : items) {
+            if (predicate.test(item)) return item;
+        }
+        return null;
+    }
+
+    public static String deepToString(Object value) {
+        if (value != null && value.getClass().isArray()) {
+            if (value.getClass() == boolean[].class) {
+                return Arrays.toString((boolean[]) value);
+            } else if (value.getClass() == byte[].class) {
+                return Arrays.toString((byte[]) value);
+            } else if (value.getClass() == char[].class) {
+                return Arrays.toString((char[]) value);
+            } else if (value.getClass() == double[].class) {
+                return Arrays.toString((double[]) value);
+            } else if (value.getClass() == float[].class) {
+                return Arrays.toString((float[]) value);
+            } else if (value.getClass() == int[].class) {
+                return Arrays.toString((int[]) value);
+            } else if (value.getClass() == long[].class) {
+                return Arrays.toString((long[]) value);
+            } else if (value.getClass() == short[].class) {
+                return Arrays.toString((short[]) value);
+            } else {
+                return Arrays.deepToString((Object[]) value);
+            }
+        } else {
+            return String.valueOf(value);
+        }
+    }
+
+    public static @Nullable <T> T firstOrNull(T[] items) {
+        return items.length > 0 ? items[0] : null;
     }
 }

@@ -16,14 +16,12 @@
 
 package com.android.server.wifi;
 
-import android.content.Context;
-import android.content.Intent;
-import android.net.wifi.WifiManager;
-import android.os.UserHandle;
-import android.util.Log;
+import android.annotation.IntDef;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * Base class for available WiFi operating modes.
@@ -31,38 +29,33 @@ import java.io.PrintWriter;
  * Currently supported modes include Client, ScanOnly and SoftAp.
  */
 public interface ActiveModeManager {
-    String TAG = "ActiveModeManager";
-
     /**
      * Method used to start the Manager for a given Wifi operational mode.
      */
     void start();
 
     /**
-     * Method used to stop the Manager for a give Wifi operational mode.
+     * Method used to stop the Manager for a given Wifi operational mode.
      */
     void stop();
+
+
+    /** Scan Modes */
+    int SCAN_NONE = 0;
+    int SCAN_WITHOUT_HIDDEN_NETWORKS = 1;
+    int SCAN_WITH_HIDDEN_NETWORKS = 2;
+
+    @IntDef({SCAN_NONE, SCAN_WITHOUT_HIDDEN_NETWORKS, SCAN_WITH_HIDDEN_NETWORKS})
+    @Retention(RetentionPolicy.SOURCE)
+    @interface ScanMode{}
+
+    /**
+     * Method to get the scan mode for a given Wifi operation mode.
+     */
+    @ScanMode int getScanMode();
 
     /**
      * Method to dump for logging state.
      */
     void dump(FileDescriptor fd, PrintWriter pw, String[] args);
-
-    /**
-     * Method that allows Mode Managers to update WifiScanner about the current state.
-     *
-     * @param context Context to use for the notification
-     * @param available boolean indicating if scanning is available
-     */
-    default void sendScanAvailableBroadcast(Context context, boolean available) {
-        Log.d(TAG, "sending scan available broadcast: " + available);
-        final Intent intent = new Intent(WifiManager.WIFI_SCAN_AVAILABLE);
-        intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
-        if (available) {
-            intent.putExtra(WifiManager.EXTRA_SCAN_AVAILABLE, WifiManager.WIFI_STATE_ENABLED);
-        } else {
-            intent.putExtra(WifiManager.EXTRA_SCAN_AVAILABLE, WifiManager.WIFI_STATE_DISABLED);
-        }
-        context.sendStickyBroadcastAsUser(intent, UserHandle.ALL);
-    }
 }

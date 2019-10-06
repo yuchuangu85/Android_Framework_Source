@@ -169,8 +169,22 @@ public final class StackTraceElement implements java.io.Serializable {
      * @see    Throwable#printStackTrace()
      */
     public String toString() {
-        // Android-changed: When ART cannot find a line number, the lineNumber field is set
-        // to the dex_pc and the fileName field is set to null.
+        // BEGIN Android-changed: Fall back Unknown Source:<dex_pc> for unknown lineNumber.
+        // http://b/30183883
+        // The only behavior change is that "Unknown Source" is followed by a number
+        // (the value of the dex program counter, dex_pc), which never occurs on the
+        // RI. This value isn't a line number, but can be useful for debugging and
+        // avoids the need to ship line number information along with the dex code to
+        // get an accurate stack trace.
+        // Formatting it in this way might be more digestible to automated tools that
+        // are not specifically written to expect this behavior.
+        /*
+        return getClassName() + "." + methodName +
+            (isNativeMethod() ? "(Native Method)" :
+             (fileName != null && lineNumber >= 0 ?
+              "(" + fileName + ":" + lineNumber + ")" :
+              (fileName != null ?  "("+fileName+")" : "(Unknown Source)")));
+        */
         StringBuilder result = new StringBuilder();
         result.append(getClassName()).append(".").append(methodName);
         if (isNativeMethod()) {
@@ -190,6 +204,7 @@ public final class StackTraceElement implements java.io.Serializable {
             }
         }
         return result.toString();
+        // END Android-changed: Fall back Unknown Source:<dex_pc> for unknown lineNumber.
     }
 
     /**

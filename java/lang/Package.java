@@ -52,7 +52,7 @@ import java.util.Iterator;
 import sun.net.www.ParseUtil;
 import sun.reflect.CallerSensitive;
 import dalvik.system.VMRuntime;
-import dalvik.system.VMStack;
+import sun.reflect.Reflection;
 
 import java.lang.annotation.Annotation;
 
@@ -279,9 +279,7 @@ public class Package implements java.lang.reflect.AnnotatedElement {
      */
     @CallerSensitive
     public static Package getPackage(String name) {
-        // Android-changed: Use VMStack.getCallingClassLoader() to obtain the classloader.
-        // ClassLoader l = ClassLoader.getClassLoader(Reflection.getCallerClass());
-        ClassLoader l = VMStack.getCallingClassLoader();
+        ClassLoader l = ClassLoader.getClassLoader(Reflection.getCallerClass());
         if (l != null) {
             return l.getPackage(name);
         } else {
@@ -303,9 +301,7 @@ public class Package implements java.lang.reflect.AnnotatedElement {
      */
     @CallerSensitive
     public static Package[] getPackages() {
-        // Android-changed: Use VMStack.getCallingClassLoader() to obtain the classloader.
-        // ClassLoader l = ClassLoader.getClassLoader(Reflection.getCallerClass());
-        ClassLoader l = VMStack.getCallingClassLoader();
+        ClassLoader l = ClassLoader.getClassLoader(Reflection.getCallerClass());
         if (l != null) {
             return l.getPackages();
         } else {

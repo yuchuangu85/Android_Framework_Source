@@ -2,16 +2,19 @@ package com.android.clockwork.cellular;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Matchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.robolectric.Shadows.shadowOf;
 
+import android.app.AlarmManager;
 import android.content.ContentResolver;
-import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
@@ -19,7 +22,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
-import com.android.clockwork.flags.UserAbsentRadiosOffObserver;
+import com.android.clockwork.flags.BooleanFlag;
 import com.android.clockwork.power.PowerTracker;
 import com.android.internal.telephony.IccCardConstants;
 import com.android.internal.telephony.PhoneConstants;
@@ -34,40 +37,37 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RobolectricTestRunner;
-import org.robolectric.annotation.Config;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.shadows.ShadowApplication;
-import org.robolectric.shadows.ShadowContentResolver;
 
 /** Test for {@link WearCellularMediator} */
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = Config.NEWEST_SDK)
 public class WearCellularMediatorTest {
-    final ShadowApplication shadowApplication = ShadowApplication.getInstance();
+
     private static final String CELL_AUTO_SETTING_KEY = "clockwork_cell_auto_setting";
     private static final Uri CELL_AUTO_SETTING_URI =
         Settings.System.getUriFor(CELL_AUTO_SETTING_KEY);
-    private static final Uri CELL_ON_URI = Settings.Global.getUriFor(Settings.Global.CELL_ON);
 
     private ContentResolver mContentResolver;
-    private ContentValues contentValues;
     private Context mContext;
-    private ShadowContentResolver mShadowContentResolver;
+    private ShadowApplication shadowApplication;
     private WearCellularMediator mMediator;
 
-    @Captor ArgumentCaptor<Message> msgCaptor;
-    @Mock Handler mockHandler;
-    @Mock PowerTracker mockPowerTracker;
-    @Mock UserAbsentRadiosOffObserver mockUserAbsentRadiosOffObserver;
-    @Mock SignalStateDetector mMockSignalStateDetector;
-    @Mock TelephonyManager mockTelephonyManager;
-    @Mock WearCellularMediatorSettings mockSettings;
+    private @Captor ArgumentCaptor<Message> msgCaptor;
+    private @Mock Handler mockHandler;
+    private @Mock PowerTracker mockPowerTracker;
+    private @Mock BooleanFlag mockUserAbsentRadiosOffFlag;
+    private @Mock SignalStateDetector mMockSignalStateDetector;
+    private @Mock AlarmManager mockAlarmManager;
+    private @Mock TelephonyManager mockTelephonyManager;
+    private @Mock WearCellularMediatorSettings mockSettings;
 
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
-        mContext = ShadowApplication.getInstance().getApplicationContext();
+        mContext = RuntimeEnvironment.application;
         mContentResolver =  mContext.getContentResolver();
-        mShadowContentResolver = shadowOf(mContentResolver);
+        shadowApplication = ShadowApplication.getInstance();
 
         when(mockSettings.getCellAutoSetting()).thenReturn(WearCellularMediator.CELL_AUTO_ON);
         when(mockSettings.getCellState()).thenReturn(PhoneConstants.CELL_ON_FLAG);
@@ -77,24 +77,28 @@ public class WearCellularMediatorTest {
         when(mockSettings.getMobileSignalDetectorAllowed()).thenReturn(true);
         when(mockPowerTracker.isInPowerSave()).thenReturn(false);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(true);
+        when(mockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(true);
 
         mMediator = new WearCellularMediator(
                 mContext,
                 mContentResolver,
+                mockAlarmManager,
                 mockTelephonyManager,
                 mockSettings,
                 mockPowerTracker,
-                mockUserAbsentRadiosOffObserver,
+                mockUserAbsentRadiosOffFlag,
                 mMockSignalStateDetector);
         mMediator.mHandler = mockHandler;
+
+        // disable cell lingering to allow easier testing for most test cases
+        mMediator.setCellLingerDuration(-999);
         mMediator.onBootCompleted(true);
         when(mMockSignalStateDetector.isStarted()).thenReturn(true);
     }
 
     @Test
     public void testOnBootComplete() {
-        verify(mockUserAbsentRadiosOffObserver).addListener(mMediator);
+        verify(mockUserAbsentRadiosOffFlag).addListener(any());
 
         verifyPowerChange(WearCellularMediator.MSG_DISABLE_CELL,
                 WearCellularMediator.Reason.OFF_PROXY_CONNECTED);
@@ -106,12 +110,14 @@ public class WearCellularMediatorTest {
 
         assertTrue(shadowApplication.hasReceiverForIntent(
                 new Intent(PhoneConstants.ACTION_SUBSCRIPTION_PHONE_STATE_CHANGED)));
+        assertTrue(shadowApplication.hasReceiverForIntent(
+                new Intent(WearCellularMediator.ACTION_EXIT_CELL_LINGER)));
     }
 
     @Test
     public void testTurnCellAutoOff() {
         when(mockSettings.getCellAutoSetting()).thenReturn(WearCellularMediator.CELL_AUTO_OFF);
-        mShadowContentResolver.notifyChange(CELL_AUTO_SETTING_URI, null);
+        mContentResolver.notifyChange(CELL_AUTO_SETTING_URI, null);
         verifyPowerChange(WearCellularMediator.MSG_ENABLE_CELL,
                 WearCellularMediator.Reason.ON_NO_CELL_AUTO);
     }
@@ -166,7 +172,7 @@ public class WearCellularMediatorTest {
         verifyPowerChange(WearCellularMediator.MSG_DISABLE_CELL,
                 WearCellularMediator.Reason.OFF_USER_ABSENT);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(false);
+        when(mockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(false);
         mMediator.onUserAbsentRadiosOffChanged(false);
         verifyPowerChange(WearCellularMediator.MSG_ENABLE_CELL,
                 WearCellularMediator.Reason.ON_NETWORK_REQUEST);
@@ -181,7 +187,7 @@ public class WearCellularMediatorTest {
         verifyPowerChange(WearCellularMediator.MSG_ENABLE_CELL,
                 WearCellularMediator.Reason.ON_NETWORK_REQUEST);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(true);
+        when(mockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(true);
         mMediator.onUserAbsentRadiosOffChanged(true);
         verifyPowerChange(WearCellularMediator.MSG_DISABLE_CELL,
                 WearCellularMediator.Reason.OFF_USER_ABSENT);
@@ -196,7 +202,7 @@ public class WearCellularMediatorTest {
     public void testInPhoneCall() {
         Intent intent = new Intent(PhoneConstants.ACTION_SUBSCRIPTION_PHONE_STATE_CHANGED);
         intent.putExtra(TelephonyManager.EXTRA_STATE, TelephonyManager.EXTRA_STATE_OFFHOOK);
-        shadowApplication.sendBroadcast(intent);
+        mContext.sendBroadcast(intent);
 
         verifyPowerChange(WearCellularMediator.MSG_ENABLE_CELL,
                 WearCellularMediator.Reason.ON_PHONE_CALL);
@@ -217,7 +223,7 @@ public class WearCellularMediatorTest {
 
         reset(mockTelephonyManager);
         when(mockSettings.getCellState()).thenReturn(PhoneConstants.CELL_OFF_FLAG);
-        mShadowContentResolver.notifyChange(WearCellularMediator.CELL_ON_URI, null);
+        mContentResolver.notifyChange(WearCellularMediator.CELL_ON_URI, null);
 
         verifyPowerChange(WearCellularMediator.MSG_DISABLE_CELL,
                 WearCellularMediator.Reason.OFF_CELL_SETTING);
@@ -236,7 +242,7 @@ public class WearCellularMediatorTest {
         // Cell radio should be turned on if in call broadcast received.
         Intent intent = new Intent(PhoneConstants.ACTION_SUBSCRIPTION_PHONE_STATE_CHANGED);
         intent.putExtra(TelephonyManager.EXTRA_STATE, TelephonyManager.EXTRA_STATE_OFFHOOK);
-        shadowApplication.sendBroadcast(intent);
+        mContext.sendBroadcast(intent);
         verifyPowerChange(WearCellularMediator.MSG_ENABLE_CELL,
                 WearCellularMediator.Reason.ON_PHONE_CALL);
     }
@@ -255,7 +261,7 @@ public class WearCellularMediatorTest {
         // But the incall broadcast should turn it back on.
         Intent intent = new Intent(PhoneConstants.ACTION_SUBSCRIPTION_PHONE_STATE_CHANGED);
         intent.putExtra(TelephonyManager.EXTRA_STATE, TelephonyManager.EXTRA_STATE_OFFHOOK);
-        shadowApplication.sendBroadcast(intent);
+        mContext.sendBroadcast(intent);
 
         verifyPowerChange(WearCellularMediator.MSG_ENABLE_CELL,
                 WearCellularMediator.Reason.ON_PHONE_CALL);
@@ -287,7 +293,7 @@ public class WearCellularMediatorTest {
         Intent simIntent = new Intent(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
         simIntent.putExtra(IccCardConstants.INTENT_KEY_ICC_STATE,
                 IccCardConstants.INTENT_VALUE_ICC_ABSENT);
-        shadowApplication.sendBroadcast(simIntent);
+        mContext.sendBroadcast(simIntent);
 
         verifyPowerChange(WearCellularMediator.MSG_DISABLE_CELL,
                 WearCellularMediator.Reason.OFF_SIM_ABSENT);
@@ -295,7 +301,7 @@ public class WearCellularMediatorTest {
         // Incall broadcast should turn it back on.
         Intent intent = new Intent(PhoneConstants.ACTION_SUBSCRIPTION_PHONE_STATE_CHANGED);
         intent.putExtra(TelephonyManager.EXTRA_STATE, TelephonyManager.EXTRA_STATE_OFFHOOK);
-        shadowApplication.sendBroadcast(intent);
+        mContext.sendBroadcast(intent);
 
         verifyPowerChange(WearCellularMediator.MSG_ENABLE_CELL,
                 WearCellularMediator.Reason.ON_PHONE_CALL);
@@ -307,11 +313,12 @@ public class WearCellularMediatorTest {
         // We replaced mMediator.mHandler in setUp() so instantiate it again here so that we can
         // test the getRadioOnState() in the real Handler.
         mMediator = new WearCellularMediator(
-                shadowApplication.getApplicationContext(),
+                mContext,
+                mockAlarmManager,
                 mockTelephonyManager,
                 mockSettings,
                 mockPowerTracker,
-                mockUserAbsentRadiosOffObserver);
+                mockUserAbsentRadiosOffFlag);
         // Trying to turn radio power off when radio is off.
         when(mockSettings.getRadioOnState()).thenReturn(WearCellularMediator.RADIO_ON_STATE_OFF);
         Message simAbsentMsg = Message.obtain(mMediator.mHandler,
@@ -362,7 +369,7 @@ public class WearCellularMediatorTest {
     @Test
     public void testDetectorDisallowed_stopsDetector() {
         when(mockSettings.getMobileSignalDetectorAllowed()).thenReturn(false);
-        mShadowContentResolver.notifyChange(WearCellularConstants.MOBILE_SIGNAL_DETECTOR_URI, null);
+        mContentResolver.notifyChange(WearCellularConstants.MOBILE_SIGNAL_DETECTOR_URI, null);
 
         verify(mMockSignalStateDetector).stopDetector();
     }
@@ -373,11 +380,14 @@ public class WearCellularMediatorTest {
         mMediator = new WearCellularMediator(
                 mContext,
                 mContentResolver,
+                mockAlarmManager,
                 mockTelephonyManager,
                 mockSettings,
                 mockPowerTracker,
-                mockUserAbsentRadiosOffObserver,
+                mockUserAbsentRadiosOffFlag,
                 mMockSignalStateDetector);
+        // Disable cell linger for simpler verification
+        mMediator.setCellLingerDuration(-999L);
         mMediator.mHandler = mockHandler;
         reset(mockHandler);
 
@@ -401,6 +411,73 @@ public class WearCellularMediatorTest {
         // Verify state changes occur after boot completed
         verifyPowerChange(WearCellularMediator.MSG_DISABLE_CELL,
                 WearCellularMediator.Reason.OFF_PROXY_CONNECTED);
+    }
+
+    @Test
+    public void testCellLingerWhenProxyConnected() {
+        mMediator.setCellLingerDuration(5000L);
+        reset(mockHandler);
+
+        mMediator.updateProxyConnected(true);
+
+        // verify that instead of toggling cell directly, we set an alarm to do so
+        verify(mockHandler, never()).sendMessage(msgCaptor.capture());
+        verify(mockAlarmManager).setWindow(eq(AlarmManager.ELAPSED_REALTIME),
+                anyLong(), anyLong(), eq(mMediator.exitCellLingerIntent));
+
+        // when the alarm hits, then we turn off the radio
+        mContext.sendBroadcast(new Intent(WearCellularMediator.ACTION_EXIT_CELL_LINGER));
+        verifyPowerChange(WearCellularMediator.MSG_DISABLE_CELL,
+                WearCellularMediator.Reason.OFF_PROXY_CONNECTED);
+    }
+
+    /**
+     * Even if we might turn on the radio for other reasons, if the reason we're keeping the
+     * radio off reduces to PROXY_CONNECTED, then lingering is enforced by implication.
+     */
+    @Test
+    public void testImpliedCellLingering() {
+        mMediator.updateProxyConnected(true);
+        reset(mockHandler);
+
+        mMediator.setCellLingerDuration(5000L);
+        mMediator.updateNumCellularRequests(1);
+        verifyPowerChange(WearCellularMediator.MSG_ENABLE_CELL,
+                WearCellularMediator.Reason.ON_NETWORK_REQUEST);
+
+        reset(mockHandler);
+        mMediator.updateNumCellularRequests(0);
+        verify(mockHandler, never()).sendMessage(msgCaptor.capture());
+        verify(mockAlarmManager).setWindow(eq(AlarmManager.ELAPSED_REALTIME),
+                anyLong(), anyLong(), eq(mMediator.exitCellLingerIntent));
+
+        // when the alarm hits, then we turn off the radio
+        mContext.sendBroadcast(new Intent(WearCellularMediator.ACTION_EXIT_CELL_LINGER));
+        verifyPowerChange(WearCellularMediator.MSG_DISABLE_CELL,
+                WearCellularMediator.Reason.OFF_PROXY_CONNECTED);
+    }
+
+    @Test
+    public void testCellLingerOnlySetsOneAlarm() {
+        mMediator.setCellLingerDuration(5000L);
+        reset(mockHandler);
+
+        // call update a few times in a row
+        mMediator.updateProxyConnected(true);
+        mMediator.updateProxyConnected(true);
+        mMediator.updateProxyConnected(true);
+        mMediator.updateProxyConnected(true);
+
+        verify(mockAlarmManager, times(1)).setWindow(eq(AlarmManager.ELAPSED_REALTIME),
+                anyLong(), anyLong(), eq(mMediator.exitCellLingerIntent));
+
+        // but after the alarm hits, we can set another one again (but only one)
+        mContext.sendBroadcast(new Intent(WearCellularMediator.ACTION_EXIT_CELL_LINGER));
+        mMediator.updateProxyConnected(true);
+        mMediator.updateProxyConnected(true);
+        mMediator.updateProxyConnected(true);
+        verify(mockAlarmManager, times(2)).setWindow(eq(AlarmManager.ELAPSED_REALTIME),
+                anyLong(), anyLong(), eq(mMediator.exitCellLingerIntent));
     }
 
     private void verifyLatestDecision(WearCellularMediator.Reason reason) {

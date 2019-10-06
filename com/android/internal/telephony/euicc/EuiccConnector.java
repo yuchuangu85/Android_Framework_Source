@@ -30,10 +30,12 @@ import android.content.pm.ComponentInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.os.RemoteException;
+import android.service.euicc.DownloadSubscriptionResult;
 import android.service.euicc.EuiccService;
 import android.service.euicc.GetDefaultDownloadableSubscriptionListResult;
 import android.service.euicc.GetDownloadableSubscriptionMetadataResult;
@@ -53,6 +55,8 @@ import android.service.euicc.IRetainSubscriptionsForFactoryResetCallback;
 import android.service.euicc.ISwitchToSubscriptionCallback;
 import android.service.euicc.IUpdateSubscriptionNicknameCallback;
 import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
+import android.telephony.UiccCardInfo;
 import android.telephony.euicc.DownloadableSubscription;
 import android.telephony.euicc.EuiccInfo;
 import android.telephony.euicc.EuiccManager;
@@ -217,7 +221,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
     @VisibleForTesting(visibility = PACKAGE)
     public interface GetMetadataCommandCallback extends BaseEuiccCommandCallback {
         /** Called when the metadata lookup has completed (though it may have failed). */
-        void onGetMetadataComplete(GetDownloadableSubscriptionMetadataResult result);
+        void onGetMetadataComplete(int cardId, GetDownloadableSubscriptionMetadataResult result);
     }
 
     static class DownloadRequest {
@@ -225,13 +229,14 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         boolean mSwitchAfterDownload;
         boolean mForceDeactivateSim;
         DownloadCommandCallback mCallback;
+        Bundle mResolvedBundle;
     }
 
     /** Callback class for {@link #downloadSubscription}. */
     @VisibleForTesting(visibility = PACKAGE)
     public interface DownloadCommandCallback extends BaseEuiccCommandCallback {
         /** Called when the download has completed (though it may have failed). */
-        void onDownloadComplete(int result);
+        void onDownloadComplete(DownloadSubscriptionResult result);
     }
 
     interface GetEuiccProfileInfoListCommandCallback extends BaseEuiccCommandCallback {
@@ -248,7 +253,8 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
     @VisibleForTesting(visibility = PACKAGE)
     public interface GetDefaultListCommandCallback extends BaseEuiccCommandCallback {
         /** Called when the list has completed (though it may have failed). */
-        void onGetDefaultListComplete(GetDefaultDownloadableSubscriptionListResult result);
+        void onGetDefaultListComplete(int cardId,
+                GetDefaultDownloadableSubscriptionListResult result);
     }
 
     /** Callback class for {@link #getEuiccInfo}. */
@@ -391,108 +397,110 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
 
     /** Asynchronously fetch the EID. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void getEid(GetEidCommandCallback callback) {
-        sendMessage(CMD_GET_EID, callback);
+    public void getEid(int cardId, GetEidCommandCallback callback) {
+        sendMessage(CMD_GET_EID, cardId, 0 /* arg2 */, callback);
     }
 
     /** Asynchronously get OTA status. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void getOtaStatus(GetOtaStatusCommandCallback callback) {
-        sendMessage(CMD_GET_OTA_STATUS, callback);
+    public void getOtaStatus(int cardId, GetOtaStatusCommandCallback callback) {
+        sendMessage(CMD_GET_OTA_STATUS, cardId, 0 /* arg2 */, callback);
     }
 
     /** Asynchronously perform OTA update. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void startOtaIfNecessary(OtaStatusChangedCallback callback) {
-        sendMessage(CMD_START_OTA_IF_NECESSARY, callback);
+    public void startOtaIfNecessary(int cardId, OtaStatusChangedCallback callback) {
+        sendMessage(CMD_START_OTA_IF_NECESSARY, cardId, 0 /* arg2 */, callback);
     }
 
     /** Asynchronously fetch metadata for the given downloadable subscription. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void getDownloadableSubscriptionMetadata(DownloadableSubscription subscription,
+    public void getDownloadableSubscriptionMetadata(int cardId,
+            DownloadableSubscription subscription,
             boolean forceDeactivateSim, GetMetadataCommandCallback callback) {
         GetMetadataRequest request =
                 new GetMetadataRequest();
         request.mSubscription = subscription;
         request.mForceDeactivateSim = forceDeactivateSim;
         request.mCallback = callback;
-        sendMessage(CMD_GET_DOWNLOADABLE_SUBSCRIPTION_METADATA, request);
+        sendMessage(CMD_GET_DOWNLOADABLE_SUBSCRIPTION_METADATA, cardId, 0 /* arg2 */, request);
     }
 
     /** Asynchronously download the given subscription. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void downloadSubscription(DownloadableSubscription subscription,
+    public void downloadSubscription(int cardId, DownloadableSubscription subscription,
             boolean switchAfterDownload, boolean forceDeactivateSim,
-            DownloadCommandCallback callback) {
+            Bundle resolvedBundle, DownloadCommandCallback callback) {
         DownloadRequest request = new DownloadRequest();
         request.mSubscription = subscription;
         request.mSwitchAfterDownload = switchAfterDownload;
         request.mForceDeactivateSim = forceDeactivateSim;
+        request.mResolvedBundle = resolvedBundle;
         request.mCallback = callback;
-        sendMessage(CMD_DOWNLOAD_SUBSCRIPTION, request);
+        sendMessage(CMD_DOWNLOAD_SUBSCRIPTION, cardId, 0 /* arg2 */, request);
     }
 
-    void getEuiccProfileInfoList(GetEuiccProfileInfoListCommandCallback callback) {
-        sendMessage(CMD_GET_EUICC_PROFILE_INFO_LIST, callback);
+    void getEuiccProfileInfoList(int cardId, GetEuiccProfileInfoListCommandCallback callback) {
+        sendMessage(CMD_GET_EUICC_PROFILE_INFO_LIST, cardId, 0 /* arg2 */, callback);
     }
 
     /** Asynchronously fetch the default downloadable subscription list. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void getDefaultDownloadableSubscriptionList(
+    public void getDefaultDownloadableSubscriptionList(int cardId,
             boolean forceDeactivateSim, GetDefaultListCommandCallback callback) {
         GetDefaultListRequest request = new GetDefaultListRequest();
         request.mForceDeactivateSim = forceDeactivateSim;
         request.mCallback = callback;
-        sendMessage(CMD_GET_DEFAULT_DOWNLOADABLE_SUBSCRIPTION_LIST, request);
+        sendMessage(CMD_GET_DEFAULT_DOWNLOADABLE_SUBSCRIPTION_LIST, cardId, 0 /* arg2 */, request);
     }
 
     /** Asynchronously fetch the {@link EuiccInfo}. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void getEuiccInfo(GetEuiccInfoCommandCallback callback) {
-        sendMessage(CMD_GET_EUICC_INFO, callback);
+    public void getEuiccInfo(int cardId, GetEuiccInfoCommandCallback callback) {
+        sendMessage(CMD_GET_EUICC_INFO, cardId, 0 /* arg2 */, callback);
     }
 
     /** Asynchronously delete the given subscription. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void deleteSubscription(String iccid, DeleteCommandCallback callback) {
+    public void deleteSubscription(int cardId, String iccid, DeleteCommandCallback callback) {
         DeleteRequest request = new DeleteRequest();
         request.mIccid = iccid;
         request.mCallback = callback;
-        sendMessage(CMD_DELETE_SUBSCRIPTION, request);
+        sendMessage(CMD_DELETE_SUBSCRIPTION, cardId, 0 /* arg2 */, request);
     }
 
     /** Asynchronously switch to the given subscription. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void switchToSubscription(@Nullable String iccid, boolean forceDeactivateSim,
+    public void switchToSubscription(int cardId, @Nullable String iccid, boolean forceDeactivateSim,
             SwitchCommandCallback callback) {
         SwitchRequest request = new SwitchRequest();
         request.mIccid = iccid;
         request.mForceDeactivateSim = forceDeactivateSim;
         request.mCallback = callback;
-        sendMessage(CMD_SWITCH_TO_SUBSCRIPTION, request);
+        sendMessage(CMD_SWITCH_TO_SUBSCRIPTION, cardId, 0 /* arg2 */, request);
     }
 
     /** Asynchronously update the nickname of the given subscription. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void updateSubscriptionNickname(
+    public void updateSubscriptionNickname(int cardId,
             String iccid, String nickname, UpdateNicknameCommandCallback callback) {
         UpdateNicknameRequest request = new UpdateNicknameRequest();
         request.mIccid = iccid;
         request.mNickname = nickname;
         request.mCallback = callback;
-        sendMessage(CMD_UPDATE_SUBSCRIPTION_NICKNAME, request);
+        sendMessage(CMD_UPDATE_SUBSCRIPTION_NICKNAME, cardId, 0 /* arg2 */, request);
     }
 
     /** Asynchronously erase all profiles on the eUICC. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void eraseSubscriptions(EraseCommandCallback callback) {
-        sendMessage(CMD_ERASE_SUBSCRIPTIONS, callback);
+    public void eraseSubscriptions(int cardId, EraseCommandCallback callback) {
+        sendMessage(CMD_ERASE_SUBSCRIPTIONS, cardId, 0 /* arg2 */, callback);
     }
 
     /** Asynchronously ensure that all profiles will be retained on the next factory reset. */
     @VisibleForTesting(visibility = PACKAGE)
-    public void retainSubscriptions(RetainSubscriptionsCommandCallback callback) {
-        sendMessage(CMD_RETAIN_SUBSCRIPTIONS, callback);
+    public void retainSubscriptions(int cardId, RetainSubscriptionsCommandCallback callback) {
+        sendMessage(CMD_RETAIN_SUBSCRIPTIONS, cardId, 0 /* arg2 */, callback);
     }
 
     /**
@@ -667,8 +675,8 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
             } else if (isEuiccCommand(message.what)) {
                 final BaseEuiccCommandCallback callback = getCallback(message);
                 onCommandStart(callback);
-                // TODO(b/36260308): Plumb through an actual SIM slot ID.
-                int slotId = SubscriptionManager.INVALID_SIM_SLOT_INDEX;
+                final int cardId = message.arg1;
+                final int slotId = getSlotIdFromCardId(cardId);
                 try {
                     switch (message.what) {
                         case CMD_GET_EID: {
@@ -696,7 +704,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                                                 GetDownloadableSubscriptionMetadataResult result) {
                                             sendMessage(CMD_COMMAND_COMPLETE, (Runnable) () -> {
                                                 ((GetMetadataCommandCallback) callback)
-                                                        .onGetMetadataComplete(result);
+                                                        .onGetMetadataComplete(cardId, result);
                                                 onCommandEnd(callback);
                                             });
                                         }
@@ -709,12 +717,13 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                                     request.mSubscription,
                                     request.mSwitchAfterDownload,
                                     request.mForceDeactivateSim,
+                                    request.mResolvedBundle,
                                     new IDownloadSubscriptionCallback.Stub() {
                                         @Override
-                                        public void onComplete(int result) {
+                                        public void onComplete(DownloadSubscriptionResult result) {
                                             sendMessage(CMD_COMMAND_COMPLETE, (Runnable) () -> {
                                                 ((DownloadCommandCallback) callback)
-                                                        .onDownloadComplete(result);
+                                                    .onDownloadComplete(result);
                                                 onCommandEnd(callback);
                                             });
                                         }
@@ -747,7 +756,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                                         ) {
                                             sendMessage(CMD_COMMAND_COMPLETE, (Runnable) () -> {
                                                 ((GetDefaultListCommandCallback) callback)
-                                                        .onGetDefaultListComplete(result);
+                                                        .onGetDefaultListComplete(cardId, result);
                                                 onCommandEnd(callback);
                                             });
                                         }
@@ -939,6 +948,29 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
             default:
                 throw new IllegalArgumentException("Unsupported message: " + message.what);
         }
+    }
+
+    /**
+     * Gets the slot ID from the card ID.
+     */
+    private int getSlotIdFromCardId(int cardId) {
+        if (cardId == TelephonyManager.UNSUPPORTED_CARD_ID
+                || cardId == TelephonyManager.UNINITIALIZED_CARD_ID) {
+            return SubscriptionManager.INVALID_SIM_SLOT_INDEX;
+        }
+        TelephonyManager tm = (TelephonyManager)
+                mContext.getSystemService(Context.TELEPHONY_SERVICE);
+        List<UiccCardInfo> infos = tm.getUiccCardsInfo();
+        if (infos == null || infos.size() == 0) {
+            return SubscriptionManager.INVALID_SIM_SLOT_INDEX;
+        }
+        int slotId = SubscriptionManager.INVALID_SIM_SLOT_INDEX;
+        for (UiccCardInfo info : infos) {
+            if (info.getCardId() == cardId) {
+                slotId = info.getSlotIndex();
+            }
+        }
+        return slotId;
     }
 
     /** Call this at the beginning of the execution of any command. */

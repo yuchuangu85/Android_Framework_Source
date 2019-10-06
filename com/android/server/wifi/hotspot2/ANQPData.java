@@ -73,7 +73,10 @@ public class ANQPData {
         sb.append(mANQPElements.size()).append(" elements, ");
         long now = mClock.getElapsedSinceBootMillis();
         sb.append(" expires in ").append(Utils.toHMS(mExpiryTime - now)).append(' ');
-        sb.append(expired(now) ? 'x' : '-');
+        sb.append(expired(now) ? 'x' : '-').append("\n");
+        for (Map.Entry<Constants.ANQPElementType, ANQPElement> entry: mANQPElements.entrySet()) {
+            sb.append(entry.getValue()).append("\n");
+        }
         return sb.toString();
     }
 }

@@ -21,13 +21,9 @@ import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 
 import android.Manifest;
 import android.app.AlarmManager;
-import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
 import android.net.wifi.IWifiScanner;
 import android.net.wifi.ScanResult;
-import android.net.wifi.WifiManager;
 import android.net.wifi.WifiScanner;
 import android.net.wifi.WifiScanner.ChannelSpec;
 import android.net.wifi.WifiScanner.PnoSettings;
@@ -44,6 +40,7 @@ import android.util.ArrayMap;
 import android.util.LocalLog;
 import android.util.Log;
 import android.util.Pair;
+import android.util.StatsLog;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.IBatteryStats;
@@ -52,17 +49,18 @@ import com.android.internal.util.AsyncChannel;
 import com.android.internal.util.Protocol;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
+import com.android.server.wifi.ClientModeImpl;
 import com.android.server.wifi.Clock;
 import com.android.server.wifi.FrameworkFacade;
 import com.android.server.wifi.WifiInjector;
 import com.android.server.wifi.WifiLog;
 import com.android.server.wifi.WifiMetrics;
 import com.android.server.wifi.WifiNative;
-import com.android.server.wifi.WifiStateMachine;
 import com.android.server.wifi.nano.WifiMetricsProto;
 import com.android.server.wifi.scanner.ChannelHelper.ChannelCollection;
 import com.android.server.wifi.util.ScanResultUtil;
 import com.android.server.wifi.util.WifiHandler;
+import com.android.server.wifi.util.WifiPermissionsUtil;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -123,11 +121,75 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
         return b;
     }
 
-    private void enforceLocationHardwarePermission(int uid) {
+    private void enforceNetworkStack(int uid) {
         mContext.enforcePermission(
-                Manifest.permission.LOCATION_HARDWARE,
+                Manifest.permission.NETWORK_STACK,
                 UNKNOWN_PID, uid,
-                "LocationHardware");
+                "NetworkStack");
+    }
+
+    // Helper method to check if the incoming message is for a privileged request.
+    private boolean isPrivilegedMessage(int msgWhat) {
+        return (msgWhat == WifiScanner.CMD_ENABLE
+                || msgWhat == WifiScanner.CMD_DISABLE
+                || msgWhat == WifiScanner.CMD_START_PNO_SCAN
+                || msgWhat == WifiScanner.CMD_STOP_PNO_SCAN
+                || msgWhat == WifiScanner.CMD_REGISTER_SCAN_LISTENER);
+    }
+
+    // For non-privileged requests, retrieve the bundled package name for app-op & permission
+    // checks.
+    private String getPackageName(Message msg) {
+        if (!(msg.obj instanceof Bundle)) {
+            return null;
+        }
+        Bundle bundle = (Bundle) msg.obj;
+        return bundle.getString(WifiScanner.REQUEST_PACKAGE_NAME_KEY);
+    }
+
+    // Check if we should ignore location settings if this is a single scan request.
+    private boolean shouldIgnoreLocationSettingsForSingleScan(Message msg) {
+        if (msg.what != WifiScanner.CMD_START_SINGLE_SCAN) return false;
+        if (!(msg.obj instanceof Bundle)) return false;
+        Bundle bundle = (Bundle) msg.obj;
+        ScanSettings scanSettings = bundle.getParcelable(WifiScanner.SCAN_PARAMS_SCAN_SETTINGS_KEY);
+        return scanSettings.ignoreLocationSettings;
+    }
+
+    // Check if we should hide this request from app-ops if this is a single scan request.
+    private boolean shouldHideFromAppsForSingleScan(Message msg) {
+        if (msg.what != WifiScanner.CMD_START_SINGLE_SCAN) return false;
+        if (!(msg.obj instanceof Bundle)) return false;
+        Bundle bundle = (Bundle) msg.obj;
+        ScanSettings scanSettings = bundle.getParcelable(WifiScanner.SCAN_PARAMS_SCAN_SETTINGS_KEY);
+        return scanSettings.hideFromAppOps;
+    }
+
+    /**
+     * Enforce the necessary client permissions for WifiScanner.
+     * If the client has NETWORK_STACK permission, then it can "always" send "any" request.
+     * If the client has only LOCATION_HARDWARE permission, then it can
+     *    a) Only make scan related requests when location is turned on.
+     *    b) Can never make one of the privileged requests.
+     *
+     * @param uid Uid of the client.
+     * @param msg {@link Message} of the incoming request.
+     * @throws {@link SecurityException} if the client does not have the necessary permissions.
+     */
+    private void enforcePermission(int uid, Message msg) throws SecurityException {
+        try {
+            /** Wifi stack issued requests.*/
+            enforceNetworkStack(uid);
+        } catch (SecurityException e) {
+            /** System-app issued requests. */
+            if (isPrivilegedMessage(msg.what)) {
+                // Privileged message, only requests from clients with NETWORK_STACK allowed!
+                throw e;
+            }
+            mWifiPermissionsUtil.enforceCanAccessScanResultsForWifiScanner(
+                    getPackageName(msg), uid, shouldIgnoreLocationSettingsForSingleScan(msg),
+                    shouldHideFromAppsForSingleScan(msg));
+        }
     }
 
     private class ClientHandler extends WifiHandler {
@@ -185,7 +247,7 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
             }
 
             try {
-                enforceLocationHardwarePermission(msg.sendingUid);
+                enforcePermission(msg.sendingUid, msg);
             } catch (SecurityException e) {
                 localLog("failed to authorize app: " + e);
                 replyFailed(msg, WifiScanner.REASON_NOT_AUTHORIZED, "Not authorized");
@@ -213,6 +275,16 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
             }
 
             switch (msg.what) {
+                case WifiScanner.CMD_ENABLE:
+                    mBackgroundScanStateMachine.sendMessage(CMD_DRIVER_LOADED);
+                    mSingleScanStateMachine.sendMessage(CMD_DRIVER_LOADED);
+                    mPnoScanStateMachine.sendMessage(CMD_DRIVER_LOADED);
+                    break;
+                case WifiScanner.CMD_DISABLE:
+                    mBackgroundScanStateMachine.sendMessage(CMD_DRIVER_UNLOADED);
+                    mSingleScanStateMachine.sendMessage(CMD_DRIVER_UNLOADED);
+                    mPnoScanStateMachine.sendMessage(CMD_DRIVER_UNLOADED);
+                    break;
                 case WifiScanner.CMD_START_BACKGROUND_SCAN:
                 case WifiScanner.CMD_STOP_BACKGROUND_SCAN:
                     mBackgroundScanStateMachine.sendMessage(Message.obtain(msg));
@@ -268,11 +340,13 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
     private WifiSingleScanStateMachine mSingleScanStateMachine;
     private WifiPnoScanStateMachine mPnoScanStateMachine;
     private ClientHandler mClientHandler;
+    // This is retrieved lazily because location service is started after wifi scanner.
     private final IBatteryStats mBatteryStats;
     private final AlarmManager mAlarmManager;
     private final WifiMetrics mWifiMetrics;
     private final Clock mClock;
     private final FrameworkFacade mFrameworkFacade;
+    private final WifiPermissionsUtil mWifiPermissionsUtil;
 
     WifiScanningServiceImpl(Context context, Looper looper,
             WifiScannerImpl.WifiScannerImplFactory scannerImplFactory, IBatteryStats batteryStats,
@@ -287,6 +361,7 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
         mClock = wifiInjector.getClock();
         mLog = wifiInjector.makeLog(TAG);
         mFrameworkFacade = wifiInjector.getFrameworkFacade();
+        mWifiPermissionsUtil = wifiInjector.getWifiPermissionsUtil();
         mPreviousSchedule = null;
     }
 
@@ -294,25 +369,6 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
         mBackgroundScanStateMachine = new WifiBackgroundScanStateMachine(mLooper);
         mSingleScanStateMachine = new WifiSingleScanStateMachine(mLooper);
         mPnoScanStateMachine = new WifiPnoScanStateMachine(mLooper);
-
-        mContext.registerReceiver(
-                new BroadcastReceiver() {
-                    @Override
-                    public void onReceive(Context context, Intent intent) {
-                        int state = intent.getIntExtra(
-                                WifiManager.EXTRA_SCAN_AVAILABLE, WifiManager.WIFI_STATE_DISABLED);
-                        if (DBG) localLog("SCAN_AVAILABLE : " + state);
-                        if (state == WifiManager.WIFI_STATE_ENABLED) {
-                            mBackgroundScanStateMachine.sendMessage(CMD_DRIVER_LOADED);
-                            mSingleScanStateMachine.sendMessage(CMD_DRIVER_LOADED);
-                            mPnoScanStateMachine.sendMessage(CMD_DRIVER_LOADED);
-                        } else if (state == WifiManager.WIFI_STATE_DISABLED) {
-                            mBackgroundScanStateMachine.sendMessage(CMD_DRIVER_UNLOADED);
-                            mSingleScanStateMachine.sendMessage(CMD_DRIVER_UNLOADED);
-                            mPnoScanStateMachine.sendMessage(CMD_DRIVER_UNLOADED);
-                        }
-                    }
-                }, new IntentFilter(WifiManager.WIFI_SCAN_AVAILABLE));
 
         mBackgroundScanStateMachine.start();
         mSingleScanStateMachine.start();
@@ -601,7 +657,6 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
                         // Ignore if we're already in driver loaded state.
                         return HANDLED;
                     case WifiScanner.CMD_START_SINGLE_SCAN:
-                        mWifiMetrics.incrementOneshotScanCount();
                         int handler = msg.arg2;
                         Bundle scanParams = (Bundle) msg.obj;
                         if (scanParams == null) {
@@ -615,6 +670,12 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
                         WorkSource workSource =
                                 scanParams.getParcelable(WifiScanner.SCAN_PARAMS_WORK_SOURCE_KEY);
                         if (validateScanRequest(ci, handler, scanSettings)) {
+                            mWifiMetrics.incrementOneshotScanCount();
+                            if (scanSettings.band == WifiScanner.WIFI_BAND_5_GHZ_DFS_ONLY
+                                    || scanSettings.band == WifiScanner.WIFI_BAND_5_GHZ_WITH_DFS
+                                    || scanSettings.band == WifiScanner.WIFI_BAND_BOTH_WITH_DFS) {
+                                mWifiMetrics.incrementOneshotScanWithDfsCount();
+                            }
                             logScanRequest("addSingleScanRequest", ci, handler, workSource,
                                     scanSettings, null);
                             replySucceeded(msg);
@@ -673,6 +734,8 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
                 } catch (RemoteException e) {
                     loge(e.toString());
                 }
+                StatsLog.write(StatsLog.WIFI_SCAN_STATE_CHANGED, mScanWorkSource,
+                        StatsLog.WIFI_SCAN_STATE_CHANGED__STATE__ON);
             }
 
             @Override
@@ -683,6 +746,8 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
                 } catch (RemoteException e) {
                     loge(e.toString());
                 }
+                StatsLog.write(StatsLog.WIFI_SCAN_STATE_CHANGED, mScanWorkSource,
+                        StatsLog.WIFI_SCAN_STATE_CHANGED__STATE__OFF);
 
                 // if any scans are still active (never got results available then indicate failure)
                 mWifiMetrics.incrementScanReturnEntry(
@@ -981,7 +1046,9 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
                 entry.reportEvent(WifiScanner.CMD_SCAN_RESULT, 0, parcelableAllResults);
             }
 
-            if (results.isAllChannelsScanned()) {
+            // Cache full band (with DFS or not) scan results.
+            if (results.getBandScanned() == WifiScanner.WIFI_BAND_BOTH_WITH_DFS
+                    || results.getBandScanned() == WifiScanner.WIFI_BAND_BOTH) {
                 mCachedScanResults.clear();
                 mCachedScanResults.addAll(Arrays.asList(results.getResults()));
             }
@@ -1682,6 +1749,8 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
                 nativePnoSetting.networkList[i].flags = pnoSettings.networkList[i].flags;
                 nativePnoSetting.networkList[i].auth_bit_field =
                         pnoSettings.networkList[i].authBitField;
+                nativePnoSetting.networkList[i].frequencies =
+                        pnoSettings.networkList[i].frequencies;
             }
             return nativePnoSetting;
         }
@@ -1715,7 +1784,7 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
 
         private void addPnoScanRequest(ClientInfo ci, int handler, ScanSettings scanSettings,
                 PnoSettings pnoSettings) {
-            mActivePnoScans.addRequest(ci, handler, WifiStateMachine.WIFI_WORK_SOURCE,
+            mActivePnoScans.addRequest(ci, handler, ClientModeImpl.WIFI_WORK_SOURCE,
                     Pair.create(pnoSettings, scanSettings));
             addInternalClient(ci);
         }
@@ -1781,7 +1850,7 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
             if (mInternalClientInfo != null) {
                 mInternalClientInfo.sendRequestToClientHandler(
                         WifiScanner.CMD_START_SINGLE_SCAN, settings,
-                        WifiStateMachine.WIFI_WORK_SOURCE);
+                        ClientModeImpl.WIFI_WORK_SOURCE);
             }
         }
 
@@ -2186,6 +2255,7 @@ public class WifiScanningServiceImpl extends IWifiScanner.Stub {
         sb.append("ScanSettings { ")
           .append(" type:").append(getScanTypeString(scanSettings.type))
           .append(" band:").append(ChannelHelper.bandToString(scanSettings.band))
+          .append(" ignoreLocationSettings:").append(scanSettings.ignoreLocationSettings)
           .append(" period:").append(scanSettings.periodInMs)
           .append(" reportEvents:").append(scanSettings.reportEvents)
           .append(" numBssidsPerScan:").append(scanSettings.numBssidsPerScan)

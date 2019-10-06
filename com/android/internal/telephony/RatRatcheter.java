@@ -15,15 +15,19 @@
  */
 package com.android.internal.telephony;
 
+import android.annotation.NonNull;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.PersistableBundle;
 import android.os.UserHandle;
+import android.telephony.AccessNetworkConstants;
 import android.telephony.CarrierConfigManager;
+import android.telephony.NetworkRegistrationInfo;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
+import android.telephony.TelephonyManager.NetworkType;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
 
@@ -84,23 +88,32 @@ public class RatRatcheter {
         resetRatFamilyMap();
     }
 
-    private int ratchetRat(int oldRat, int newRat) {
+    private @NetworkType int ratchetRat(@NetworkType int oldNetworkType,
+                                        @NetworkType int newNetworkType) {
+        int oldRat = ServiceState.networkTypeToRilRadioTechnology(oldNetworkType);
+        int newRat = ServiceState.networkTypeToRilRadioTechnology(newNetworkType);
         synchronized (mRatFamilyMap) {
             final SparseIntArray oldFamily = mRatFamilyMap.get(oldRat);
-            if (oldFamily == null) return newRat;
+            if (oldFamily == null) {
+                return newNetworkType;
+            }
 
             final SparseIntArray newFamily = mRatFamilyMap.get(newRat);
-            if (newFamily != oldFamily) return newRat;
+            if (newFamily != oldFamily) {
+                return newNetworkType;
+            }
 
             // now go with the higher of the two
             final int oldRatRank = newFamily.get(oldRat, -1);
             final int newRatRank = newFamily.get(newRat, -1);
-            return (oldRatRank > newRatRank ? oldRat : newRat);
+            return ServiceState.rilRadioTechnologyToNetworkType(
+                    oldRatRank > newRatRank ? oldRat : newRat);
         }
     }
 
     /** Ratchets RATs and cell bandwidths if oldSS and newSS have the same RAT family. */
-    public void ratchet(ServiceState oldSS, ServiceState newSS, boolean locationChange) {
+    public void ratchet(@NonNull ServiceState oldSS, @NonNull ServiceState newSS,
+                        boolean locationChange) {
         if (!locationChange && isSameRatFamily(oldSS, newSS)) {
             updateBandwidths(oldSS.getCellBandwidths(), newSS);
         }
@@ -110,27 +123,38 @@ public class RatRatcheter {
             mDataRatchetEnabled = false;
             return;
         }
-        if (mVoiceRatchetEnabled) {
-            int newVoiceRat = ratchetRat(oldSS.getRilVoiceRadioTechnology(),
-                    newSS.getRilVoiceRadioTechnology());
-            newSS.setRilVoiceRadioTechnology(newVoiceRat);
-        } else if (oldSS.getRilVoiceRadioTechnology() != newSS.getRilVoiceRadioTechnology()) {
-            // resume rat ratchet on following rat change within the same location
-            mVoiceRatchetEnabled = true;
-        }
-
-        if (mDataRatchetEnabled) {
-            int newDataRat = ratchetRat(oldSS.getRilDataRadioTechnology(),
-                    newSS.getRilDataRadioTechnology());
-            newSS.setRilDataRadioTechnology(newDataRat);
-        } else if (oldSS.getRilDataRadioTechnology() != newSS.getRilDataRadioTechnology()) {
-            // resume rat ratchet on following rat change within the same location
-            mDataRatchetEnabled = true;
-        }
 
         boolean newUsingCA = oldSS.isUsingCarrierAggregation()
                 || newSS.isUsingCarrierAggregation()
                 || newSS.getCellBandwidths().length > 1;
+        NetworkRegistrationInfo oldCsNri = oldSS.getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        NetworkRegistrationInfo newCsNri = newSS.getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        if (mVoiceRatchetEnabled) {
+            int newPsNetworkType = ratchetRat(oldCsNri.getAccessNetworkTechnology(),
+                    newCsNri.getAccessNetworkTechnology());
+            newCsNri.setAccessNetworkTechnology(newPsNetworkType);
+            newSS.addNetworkRegistrationInfo(newCsNri);
+        } else if (oldCsNri.getAccessNetworkTechnology() != oldCsNri.getAccessNetworkTechnology()) {
+            // resume rat ratchet on following rat change within the same location
+            mVoiceRatchetEnabled = true;
+        }
+
+        NetworkRegistrationInfo oldPsNri = oldSS.getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        NetworkRegistrationInfo newPsNri = newSS.getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        if (mDataRatchetEnabled) {
+            int newPsNetworkType = ratchetRat(oldPsNri.getAccessNetworkTechnology(),
+                    newPsNri.getAccessNetworkTechnology());
+            newPsNri.setAccessNetworkTechnology(newPsNetworkType);
+            newSS.addNetworkRegistrationInfo(newPsNri);
+        } else if (oldPsNri.getAccessNetworkTechnology() != newPsNri.getAccessNetworkTechnology()) {
+            // resume rat ratchet on following rat change within the same location
+            mDataRatchetEnabled = true;
+        }
+
         newSS.setIsUsingCarrierAggregation(newUsingCA);
     }
 
@@ -138,10 +162,20 @@ public class RatRatcheter {
         synchronized (mRatFamilyMap) {
             // Either the two technologies are the same or their families must be non-null
             // and the same.
-            if (ss1.getRilDataRadioTechnology() == ss2.getRilDataRadioTechnology()) return true;
-            if (mRatFamilyMap.get(ss1.getRilDataRadioTechnology()) == null) return false;
-            return mRatFamilyMap.get(ss1.getRilDataRadioTechnology())
-                    == mRatFamilyMap.get(ss2.getRilDataRadioTechnology());
+            int dataRat1 = ServiceState.networkTypeToRilRadioTechnology(
+                    ss1.getNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_PS,
+                            AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                            .getAccessNetworkTechnology());
+            int dataRat2 = ServiceState.networkTypeToRilRadioTechnology(
+                    ss2.getNetworkRegistrationInfo(NetworkRegistrationInfo.DOMAIN_PS,
+                            AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
+                            .getAccessNetworkTechnology());
+
+            if (dataRat1 == dataRat2) return true;
+            if (mRatFamilyMap.get(dataRat1) == null) {
+                return false;
+            }
+            return mRatFamilyMap.get(dataRat1) == mRatFamilyMap.get(dataRat2);
         }
     }
 

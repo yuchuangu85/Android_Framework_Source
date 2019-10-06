@@ -16,6 +16,8 @@
 
 package com.android.server.wifi.hotspot2;
 
+import static com.android.server.wifi.hotspot2.Utils.isCarrierEapMethod;
+
 import com.android.server.wifi.IMSIParameter;
 import com.android.server.wifi.hotspot2.anqp.CellularNetwork;
 import com.android.server.wifi.hotspot2.anqp.DomainNameElement;
@@ -122,6 +124,28 @@ public class ANQPMatcher {
     }
 
     /**
+     * Get a EAP-Method from a corresponding NAI realm that has one of them (EAP-SIM/AKA/AKA)'.
+     *
+     * @param realm a realm of the provider's credential.
+     * @param element The NAI Realm ANQP element
+     * @return a EAP Method (EAP-SIM/AKA/AKA') from matching NAI realm, {@code -1} otherwise.
+     */
+    public static int getCarrierEapMethodFromMatchingNAIRealm(String realm,
+            NAIRealmElement element) {
+        if (element == null || element.getRealmDataList().isEmpty()) {
+            return -1;
+        }
+
+        for (NAIRealmData realmData : element.getRealmDataList()) {
+            int eapMethodID = getEapMethodForNAIRealmWithCarrier(realm, realmData);
+            if (eapMethodID != -1) {
+                return eapMethodID;
+            }
+        }
+        return -1;
+    }
+
+    /**
      * Match the 3GPP Network in the ANQP element against the SIM credential of a provider.
      *
      * @param element 3GPP Network ANQP element
@@ -186,6 +210,29 @@ public class ANQPMatcher {
         return realmMatch | eapMethodMatch;
     }
 
+    private static int getEapMethodForNAIRealmWithCarrier(String realm,
+            NAIRealmData realmData) {
+        int realmMatch = AuthMatch.NONE;
+
+        for (String realmStr : realmData.getRealms()) {
+            if (DomainMatcher.arg2SubdomainOfArg1(realm, realmStr)) {
+                realmMatch = AuthMatch.REALM;
+                break;
+            }
+        }
+
+        if (realmMatch == AuthMatch.NONE) {
+            return -1;
+        }
+
+        for (EAPMethod eapMethod : realmData.getEAPMethods()) {
+            if (isCarrierEapMethod(eapMethod.getEAPMethodID())) {
+                return eapMethod.getEAPMethodID();
+            }
+        }
+        return -1;
+    }
+
     /**
      * Match the given EAPMethod against the authentication method of a provider.
      *
@@ -201,6 +248,10 @@ public class ANQPMatcher {
         // Check for authentication parameter match.
         if (authParam != null) {
             Map<Integer, Set<AuthParam>> authParams = method.getAuthParams();
+            if (authParams.isEmpty()) {
+                // no auth methods to match
+                return AuthMatch.METHOD;
+            }
             Set<AuthParam> paramSet = authParams.get(authParam.getAuthTypeID());
             if (paramSet == null || !paramSet.contains(authParam)) {
                 return AuthMatch.NONE;

@@ -18,6 +18,7 @@ package android.content;
 
 import android.annotation.SystemApi;
 import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.app.IApplicationThread;
 import android.app.IServiceConnection;
 import android.content.pm.ApplicationInfo;
@@ -54,6 +55,7 @@ import java.util.concurrent.Executor;
  * the original Context.
  */
 public class ContextWrapper extends Context {
+    @UnsupportedAppUsage
     Context mBase;
 
     public ContextWrapper(Context base) {
@@ -123,6 +125,7 @@ public class ContextWrapper extends Context {
 
     /** @hide */
     @Override
+    @UnsupportedAppUsage
     public int getThemeResId() {
         return mBase.getThemeResId();
     }
@@ -144,6 +147,7 @@ public class ContextWrapper extends Context {
 
     /** @hide */
     @Override
+    @UnsupportedAppUsage
     public String getBasePackageName() {
         return mBase.getBasePackageName();
     }
@@ -647,6 +651,7 @@ public class ContextWrapper extends Context {
 
     /** @hide */
     @Override
+    @UnsupportedAppUsage
     public Intent registerReceiverAsUser(
         BroadcastReceiver receiver, UserHandle user, IntentFilter filter,
         String broadcastPermission, Handler scheduler) {
@@ -676,12 +681,14 @@ public class ContextWrapper extends Context {
 
     /** @hide */
     @Override
+    @UnsupportedAppUsage
     public ComponentName startServiceAsUser(Intent service, UserHandle user) {
         return mBase.startServiceAsUser(service, user);
     }
 
     /** @hide */
     @Override
+    @UnsupportedAppUsage
     public ComponentName startForegroundServiceAsUser(Intent service, UserHandle user) {
         return mBase.startForegroundServiceAsUser(service, user);
     }
@@ -692,11 +699,22 @@ public class ContextWrapper extends Context {
         return mBase.stopServiceAsUser(name, user);
     }
 
-    // 绑定服务
     @Override
     public boolean bindService(Intent service, ServiceConnection conn,
             int flags) {
         return mBase.bindService(service, conn, flags);
+    }
+
+    @Override
+    public boolean bindService(Intent service, int flags, Executor executor,
+            ServiceConnection conn) {
+        return mBase.bindService(service, flags, executor, conn);
+    }
+
+    @Override
+    public boolean bindIsolatedService(Intent service, int flags, String instanceName,
+            Executor executor, ServiceConnection conn) {
+        return mBase.bindIsolatedService(service, flags, instanceName, executor, conn);
     }
 
     /** @hide */
@@ -711,6 +729,11 @@ public class ContextWrapper extends Context {
     public boolean bindServiceAsUser(Intent service, ServiceConnection conn, int flags,
             Handler handler, UserHandle user) {
         return mBase.bindServiceAsUser(service, conn, flags, handler, user);
+    }
+
+    @Override
+    public void updateServiceGroup(ServiceConnection conn, int group, int importance) {
+        mBase.updateServiceGroup(conn, group, importance);
     }
 
     @Override
@@ -862,6 +885,7 @@ public class ContextWrapper extends Context {
 
     /** @hide */
     @Override
+    @UnsupportedAppUsage
     public Context createApplicationContext(ApplicationInfo application,
             int flags) throws PackageManager.NameNotFoundException {
         return mBase.createApplicationContext(application, flags);
@@ -901,12 +925,19 @@ public class ContextWrapper extends Context {
         return mBase.getDisplayAdjustments(displayId);
     }
 
+    /** @hide */
+    @TestApi
+    @Override
+    public Display getDisplay() {
+        return mBase.getDisplay();
+    }
+
     /**
      * @hide
      */
     @Override
-    public Display getDisplay() {
-        return mBase.getDisplay();
+    public int getDisplayId() {
+        return mBase.getDisplayId();
     }
 
     /**
@@ -1004,12 +1035,26 @@ public class ContextWrapper extends Context {
         mBase.setAutofillClient(client);
     }
 
+    /** @hide */
+    @Override
+    public AutofillOptions getAutofillOptions() {
+        return mBase == null ? null : mBase.getAutofillOptions();
+    }
+
+    /** @hide */
+    @Override
+    public void setAutofillOptions(AutofillOptions options) {
+        if (mBase != null) {
+            mBase.setAutofillOptions(options);
+        }
+    }
+
     /**
      * @hide
      */
     @Override
-    public boolean isAutofillCompatibilityEnabled() {
-        return mBase != null && mBase.isAutofillCompatibilityEnabled();
+    public ContentCaptureOptions getContentCaptureOptions() {
+        return mBase == null ? null : mBase.getContentCaptureOptions();
     }
 
     /**
@@ -1017,9 +1062,9 @@ public class ContextWrapper extends Context {
      */
     @TestApi
     @Override
-    public void setAutofillCompatibilityEnabled(boolean  autofillCompatEnabled) {
+    public void setContentCaptureOptions(ContentCaptureOptions options) {
         if (mBase != null) {
-            mBase.setAutofillCompatibilityEnabled(autofillCompatEnabled);
+            mBase.setContentCaptureOptions(options);
         }
     }
 }

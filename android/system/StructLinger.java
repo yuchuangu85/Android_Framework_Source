@@ -24,18 +24,22 @@ import libcore.util.Objects;
  *
  * @hide
  */
+@libcore.api.CorePlatformApi
 public final class StructLinger {
     /** Whether or not linger is enabled. Non-zero is on. */
     public final int l_onoff;
 
     /** Linger time in seconds. */
+    @libcore.api.CorePlatformApi
     public final int l_linger;
 
+    @libcore.api.CorePlatformApi
     public StructLinger(int l_onoff, int l_linger) {
         this.l_onoff = l_onoff;
         this.l_linger = l_linger;
     }
 
+    @libcore.api.CorePlatformApi
     public boolean isOn() {
         return l_onoff != 0;
     }

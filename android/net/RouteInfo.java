@@ -16,14 +16,22 @@
 
 package android.net;
 
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import java.net.UnknownHostException;
-import java.net.InetAddress;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
-
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Collection;
 import java.util.Objects;
 
@@ -47,29 +55,48 @@ import java.util.Objects;
  * (IPv4 or IPv6).
  */
 public final class RouteInfo implements Parcelable {
+    /** @hide */
+    @IntDef(value = {
+            RTN_UNICAST,
+            RTN_UNREACHABLE,
+            RTN_THROW,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface RouteType {}
+
     /**
      * The IP destination address for this route.
      */
+    @NonNull
     private final IpPrefix mDestination;
 
     /**
      * The gateway address for this route.
      */
+    @UnsupportedAppUsage
+    @Nullable
     private final InetAddress mGateway;
 
     /**
      * The interface for this route.
      */
+    @Nullable
     private final String mInterface;
 
 
     /** Unicast route. @hide */
+    @SystemApi
+    @TestApi
     public static final int RTN_UNICAST = 1;
 
     /** Unreachable route. @hide */
+    @SystemApi
+    @TestApi
     public static final int RTN_UNREACHABLE = 7;
 
     /** Throw route. @hide */
+    @SystemApi
+    @TestApi
     public static final int RTN_THROW = 9;
 
     /**
@@ -79,6 +106,7 @@ public final class RouteInfo implements Parcelable {
 
     // Derived data members.
     // TODO: remove these.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final boolean mIsHost;
     private final boolean mHasGateway;
 
@@ -96,10 +124,14 @@ public final class RouteInfo implements Parcelable {
      * @param destination the destination prefix
      * @param gateway the IP address to route packets through
      * @param iface the interface name to send packets on
+     * @param type the type of this route
      *
      * @hide
      */
-    public RouteInfo(IpPrefix destination, InetAddress gateway, String iface, int type) {
+    @SystemApi
+    @TestApi
+    public RouteInfo(@Nullable IpPrefix destination, @Nullable InetAddress gateway,
+            @Nullable String iface, @RouteType int type) {
         switch (type) {
             case RTN_UNICAST:
             case RTN_UNREACHABLE:
@@ -158,16 +190,33 @@ public final class RouteInfo implements Parcelable {
     }
 
     /**
-     *  @hide
+     * Constructs a {@code RouteInfo} object.
+     *
+     * If destination is null, then gateway must be specified and the
+     * constructed route is either the IPv4 default route <code>0.0.0.0</code>
+     * if the gateway is an instance of {@link Inet4Address}, or the IPv6 default
+     * route <code>::/0</code> if gateway is an instance of {@link Inet6Address}.
+     * <p>
+     * Destination and gateway may not both be null.
+     *
+     * @param destination the destination address and prefix in an {@link IpPrefix}
+     * @param gateway the {@link InetAddress} to route packets through
+     * @param iface the interface name to send packets on
+     *
+     * @hide
      */
-    public RouteInfo(IpPrefix destination, InetAddress gateway, String iface) {
+    @UnsupportedAppUsage
+    public RouteInfo(@Nullable IpPrefix destination, @Nullable InetAddress gateway,
+            @Nullable String iface) {
         this(destination, gateway, iface, RTN_UNICAST);
     }
 
     /**
      * @hide
      */
-    public RouteInfo(LinkAddress destination, InetAddress gateway, String iface) {
+    @UnsupportedAppUsage
+    public RouteInfo(@Nullable LinkAddress destination, @Nullable InetAddress gateway,
+            @Nullable String iface) {
         this(destination == null ? null :
                 new IpPrefix(destination.getAddress(), destination.getPrefixLength()),
                 gateway, iface);
@@ -188,7 +237,7 @@ public final class RouteInfo implements Parcelable {
      *
      * @hide
      */
-    public RouteInfo(IpPrefix destination, InetAddress gateway) {
+    public RouteInfo(@Nullable IpPrefix destination, @Nullable InetAddress gateway) {
         this(destination, gateway, null);
     }
 
@@ -197,7 +246,8 @@ public final class RouteInfo implements Parcelable {
      *
      * TODO: Remove this.
      */
-    public RouteInfo(LinkAddress destination, InetAddress gateway) {
+    @UnsupportedAppUsage
+    public RouteInfo(@Nullable LinkAddress destination, @Nullable InetAddress gateway) {
         this(destination, gateway, null);
     }
 
@@ -208,7 +258,8 @@ public final class RouteInfo implements Parcelable {
      *
      * @hide
      */
-    public RouteInfo(InetAddress gateway) {
+    @UnsupportedAppUsage
+    public RouteInfo(@NonNull InetAddress gateway) {
         this((IpPrefix) null, gateway, null);
     }
 
@@ -220,35 +271,36 @@ public final class RouteInfo implements Parcelable {
      *
      * @hide
      */
-    public RouteInfo(IpPrefix destination) {
+    public RouteInfo(@NonNull IpPrefix destination) {
         this(destination, null, null);
     }
 
     /**
      * @hide
      */
-    public RouteInfo(LinkAddress destination) {
+    public RouteInfo(@NonNull LinkAddress destination) {
         this(destination, null, null);
     }
 
     /**
      * @hide
      */
-    public RouteInfo(IpPrefix destination, int type) {
+    public RouteInfo(@NonNull IpPrefix destination, @RouteType int type) {
         this(destination, null, null, type);
     }
 
     /**
      * @hide
      */
-    public static RouteInfo makeHostRoute(InetAddress host, String iface) {
+    public static RouteInfo makeHostRoute(@NonNull InetAddress host, @Nullable String iface) {
         return makeHostRoute(host, null, iface);
     }
 
     /**
      * @hide
      */
-    public static RouteInfo makeHostRoute(InetAddress host, InetAddress gateway, String iface) {
+    public static RouteInfo makeHostRoute(@Nullable InetAddress host, @Nullable InetAddress gateway,
+            @Nullable String iface) {
         if (host == null) return null;
 
         if (host instanceof Inet4Address) {
@@ -258,6 +310,7 @@ public final class RouteInfo implements Parcelable {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private boolean isHost() {
         return (mDestination.getAddress() instanceof Inet4Address &&
                 mDestination.getPrefixLength() == 32) ||
@@ -270,6 +323,7 @@ public final class RouteInfo implements Parcelable {
      *
      * @return {@link IpPrefix} specifying the destination.  This is never {@code null}.
      */
+    @NonNull
     public IpPrefix getDestination() {
         return mDestination;
     }
@@ -278,6 +332,7 @@ public final class RouteInfo implements Parcelable {
      * TODO: Convert callers to use IpPrefix and then remove.
      * @hide
      */
+    @NonNull
     public LinkAddress getDestinationLinkAddress() {
         return new LinkAddress(mDestination.getAddress(), mDestination.getPrefixLength());
     }
@@ -288,6 +343,7 @@ public final class RouteInfo implements Parcelable {
      * @return {@link InetAddress} specifying the gateway or next hop.  This may be
      *                             {@code null} for a directly-connected route."
      */
+    @Nullable
     public InetAddress getGateway() {
         return mGateway;
     }
@@ -297,6 +353,7 @@ public final class RouteInfo implements Parcelable {
      *
      * @return The name of the interface used for this route.
      */
+    @Nullable
     public String getInterface() {
         return mInterface;
     }
@@ -308,6 +365,9 @@ public final class RouteInfo implements Parcelable {
      *
      * @hide
      */
+    @TestApi
+    @SystemApi
+    @RouteType
     public int getType() {
         return mType;
     }
@@ -353,7 +413,6 @@ public final class RouteInfo implements Parcelable {
      * ({@code false}).
      *
      * @return {@code true} if a gateway is specified
-     * @hide
      */
     public boolean hasGateway() {
         return mHasGateway;
@@ -379,6 +438,8 @@ public final class RouteInfo implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
+    @Nullable
     public static RouteInfo selectBestRoute(Collection<RouteInfo> routes, InetAddress dest) {
         if ((routes == null) || (dest == null)) return null;
 
@@ -466,7 +527,7 @@ public final class RouteInfo implements Parcelable {
     /**
      * Implement the Parcelable interface.
      */
-    public static final Creator<RouteInfo> CREATOR =
+    public static final @android.annotation.NonNull Creator<RouteInfo> CREATOR =
         new Creator<RouteInfo>() {
         public RouteInfo createFromParcel(Parcel in) {
             IpPrefix dest = in.readParcelable(null);

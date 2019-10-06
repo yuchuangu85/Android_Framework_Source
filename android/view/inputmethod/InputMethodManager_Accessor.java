@@ -21,7 +21,7 @@ package android.view.inputmethod;
  */
 public class InputMethodManager_Accessor {
 
-    public static void resetInstance() {
-        InputMethodManager.sInstance = null;
+    public static void tearDownEditMode() {
+        InputMethodManager.tearDownEditMode();
     }
 }

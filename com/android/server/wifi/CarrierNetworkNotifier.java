@@ -26,12 +26,12 @@ import android.os.Looper;
 import android.provider.Settings;
 
 import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
-import com.android.server.wifi.util.ScanResultUtil;
+import com.android.server.wifi.nano.WifiMetricsProto;
 
 /**
  * This class handles the "carrier wi-fi network available" notification
  *
- * NOTE: These API's are not thread safe and should only be used from WifiStateMachine thread.
+ * NOTE: These API's are not thread safe and should only be used from ClientModeImpl thread.
  */
 public class CarrierNetworkNotifier extends AvailableNetworkNotifier {
     public static final String TAG = "WifiCarrierNetworkNotifier";
@@ -47,17 +47,19 @@ public class CarrierNetworkNotifier extends AvailableNetworkNotifier {
             WifiMetrics wifiMetrics,
             WifiConfigManager wifiConfigManager,
             WifiConfigStore wifiConfigStore,
-            WifiStateMachine wifiStateMachine,
+            ClientModeImpl clientModeImpl,
             ConnectToNetworkNotificationBuilder connectToNetworkNotificationBuilder) {
         super(TAG, STORE_DATA_IDENTIFIER, TOGGLE_SETTINGS_NAME,
-                SystemMessage.NOTE_CARRIER_NETWORK_AVAILABLE, context, looper, framework, clock,
-                wifiMetrics, wifiConfigManager, wifiConfigStore, wifiStateMachine,
+                SystemMessage.NOTE_CARRIER_NETWORK_AVAILABLE,
+                WifiMetricsProto.ConnectionEvent.NOMINATOR_CARRIER,
+                context, looper, framework, clock,
+                wifiMetrics, wifiConfigManager, wifiConfigStore, clientModeImpl,
                 connectToNetworkNotificationBuilder);
     }
 
     @Override
     WifiConfiguration createRecommendedNetworkConfig(ScanResult recommendedNetwork) {
-        WifiConfiguration network = ScanResultUtil.createNetworkFromScanResult(recommendedNetwork);
+        WifiConfiguration network = super.createRecommendedNetworkConfig(recommendedNetwork);
 
         int eapMethod = recommendedNetwork.carrierApEapType;
         if (eapMethod == Eap.SIM || eapMethod == Eap.AKA || eapMethod == Eap.AKA_PRIME) {

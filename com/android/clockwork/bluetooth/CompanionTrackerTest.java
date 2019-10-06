@@ -14,11 +14,9 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RobolectricTestRunner;
-import org.robolectric.annotation.Config;
 
 import java.util.HashSet;
 
-import static com.android.clockwork.bluetooth.WearBluetoothConstants.BLUETOOTH_MODE_ALT;
 import static com.android.clockwork.bluetooth.WearBluetoothConstants.BLUETOOTH_MODE_NON_ALT;
 import static com.android.clockwork.bluetooth.WearBluetoothConstants.BLUETOOTH_MODE_UNKNOWN;
 import static com.android.clockwork.bluetooth.WearBluetoothConstants.BLUETOOTH_URI;
@@ -27,7 +25,7 @@ import static com.android.clockwork.bluetooth.WearBluetoothConstants.KEY_COMPANI
 import static com.android.clockwork.bluetooth.WearBluetoothConstants.SETTINGS_COLUMN_KEY;
 import static com.android.clockwork.bluetooth.WearBluetoothConstants.SETTINGS_COLUMN_VALUE;
 
-import static org.mockito.Matchers.any;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
@@ -35,20 +33,19 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
 public class CompanionTrackerTest {
 
-    @Mock ContentResolver mockResolver;
-    @Mock BluetoothAdapter mockBtAdapter;
+    private @Mock ContentResolver mockResolver;
+    private @Mock BluetoothAdapter mockBtAdapter;
 
-    @Mock BluetoothDevice androidPhone;
-    @Mock BluetoothDevice iOSPhone;
-    @Mock BluetoothDevice btPeripheral;
+    private @Mock BluetoothDevice androidPhone;
+    private @Mock BluetoothDevice iOSPhone;
+    private @Mock BluetoothDevice btPeripheral;
 
-    @Mock BluetoothClass phoneBluetoothClass;
-    @Mock BluetoothClass peripheralBluetoothClass;
+    private @Mock BluetoothClass phoneBluetoothClass;
+    private @Mock BluetoothClass peripheralBluetoothClass;
 
-    @Mock CompanionTracker.Listener mockListener;
+    private @Mock CompanionTracker.Listener mockListener;
 
     private CompanionTracker mTracker;
 
@@ -180,12 +177,10 @@ public class CompanionTrackerTest {
 
     @Test
     public void testAdapterReady_MigrationNeededPairedAndroidDevice() {
-        MatrixCursor cursor = buildCursor(null, BLUETOOTH_MODE_NON_ALT);
-        MatrixCursor cursorCopy = buildCursor(null, BLUETOOTH_MODE_NON_ALT);
+        MatrixCursor cursor = buildCursor(null, -9999);
 
         when(mockResolver.query(BLUETOOTH_URI, null, null, null, null))
-                .thenReturn(cursor)
-                .thenReturn(cursorCopy);
+                .thenReturn(cursor);
         when(mockBtAdapter.getBondedDevices())
                 .thenReturn(Sets.newHashSet(androidPhone, btPeripheral));
 
@@ -201,12 +196,10 @@ public class CompanionTrackerTest {
 
     @Test
     public void testAdapterReady_MigrationNeededPairedIOsDevice() {
-        MatrixCursor cursor = buildCursor(null, BLUETOOTH_MODE_ALT);
-        MatrixCursor cursorCopy = buildCursor(null, BLUETOOTH_MODE_ALT);
+        MatrixCursor cursor = buildCursor(null, -9999);
 
         when(mockResolver.query(BLUETOOTH_URI, null, null, null, null))
-                .thenReturn(cursor)
-                .thenReturn(cursorCopy);
+                .thenReturn(cursor);
         when(mockBtAdapter.getBondedDevices())
                 .thenReturn(Sets.newHashSet(iOSPhone, btPeripheral));
 

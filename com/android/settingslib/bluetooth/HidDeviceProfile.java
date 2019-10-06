@@ -26,11 +26,10 @@ import android.util.Log;
 
 import com.android.settingslib.R;
 
-import java.util.Collection;
 import java.util.List;
 
 /**
- * HidProfile handles Bluetooth HID profile.
+ * HidDeviceProfile handles Bluetooth HID Device role
  */
 public class HidDeviceProfile implements LocalBluetoothProfile {
     private static final String TAG = "HidDeviceProfile";
@@ -38,9 +37,7 @@ public class HidDeviceProfile implements LocalBluetoothProfile {
     private static final int ORDINAL = 18;
     // HID Device Profile is always preferred.
     private static final int PREFERRED_VALUE = -1;
-    private static final boolean DEBUG = true;
 
-    private final LocalBluetoothAdapter mLocalAdapter;
     private final CachedBluetoothDeviceManager mDeviceManager;
     private final LocalBluetoothProfileManager mProfileManager;
     static final String NAME = "HID DEVICE";
@@ -48,14 +45,12 @@ public class HidDeviceProfile implements LocalBluetoothProfile {
     private BluetoothHidDevice mService;
     private boolean mIsProfileReady;
 
-    HidDeviceProfile(Context context, LocalBluetoothAdapter adapter,
-            CachedBluetoothDeviceManager deviceManager,
+    HidDeviceProfile(Context context,CachedBluetoothDeviceManager deviceManager,
             LocalBluetoothProfileManager profileManager) {
-        mLocalAdapter = adapter;
         mDeviceManager = deviceManager;
         mProfileManager = profileManager;
-        adapter.getProfileProxy(context, new HidDeviceServiceListener(),
-                BluetoothProfile.HID_DEVICE);
+        BluetoothAdapter.getDefaultAdapter().getProfileProxy(context,
+                new HidDeviceServiceListener(), BluetoothProfile.HID_DEVICE);
     }
 
     // These callbacks run on the main thread.
@@ -63,9 +58,6 @@ public class HidDeviceProfile implements LocalBluetoothProfile {
             implements BluetoothProfile.ServiceListener {
 
         public void onServiceConnected(int profile, BluetoothProfile proxy) {
-            if (DEBUG) {
-                Log.d(TAG,"Bluetooth service connected :-)");
-            }
             mService = (BluetoothHidDevice) proxy;
             // We just bound to the service, so refresh the UI for any connected HID devices.
             List<BluetoothDevice> deviceList = mService.getConnectedDevices();
@@ -74,7 +66,7 @@ public class HidDeviceProfile implements LocalBluetoothProfile {
                 // we may add a new device here, but generally this should not happen
                 if (device == null) {
                     Log.w(TAG, "HidProfile found new device: " + nextDevice);
-                    device = mDeviceManager.addDevice(mLocalAdapter, mProfileManager, nextDevice);
+                    device = mDeviceManager.addDevice(nextDevice);
                 }
                 Log.d(TAG, "Connection status changed: " + device);
                 device.onProfileStateChanged(HidDeviceProfile.this,
@@ -85,9 +77,6 @@ public class HidDeviceProfile implements LocalBluetoothProfile {
         }
 
         public void onServiceDisconnected(int profile) {
-            if (DEBUG) {
-                Log.d(TAG, "Bluetooth service disconnected");
-            }
             mIsProfileReady = false;
         }
     }
@@ -103,7 +92,7 @@ public class HidDeviceProfile implements LocalBluetoothProfile {
     }
 
     @Override
-    public boolean isConnectable() {
+    public boolean accessProfileEnabled() {
         return true;
     }
 
@@ -114,6 +103,7 @@ public class HidDeviceProfile implements LocalBluetoothProfile {
 
     @Override
     public boolean connect(BluetoothDevice device) {
+        // Don't invoke method in service because settings is not allowed to connect this profile.
         return false;
     }
 
@@ -130,11 +120,7 @@ public class HidDeviceProfile implements LocalBluetoothProfile {
         if (mService == null) {
             return BluetoothProfile.STATE_DISCONNECTED;
         }
-        List<BluetoothDevice> deviceList = mService.getConnectedDevices();
-
-        return !deviceList.isEmpty() && deviceList.contains(device)
-                ? mService.getConnectionState(device)
-                : BluetoothProfile.STATE_DISCONNECTED;
+        return mService.getConnectionState(device);
     }
 
     @Override
@@ -179,19 +165,17 @@ public class HidDeviceProfile implements LocalBluetoothProfile {
             case BluetoothProfile.STATE_CONNECTED:
                 return R.string.bluetooth_hid_profile_summary_connected;
             default:
-                return Utils.getConnectionStateSummary(state);
+                return BluetoothUtils.getConnectionStateSummary(state);
         }
     }
 
     @Override
     public int getDrawableResource(BluetoothClass btClass) {
-        return R.drawable.ic_bt_misc_hid;
+        return com.android.internal.R.drawable.ic_bt_misc_hid;
     }
 
     protected void finalize() {
-        if (DEBUG) {
-            Log.d(TAG, "finalize()");
-        }
+        Log.d(TAG, "finalize()");
         if (mService != null) {
             try {
                 BluetoothAdapter.getDefaultAdapter().closeProfileProxy(BluetoothProfile.HID_DEVICE,

@@ -17,6 +17,7 @@
 package android.content;
 
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.content.res.AssetFileDescriptor;
 import android.database.BulkCursorDescriptor;
 import android.database.BulkCursorToCursorAdaptor;
@@ -50,6 +51,7 @@ abstract public class ContentProviderNative extends Binder implements IContentPr
      * Cast a Binder object into a content resolver interface, generating
      * a proxy if needed.
      */
+    @UnsupportedAppUsage
     static public IContentProvider asInterface(IBinder obj)
     {
         if (obj == null) {
@@ -172,13 +174,15 @@ abstract public class ContentProviderNative extends Binder implements IContentPr
                 {
                     data.enforceInterface(IContentProvider.descriptor);
                     String callingPkg = data.readString();
+                    String authority = data.readString();
                     final int numOperations = data.readInt();
                     final ArrayList<ContentProviderOperation> operations =
                             new ArrayList<>(numOperations);
                     for (int i = 0; i < numOperations; i++) {
                         operations.add(i, ContentProviderOperation.CREATOR.createFromParcel(data));
                     }
-                    final ContentProviderResult[] results = applyBatch(callingPkg, operations);
+                    final ContentProviderResult[] results = applyBatch(callingPkg, authority,
+                            operations);
                     reply.writeNoException();
                     reply.writeTypedArray(results, 0);
                     return true;
@@ -265,11 +269,12 @@ abstract public class ContentProviderNative extends Binder implements IContentPr
                     data.enforceInterface(IContentProvider.descriptor);
 
                     String callingPkg = data.readString();
+                    String authority = data.readString();
                     String method = data.readString();
                     String stringArg = data.readString();
                     Bundle args = data.readBundle();
 
-                    Bundle responseBundle = call(callingPkg, method, stringArg, args);
+                    Bundle responseBundle = call(callingPkg, authority, method, stringArg, args);
 
                     reply.writeNoException();
                     reply.writeBundle(responseBundle);
@@ -505,7 +510,7 @@ final class ContentProviderProxy implements IContentProvider
     }
 
     @Override
-    public ContentProviderResult[] applyBatch(String callingPkg,
+    public ContentProviderResult[] applyBatch(String callingPkg, String authority,
             ArrayList<ContentProviderOperation> operations)
                     throws RemoteException, OperationApplicationException {
         Parcel data = Parcel.obtain();
@@ -513,6 +518,7 @@ final class ContentProviderProxy implements IContentProvider
         try {
             data.writeInterfaceToken(IContentProvider.descriptor);
             data.writeString(callingPkg);
+            data.writeString(authority);
             data.writeInt(operations.size());
             for (ContentProviderOperation operation : operations) {
                 operation.writeToParcel(data, 0);
@@ -634,14 +640,15 @@ final class ContentProviderProxy implements IContentProvider
     }
 
     @Override
-    public Bundle call(String callingPkg, String method, String request, Bundle args)
-            throws RemoteException {
+    public Bundle call(String callingPkg, String authority, String method, String request,
+            Bundle args) throws RemoteException {
         Parcel data = Parcel.obtain();
         Parcel reply = Parcel.obtain();
         try {
             data.writeInterfaceToken(IContentProvider.descriptor);
 
             data.writeString(callingPkg);
+            data.writeString(authority);
             data.writeString(method);
             data.writeString(request);
             data.writeBundle(args);
@@ -793,5 +800,6 @@ final class ContentProviderProxy implements IContentProvider
         }
     }
 
+    @UnsupportedAppUsage
     private IBinder mRemote;
 }

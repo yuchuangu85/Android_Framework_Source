@@ -16,6 +16,7 @@
 
 package org.apache.harmony.xml.dom;
 
+import dalvik.annotation.compat.UnsupportedAppUsage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -42,6 +43,7 @@ public class ElementImpl extends InnerNodeImpl implements Element {
     boolean namespaceAware;
     String namespaceURI;
     String prefix;
+    @UnsupportedAppUsage
     String localName;
 
     private List<AttrImpl> attributes = new ArrayList<AttrImpl>();

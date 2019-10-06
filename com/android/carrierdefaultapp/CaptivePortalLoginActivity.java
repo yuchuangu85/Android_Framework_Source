@@ -32,7 +32,6 @@ import android.net.NetworkRequest;
 import android.net.Proxy;
 import android.net.TrafficStats;
 import android.net.Uri;
-import android.net.dns.ResolvUtil;
 import android.net.http.SslError;
 import android.os.Bundle;
 import android.telephony.CarrierConfigManager;
@@ -53,6 +52,7 @@ import android.widget.TextView;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.util.ArrayUtils;
+import com.android.internal.util.TrafficStatsConstants;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -107,6 +107,7 @@ public class CaptivePortalLoginActivity extends Activity {
         webSettings.setLoadWithOverviewMode(true);
         webSettings.setSupportZoom(true);
         webSettings.setBuiltInZoomControls(true);
+        webSettings.setDomStorageEnabled(true);
         mWebViewClient = new MyWebViewClient();
         mWebView.setWebViewClient(mWebViewClient);
         mWebView.setWebChromeClient(new MyWebChromeClient());
@@ -159,9 +160,9 @@ public class CaptivePortalLoginActivity extends Activity {
 
     private void setNetwork(Network network) {
         if (network != null) {
+            network = network.getPrivateDnsBypassingCopy();
             mCm.bindProcessToNetwork(network);
-            mCm.setProcessDefaultNetworkForHostResolution(
-                    ResolvUtil.getNetworkWithUseLocalNameserversFlag(network));
+            mCm.setProcessDefaultNetworkForHostResolution(network);
         }
         mNetwork = network;
     }
@@ -196,19 +197,7 @@ public class CaptivePortalLoginActivity extends Activity {
         if (success) {
             // Trigger re-evaluation upon success http response code
             CarrierActionUtils.applyCarrierAction(
-                    CarrierActionUtils.CARRIER_ACTION_ENABLE_RADIO, getIntent(),
-                    getApplicationContext());
-            CarrierActionUtils.applyCarrierAction(
-                    CarrierActionUtils.CARRIER_ACTION_ENABLE_METERED_APNS, getIntent(),
-                    getApplicationContext());
-            CarrierActionUtils.applyCarrierAction(
-                    CarrierActionUtils.CARRIER_ACTION_CANCEL_ALL_NOTIFICATIONS, getIntent(),
-                    getApplicationContext());
-            CarrierActionUtils.applyCarrierAction(
-                    CarrierActionUtils.CARRIER_ACTION_DISABLE_DEFAULT_URL_HANDLER, getIntent(),
-                    getApplicationContext());
-            CarrierActionUtils.applyCarrierAction(
-                    CarrierActionUtils.CARRIER_ACTION_DEREGISTER_DEFAULT_NETWORK_AVAIL, getIntent(),
+                    CarrierActionUtils.CARRIER_ACTION_RESET_ALL, getIntent(),
                     getApplicationContext());
         }
         finishAndRemoveTask();
@@ -242,7 +231,6 @@ public class CaptivePortalLoginActivity extends Activity {
     private void testForCaptivePortal() {
         mTestingThread = new Thread(new Runnable() {
             public void run() {
-                final Network network = ResolvUtil.makeNetworkWithPrivateDnsBypass(mNetwork);
                 // Give time for captive portal to open.
                 try {
                     Thread.sleep(1000);
@@ -251,9 +239,10 @@ public class CaptivePortalLoginActivity extends Activity {
                 if (isFinishing() || isDestroyed()) return;
                 HttpURLConnection urlConnection = null;
                 int httpResponseCode = 500;
-                int oldTag = TrafficStats.getAndSetThreadStatsTag(TrafficStats.TAG_SYSTEM_PROBE);
+                int oldTag = TrafficStats.getAndSetThreadStatsTag(
+                        TrafficStatsConstants.TAG_SYSTEM_PROBE);
                 try {
-                    urlConnection = (HttpURLConnection) network.openConnection(
+                    urlConnection = (HttpURLConnection) mNetwork.openConnection(
                             new URL(mCm.getCaptivePortalServerUrl()));
                     urlConnection.setInstanceFollowRedirects(false);
                     urlConnection.setConnectTimeout(SOCKET_TIMEOUT_MS);

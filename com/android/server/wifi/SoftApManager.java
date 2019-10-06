@@ -24,9 +24,9 @@ import android.annotation.NonNull;
 import android.content.Context;
 import android.content.Intent;
 import android.database.ContentObserver;
+import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiManager;
-import android.net.wifi.WifiScanner;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -38,7 +38,6 @@ import android.util.Log;
 
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.IState;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
@@ -49,13 +48,11 @@ import com.android.server.wifi.util.ApConfigUtil;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.util.Arrays;
 import java.util.Locale;
-import java.util.stream.Stream;
 
 /**
  * Manage WiFi in AP mode.
- * The internal state machine runs under "WifiStateMachine" thread context.
+ * The internal state machine runs under the ClientModeImpl handler thread context.
  */
 public class SoftApManager implements ActiveModeManager {
     private static final String TAG = "SoftApManager";
@@ -79,6 +76,7 @@ public class SoftApManager implements ActiveModeManager {
 
     private String mApInterfaceName;
     private boolean mIfaceIsUp;
+    private boolean mIfaceIsDestroyed;
 
     private final WifiApConfigStore mWifiApConfigStore;
 
@@ -93,10 +91,20 @@ public class SoftApManager implements ActiveModeManager {
     private int mNumAssociatedStations = 0;
     private boolean mTimeoutEnabled = false;
 
+    private final SarManager mSarManager;
+
+    private long mStartTimestamp = -1;
+
     /**
      * Listener for soft AP events.
      */
     private final SoftApListener mSoftApListener = new SoftApListener() {
+
+        @Override
+        public void onFailure() {
+            mStateMachine.sendMessage(SoftApStateMachine.CMD_FAILURE);
+        }
+
         @Override
         public void onNumAssociatedStationsChanged(int numStations) {
             mStateMachine.sendMessage(
@@ -118,7 +126,8 @@ public class SoftApManager implements ActiveModeManager {
                          @NonNull WifiManager.SoftApCallback callback,
                          @NonNull WifiApConfigStore wifiApConfigStore,
                          @NonNull SoftApModeConfiguration apConfig,
-                         @NonNull WifiMetrics wifiMetrics) {
+                         @NonNull WifiMetrics wifiMetrics,
+                         @NonNull SarManager sarManager) {
         mContext = context;
         mFrameworkFacade = framework;
         mWifiNative = wifiNative;
@@ -133,6 +142,7 @@ public class SoftApManager implements ActiveModeManager {
             mApConfig = config;
         }
         mWifiMetrics = wifiMetrics;
+        mSarManager = sarManager;
         mStateMachine = new SoftApStateMachine(looper);
     }
 
@@ -160,6 +170,14 @@ public class SoftApManager implements ActiveModeManager {
         mStateMachine.quitNow();
     }
 
+    public @ScanMode int getScanMode() {
+        return SCAN_NONE;
+    }
+
+    public int getIpMode() {
+        return mMode;
+    }
+
     /**
      * Dump info about this softap manager.
      */
@@ -182,6 +200,7 @@ public class SoftApManager implements ActiveModeManager {
         pw.println("mTimeoutEnabled: " + mTimeoutEnabled);
         pw.println("mReportedFrequency: " + mReportedFrequency);
         pw.println("mReportedBandwidth: " + mReportedBandwidth);
+        pw.println("mStartTimestamp: " + mStartTimestamp);
     }
 
     private String getCurrentStateName() {
@@ -228,6 +247,26 @@ public class SoftApManager implements ActiveModeManager {
             Log.e(TAG, "Unable to start soft AP without valid configuration");
             return ERROR_GENERIC;
         }
+        // Setup country code
+        if (TextUtils.isEmpty(mCountryCode)) {
+            if (config.apBand == WifiConfiguration.AP_BAND_5GHZ) {
+                // Country code is mandatory for 5GHz band.
+                Log.e(TAG, "Invalid country code, required for setting up "
+                        + "soft ap in 5GHz");
+                return ERROR_GENERIC;
+            }
+            // Absence of country code is not fatal for 2Ghz & Any band options.
+        } else if (!mWifiNative.setCountryCodeHal(
+                mApInterfaceName, mCountryCode.toUpperCase(Locale.ROOT))) {
+            if (config.apBand == WifiConfiguration.AP_BAND_5GHZ) {
+                // Return an error if failed to set country code when AP is configured for
+                // 5GHz band.
+                Log.e(TAG, "Failed to set country code, required for setting up "
+                        + "soft ap in 5GHz");
+                return ERROR_GENERIC;
+            }
+            // Failure to set country code is not fatal for 2Ghz & Any band options.
+        }
 
         // Make a copy of configuration for updating AP band and channel.
         WifiConfiguration localConfig = new WifiConfiguration(config);
@@ -241,18 +280,6 @@ public class SoftApManager implements ActiveModeManager {
             return result;
         }
 
-        // Setup country code if it is provided.
-        if (mCountryCode != null) {
-            // Country code is mandatory for 5GHz band, return an error if failed to set
-            // country code when AP is configured for 5GHz band.
-            if (!mWifiNative.setCountryCodeHal(
-                    mApInterfaceName, mCountryCode.toUpperCase(Locale.ROOT))
-                    && config.apBand == WifiConfiguration.AP_BAND_5GHZ) {
-                Log.e(TAG, "Failed to set country code, required for setting up "
-                        + "soft ap in 5GHz");
-                return ERROR_GENERIC;
-            }
-        }
         if (localConfig.hiddenSSID) {
             Log.d(TAG, "SoftAP is a hidden network");
         }
@@ -260,6 +287,7 @@ public class SoftApManager implements ActiveModeManager {
             Log.e(TAG, "Soft AP start failed");
             return ERROR_GENERIC;
         }
+        mStartTimestamp = SystemClock.elapsedRealtime();
         Log.d(TAG, "Soft AP is started");
 
         return SUCCESS;
@@ -276,6 +304,7 @@ public class SoftApManager implements ActiveModeManager {
     private class SoftApStateMachine extends StateMachine {
         // Commands for the state machine.
         public static final int CMD_START = 0;
+        public static final int CMD_FAILURE = 2;
         public static final int CMD_INTERFACE_STATUS_CHANGED = 3;
         public static final int CMD_NUM_ASSOCIATED_STATIONS_CHANGED = 4;
         public static final int CMD_NO_ASSOCIATED_STATIONS_TIMEOUT = 5;
@@ -325,6 +354,7 @@ public class SoftApManager implements ActiveModeManager {
             public void enter() {
                 mApInterfaceName = null;
                 mIfaceIsUp = false;
+                mIfaceIsDestroyed = false;
             }
 
             @Override
@@ -479,6 +509,7 @@ public class SoftApManager implements ActiveModeManager {
             @Override
             public void enter() {
                 mIfaceIsUp = false;
+                mIfaceIsDestroyed = false;
                 onUpChanged(mWifiNative.isInterfaceUp(mApInterfaceName));
 
                 mTimeoutDelay = getConfigSoftApTimeoutDelay();
@@ -491,6 +522,9 @@ public class SoftApManager implements ActiveModeManager {
                 if (mSettingObserver != null) {
                     mSettingObserver.register();
                 }
+
+                mSarManager.setSapWifiState(WifiManager.WIFI_AP_STATE_ENABLED);
+
                 Log.d(TAG, "Resetting num stations on start");
                 mNumAssociatedStations = 0;
                 scheduleTimeoutMessage();
@@ -498,23 +532,43 @@ public class SoftApManager implements ActiveModeManager {
 
             @Override
             public void exit() {
-                if (mApInterfaceName != null) {
+                if (!mIfaceIsDestroyed) {
                     stopSoftAp();
                 }
+
                 if (mSettingObserver != null) {
                     mSettingObserver.unregister();
                 }
                 Log.d(TAG, "Resetting num stations on stop");
-                mNumAssociatedStations = 0;
+                setNumAssociatedStations(0);
                 cancelTimeoutMessage();
                 // Need this here since we are exiting |Started| state and won't handle any
                 // future CMD_INTERFACE_STATUS_CHANGED events after this point
                 mWifiMetrics.addSoftApUpChangedEvent(false, mMode);
                 updateApState(WifiManager.WIFI_AP_STATE_DISABLED,
                         WifiManager.WIFI_AP_STATE_DISABLING, 0);
+
+                mSarManager.setSapWifiState(WifiManager.WIFI_AP_STATE_DISABLED);
                 mApInterfaceName = null;
                 mIfaceIsUp = false;
+                mIfaceIsDestroyed = false;
                 mStateMachine.quitNow();
+            }
+
+            private void updateUserBandPreferenceViolationMetricsIfNeeded() {
+                boolean bandPreferenceViolated = false;
+                if (mApConfig.apBand == WifiConfiguration.AP_BAND_2GHZ
+                        && ScanResult.is5GHz(mReportedFrequency)) {
+                    bandPreferenceViolated = true;
+                } else if (mApConfig.apBand == WifiConfiguration.AP_BAND_5GHZ
+                        && ScanResult.is24GHz(mReportedFrequency)) {
+                    bandPreferenceViolated = true;
+                }
+                if (bandPreferenceViolated) {
+                    Log.e(TAG, "Channel does not satisfy user band preference: "
+                            + mReportedFrequency);
+                    mWifiMetrics.incrementNumSoftApUserBandPreferenceUnsatisfied();
+                }
             }
 
             @Override
@@ -535,29 +589,7 @@ public class SoftApManager implements ActiveModeManager {
                                 + " Bandwidth: " + mReportedBandwidth);
                         mWifiMetrics.addSoftApChannelSwitchedEvent(mReportedFrequency,
                                 mReportedBandwidth, mMode);
-                        int[] allowedChannels = new int[0];
-                        if (mApConfig.apBand == WifiConfiguration.AP_BAND_2GHZ) {
-                            allowedChannels =
-                                    mWifiNative.getChannelsForBand(WifiScanner.WIFI_BAND_24_GHZ);
-                        } else if (mApConfig.apBand == WifiConfiguration.AP_BAND_5GHZ) {
-                            allowedChannels =
-                                    mWifiNative.getChannelsForBand(WifiScanner.WIFI_BAND_5_GHZ);
-                        } else if (mApConfig.apBand == WifiConfiguration.AP_BAND_ANY) {
-                            int[] allowed2GChannels =
-                                    mWifiNative.getChannelsForBand(WifiScanner.WIFI_BAND_24_GHZ);
-                            int[] allowed5GChannels =
-                                    mWifiNative.getChannelsForBand(WifiScanner.WIFI_BAND_5_GHZ);
-                            allowedChannels = Stream.concat(
-                                    Arrays.stream(allowed2GChannels).boxed(),
-                                    Arrays.stream(allowed5GChannels).boxed())
-                                    .mapToInt(Integer::valueOf)
-                                    .toArray();
-                        }
-                        if (!ArrayUtils.contains(allowedChannels, mReportedFrequency)) {
-                            Log.e(TAG, "Channel does not satisfy user band preference: "
-                                    + mReportedFrequency);
-                            mWifiMetrics.incrementNumSoftApUserBandPreferenceUnsatisfied();
-                        }
+                        updateUserBandPreferenceViolationMetricsIfNeeded();
                         break;
                     case CMD_TIMEOUT_TOGGLE_CHANGED:
                         boolean isEnabled = (message.arg1 == 1);
@@ -598,9 +630,12 @@ public class SoftApManager implements ActiveModeManager {
                         Log.d(TAG, "Interface was cleanly destroyed.");
                         updateApState(WifiManager.WIFI_AP_STATE_DISABLING,
                                 WifiManager.WIFI_AP_STATE_ENABLED, 0);
-                        mApInterfaceName = null;
+                        mIfaceIsDestroyed = true;
                         transitionTo(mIdleState);
                         break;
+                    case CMD_FAILURE:
+                        Log.w(TAG, "hostapd failure, stop and report failure");
+                        /* fall through */
                     case CMD_INTERFACE_DOWN:
                         Log.w(TAG, "interface error, stop and report failure");
                         updateApState(WifiManager.WIFI_AP_STATE_FAILED,

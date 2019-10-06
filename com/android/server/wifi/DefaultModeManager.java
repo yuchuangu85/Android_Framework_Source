@@ -44,6 +44,13 @@ public class DefaultModeManager implements ActiveModeManager {
     public void stop() { };
 
     /**
+     * Scanning is disabled in default mode.
+     */
+    public @ScanMode int getScanMode() {
+        return SCAN_NONE;
+    }
+
+    /**
      * Dump is not used in default mode.
      */
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) { }

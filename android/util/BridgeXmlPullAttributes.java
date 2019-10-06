@@ -13,22 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package android.util;
 
 import com.android.ide.common.rendering.api.AttrResourceValue;
-import com.android.ide.common.rendering.api.RenderResources;
+import com.android.ide.common.rendering.api.ResourceNamespace;
+import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.internal.util.XmlUtils;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.BridgeConstants;
 import com.android.layoutlib.bridge.android.BridgeContext;
+import com.android.layoutlib.bridge.android.UnresolvedResourceValue;
+import com.android.layoutlib.bridge.android.XmlPullParserResolver;
 import com.android.layoutlib.bridge.impl.ResourceHelper;
 import com.android.resources.ResourceType;
 
 import org.xmlpull.v1.XmlPullParser;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 
 import java.util.Map;
 import java.util.function.Function;
@@ -36,33 +39,48 @@ import java.util.function.Function;
 /**
  * A correct implementation of the {@link AttributeSet} interface on top of a XmlPullParser
  */
-public class BridgeXmlPullAttributes extends XmlPullAttributes {
+public class BridgeXmlPullAttributes extends XmlPullAttributes implements ResolvingAttributeSet {
 
-    private final BridgeContext mContext;
-    private final boolean mPlatformFile;
-    private final Function<String, Map<String, Integer>> mFrameworkEnumValueSupplier;
-    private final Function<String, Map<String, Integer>> mProjectEnumValueSupplier;
-
-    // VisibleForTesting
-    BridgeXmlPullAttributes(@NonNull XmlPullParser parser, @NonNull BridgeContext context,
-            boolean platformFile,
-            @NonNull Function<String, Map<String, Integer>> frameworkEnumValueSupplier,
-            @NonNull Function<String, Map<String, Integer>> projectEnumValueSupplier) {
-        super(parser);
-        mContext = context;
-        mPlatformFile = platformFile;
-        mFrameworkEnumValueSupplier = frameworkEnumValueSupplier;
-        mProjectEnumValueSupplier = projectEnumValueSupplier;
+    interface EnumValueSupplier {
+        @Nullable
+        Map<String, Integer> getEnumValues(
+                @NonNull ResourceNamespace namespace, @NonNull String attrName);
     }
 
-    public BridgeXmlPullAttributes(@NonNull XmlPullParser parser, @NonNull BridgeContext context,
-            boolean platformFile) {
-        this(parser, context, platformFile, Bridge::getEnumValues, attrName -> {
-            // get the styleable matching the resolved name
-            RenderResources res = context.getRenderResources();
-            ResourceValue attr = res.getProjectResource(ResourceType.ATTR, attrName);
-            return attr instanceof AttrResourceValue ?
-                    ((AttrResourceValue) attr).getAttributeValues() : null;
+    private final BridgeContext mContext;
+    private final ResourceNamespace mXmlFileResourceNamespace;
+    private final ResourceNamespace.Resolver mResourceNamespaceResolver;
+    private final Function<String, Map<String, Integer>> mFrameworkEnumValueSupplier;
+    private final EnumValueSupplier mProjectEnumValueSupplier;
+
+    // VisibleForTesting
+    BridgeXmlPullAttributes(
+            @NonNull XmlPullParser parser,
+            @NonNull BridgeContext context,
+            @NonNull ResourceNamespace xmlFileResourceNamespace,
+            @NonNull Function<String, Map<String, Integer>> frameworkEnumValueSupplier,
+            @NonNull EnumValueSupplier projectEnumValueSupplier) {
+        super(parser);
+        mContext = context;
+        mFrameworkEnumValueSupplier = frameworkEnumValueSupplier;
+        mProjectEnumValueSupplier = projectEnumValueSupplier;
+        mXmlFileResourceNamespace = xmlFileResourceNamespace;
+        mResourceNamespaceResolver =
+                new XmlPullParserResolver(
+                        mParser, context.getLayoutlibCallback().getImplicitNamespaces());
+    }
+
+    public BridgeXmlPullAttributes(
+            @NonNull XmlPullParser parser,
+            @NonNull BridgeContext context,
+            @NonNull ResourceNamespace xmlFileResourceNamespace) {
+        this(parser, context, xmlFileResourceNamespace, Bridge::getEnumValues, (ns, attrName) -> {
+            ResourceValue attr =
+                    context.getRenderResources().getUnresolvedResource(
+                            ResourceReference.attr(ns, attrName));
+            return attr instanceof AttrResourceValue
+                    ? ((AttrResourceValue) attr).getAttributeValues()
+                    : null;
         });
     }
 
@@ -84,15 +102,16 @@ public class BridgeXmlPullAttributes extends XmlPullAttributes {
 
         if (BridgeConstants.NS_RESOURCES.equals(ns)) {
             return Bridge.getResourceId(ResourceType.ATTR, name);
-
         }
 
         // this is not an attribute in the android namespace, we query the customviewloader, if
         // the namespaces match.
         if (mContext.getLayoutlibCallback().getNamespace().equals(ns)) {
-            Integer v = mContext.getLayoutlibCallback().getResourceId(ResourceType.ATTR, name);
-            if (v != null) {
-                return v;
+            // TODO(namespaces): cache the namespace objects.
+            ResourceNamespace namespace = ResourceNamespace.fromNamespaceUri(ns);
+            if (namespace != null) {
+                return mContext.getLayoutlibCallback().getOrGenerateResourceId(
+                        ResourceReference.attr(namespace, name));
             }
         }
 
@@ -161,9 +180,15 @@ public class BridgeXmlPullAttributes extends XmlPullAttributes {
             return XmlUtils.convertValueToInt(value, defaultValue);
         } catch (NumberFormatException e) {
             // This is probably an enum
-            Map<String, Integer> enumValues = BridgeConstants.NS_RESOURCES.equals(namespace) ?
-                    mFrameworkEnumValueSupplier.apply(attribute) :
-                    mProjectEnumValueSupplier.apply(attribute);
+            Map<String, Integer> enumValues = null;
+            if (BridgeConstants.NS_RESOURCES.equals(namespace)) {
+                enumValues = mFrameworkEnumValueSupplier.apply(attribute);
+            } else {
+                ResourceNamespace attrNamespace = ResourceNamespace.fromNamespaceUri(namespace);
+                if (attrNamespace != null) {
+                    enumValues = mProjectEnumValueSupplier.getEnumValues(attrNamespace, attribute);
+                }
+            }
 
             Integer enumValue = enumValues != null ? enumValues.get(value) : null;
             if (enumValue != null) {
@@ -241,9 +266,8 @@ public class BridgeXmlPullAttributes extends XmlPullAttributes {
 
     @Override
     public int getAttributeIntValue(int index, int defaultValue) {
-        return getAttributeIntValue(mParser.getAttributeNamespace(index),
-                getAttributeName(index)
-                , defaultValue);
+        return getAttributeIntValue(
+                mParser.getAttributeNamespace(index), getAttributeName(index), defaultValue);
     }
 
     @Override
@@ -278,6 +302,14 @@ public class BridgeXmlPullAttributes extends XmlPullAttributes {
         return defaultValue;
     }
 
+    @Override
+    @Nullable
+    public ResourceValue getResolvedAttributeValue(@Nullable String namespace,
+            @NonNull String name) {
+        String s = getAttributeValue(namespace, name);
+        return s == null ? null : getResourceValue(s);
+    }
+
     // -- private helper methods
 
     /**
@@ -285,8 +317,9 @@ public class BridgeXmlPullAttributes extends XmlPullAttributes {
      */
     private ResourceValue getResourceValue(String value) {
         // now look for this particular value
-        RenderResources resources = mContext.getRenderResources();
-        return resources.resolveResValue(resources.findResValue(value, mPlatformFile));
+        return mContext.getRenderResources().resolveResValue(
+                new UnresolvedResourceValue(
+                        value, mXmlFileResourceNamespace, mResourceNamespaceResolver));
     }
 
     /**
@@ -295,17 +328,9 @@ public class BridgeXmlPullAttributes extends XmlPullAttributes {
     private int resolveResourceValue(String value, int defaultValue) {
         ResourceValue resource = getResourceValue(value);
         if (resource != null) {
-            Integer id;
-            if (mPlatformFile || resource.isFramework()) {
-                id = Bridge.getResourceId(resource.getResourceType(), resource.getName());
-            } else {
-                id = mContext.getLayoutlibCallback().getResourceId(
-                        resource.getResourceType(), resource.getName());
-            }
-
-            if (id != null) {
-                return id;
-            }
+            return resource.isFramework() ?
+                    Bridge.getResourceId(resource.getResourceType(), resource.getName()) :
+                    mContext.getLayoutlibCallback().getOrGenerateResourceId(resource.asReference());
         }
 
         return defaultValue;

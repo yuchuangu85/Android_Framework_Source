@@ -17,7 +17,9 @@
 package android.telephony;
 
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
+import android.telephony.gsm.GsmCellLocation;
 import android.text.TextUtils;
 
 import java.util.Objects;
@@ -29,53 +31,30 @@ public final class CellIdentityWcdma extends CellIdentity {
     private static final String TAG = CellIdentityWcdma.class.getSimpleName();
     private static final boolean DBG = false;
 
+    private static final int MAX_LAC = 65535;
+    private static final int MAX_CID = 268435455;
+    private static final int MAX_PSC = 511;
+    private static final int MAX_UARFCN = 16383; // a 14 bit number; TS 25.331 ex sec 10.3.8.15
+
     // 16-bit Location Area Code, 0..65535
     private final int mLac;
     // 28-bit UMTS Cell Identity described in TS 25.331, 0..268435455
     private final int mCid;
     // 9-bit UMTS Primary Scrambling Code described in TS 25.331, 0..511
     private final int mPsc;
-    // 16-bit UMTS Absolute RF Channel Number
+    // 16-bit UMTS Absolute RF Channel Number described in TS 25.101 sec. 5.4.4
+    @UnsupportedAppUsage
     private final int mUarfcn;
 
     /**
      * @hide
      */
     public CellIdentityWcdma() {
-        super(TAG, TYPE_TDSCDMA, null, null, null, null);
-        mLac = Integer.MAX_VALUE;
-        mCid = Integer.MAX_VALUE;
-        mPsc = Integer.MAX_VALUE;
-        mUarfcn = Integer.MAX_VALUE;
-    }
-    /**
-     * public constructor
-     * @param mcc 3-digit Mobile Country Code, 0..999
-     * @param mnc 2 or 3-digit Mobile Network Code, 0..999
-     * @param lac 16-bit Location Area Code, 0..65535
-     * @param cid 28-bit UMTS Cell Identity
-     * @param psc 9-bit UMTS Primary Scrambling Code
-     *
-     * @hide
-     */
-    public CellIdentityWcdma (int mcc, int mnc, int lac, int cid, int psc) {
-        this(lac, cid, psc, Integer.MAX_VALUE, String.valueOf(mcc), String.valueOf(mnc),
-                null, null);
-    }
-
-    /**
-     * public constructor
-     * @param mcc 3-digit Mobile Country Code, 0..999
-     * @param mnc 2 or 3-digit Mobile Network Code, 0..999
-     * @param lac 16-bit Location Area Code, 0..65535
-     * @param cid 28-bit UMTS Cell Identity
-     * @param psc 9-bit UMTS Primary Scrambling Code
-     * @param uarfcn 16-bit UMTS Absolute RF Channel Number
-     *
-     * @hide
-     */
-    public CellIdentityWcdma (int mcc, int mnc, int lac, int cid, int psc, int uarfcn) {
-        this(lac, cid, psc, uarfcn, String.valueOf(mcc), String.valueOf(mnc), null, null);
+        super(TAG, CellInfo.TYPE_WCDMA, null, null, null, null);
+        mLac = CellInfo.UNAVAILABLE;
+        mCid = CellInfo.UNAVAILABLE;
+        mPsc = CellInfo.UNAVAILABLE;
+        mUarfcn = CellInfo.UNAVAILABLE;
     }
 
     /**
@@ -83,7 +62,7 @@ public final class CellIdentityWcdma extends CellIdentity {
      * @param lac 16-bit Location Area Code, 0..65535
      * @param cid 28-bit UMTS Cell Identity
      * @param psc 9-bit UMTS Primary Scrambling Code
-     * @param uarfcn 16-bit UMTS Absolute RF Channel Number
+     * @param uarfcn 16-bit UMTS Absolute RF Channel Number described in TS 25.101 sec. 5.4.3
      * @param mccStr 3-digit Mobile Country Code in string format
      * @param mncStr 2 or 3-digit Mobile Network Code in string format
      * @param alphal long alpha Operator Name String or Enhanced Operator Name String
@@ -93,11 +72,23 @@ public final class CellIdentityWcdma extends CellIdentity {
      */
     public CellIdentityWcdma (int lac, int cid, int psc, int uarfcn,
                               String mccStr, String mncStr, String alphal, String alphas) {
-        super(TAG, TYPE_WCDMA, mccStr, mncStr, alphal, alphas);
-        mLac = lac;
-        mCid = cid;
-        mPsc = psc;
-        mUarfcn = uarfcn;
+        super(TAG, CellInfo.TYPE_WCDMA, mccStr, mncStr, alphal, alphas);
+        mLac = inRangeOrUnavailable(lac, 0, MAX_LAC);
+        mCid = inRangeOrUnavailable(cid, 0, MAX_CID);
+        mPsc = inRangeOrUnavailable(psc, 0, MAX_PSC);
+        mUarfcn = inRangeOrUnavailable(uarfcn, 0, MAX_UARFCN);
+    }
+
+    /** @hide */
+    public CellIdentityWcdma(android.hardware.radio.V1_0.CellIdentityWcdma cid) {
+        this(cid.lac, cid.cid, cid.psc, cid.uarfcn, cid.mcc, cid.mnc, "", "");
+    }
+
+    /** @hide */
+    public CellIdentityWcdma(android.hardware.radio.V1_2.CellIdentityWcdma cid) {
+        this(cid.base.lac, cid.base.cid, cid.base.psc, cid.base.uarfcn,
+                cid.base.mcc, cid.base.mnc, cid.operatorNames.alphaLong,
+                cid.operatorNames.alphaShort);
     }
 
     private CellIdentityWcdma(CellIdentityWcdma cid) {
@@ -105,30 +96,40 @@ public final class CellIdentityWcdma extends CellIdentity {
                 cid.mMncStr, cid.mAlphaLong, cid.mAlphaShort);
     }
 
+    /** @hide */
+    public CellIdentityWcdma sanitizeLocationInfo() {
+        return new CellIdentityWcdma(CellInfo.UNAVAILABLE, CellInfo.UNAVAILABLE,
+                CellInfo.UNAVAILABLE, CellInfo.UNAVAILABLE, mMccStr, mMncStr,
+                mAlphaLong, mAlphaShort);
+    }
+
     CellIdentityWcdma copy() {
         return new CellIdentityWcdma(this);
     }
 
     /**
-     * @return 3-digit Mobile Country Code, 0..999, Integer.MAX_VALUE if unknown
+     * @return 3-digit Mobile Country Code, 0..999,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      * @deprecated Use {@link #getMccString} instead.
      */
     @Deprecated
     public int getMcc() {
-        return (mMccStr != null) ? Integer.valueOf(mMccStr) : Integer.MAX_VALUE;
+        return (mMccStr != null) ? Integer.valueOf(mMccStr) : CellInfo.UNAVAILABLE;
     }
 
     /**
-     * @return 2 or 3-digit Mobile Network Code, 0..999, Integer.MAX_VALUE if unknown
+     * @return 2 or 3-digit Mobile Network Code, 0..999,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      * @deprecated Use {@link #getMncString} instead.
      */
     @Deprecated
     public int getMnc() {
-        return (mMncStr != null) ? Integer.valueOf(mMncStr) : Integer.MAX_VALUE;
+        return (mMncStr != null) ? Integer.valueOf(mMncStr) : CellInfo.UNAVAILABLE;
     }
 
     /**
-     * @return 16-bit Location Area Code, 0..65535, Integer.MAX_VALUE if unknown
+     * @return 16-bit Location Area Code, 0..65535,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getLac() {
         return mLac;
@@ -136,30 +137,33 @@ public final class CellIdentityWcdma extends CellIdentity {
 
     /**
      * @return CID
-     * 28-bit UMTS Cell Identity described in TS 25.331, 0..268435455, Integer.MAX_VALUE if unknown
+     * 28-bit UMTS Cell Identity described in TS 25.331, 0..268435455,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getCid() {
         return mCid;
     }
 
     /**
-     * @return 9-bit UMTS Primary Scrambling Code described in TS 25.331, 0..511, Integer.MAX_VALUE
-     * if unknown
+     * @return 9-bit UMTS Primary Scrambling Code described in TS 25.331, 0..511,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getPsc() {
         return mPsc;
     }
 
     /**
-     * @return Mobile Country Code in string version, null if unknown
+     * @return Mobile Country Code in string version, null if unavailable.
      */
+    @Nullable
     public String getMccString() {
         return mMccStr;
     }
 
     /**
-     * @return Mobile Network Code in string version, null if unknown
+     * @return Mobile Network Code in string version, null if unavailable.
      */
+    @Nullable
     public String getMncString() {
         return mMncStr;
     }
@@ -167,6 +171,7 @@ public final class CellIdentityWcdma extends CellIdentity {
     /**
      * @return a 5 or 6 character string (MCC+MNC), null if any field is unknown
      */
+    @Nullable
     public String getMobileNetworkOperator() {
         return (mMccStr == null || mMncStr == null) ? null : mMccStr + mMncStr;
     }
@@ -177,7 +182,8 @@ public final class CellIdentityWcdma extends CellIdentity {
     }
 
     /**
-     * @return 16-bit UMTS Absolute RF Channel Number, Integer.MAX_VALUE if unknown
+     * @return 16-bit UMTS Absolute RF Channel Number,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getUarfcn() {
         return mUarfcn;
@@ -187,6 +193,19 @@ public final class CellIdentityWcdma extends CellIdentity {
     @Override
     public int getChannelNumber() {
         return mUarfcn;
+    }
+
+    /** @hide */
+    @Override
+    public GsmCellLocation asCellLocation() {
+        GsmCellLocation cl = new GsmCellLocation();
+        int lac = mLac != CellInfo.UNAVAILABLE ? mLac : -1;
+        int cid = mCid != CellInfo.UNAVAILABLE ? mCid : -1;
+        int psc = mPsc != CellInfo.UNAVAILABLE ? mPsc : -1;
+        cl.setLacAndCid(lac, cid);
+        cl.setPsc(psc);
+
+        return cl;
     }
 
     @Override
@@ -227,7 +246,7 @@ public final class CellIdentityWcdma extends CellIdentity {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         if (DBG) log("writeToParcel(Parcel, int): " + toString());
-        super.writeToParcel(dest, TYPE_WCDMA);
+        super.writeToParcel(dest, CellInfo.TYPE_WCDMA);
         dest.writeInt(mLac);
         dest.writeInt(mCid);
         dest.writeInt(mPsc);
@@ -236,7 +255,7 @@ public final class CellIdentityWcdma extends CellIdentity {
 
     /** Construct from Parcel, type has already been processed */
     private CellIdentityWcdma(Parcel in) {
-        super(TAG, TYPE_WCDMA, in);
+        super(TAG, CellInfo.TYPE_WCDMA, in);
         mLac = in.readInt();
         mCid = in.readInt();
         mPsc = in.readInt();
@@ -246,7 +265,7 @@ public final class CellIdentityWcdma extends CellIdentity {
 
     /** Implement the Parcelable interface */
     @SuppressWarnings("hiding")
-    public static final Creator<CellIdentityWcdma> CREATOR =
+    public static final @android.annotation.NonNull Creator<CellIdentityWcdma> CREATOR =
             new Creator<CellIdentityWcdma>() {
                 @Override
                 public CellIdentityWcdma createFromParcel(Parcel in) {

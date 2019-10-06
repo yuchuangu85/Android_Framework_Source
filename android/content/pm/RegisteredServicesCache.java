@@ -17,6 +17,7 @@
 package android.content.pm;
 
 import android.Manifest;
+import android.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -145,6 +146,7 @@ public abstract class RegisteredServicesCache<V> {
     private RegisteredServicesCacheListener<V> mListener;
     private Handler mHandler;
 
+    @UnsupportedAppUsage
     public RegisteredServicesCache(Context context, String interfaceName, String metaDataName,
             String attributeName, XmlSerializerAndParser<V> serializerAndParser) {
         mContext = context;
@@ -174,7 +176,7 @@ public abstract class RegisteredServicesCache<V> {
         mContext.registerReceiver(mUserRemovedReceiver, userFilter);
     }
 
-    private final void handlePackageEvent(Intent intent, int userId) {
+    private void handlePackageEvent(Intent intent, int userId) {
         // Don't regenerate the services map when the package is removed or its
         // ASEC container unmounted as a step in replacement.  The subsequent
         // _ADDED / _AVAILABLE call will regenerate the map in the final state.
@@ -287,9 +289,11 @@ public abstract class RegisteredServicesCache<V> {
         }
 
         final RegisteredServicesCacheListener<V> listener2 = listener;
-        handler.post(new Runnable() {
-            public void run() {
+        handler.post(() -> {
+            try {
                 listener2.onServiceChanged(type, userId, removed);
+            } catch (Throwable th) {
+                Slog.wtf(TAG, "Exception from onServiceChanged", th);
             }
         });
     }
@@ -299,9 +303,12 @@ public abstract class RegisteredServicesCache<V> {
      * to bind to the service.
      */
     public static class ServiceInfo<V> {
+        @UnsupportedAppUsage
         public final V type;
         public final ComponentInfo componentInfo;
+        @UnsupportedAppUsage
         public final ComponentName componentName;
+        @UnsupportedAppUsage
         public final int uid;
 
         /** @hide */
@@ -476,7 +483,7 @@ public abstract class RegisteredServicesCache<V> {
                     continue;
                 }
                 serviceInfos.add(info);
-            } catch (XmlPullParserException|IOException e) {
+            } catch (XmlPullParserException | IOException e) {
                 Log.w(TAG, "Unable to load service info " + resolveInfo.toString(), e);
             }
         }

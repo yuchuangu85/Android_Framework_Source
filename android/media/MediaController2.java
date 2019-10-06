@@ -16,61 +16,503 @@
 
 package android.media;
 
-import static android.media.MediaPlayerBase.BUFFERING_STATE_UNKNOWN;
+import static android.media.MediaConstants.KEY_ALLOWED_COMMANDS;
+import static android.media.MediaConstants.KEY_CONNECTION_HINTS;
+import static android.media.MediaConstants.KEY_PACKAGE_NAME;
+import static android.media.MediaConstants.KEY_PID;
+import static android.media.MediaConstants.KEY_PLAYBACK_ACTIVE;
+import static android.media.MediaConstants.KEY_SESSION2LINK;
+import static android.media.MediaConstants.KEY_TOKEN_EXTRAS;
+import static android.media.Session2Command.Result.RESULT_ERROR_UNKNOWN_ERROR;
+import static android.media.Session2Command.Result.RESULT_INFO_SKIPPED;
+import static android.media.Session2Token.TYPE_SESSION;
 
-import android.annotation.CallbackExecutor;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.app.PendingIntent;
+import android.content.ComponentName;
 import android.content.Context;
-import android.media.MediaPlaylistAgent.RepeatMode;
-import android.media.MediaPlaylistAgent.ShuffleMode;
-import android.media.MediaSession2.CommandButton;
-import android.media.MediaSession2.ControllerInfo;
-import android.media.MediaSession2.ErrorCode;
-import android.media.session.MediaSessionManager;
-import android.media.update.ApiLoader;
-import android.media.update.MediaController2Provider;
-import android.media.update.MediaController2Provider.PlaybackInfoProvider;
-import android.net.Uri;
+import android.content.Intent;
+import android.content.ServiceConnection;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Process;
+import android.os.RemoteException;
 import android.os.ResultReceiver;
+import android.util.ArrayMap;
+import android.util.ArraySet;
+import android.util.Log;
 
-import java.util.List;
 import java.util.concurrent.Executor;
 
 /**
- * @hide
+ * This API is not generally intended for third party application developers.
+ * Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+ * <a href="{@docRoot}reference/androidx/media2/session/package-summary.html">Media2 session
+ * Library</a> for consistent behavior across all devices.
+ *
  * Allows an app to interact with an active {@link MediaSession2} or a
- * {@link MediaSessionService2} in any status. Media buttons and other commands can be sent to
- * the session.
- * <p>
- * When you're done, use {@link #close()} to clean up resources. This also helps session service
- * to be destroyed when there's no controller associated with it.
- * <p>
- * When controlling {@link MediaSession2}, the controller will be available immediately after
- * the creation.
- * <p>
- * When controlling {@link MediaSessionService2}, the {@link MediaController2} would be
- * available only if the session service allows this controller by
- * {@link MediaSession2.SessionCallback#onConnect(MediaSession2, ControllerInfo)} for the service.
- * Wait {@link ControllerCallback#onConnected(MediaController2, SessionCommandGroup2)} or
- * {@link ControllerCallback#onDisconnected(MediaController2)} for the result.
- * <p>
- * A controller can be created through token from {@link MediaSessionManager} if you hold the
- * signature|privileged permission "android.permission.MEDIA_CONTENT_CONTROL" permission or are
- * an enabled notification listener or by getting a {@link SessionToken2} directly the
- * the session owner.
- * <p>
- * MediaController2 objects are thread-safe.
- * <p>
- * @see MediaSession2
- * @see MediaSessionService2
+ * {@link MediaSession2Service} which would provide {@link MediaSession2}. Media buttons and other
+ * commands can be sent to the session.
  */
 public class MediaController2 implements AutoCloseable {
+    static final String TAG = "MediaController2";
+    static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
+
+    @SuppressWarnings("WeakerAccess") /* synthetic access */
+    final ControllerCallback mCallback;
+
+    private final IBinder.DeathRecipient mDeathRecipient = () -> close();
+    private final Context mContext;
+    private final Session2Token mSessionToken;
+    private final Executor mCallbackExecutor;
+    private final Controller2Link mControllerStub;
+    private final Handler mResultHandler;
+    private final SessionServiceConnection mServiceConnection;
+
+    private final Object mLock = new Object();
+    //@GuardedBy("mLock")
+    private boolean mClosed;
+    //@GuardedBy("mLock")
+    private int mNextSeqNumber;
+    //@GuardedBy("mLock")
+    private Session2Link mSessionBinder;
+    //@GuardedBy("mLock")
+    private Session2CommandGroup mAllowedCommands;
+    //@GuardedBy("mLock")
+    private Session2Token mConnectedToken;
+    //@GuardedBy("mLock")
+    private ArrayMap<ResultReceiver, Integer> mPendingCommands;
+    //@GuardedBy("mLock")
+    private ArraySet<Integer> mRequestedCommandSeqNumbers;
+    //@GuardedBy("mLock")
+    private boolean mPlaybackActive;
+
     /**
-     * Interface for listening to change in activeness of the {@link MediaSession2}.  It's
-     * active if and only if it has set a player.
+     * Create a {@link MediaController2} from the {@link Session2Token}.
+     * This connects to the session and may wake up the service if it's not available.
+     *
+     * @param context context
+     * @param token token to connect to
+     * @param connectionHints a session-specific argument to send to the session when connecting.
+     *                        The contents of this bundle may affect the connection result.
+     * @param executor executor to run callbacks on.
+     * @param callback controller callback to receive changes in.
+     */
+    MediaController2(@NonNull Context context, @NonNull Session2Token token,
+            @NonNull Bundle connectionHints, @NonNull Executor executor,
+            @NonNull ControllerCallback callback) {
+        if (context == null) {
+            throw new IllegalArgumentException("context shouldn't be null");
+        }
+        if (token == null) {
+            throw new IllegalArgumentException("token shouldn't be null");
+        }
+        mContext = context;
+        mSessionToken = token;
+        mCallbackExecutor = (executor == null) ? context.getMainExecutor() : executor;
+        mCallback = (callback == null) ? new ControllerCallback() {} : callback;
+        mControllerStub = new Controller2Link(this);
+        // NOTE: mResultHandler uses main looper, so this MUST NOT be blocked.
+        mResultHandler = new Handler(context.getMainLooper());
+
+        mNextSeqNumber = 0;
+        mPendingCommands = new ArrayMap<>();
+        mRequestedCommandSeqNumbers = new ArraySet<>();
+
+        boolean connectRequested;
+        if (token.getType() == TYPE_SESSION) {
+            mServiceConnection = null;
+            connectRequested = requestConnectToSession(connectionHints);
+        } else {
+            mServiceConnection = new SessionServiceConnection(connectionHints);
+            connectRequested = requestConnectToService();
+        }
+        if (!connectRequested) {
+            close();
+        }
+    }
+
+    @Override
+    public void close() {
+        synchronized (mLock) {
+            if (mClosed) {
+                // Already closed. Ignore rest of clean up code.
+                // Note: unbindService() throws IllegalArgumentException when it's called twice.
+                return;
+            }
+            mClosed = true;
+            if (mServiceConnection != null) {
+                // Note: This should be called even when the bindService() has returned false.
+                mContext.unbindService(mServiceConnection);
+            }
+            if (mSessionBinder != null) {
+                try {
+                    mSessionBinder.disconnect(mControllerStub, getNextSeqNumber());
+                    mSessionBinder.unlinkToDeath(mDeathRecipient, 0);
+                } catch (RuntimeException e) {
+                    // No-op
+                }
+            }
+            mConnectedToken = null;
+            mPendingCommands.clear();
+            mRequestedCommandSeqNumbers.clear();
+            mCallbackExecutor.execute(() -> {
+                mCallback.onDisconnected(MediaController2.this);
+            });
+            mSessionBinder = null;
+        }
+    }
+
+    /**
+     * Returns {@link Session2Token} of the connected session.
+     * If it is not connected yet, it returns {@code null}.
+     * <p>
+     * This may differ with the {@link Session2Token} from the constructor. For example, if the
+     * controller is created with the token for {@link MediaSession2Service}, this would return
+     * token for the {@link MediaSession2} in the service.
+     *
+     * @return Session2Token of the connected session, or {@code null} if not connected
+     */
+    @Nullable
+    public Session2Token getConnectedToken() {
+        synchronized (mLock) {
+            return mConnectedToken;
+        }
+    }
+
+    /**
+     * Returns whether the session's playback is active.
+     *
+     * @return {@code true} if playback active. {@code false} otherwise.
+     * @see ControllerCallback#onPlaybackActiveChanged(MediaController2, boolean)
+     */
+    public boolean isPlaybackActive() {
+        synchronized (mLock) {
+            return mPlaybackActive;
+        }
+    }
+
+    /**
+     * Sends a session command to the session
+     * <p>
+     * @param command the session command
+     * @param args optional arguments
+     * @return a token which will be sent together in {@link ControllerCallback#onCommandResult}
+     *        when its result is received.
+     */
+    @NonNull
+    public Object sendSessionCommand(@NonNull Session2Command command, @Nullable Bundle args) {
+        if (command == null) {
+            throw new IllegalArgumentException("command shouldn't be null");
+        }
+
+        ResultReceiver resultReceiver = new ResultReceiver(mResultHandler) {
+            protected void onReceiveResult(int resultCode, Bundle resultData) {
+                synchronized (mLock) {
+                    mPendingCommands.remove(this);
+                }
+                mCallbackExecutor.execute(() -> {
+                    mCallback.onCommandResult(MediaController2.this, this,
+                            command, new Session2Command.Result(resultCode, resultData));
+                });
+            }
+        };
+
+        synchronized (mLock) {
+            if (mSessionBinder != null) {
+                int seq = getNextSeqNumber();
+                mPendingCommands.put(resultReceiver, seq);
+                try {
+                    mSessionBinder.sendSessionCommand(mControllerStub, seq, command, args,
+                            resultReceiver);
+                } catch (RuntimeException e)  {
+                    mPendingCommands.remove(resultReceiver);
+                    resultReceiver.send(RESULT_ERROR_UNKNOWN_ERROR, null);
+                }
+            }
+        }
+        return resultReceiver;
+    }
+
+    /**
+     * Cancels the session command previously sent.
+     *
+     * @param token the token which is returned from {@link #sendSessionCommand}.
+     */
+    public void cancelSessionCommand(@NonNull Object token) {
+        if (token == null) {
+            throw new IllegalArgumentException("token shouldn't be null");
+        }
+        synchronized (mLock) {
+            if (mSessionBinder == null) return;
+            Integer seq = mPendingCommands.remove(token);
+            if (seq != null) {
+                mSessionBinder.cancelSessionCommand(mControllerStub, seq);
+            }
+        }
+    }
+
+    // Called by Controller2Link.onConnected
+    void onConnected(int seq, Bundle connectionResult) {
+        Session2Link sessionBinder = connectionResult.getParcelable(KEY_SESSION2LINK);
+        Session2CommandGroup allowedCommands =
+                connectionResult.getParcelable(KEY_ALLOWED_COMMANDS);
+        boolean playbackActive = connectionResult.getBoolean(KEY_PLAYBACK_ACTIVE);
+
+        Bundle tokenExtras = connectionResult.getBundle(KEY_TOKEN_EXTRAS);
+        if (tokenExtras == null) {
+            Log.w(TAG, "extras shouldn't be null.");
+            tokenExtras = Bundle.EMPTY;
+        } else if (MediaSession2.hasCustomParcelable(tokenExtras)) {
+            Log.w(TAG, "extras contain custom parcelable. Ignoring.");
+            tokenExtras = Bundle.EMPTY;
+        }
+
+        if (DEBUG) {
+            Log.d(TAG, "notifyConnected sessionBinder=" + sessionBinder
+                    + ", allowedCommands=" + allowedCommands);
+        }
+        if (sessionBinder == null || allowedCommands == null) {
+            // Connection rejected.
+            close();
+            return;
+        }
+        synchronized (mLock) {
+            mSessionBinder = sessionBinder;
+            mAllowedCommands = allowedCommands;
+            mPlaybackActive = playbackActive;
+
+            // Implementation for the local binder is no-op,
+            // so can be used without worrying about deadlock.
+            sessionBinder.linkToDeath(mDeathRecipient, 0);
+            mConnectedToken = new Session2Token(mSessionToken.getUid(), TYPE_SESSION,
+                    mSessionToken.getPackageName(), sessionBinder, tokenExtras);
+        }
+        mCallbackExecutor.execute(() -> {
+            mCallback.onConnected(MediaController2.this, allowedCommands);
+        });
+    }
+
+    // Called by Controller2Link.onDisconnected
+    void onDisconnected(int seq) {
+        // close() will call mCallback.onDisconnected
+        close();
+    }
+
+    // Called by Controller2Link.onPlaybackActiveChanged
+    void onPlaybackActiveChanged(int seq, boolean playbackActive) {
+        synchronized (mLock) {
+            mPlaybackActive = playbackActive;
+        }
+        mCallbackExecutor.execute(() -> {
+            mCallback.onPlaybackActiveChanged(MediaController2.this, playbackActive);
+        });
+    }
+
+    // Called by Controller2Link.onSessionCommand
+    void onSessionCommand(int seq, Session2Command command, Bundle args,
+            @Nullable ResultReceiver resultReceiver) {
+        synchronized (mLock) {
+            mRequestedCommandSeqNumbers.add(seq);
+        }
+        mCallbackExecutor.execute(() -> {
+            boolean isCanceled;
+            synchronized (mLock) {
+                isCanceled = !mRequestedCommandSeqNumbers.remove(seq);
+            }
+            if (isCanceled) {
+                if (resultReceiver != null) {
+                    resultReceiver.send(RESULT_INFO_SKIPPED, null);
+                }
+                return;
+            }
+            Session2Command.Result result = mCallback.onSessionCommand(
+                    MediaController2.this, command, args);
+            if (resultReceiver != null) {
+                if (result == null) {
+                    resultReceiver.send(RESULT_INFO_SKIPPED, null);
+                } else {
+                    resultReceiver.send(result.getResultCode(), result.getResultData());
+                }
+            }
+        });
+    }
+
+    // Called by Controller2Link.onSessionCommand
+    void onCancelCommand(int seq) {
+        synchronized (mLock) {
+            mRequestedCommandSeqNumbers.remove(seq);
+        }
+    }
+
+    private int getNextSeqNumber() {
+        synchronized (mLock) {
+            return mNextSeqNumber++;
+        }
+    }
+
+    private Bundle createConnectionRequest(@NonNull Bundle connectionHints) {
+        Bundle connectionRequest = new Bundle();
+        connectionRequest.putString(KEY_PACKAGE_NAME, mContext.getPackageName());
+        connectionRequest.putInt(KEY_PID, Process.myPid());
+        connectionRequest.putBundle(KEY_CONNECTION_HINTS, connectionHints);
+        return connectionRequest;
+    }
+
+    private boolean requestConnectToSession(@NonNull Bundle connectionHints) {
+        Session2Link sessionBinder = mSessionToken.getSessionLink();
+        Bundle connectionRequest = createConnectionRequest(connectionHints);
+        try {
+            sessionBinder.connect(mControllerStub, getNextSeqNumber(), connectionRequest);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Failed to call connection request", e);
+            return false;
+        }
+        return true;
+    }
+
+    private boolean requestConnectToService() {
+        // Service. Needs to get fresh binder whenever connection is needed.
+        final Intent intent = new Intent(MediaSession2Service.SERVICE_INTERFACE);
+        intent.setClassName(mSessionToken.getPackageName(), mSessionToken.getServiceName());
+
+        // Use bindService() instead of startForegroundService() to start session service for three
+        // reasons.
+        // 1. Prevent session service owner's stopSelf() from destroying service.
+        //    With the startForegroundService(), service's call of stopSelf() will trigger immediate
+        //    onDestroy() calls on the main thread even when onConnect() is running in another
+        //    thread.
+        // 2. Minimize APIs for developers to take care about.
+        //    With bindService(), developers only need to take care about Service.onBind()
+        //    but Service.onStartCommand() should be also taken care about with the
+        //    startForegroundService().
+        // 3. Future support for UI-less playback
+        //    If a service wants to keep running, it should be either foreground service or
+        //    bound service. But there had been request for the feature for system apps
+        //    and using bindService() will be better fit with it.
+        synchronized (mLock) {
+            boolean result = mContext.bindService(
+                    intent, mServiceConnection, Context.BIND_AUTO_CREATE);
+            if (!result) {
+                Log.w(TAG, "bind to " + mSessionToken + " failed");
+                return false;
+            } else if (DEBUG) {
+                Log.d(TAG, "bind to " + mSessionToken + " succeeded");
+            }
+        }
+        return true;
+    }
+
+    /**
+     * This API is not generally intended for third party application developers.
+     * Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+     * <a href="{@docRoot}reference/androidx/media2/session/package-summary.html">Media2 session
+     * Library</a> for consistent behavior across all devices.
+     * <p>
+     * Builder for {@link MediaController2}.
+     * <p>
+     * Any incoming event from the {@link MediaSession2} will be handled on the callback
+     * executor. If it's not set, {@link Context#getMainExecutor()} will be used by default.
+     */
+    public static final class Builder {
+        private Context mContext;
+        private Session2Token mToken;
+        private Bundle mConnectionHints;
+        private Executor mCallbackExecutor;
+        private ControllerCallback mCallback;
+
+        /**
+         * Creates a builder for {@link MediaController2}.
+         *
+         * @param context context
+         * @param token token of the session to connect to
+         */
+        public Builder(@NonNull Context context, @NonNull Session2Token token) {
+            if (context == null) {
+                throw new IllegalArgumentException("context shouldn't be null");
+            }
+            if (token == null) {
+                throw new IllegalArgumentException("token shouldn't be null");
+            }
+            mContext = context;
+            mToken = token;
+        }
+
+        /**
+         * Set the connection hints for the controller.
+         * <p>
+         * {@code connectionHints} is a session-specific argument to send to the session when
+         * connecting. The contents of this bundle may affect the connection result.
+         * <p>
+         * An {@link IllegalArgumentException} will be thrown if the bundle contains any
+         * non-framework Parcelable objects.
+         *
+         * @param connectionHints a bundle which contains the connection hints
+         * @return The Builder to allow chaining
+         */
+        @NonNull
+        public Builder setConnectionHints(@NonNull Bundle connectionHints) {
+            if (connectionHints == null) {
+                throw new IllegalArgumentException("connectionHints shouldn't be null");
+            }
+            if (MediaSession2.hasCustomParcelable(connectionHints)) {
+                throw new IllegalArgumentException("connectionHints shouldn't contain any custom "
+                        + "parcelables");
+            }
+            mConnectionHints = new Bundle(connectionHints);
+            return this;
+        }
+
+        /**
+         * Set callback for the controller and its executor.
+         *
+         * @param executor callback executor
+         * @param callback session callback.
+         * @return The Builder to allow chaining
+         */
+        @NonNull
+        public Builder setControllerCallback(@NonNull Executor executor,
+                @NonNull ControllerCallback callback) {
+            if (executor == null) {
+                throw new IllegalArgumentException("executor shouldn't be null");
+            }
+            if (callback == null) {
+                throw new IllegalArgumentException("callback shouldn't be null");
+            }
+            mCallbackExecutor = executor;
+            mCallback = callback;
+            return this;
+        }
+
+        /**
+         * Build {@link MediaController2}.
+         *
+         * @return a new controller
+         */
+        @NonNull
+        public MediaController2 build() {
+            if (mCallbackExecutor == null) {
+                mCallbackExecutor = mContext.getMainExecutor();
+            }
+            if (mCallback == null) {
+                mCallback = new ControllerCallback() {};
+            }
+            if (mConnectionHints == null) {
+                mConnectionHints = Bundle.EMPTY;
+            }
+            return new MediaController2(
+                    mContext, mToken, mConnectionHints, mCallbackExecutor, mCallback);
+        }
+    }
+
+    /**
+     * This API is not generally intended for third party application developers.
+     * Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+     * <a href="{@docRoot}reference/androidx/media2/session/package-summary.html">Media2 session
+     * Library</a> for consistent behavior across all devices.
+     * <p>
+     * Interface for listening to change in activeness of the {@link MediaSession2}.
      */
     public abstract static class ControllerCallback {
         /**
@@ -81,7 +523,7 @@ public class MediaController2 implements AutoCloseable {
          * @param allowedCommands commands that's allowed by the session.
          */
         public void onConnected(@NonNull MediaController2 controller,
-                @NonNull SessionCommandGroup2 allowedCommands) { }
+                @NonNull Session2CommandGroup allowedCommands) {}
 
         /**
          * Called when the session refuses the controller or the controller is disconnected from
@@ -92,780 +534,102 @@ public class MediaController2 implements AutoCloseable {
          * You don't need to call {@link #close()} after this.
          *
          * @param controller the controller for this event
-         * @param controller controller for this event
          */
-        public void onDisconnected(@NonNull MediaController2 controller) { }
+        public void onDisconnected(@NonNull MediaController2 controller) {}
 
         /**
-         * Called when the session set the custom layout through the
-         * {@link MediaSession2#setCustomLayout(ControllerInfo, List)}.
-         * <p>
-         * Can be called before {@link #onConnected(MediaController2, SessionCommandGroup2)} is
-         * called.
+         * Called when the session's playback activeness is changed.
          *
          * @param controller the controller for this event
-         * @param layout
+         * @param playbackActive {@code true} if the session's playback is active.
+         *                       {@code false} otherwise.
+         * @see MediaController2#isPlaybackActive()
          */
-        public void onCustomLayoutChanged(@NonNull MediaController2 controller,
-                @NonNull List<CommandButton> layout) { }
+        public void onPlaybackActiveChanged(@NonNull MediaController2 controller,
+                boolean playbackActive) {}
 
         /**
-         * Called when the session has changed anything related with the {@link PlaybackInfo}.
+         * Called when the connected session sent a session command.
          *
          * @param controller the controller for this event
-         * @param info new playback info
+         * @param command the session command
+         * @param args optional arguments
+         * @return the result for the session command. If {@code null}, RESULT_INFO_SKIPPED
+         *         will be sent to the session.
          */
-        public void onPlaybackInfoChanged(@NonNull MediaController2 controller,
-                @NonNull PlaybackInfo info) { }
-
-        /**
-         * Called when the allowed commands are changed by session.
-         *
-         * @param controller the controller for this event
-         * @param commands newly allowed commands
-         */
-        public void onAllowedCommandsChanged(@NonNull MediaController2 controller,
-                @NonNull SessionCommandGroup2 commands) { }
-
-        /**
-         * Called when the session sent a custom command.
-         *
-         * @param controller the controller for this event
-         * @param command
-         * @param args
-         * @param receiver
-         */
-        public void onCustomCommand(@NonNull MediaController2 controller,
-                @NonNull SessionCommand2 command, @Nullable Bundle args,
-                @Nullable ResultReceiver receiver) { }
-
-        /**
-         * Called when the player state is changed.
-         *
-         * @param controller the controller for this event
-         * @param state
-         */
-        public void onPlayerStateChanged(@NonNull MediaController2 controller, int state) { }
-
-        /**
-         * Called when playback speed is changed.
-         *
-         * @param controller the controller for this event
-         * @param speed speed
-         */
-        public void onPlaybackSpeedChanged(@NonNull MediaController2 controller,
-                float speed) { }
-
-        /**
-         * Called to report buffering events for a data source.
-         * <p>
-         * Use {@link #getBufferedPosition()} for current buffering position.
-         *
-         * @param controller the controller for this event
-         * @param item the media item for which buffering is happening.
-         * @param state the new buffering state.
-         */
-        public void onBufferingStateChanged(@NonNull MediaController2 controller,
-                @NonNull MediaItem2 item, @MediaPlayerBase.BuffState int state) { }
-
-        /**
-         * Called to indicate that seeking is completed.
-         *
-         * @param controller the controller for this event.
-         * @param position the previous seeking request.
-         */
-        public void onSeekCompleted(@NonNull MediaController2 controller, long position) { }
-
-        /**
-         * Called when a error from
-         *
-         * @param controller the controller for this event
-         * @param errorCode error code
-         * @param extras extra information
-         */
-        public void onError(@NonNull MediaController2 controller, @ErrorCode int errorCode,
-                @Nullable Bundle extras) { }
-
-        /**
-         * Called when the player's currently playing item is changed
-         * <p>
-         * When it's called, you should invalidate previous playback information and wait for later
-         * callbacks.
-         *
-         * @param controller the controller for this event
-         * @param item new item
-         * @see #onBufferingStateChanged(MediaController2, MediaItem2, int)
-         */
-        // TODO(jaewan): Use this (b/74316764)
-        public void onCurrentMediaItemChanged(@NonNull MediaController2 controller,
-                @NonNull MediaItem2 item) { }
-
-        /**
-         * Called when a playlist is changed.
-         *
-         * @param controller the controller for this event
-         * @param list new playlist
-         * @param metadata new metadata
-         */
-        public void onPlaylistChanged(@NonNull MediaController2 controller,
-                @NonNull List<MediaItem2> list, @Nullable MediaMetadata2 metadata) { }
-
-        /**
-         * Called when a playlist metadata is changed.
-         *
-         * @param controller the controller for this event
-         * @param metadata new metadata
-         */
-        public void onPlaylistMetadataChanged(@NonNull MediaController2 controller,
-                @Nullable MediaMetadata2 metadata) { }
-
-        /**
-         * Called when the shuffle mode is changed.
-         *
-         * @param controller the controller for this event
-         * @param shuffleMode repeat mode
-         * @see MediaPlaylistAgent#SHUFFLE_MODE_NONE
-         * @see MediaPlaylistAgent#SHUFFLE_MODE_ALL
-         * @see MediaPlaylistAgent#SHUFFLE_MODE_GROUP
-         */
-        public void onShuffleModeChanged(@NonNull MediaController2 controller,
-                @MediaPlaylistAgent.ShuffleMode int shuffleMode) { }
-
-        /**
-         * Called when the repeat mode is changed.
-         *
-         * @param controller the controller for this event
-         * @param repeatMode repeat mode
-         * @see MediaPlaylistAgent#REPEAT_MODE_NONE
-         * @see MediaPlaylistAgent#REPEAT_MODE_ONE
-         * @see MediaPlaylistAgent#REPEAT_MODE_ALL
-         * @see MediaPlaylistAgent#REPEAT_MODE_GROUP
-         */
-        public void onRepeatModeChanged(@NonNull MediaController2 controller,
-                @MediaPlaylistAgent.RepeatMode int repeatMode) { }
-    }
-
-    /**
-     * Holds information about the current playback and how audio is handled for
-     * this session.
-     */
-    // The same as MediaController.PlaybackInfo
-    public static final class PlaybackInfo {
-        /**
-         * The session uses remote playback.
-         */
-        public static final int PLAYBACK_TYPE_REMOTE = 2;
-        /**
-         * The session uses local playback.
-         */
-        public static final int PLAYBACK_TYPE_LOCAL = 1;
-
-        private final PlaybackInfoProvider mProvider;
-
-        /**
-         * @hide
-         */
-        public PlaybackInfo(PlaybackInfoProvider provider) {
-            mProvider = provider;
+        @Nullable
+        public Session2Command.Result onSessionCommand(@NonNull MediaController2 controller,
+                @NonNull Session2Command command, @Nullable Bundle args) {
+            return null;
         }
 
         /**
-         * @hide
-         */
-        public PlaybackInfoProvider getProvider() {
-            return mProvider;
-        }
-
-        /**
-         * Get the type of playback which affects volume handling. One of:
-         * <ul>
-         * <li>{@link #PLAYBACK_TYPE_LOCAL}</li>
-         * <li>{@link #PLAYBACK_TYPE_REMOTE}</li>
-         * </ul>
+         * Called when the command sent to the connected session is finished.
          *
-         * @return The type of playback this session is using.
+         * @param controller the controller for this event
+         * @param token the token got from {@link MediaController2#sendSessionCommand}
+         * @param command the session command
+         * @param result the result of the session command
          */
-        public int getPlaybackType() {
-            return mProvider.getPlaybackType_impl();
+        public void onCommandResult(@NonNull MediaController2 controller, @NonNull Object token,
+                @NonNull Session2Command command, @NonNull Session2Command.Result result) {}
+    }
+
+    // This will be called on the main thread.
+    private class SessionServiceConnection implements ServiceConnection {
+        private final Bundle mConnectionHints;
+
+        SessionServiceConnection(@Nullable Bundle connectionHints) {
+            mConnectionHints = connectionHints;
         }
 
-        /**
-         * Get the audio attributes for this session. The attributes will affect
-         * volume handling for the session. When the volume type is
-         * {@link PlaybackInfo#PLAYBACK_TYPE_REMOTE} these may be ignored by the
-         * remote volume handler.
-         *
-         * @return The attributes for this session.
-         */
-        public AudioAttributes getAudioAttributes() {
-            return mProvider.getAudioAttributes_impl();
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            // Note that it's always main-thread.
+            boolean connectRequested = false;
+            try {
+                if (DEBUG) {
+                    Log.d(TAG, "onServiceConnected " + name + " " + this);
+                }
+                // Sanity check
+                if (!mSessionToken.getPackageName().equals(name.getPackageName())) {
+                    Log.wtf(TAG, "Expected connection to " + mSessionToken.getPackageName()
+                            + " but is connected to " + name);
+                    return;
+                }
+                IMediaSession2Service iService = IMediaSession2Service.Stub.asInterface(service);
+                if (iService == null) {
+                    Log.wtf(TAG, "Service interface is missing.");
+                    return;
+                }
+                Bundle connectionRequest = createConnectionRequest(mConnectionHints);
+                iService.connect(mControllerStub, getNextSeqNumber(), connectionRequest);
+                connectRequested = true;
+            } catch (RemoteException e) {
+                Log.w(TAG, "Service " + name + " has died prematurely", e);
+            } finally {
+                if (!connectRequested) {
+                    close();
+                }
+            }
         }
 
-        /**
-         * Get the type of volume control that can be used. One of:
-         * <ul>
-         * <li>{@link VolumeProvider2#VOLUME_CONTROL_ABSOLUTE}</li>
-         * <li>{@link VolumeProvider2#VOLUME_CONTROL_RELATIVE}</li>
-         * <li>{@link VolumeProvider2#VOLUME_CONTROL_FIXED}</li>
-         * </ul>
-         *
-         * @return The type of volume control that may be used with this session.
-         */
-        public int getControlType() {
-            return mProvider.getControlType_impl();
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            // Temporal lose of the binding because of the service crash. System will automatically
+            // rebind, so just no-op.
+            if (DEBUG) {
+                Log.w(TAG, "Session service " + name + " is disconnected.");
+            }
+            close();
         }
 
-        /**
-         * Get the maximum volume that may be set for this session.
-         *
-         * @return The maximum allowed volume where this session is playing.
-         */
-        public int getMaxVolume() {
-            return mProvider.getMaxVolume_impl();
+        @Override
+        public void onBindingDied(ComponentName name) {
+            // Permanent lose of the binding because of the service package update or removed.
+            // This SessionServiceRecord will be removed accordingly, but forget session binder here
+            // for sure.
+            close();
         }
-
-        /**
-         * Get the current volume for this session.
-         *
-         * @return The current volume where this session is playing.
-         */
-        public int getCurrentVolume() {
-            return mProvider.getCurrentVolume_impl();
-        }
-    }
-
-    private final MediaController2Provider mProvider;
-
-    /**
-     * Create a {@link MediaController2} from the {@link SessionToken2}.
-     * This connects to the session and may wake up the service if it's not available.
-     *
-     * @param context Context
-     * @param token token to connect to
-     * @param executor executor to run callbacks on.
-     * @param callback controller callback to receive changes in
-     */
-    public MediaController2(@NonNull Context context, @NonNull SessionToken2 token,
-            @NonNull @CallbackExecutor Executor executor, @NonNull ControllerCallback callback) {
-        super();
-
-        mProvider = createProvider(context, token, executor, callback);
-        // This also connects to the token.
-        // Explicit connect() isn't added on purpose because retrying connect() is impossible with
-        // session whose session binder is only valid while it's active.
-        // prevent a controller from reusable after the
-        // session is released and recreated.
-        mProvider.initialize();
-    }
-
-    MediaController2Provider createProvider(@NonNull Context context,
-            @NonNull SessionToken2 token, @NonNull Executor executor,
-            @NonNull ControllerCallback callback) {
-        return ApiLoader.getProvider().createMediaController2(
-                context, this, token, executor, callback);
-    }
-
-    /**
-     * Release this object, and disconnect from the session. After this, callbacks wouldn't be
-     * received.
-     */
-    @Override
-    public void close() {
-        mProvider.close_impl();
-    }
-
-    /**
-     * @hide
-     */
-    public MediaController2Provider getProvider() {
-        return mProvider;
-    }
-
-    /**
-     * @return token
-     */
-    public @NonNull SessionToken2 getSessionToken() {
-        return mProvider.getSessionToken_impl();
-    }
-
-    /**
-     * Returns whether this class is connected to active {@link MediaSession2} or not.
-     */
-    public boolean isConnected() {
-        return mProvider.isConnected_impl();
-    }
-
-    public void play() {
-        mProvider.play_impl();
-    }
-
-    public void pause() {
-        mProvider.pause_impl();
-    }
-
-    public void stop() {
-        mProvider.stop_impl();
-    }
-
-    /**
-     * Request that the player prepare its playback. In other words, other sessions can continue
-     * to play during the preparation of this session. This method can be used to speed up the
-     * start of the playback. Once the preparation is done, the session will change its playback
-     * state to {@link MediaPlayerBase#PLAYER_STATE_PAUSED}. Afterwards, {@link #play} can be called
-     * to start playback.
-     */
-    public void prepare() {
-        mProvider.prepare_impl();
-    }
-
-    /**
-     * Fast forwards playback. If playback is already fast forwarding this may increase the rate.
-     */
-    public void fastForward() {
-        mProvider.fastForward_impl();
-    }
-
-    /**
-     * Rewinds playback. If playback is already rewinding this may increase the rate.
-     */
-    public void rewind() {
-        mProvider.rewind_impl();
-    }
-
-    /**
-     * Move to a new location in the media stream.
-     *
-     * @param pos Position to move to, in milliseconds.
-     */
-    public void seekTo(long pos) {
-        mProvider.seekTo_impl(pos);
-    }
-
-    /**
-     * Revisit this API later.
-     * @hide
-     */
-    public void skipForward() {
-        // TODO(jaewan): (Post-P) Discuss this API later.
-        // To match with KEYCODE_MEDIA_SKIP_FORWARD
-    }
-
-    /**
-     * @hide
-     */
-    public void skipBackward() {
-        // TODO(jaewan): (Post-P) Discuss this API later.
-        // To match with KEYCODE_MEDIA_SKIP_BACKWARD
-    }
-
-    /**
-     * Request that the player start playback for a specific media id.
-     *
-     * @param mediaId The id of the requested media.
-     * @param extras Optional extras that can include extra information about the media item
-     *               to be played.
-     */
-    public void playFromMediaId(@NonNull String mediaId, @Nullable Bundle extras) {
-        mProvider.playFromMediaId_impl(mediaId, extras);
-    }
-
-    /**
-     * Request that the player start playback for a specific search query.
-     *
-     * @param query The search query. Should not be an empty string.
-     * @param extras Optional extras that can include extra information about the query.
-     */
-    public void playFromSearch(@NonNull String query, @Nullable Bundle extras) {
-        mProvider.playFromSearch_impl(query, extras);
-    }
-
-    /**
-     * Request that the player start playback for a specific {@link Uri}.
-     *
-     * @param uri The URI of the requested media.
-     * @param extras Optional extras that can include extra information about the media item
-     *               to be played.
-     */
-    public void playFromUri(@NonNull Uri uri, @Nullable Bundle extras) {
-        mProvider.playFromUri_impl(uri, extras);
-    }
-
-    /**
-     * Request that the player prepare playback for a specific media id. In other words, other
-     * sessions can continue to play during the preparation of this session. This method can be
-     * used to speed up the start of the playback. Once the preparation is done, the session
-     * will change its playback state to {@link MediaPlayerBase#PLAYER_STATE_PAUSED}. Afterwards,
-     * {@link #play} can be called to start playback. If the preparation is not needed,
-     * {@link #playFromMediaId} can be directly called without this method.
-     *
-     * @param mediaId The id of the requested media.
-     * @param extras Optional extras that can include extra information about the media item
-     *               to be prepared.
-     */
-    public void prepareFromMediaId(@NonNull String mediaId, @Nullable Bundle extras) {
-        mProvider.prepareFromMediaId_impl(mediaId, extras);
-    }
-
-    /**
-     * Request that the player prepare playback for a specific search query.
-     * In other words, other sessions can continue to play during the preparation of this session.
-     * This method can be used to speed up the start of the playback.
-     * Once the preparation is done, the session will change its playback state to
-     * {@link MediaPlayerBase#PLAYER_STATE_PAUSED}. Afterwards,
-     * {@link #play} can be called to start playback. If the preparation is not needed,
-     * {@link #playFromSearch} can be directly called without this method.
-     *
-     * @param query The search query. Should not be an empty string.
-     * @param extras Optional extras that can include extra information about the query.
-     */
-    public void prepareFromSearch(@NonNull String query, @Nullable Bundle extras) {
-        mProvider.prepareFromSearch_impl(query, extras);
-    }
-
-    /**
-     * Request that the player prepare playback for a specific {@link Uri}. In other words,
-     * other sessions can continue to play during the preparation of this session. This method
-     * can be used to speed up the start of the playback. Once the preparation is done, the
-     * session will change its playback state to {@link MediaPlayerBase#PLAYER_STATE_PAUSED}.
-     * Afterwards, {@link #play} can be called to start playback. If the preparation is not needed,
-     * {@link #playFromUri} can be directly called without this method.
-     *
-     * @param uri The URI of the requested media.
-     * @param extras Optional extras that can include extra information about the media item
-     *               to be prepared.
-     */
-    public void prepareFromUri(@NonNull Uri uri, @Nullable Bundle extras) {
-        mProvider.prepareFromUri_impl(uri, extras);
-    }
-
-    /**
-     * Set the volume of the output this session is playing on. The command will be ignored if it
-     * does not support {@link VolumeProvider2#VOLUME_CONTROL_ABSOLUTE}.
-     * <p>
-     * If the session is local playback, this changes the device's volume with the stream that
-     * session's player is using. Flags will be specified for the {@link AudioManager}.
-     * <p>
-     * If the session is remote player (i.e. session has set volume provider), its volume provider
-     * will receive this request instead.
-     *
-     * @see #getPlaybackInfo()
-     * @param value The value to set it to, between 0 and the reported max.
-     * @param flags flags from {@link AudioManager} to include with the volume request for local
-     *              playback
-     */
-    public void setVolumeTo(int value, int flags) {
-        mProvider.setVolumeTo_impl(value, flags);
-    }
-
-    /**
-     * Adjust the volume of the output this session is playing on. The direction
-     * must be one of {@link AudioManager#ADJUST_LOWER},
-     * {@link AudioManager#ADJUST_RAISE}, or {@link AudioManager#ADJUST_SAME}.
-     * The command will be ignored if the session does not support
-     * {@link VolumeProvider2#VOLUME_CONTROL_RELATIVE} or
-     * {@link VolumeProvider2#VOLUME_CONTROL_ABSOLUTE}.
-     * <p>
-     * If the session is local playback, this changes the device's volume with the stream that
-     * session's player is using. Flags will be specified for the {@link AudioManager}.
-     * <p>
-     * If the session is remote player (i.e. session has set volume provider), its volume provider
-     * will receive this request instead.
-     *
-     * @see #getPlaybackInfo()
-     * @param direction The direction to adjust the volume in.
-     * @param flags flags from {@link AudioManager} to include with the volume request for local
-     *              playback
-     */
-    public void adjustVolume(int direction, int flags) {
-        mProvider.adjustVolume_impl(direction, flags);
-    }
-
-    /**
-     * Get an intent for launching UI associated with this session if one exists.
-     *
-     * @return A {@link PendingIntent} to launch UI or null.
-     */
-    public @Nullable PendingIntent getSessionActivity() {
-        return mProvider.getSessionActivity_impl();
-    }
-
-    /**
-     * Get the lastly cached player state from
-     * {@link ControllerCallback#onPlayerStateChanged(MediaController2, int)}.
-     *
-     * @return player state
-     */
-    public int getPlayerState() {
-        return mProvider.getPlayerState_impl();
-    }
-
-    /**
-     * Gets the current playback position.
-     * <p>
-     * This returns the calculated value of the position, based on the difference between the
-     * update time and current time.
-     *
-     * @return position
-     */
-    public long getCurrentPosition() {
-        return mProvider.getCurrentPosition_impl();
-    }
-
-    /**
-     * Get the lastly cached playback speed from
-     * {@link ControllerCallback#onPlaybackSpeedChanged(MediaController2, float)}.
-     *
-     * @return speed
-     */
-    public float getPlaybackSpeed() {
-        return mProvider.getPlaybackSpeed_impl();
-    }
-
-    /**
-     * Set the playback speed.
-     */
-    public void setPlaybackSpeed(float speed) {
-        // TODO(jaewan): implement this (b/74093080)
-    }
-
-
-    /**
-     * Gets the current buffering state of the player.
-     * During buffering, see {@link #getBufferedPosition()} for the quantifying the amount already
-     * buffered.
-     * @return the buffering state.
-     */
-    public @MediaPlayerBase.BuffState int getBufferingState() {
-        // TODO(jaewan): Implement.
-        return BUFFERING_STATE_UNKNOWN;
-    }
-
-    /**
-     * Gets the lastly cached buffered position from the session when
-     * {@link ControllerCallback#onBufferingStateChanged(MediaController2, MediaItem2, int)} is
-     * called.
-     *
-     * @return buffering position in millis
-     */
-    public long getBufferedPosition() {
-        return mProvider.getBufferedPosition_impl();
-    }
-
-    /**
-     * Get the current playback info for this session.
-     *
-     * @return The current playback info or null.
-     */
-    public @Nullable PlaybackInfo getPlaybackInfo() {
-        return mProvider.getPlaybackInfo_impl();
-    }
-
-    /**
-     * Rate the media. This will cause the rating to be set for the current user.
-     * The rating style must follow the user rating style from the session.
-     * You can get the rating style from the session through the
-     * {@link MediaMetadata#getRating(String)} with the key
-     * {@link MediaMetadata#METADATA_KEY_USER_RATING}.
-     * <p>
-     * If the user rating was {@code null}, the media item does not accept setting user rating.
-     *
-     * @param mediaId The id of the media
-     * @param rating The rating to set
-     */
-    public void setRating(@NonNull String mediaId, @NonNull Rating2 rating) {
-        mProvider.setRating_impl(mediaId, rating);
-    }
-
-    /**
-     * Send custom command to the session
-     *
-     * @param command custom command
-     * @param args optional argument
-     * @param cb optional result receiver
-     */
-    public void sendCustomCommand(@NonNull SessionCommand2 command, @Nullable Bundle args,
-            @Nullable ResultReceiver cb) {
-        mProvider.sendCustomCommand_impl(command, args, cb);
-    }
-
-    /**
-     * Returns the cached playlist from
-     * {@link ControllerCallback#onPlaylistChanged(MediaController2, List, MediaMetadata2)}.
-     * <p>
-     * This list may differ with the list that was specified with
-     * {@link #setPlaylist(List, MediaMetadata2)} depending on the session implementation. Use media
-     * items returned here for other playlist APIs such as {@link #skipToPlaylistItem(MediaItem2)}.
-     *
-     * @return The playlist. Can be {@code null} if the controller doesn't have enough permission or
-     *         the session hasn't set any playlist.
-     */
-    public @Nullable List<MediaItem2> getPlaylist() {
-        return mProvider.getPlaylist_impl();
-    }
-
-    /**
-     * Sets the playlist.
-     * <p>
-     * Even when the playlist is successfully set, use the playlist returned from
-     * {@link #getPlaylist()} for playlist APIs such as {@link #skipToPlaylistItem(MediaItem2)}.
-     * Otherwise the session in the remote process can't distinguish between media items.
-     *
-     * @param list playlist
-     * @param metadata metadata of the playlist
-     * @see #getPlaylist()
-     * @see ControllerCallback#onPlaylistChanged(MediaController2, List, MediaMetadata2)
-     */
-    public void setPlaylist(@NonNull List<MediaItem2> list, @Nullable MediaMetadata2 metadata) {
-        mProvider.setPlaylist_impl(list, metadata);
-    }
-
-    /**
-     * Updates the playlist metadata
-     *
-     * @param metadata metadata of the playlist
-     */
-    public void updatePlaylistMetadata(@Nullable MediaMetadata2 metadata) {
-        mProvider.updatePlaylistMetadata_impl(metadata);
-    }
-
-    /**
-     * Gets the lastly cached playlist playlist metadata either from
-     * {@link ControllerCallback#onPlaylistMetadataChanged(MediaController2,  MediaMetadata2)} or
-     * {@link ControllerCallback#onPlaylistChanged(MediaController2, List, MediaMetadata2)}.
-     *
-     * @return metadata metadata of the playlist, or null if none is set
-     */
-    public @Nullable MediaMetadata2 getPlaylistMetadata() {
-        return mProvider.getPlaylistMetadata_impl();
-    }
-
-
-    /**
-     * Adds the media item to the playlist at position index. Index equals or greater than
-     * the current playlist size will add the item at the end of the playlist.
-     * <p>
-     * This will not change the currently playing media item.
-     * If index is less than or equal to the current index of the playlist,
-     * the current index of the playlist will be incremented correspondingly.
-     *
-     * @param index the index you want to add
-     * @param item the media item you want to add
-     */
-    public void addPlaylistItem(int index, @NonNull MediaItem2 item) {
-        mProvider.addPlaylistItem_impl(index, item);
-    }
-
-    /**
-     * Removes the media item at index in the playlist.
-     *<p>
-     * If the item is the currently playing item of the playlist, current playback
-     * will be stopped and playback moves to next source in the list.
-     *
-     * @param item the media item you want to add
-     */
-    public void removePlaylistItem(@NonNull MediaItem2 item) {
-        mProvider.removePlaylistItem_impl(item);
-    }
-
-    /**
-     * Replace the media item at index in the playlist. This can be also used to update metadata of
-     * an item.
-     *
-     * @param index the index of the item to replace
-     * @param item the new item
-     */
-    public void replacePlaylistItem(int index, @NonNull MediaItem2 item) {
-        mProvider.replacePlaylistItem_impl(index, item);
-    }
-
-    /**
-     * Get the lastly cached current item from
-     * {@link ControllerCallback#onCurrentMediaItemChanged(MediaController2, MediaItem2)}.
-     *
-     * @return index of the current item
-     */
-    public MediaItem2 getCurrentMediaItem() {
-        return mProvider.getCurrentMediaItem_impl();
-    }
-
-    /**
-     * Skips to the previous item in the playlist.
-     * <p>
-     * This calls {@link MediaSession2#skipToPreviousItem()} if the session allows.
-     */
-     public void skipToPreviousItem() {
-         mProvider.skipToPreviousItem_impl();
-     }
-
-    /**
-     * Skips to the next item in the playlist.
-     * <p>
-     * This calls {@link MediaSession2#skipToNextItem()} if the session allows.
-     */
-    public void skipToNextItem() {
-        mProvider.skipToNextItem_impl();
-    }
-
-    /**
-     * Skips to the item in the playlist.
-     * <p>
-     * This calls {@link MediaSession2#skipToPlaylistItem(MediaItem2)} if the session allows.
-     *
-     * @param item The item in the playlist you want to play
-     */
-    public void skipToPlaylistItem(@NonNull MediaItem2 item) {
-        mProvider.skipToPlaylistItem_impl(item);
-    }
-
-    /**
-     * Gets the cached repeat mode from the {@link ControllerCallback#onRepeatModeChanged(
-     * MediaController2, int)}.
-     *
-     * @return repeat mode
-     * @see MediaPlaylistAgent#REPEAT_MODE_NONE
-     * @see MediaPlaylistAgent#REPEAT_MODE_ONE
-     * @see MediaPlaylistAgent#REPEAT_MODE_ALL
-     * @see MediaPlaylistAgent#REPEAT_MODE_GROUP
-     */
-    public @RepeatMode int getRepeatMode() {
-        return mProvider.getRepeatMode_impl();
-    }
-
-    /**
-     * Sets the repeat mode.
-     *
-     * @param repeatMode repeat mode
-     * @see MediaPlaylistAgent#REPEAT_MODE_NONE
-     * @see MediaPlaylistAgent#REPEAT_MODE_ONE
-     * @see MediaPlaylistAgent#REPEAT_MODE_ALL
-     * @see MediaPlaylistAgent#REPEAT_MODE_GROUP
-     */
-    public void setRepeatMode(@RepeatMode int repeatMode) {
-        mProvider.setRepeatMode_impl(repeatMode);
-    }
-
-    /**
-     * Gets the cached shuffle mode from the {@link ControllerCallback#onShuffleModeChanged(
-     * MediaController2, int)}.
-     *
-     * @return The shuffle mode
-     * @see MediaPlaylistAgent#SHUFFLE_MODE_NONE
-     * @see MediaPlaylistAgent#SHUFFLE_MODE_ALL
-     * @see MediaPlaylistAgent#SHUFFLE_MODE_GROUP
-     */
-    public @ShuffleMode int getShuffleMode() {
-        return mProvider.getShuffleMode_impl();
-    }
-
-    /**
-     * Sets the shuffle mode.
-     *
-     * @param shuffleMode The shuffle mode
-     * @see MediaPlaylistAgent#SHUFFLE_MODE_NONE
-     * @see MediaPlaylistAgent#SHUFFLE_MODE_ALL
-     * @see MediaPlaylistAgent#SHUFFLE_MODE_GROUP
-     */
-    public void setShuffleMode(@ShuffleMode int shuffleMode) {
-        mProvider.setShuffleMode_impl(shuffleMode);
     }
 }

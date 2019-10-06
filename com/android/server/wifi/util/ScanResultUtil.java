@@ -63,6 +63,14 @@ public class ScanResultUtil {
     }
 
     /**
+     * Helper method to check if the provided |scanResult| corresponds to a EAP network or not.
+     * This checks if the provided capabilities string contains EAP encryption type or not.
+     */
+    public static boolean isScanResultForEapSuiteBNetwork(ScanResult scanResult) {
+        return scanResult.capabilities.contains("SUITE-B-192");
+    }
+
+    /**
      * Helper method to check if the provided |scanResult| corresponds to a WEP network or not.
      * This checks if the provided capabilities string contains WEP encryption type or not.
      */
@@ -71,13 +79,46 @@ public class ScanResultUtil {
     }
 
     /**
+     * Helper method to check if the provided |scanResult| corresponds to OWE network.
+     * This checks if the provided capabilities string contains OWE or not.
+     */
+    public static boolean isScanResultForOweNetwork(ScanResult scanResult) {
+        return scanResult.capabilities.contains("OWE");
+    }
+
+    /**
+     * Helper method to check if the provided |scanResult| corresponds to OWE transition network.
+     * This checks if the provided capabilities string contains OWE_TRANSITION or not.
+     */
+    public static boolean isScanResultForOweTransitionNetwork(ScanResult scanResult) {
+        return scanResult.capabilities.contains("OWE_TRANSITION");
+    }
+
+    /**
+     * Helper method to check if the provided |scanResult| corresponds to SAE network.
+     * This checks if the provided capabilities string contains SAE or not.
+     */
+    public static boolean isScanResultForSaeNetwork(ScanResult scanResult) {
+        return scanResult.capabilities.contains("SAE");
+    }
+
+    /**
+     * Helper method to check if the provided |scanResult| corresponds to PSK-SAE transition
+     * network. This checks if the provided capabilities string contains PSK+SAE or not.
+     */
+    public static boolean isScanResultForPskSaeTransitionNetwork(ScanResult scanResult) {
+        return scanResult.capabilities.contains("PSK+SAE");
+    }
+
+    /**
      * Helper method to check if the provided |scanResult| corresponds to an open network or not.
-     * This checks if the provided capabilities string does not contain either of WEP, PSK or EAP
-     * encryption types or not.
+     * This checks if the provided capabilities string does not contain either of WEP, PSK, SAE
+     * or EAP encryption types or not.
      */
     public static boolean isScanResultForOpenNetwork(ScanResult scanResult) {
-        return !(isScanResultForWepNetwork(scanResult) || isScanResultForPskNetwork(scanResult)
-                || isScanResultForEapNetwork(scanResult));
+        return (!(isScanResultForWepNetwork(scanResult) || isScanResultForPskNetwork(scanResult)
+                || isScanResultForEapNetwork(scanResult) || isScanResultForSaeNetwork(scanResult)
+                || isScanResultForEapSuiteBNetwork(scanResult)));
     }
 
     /**
@@ -106,17 +147,20 @@ public class ScanResultUtil {
      */
     public static void setAllowedKeyManagementFromScanResult(ScanResult scanResult,
             WifiConfiguration config) {
-        if (isScanResultForPskNetwork(scanResult)) {
-            config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_PSK);
+        if (isScanResultForSaeNetwork(scanResult)) {
+            config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_SAE);
+        } else if (isScanResultForPskNetwork(scanResult)) {
+            config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_PSK);
+        } else if (isScanResultForEapSuiteBNetwork(scanResult)) {
+            config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_EAP_SUITE_B);
         } else if (isScanResultForEapNetwork(scanResult)) {
-            config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_EAP);
-            config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.IEEE8021X);
+            config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_EAP);
         } else if (isScanResultForWepNetwork(scanResult)) {
-            config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
-            config.allowedAuthAlgorithms.set(WifiConfiguration.AuthAlgorithm.OPEN);
-            config.allowedAuthAlgorithms.set(WifiConfiguration.AuthAlgorithm.SHARED);
+            config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_WEP);
+        } else if (isScanResultForOweNetwork(scanResult)) {
+            config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_OWE);
         } else {
-            config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
+            config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_OPEN);
         }
     }
 

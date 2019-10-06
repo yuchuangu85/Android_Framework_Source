@@ -58,31 +58,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * listener that the ImsService now supports that feature.
  *
  * When {@link #changeImsServiceFeatures} is called with a set of features that is different from
- * the original set, create and {@link IImsServiceController#removeImsFeature} will be called for
- * each feature that is created/removed.
+ * the original set, create*Feature and {@link IImsServiceController#removeImsFeature} will be
+ * called for each feature that is created/removed.
  */
 public class ImsServiceController {
-
-    class ImsDeathRecipient implements IBinder.DeathRecipient {
-
-        private ComponentName mComponentName;
-
-        ImsDeathRecipient(ComponentName name) {
-            mComponentName = name;
-        }
-
-        @Override
-        public void binderDied() {
-            Log.e(LOG_TAG, "ImsService(" + mComponentName + ") died. Restarting...");
-            synchronized (mLock) {
-                mIsBinding = false;
-                mIsBound = false;
-            }
-            notifyAllFeaturesRemoved();
-            cleanUpService();
-            startDelayedRebindToService();
-        }
-    }
 
     class ImsServiceConnection implements ServiceConnection {
 
@@ -95,10 +74,7 @@ public class ImsServiceController {
                 Log.d(LOG_TAG, "ImsService(" + name + "): onServiceConnected with binder: "
                         + service);
                 if (service != null) {
-                    mImsDeathRecipient = new ImsDeathRecipient(name);
                     try {
-                        service.linkToDeath(mImsDeathRecipient, 0);
-                        mImsServiceControllerBinder = service;
                         setServiceController(service);
                         notifyImsServiceReady();
                         // create all associated features in the ImsService
@@ -109,9 +85,8 @@ public class ImsServiceController {
                         mIsBound = false;
                         mIsBinding = false;
                         // Remote exception means that the binder already died.
-                        if (mImsDeathRecipient != null) {
-                            mImsDeathRecipient.binderDied();
-                        }
+                        cleanupConnection();
+                        startDelayedRebindToService();
                         Log.e(LOG_TAG, "ImsService(" + name + ") RemoteException:"
                                 + e.getMessage());
                     }
@@ -141,10 +116,7 @@ public class ImsServiceController {
         }
 
         private void cleanupConnection() {
-            if (isServiceControllerAvailable()) {
-                mImsServiceControllerBinder.unlinkToDeath(mImsDeathRecipient, 0);
-            }
-            notifyAllFeaturesRemoved();
+            cleanupAllFeatures();
             cleanUpService();
         }
     }
@@ -215,9 +187,7 @@ public class ImsServiceController {
     // Binder interfaces to the features set in mImsFeatures;
     private HashSet<ImsFeatureContainer> mImsFeatureBinders = new HashSet<>();
     private IImsServiceController mIImsServiceController;
-    private IBinder mImsServiceControllerBinder;
     private ImsServiceConnection mImsServiceConnection;
-    private ImsDeathRecipient mImsDeathRecipient;
     private Set<IImsServiceFeatureCallback> mImsStatusCallbacks = ConcurrentHashMap.newKeySet();
     // Only added or removed, never accessed on purpose.
     private Set<ImsFeatureStatusCallback> mFeatureStatusCallbacks = new HashSet<>();
@@ -373,6 +343,7 @@ public class ImsServiceController {
                     boolean bindSucceeded = startBindToService(imsServiceIntent,
                             mImsServiceConnection, serviceFlags);
                     if (!bindSucceeded) {
+                        mIsBinding = false;
                         mBackoff.notifyFailed();
                     }
                     return bindSucceeded;
@@ -405,13 +376,12 @@ public class ImsServiceController {
     public void unbind() throws RemoteException {
         synchronized (mLock) {
             mBackoff.stop();
-            if (mImsServiceConnection == null || mImsDeathRecipient == null) {
+            if (mImsServiceConnection == null) {
                 return;
             }
             // Clean up all features
             changeImsServiceFeatures(new HashSet<>());
             removeImsServiceFeatureCallbacks();
-            mImsServiceControllerBinder.unlinkToDeath(mImsDeathRecipient, 0);
             Log.i(LOG_TAG, "Unbinding ImsService: " + mComponentName);
             mContext.unbindService(mImsServiceConnection);
             cleanUpService();
@@ -457,13 +427,13 @@ public class ImsServiceController {
     }
 
     @VisibleForTesting
-    public IBinder getImsServiceControllerBinder() {
-        return mImsServiceControllerBinder;
+    public long getRebindDelay() {
+        return mBackoff.getCurrentDelay();
     }
 
     @VisibleForTesting
-    public long getRebindDelay() {
-        return mBackoff.getCurrentDelay();
+    public void stopBackoffTimerForTesting() {
+        mBackoff.stop();
     }
 
     public ComponentName getComponentName() {
@@ -700,8 +670,7 @@ public class ImsServiceController {
     }
 
     // This method should only be called when synchronized on mLock
-    private void removeImsServiceFeature(ImsFeatureConfiguration.FeatureSlotPair featurePair)
-            throws RemoteException {
+    private void removeImsServiceFeature(ImsFeatureConfiguration.FeatureSlotPair featurePair) {
         if (!isServiceControllerAvailable() || mCallbacks == null) {
             Log.w(LOG_TAG, "removeImsServiceFeature called with null values.");
             return;
@@ -714,11 +683,18 @@ public class ImsServiceController {
             if (callbackToRemove != null) {
                 mFeatureStatusCallbacks.remove(callbackToRemove);
             }
-            removeImsFeature(featurePair.slotId, featurePair.featureType,
-                    (callbackToRemove != null ? callbackToRemove.getCallback() : null));
             removeImsFeatureBinder(featurePair.slotId, featurePair.featureType);
             // Signal ImsResolver to change supported ImsFeatures for this ImsServiceController
             mCallbacks.imsServiceFeatureRemoved(featurePair.slotId, featurePair.featureType, this);
+            try {
+                removeImsFeature(featurePair.slotId, featurePair.featureType,
+                        (callbackToRemove != null ? callbackToRemove.getCallback() : null));
+            } catch (RemoteException e) {
+                // The connection to this ImsService doesn't exist. This may happen if the service
+                // has died and we are removing features.
+                Log.i(LOG_TAG, "Couldn't remove feature {" + featurePair.featureType
+                        + "}, connection is down: " + e.getMessage());
+            }
         } else {
             // Don't update ImsService for emergency MMTEL feature.
             Log.i(LOG_TAG, "doesn't support emergency calling on slot " + featurePair.slotId);
@@ -773,27 +749,21 @@ public class ImsServiceController {
                 .findFirst().orElse(null);
     }
 
-    private void notifyAllFeaturesRemoved() {
-        if (mCallbacks == null) {
-            Log.w(LOG_TAG, "notifyAllFeaturesRemoved called with invalid callbacks.");
-            return;
-        }
+    private void cleanupAllFeatures() {
         synchronized (mLock) {
-            for (ImsFeatureConfiguration.FeatureSlotPair feature : mImsFeatures) {
-                if (feature.featureType != ImsFeature.FEATURE_EMERGENCY_MMTEL) {
-                    // don't update ImsServiceController for emergency MMTEL.
-                    mCallbacks.imsServiceFeatureRemoved(feature.slotId, feature.featureType, this);
-                }
-                sendImsFeatureRemovedCallback(feature.slotId, feature.featureType);
+            // Remove all features and clean up all associated Binders.
+            for (ImsFeatureConfiguration.FeatureSlotPair i : mImsFeatures) {
+                removeImsServiceFeature(i);
             }
+            // remove all MmTelFeatureConnection callbacks, since we have already sent removed
+            // callback.
+            removeImsServiceFeatureCallbacks();
         }
     }
 
     private void cleanUpService() {
         synchronized (mLock) {
-            mImsDeathRecipient = null;
             mImsServiceConnection = null;
-            mImsServiceControllerBinder = null;
             setServiceController(null);
         }
     }

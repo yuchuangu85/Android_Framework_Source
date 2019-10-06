@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,6 +49,7 @@ import sun.util.calendar.LocalGregorianCalendar;
  *     2       Taisho      1912-07-30 midnight local time
  *     3       Showa       1926-12-25 midnight local time
  *     4       Heisei      1989-01-08 midnight local time
+ *     5       Reiwa       2019-05-01 midnight local time
  * ------------------------------------------------------
  * </tt></pre>
  *
@@ -100,6 +101,11 @@ class JapaneseImperialCalendar extends Calendar {
      */
     public static final int HEISEI = 4;
 
+    /**
+     * The ERA constant designating the Reiwa era.
+     */
+    private static final int REIWA = 5;
+
     private static final int EPOCH_OFFSET   = 719163; // Fixed date of January 1, 1970 (Gregorian)
     private static final int EPOCH_YEAR     = 1970;
 
@@ -131,6 +137,9 @@ class JapaneseImperialCalendar extends Calendar {
 
     // Fixed date of the first date of each era.
     private static final long[] sinceFixedDates;
+
+    // The current era
+    private static final int currentEra;
 
     /*
      * <pre>
@@ -227,13 +236,25 @@ class JapaneseImperialCalendar extends Calendar {
         // eras[BEFORE_MEIJI] and sinceFixedDate[BEFORE_MEIJI] are the
         // same as Gregorian.
         int index = BEFORE_MEIJI;
+        // Android-removed: Zygote could initialize this class when system has outdated time.
+        // int current = index;
         sinceFixedDates[index] = gcal.getFixedDate(BEFORE_MEIJI_ERA.getSinceDate());
         eras[index++] = BEFORE_MEIJI_ERA;
         for (Era e : es) {
+            // Android-removed: Zygote could initialize this class when system has outdated time.
+            // Android hard-code the current era. Unlike upstream, Android does not add the new era
+            // in the code until the new era arrives. Thus, Android can't have newer era than the
+            // real world. currentEra is the latest Era that Android knows about.
+            // if(e.getSince(TimeZone.NO_TIMEZONE) < System.currentTimeMillis()) {
+            //     current = index;
+            // }
             CalendarDate d = e.getSinceDate();
             sinceFixedDates[index] = gcal.getFixedDate(d);
             eras[index++] = e;
         }
+        // Android-changed: Zygote could initialize this class when system has outdated time.
+        // currentEra = current;
+        currentEra = REIWA;
 
         LEAST_MAX_VALUES[ERA] = MAX_VALUES[ERA] = eras.length - 1;
 
@@ -1574,14 +1595,17 @@ class JapaneseImperialCalendar extends Calendar {
             zoneOffsets = new int[2];
         }
         if (tzMask != (ZONE_OFFSET_MASK|DST_OFFSET_MASK)) {
-            // Android-changed: Android doesn't have sun.util.calendar.ZoneInfo.
+            // BEGIN Android-changed: Android doesn't have sun.util.calendar.ZoneInfo.
             // if (tz instanceof ZoneInfo) {
             //     zoneOffset = ((ZoneInfo)tz).getOffsets(time, zoneOffsets);
-            // } else {
+            if (tz instanceof libcore.util.ZoneInfo) {
+                zoneOffset = ((libcore.util.ZoneInfo)tz).getOffsetsByUtcTime(time, zoneOffsets);
+            // END Android-changed: Android doesn't have sun.util.calendar.ZoneInfo.
+            } else {
                 zoneOffset = tz.getOffset(time);
                 zoneOffsets[0] = tz.getRawOffset();
                 zoneOffsets[1] = zoneOffset - zoneOffsets[0];
-            // }
+            }
         }
         if (tzMask != 0) {
             if (isFieldSet(tzMask, ZONE_OFFSET)) {
@@ -1713,12 +1737,12 @@ class JapaneseImperialCalendar extends Calendar {
                     }
                 } else if (transitionYear) {
                     if (jdate.getYear() == 1) {
-                        // As of Heisei (since Meiji) there's no case
+                        // As of Reiwa (since Meiji) there's no case
                         // that there are multiple transitions in a
                         // year.  Historically there was such
                         // case. There might be such case again in the
                         // future.
-                        if (era > HEISEI) {
+                        if (era > REIWA) {
                             CalendarDate pd = eras[era - 1].getSinceDate();
                             if (normalizedYear == pd.getYear()) {
                                 d.setMonth(pd.getMonth()).setDayOfMonth(pd.getDayOfMonth());
@@ -1853,7 +1877,7 @@ class JapaneseImperialCalendar extends Calendar {
             year = isSet(YEAR) ? internalGet(YEAR) : 1;
         } else {
             if (isSet(YEAR)) {
-                era = eras.length - 1;
+                era = currentEra;
                 year = internalGet(YEAR);
             } else {
                 // Equivalent to 1970 (Gregorian)
@@ -2338,7 +2362,7 @@ class JapaneseImperialCalendar extends Calendar {
      * default ERA is the current era, but a zero (unset) ERA means before Meiji.
      */
     private int internalGetEra() {
-        return isSet(ERA) ? internalGet(ERA) : eras.length - 1;
+        return isSet(ERA) ? internalGet(ERA) : currentEra;
     }
 
     /**

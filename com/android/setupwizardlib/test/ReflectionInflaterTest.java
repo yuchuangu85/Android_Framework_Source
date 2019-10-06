@@ -20,63 +20,59 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
-import android.support.annotation.NonNull;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
+import androidx.annotation.NonNull;
 import android.view.animation.Animation;
 import android.view.animation.AnimationSet;
 import android.view.animation.ScaleAnimation;
-
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import com.android.setupwizardlib.items.ReflectionInflater;
-
+import java.util.List;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import java.util.List;
 
 @SmallTest
 @RunWith(AndroidJUnit4.class)
 public class ReflectionInflaterTest {
 
-    @Test
-    public void testInflateXml() {
-        final Context context = InstrumentationRegistry.getContext();
-        TestInflater inflater = new TestInflater(context);
-        final Animation result = inflater.inflate(R.xml.reflection_inflater_test);
+  @Test
+  public void testInflateXml() {
+    final Context context = InstrumentationRegistry.getContext();
+    TestInflater inflater = new TestInflater(context);
+    final Animation result = inflater.inflate(R.xml.reflection_inflater_test);
 
-        assertTrue(result instanceof AnimationSet);
-        final AnimationSet set = (AnimationSet) result;
-        final List<Animation> animations = set.getAnimations();
-        assertEquals(1, animations.size());
-        assertTrue(animations.get(0) instanceof ScaleAnimation);
+    assertTrue(result instanceof AnimationSet);
+    final AnimationSet set = (AnimationSet) result;
+    final List<Animation> animations = set.getAnimations();
+    assertEquals(1, animations.size());
+    assertTrue(animations.get(0) instanceof ScaleAnimation);
+  }
+
+  @Test
+  public void testDefaultPackage() {
+    final Context context = InstrumentationRegistry.getContext();
+    TestInflater inflater = new TestInflater(context);
+    inflater.setDefaultPackage("android.view.animation.");
+    final Animation result = inflater.inflate(R.xml.reflection_inflater_test_with_default_package);
+
+    assertTrue(result instanceof AnimationSet);
+    final AnimationSet set = (AnimationSet) result;
+    final List<Animation> animations = set.getAnimations();
+    assertEquals(1, animations.size());
+    assertTrue(animations.get(0) instanceof ScaleAnimation);
+  }
+
+  private static class TestInflater extends ReflectionInflater<Animation> {
+
+    protected TestInflater(@NonNull Context context) {
+      super(context);
     }
 
-    @Test
-    public void testDefaultPackage() {
-        final Context context = InstrumentationRegistry.getContext();
-        TestInflater inflater = new TestInflater(context);
-        inflater.setDefaultPackage("android.view.animation.");
-        final Animation result =
-                inflater.inflate(R.xml.reflection_inflater_test_with_default_package);
-
-        assertTrue(result instanceof AnimationSet);
-        final AnimationSet set = (AnimationSet) result;
-        final List<Animation> animations = set.getAnimations();
-        assertEquals(1, animations.size());
-        assertTrue(animations.get(0) instanceof ScaleAnimation);
+    @Override
+    protected void onAddChildItem(Animation parent, Animation child) {
+      final AnimationSet group = (AnimationSet) parent;
+      group.addAnimation(child);
     }
-
-    private static class TestInflater extends ReflectionInflater<Animation> {
-
-        protected TestInflater(@NonNull Context context) {
-            super(context);
-        }
-
-        @Override
-        protected void onAddChildItem(Animation parent, Animation child) {
-            final AnimationSet group = (AnimationSet) parent;
-            group.addAnimation(child);
-        }
-    }
+  }
 }

@@ -2034,9 +2034,7 @@ public class BigDecimal extends Number implements Comparable<BigDecimal>, Serial
         long newScale = scale;
 
         if (isZero()) {
-            // Preserve RI compatibility, so BigDecimal.equals (which checks
-            // value *and* scale) continues to work.
-            return this;
+            return new BigDecimal(BigInteger.ZERO, 0);
         }
         BigInteger strippedBI = getUnscaledValue();
         BigInteger[] quotAndRem;

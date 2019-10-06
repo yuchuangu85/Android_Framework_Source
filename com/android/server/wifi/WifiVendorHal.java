@@ -15,25 +15,18 @@
  */
 package com.android.server.wifi;
 
+import android.annotation.NonNull;
 import android.hardware.wifi.V1_0.IWifiApIface;
 import android.hardware.wifi.V1_0.IWifiChip;
 import android.hardware.wifi.V1_0.IWifiChipEventCallback;
 import android.hardware.wifi.V1_0.IWifiIface;
-import android.hardware.wifi.V1_0.IWifiRttController;
-import android.hardware.wifi.V1_0.IWifiRttControllerEventCallback;
 import android.hardware.wifi.V1_0.IWifiStaIface;
 import android.hardware.wifi.V1_0.IWifiStaIfaceEventCallback;
 import android.hardware.wifi.V1_0.IfaceType;
-import android.hardware.wifi.V1_0.RttBw;
-import android.hardware.wifi.V1_0.RttConfig;
-import android.hardware.wifi.V1_0.RttPeerType;
-import android.hardware.wifi.V1_0.RttPreamble;
-import android.hardware.wifi.V1_0.RttResponder;
-import android.hardware.wifi.V1_0.RttResult;
-import android.hardware.wifi.V1_0.RttType;
 import android.hardware.wifi.V1_0.StaBackgroundScanBucketEventReportSchemeMask;
 import android.hardware.wifi.V1_0.StaBackgroundScanBucketParameters;
 import android.hardware.wifi.V1_0.StaBackgroundScanParameters;
+import android.hardware.wifi.V1_0.StaLinkLayerIfaceStats;
 import android.hardware.wifi.V1_0.StaLinkLayerRadioStats;
 import android.hardware.wifi.V1_0.StaLinkLayerStats;
 import android.hardware.wifi.V1_0.StaRoamingConfig;
@@ -42,7 +35,6 @@ import android.hardware.wifi.V1_0.StaScanData;
 import android.hardware.wifi.V1_0.StaScanDataFlagMask;
 import android.hardware.wifi.V1_0.StaScanResult;
 import android.hardware.wifi.V1_0.WifiBand;
-import android.hardware.wifi.V1_0.WifiChannelWidthInMhz;
 import android.hardware.wifi.V1_0.WifiDebugHostWakeReasonStats;
 import android.hardware.wifi.V1_0.WifiDebugPacketFateFrameType;
 import android.hardware.wifi.V1_0.WifiDebugRingBufferFlags;
@@ -56,32 +48,27 @@ import android.hardware.wifi.V1_0.WifiStatus;
 import android.hardware.wifi.V1_0.WifiStatusCode;
 import android.net.MacAddress;
 import android.net.apf.ApfCapabilities;
-import android.net.wifi.RttManager;
-import android.net.wifi.RttManager.ResponderConfig;
 import android.net.wifi.ScanResult;
-import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.net.wifi.WifiScanner;
 import android.net.wifi.WifiSsid;
-import android.net.wifi.WifiWakeReasonAndCounts;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.RemoteException;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.MutableBoolean;
-import android.util.MutableInt;
+import android.util.MutableLong;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.HexDump;
 import com.android.server.wifi.HalDeviceManager.InterfaceDestroyedListener;
+import com.android.server.wifi.WifiLinkLayerStats.ChannelStats;
 import com.android.server.wifi.util.BitMask;
 import com.android.server.wifi.util.NativeUtil;
 
 import com.google.errorprone.annotations.CompileTimeConstant;
-
-import libcore.util.NonNull;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -201,7 +188,7 @@ public class WifiVendorHal {
 
         mVerboseLog.err("% returns %")
                 .c(niceMethodName(trace, 3))
-                .c(HexDump.dumpHexString(result))
+                .c(result == null ? "(null)" : HexDump.dumpHexString(result))
                 .flush();
 
         return result;
@@ -248,7 +235,6 @@ public class WifiVendorHal {
 
     // Vendor HAL HIDL interface objects.
     private IWifiChip mIWifiChip;
-    private IWifiRttController mIWifiRttController;
     private HashMap<String, IWifiStaIface> mIWifiStaIfaces = new HashMap<>();
     private HashMap<String, IWifiApIface> mIWifiApIfaces = new HashMap<>();
     private final HalDeviceManager mHalDeviceManager;
@@ -256,7 +242,6 @@ public class WifiVendorHal {
     private final IWifiStaIfaceEventCallback mIWifiStaIfaceEventCallback;
     private final ChipEventCallback mIWifiChipEventCallback;
     private final ChipEventCallbackV12 mIWifiChipEventCallbackV12;
-    private final RttEventCallback mRttEventCallback;
 
     // Plumbing for event handling.
     //
@@ -275,7 +260,6 @@ public class WifiVendorHal {
         mIWifiStaIfaceEventCallback = new StaIfaceEventCallback();
         mIWifiChipEventCallback = new ChipEventCallback();
         mIWifiChipEventCallbackV12 = new ChipEventCallbackV12();
-        mRttEventCallback = new RttEventCallback();
     }
 
     public static final Object sLock = new Object();
@@ -297,7 +281,8 @@ public class WifiVendorHal {
     public boolean initialize(WifiNative.VendorHalDeathEventHandler handler) {
         synchronized (sLock) {
             mHalDeviceManager.initialize();
-            mHalDeviceManager.registerStatusListener(mHalDeviceManagerStatusCallbacks, null);
+            mHalDeviceManager.registerStatusListener(
+                    mHalDeviceManagerStatusCallbacks, mHalEventHandler);
             mDeathEventHandler = handler;
             return true;
         }
@@ -428,15 +413,6 @@ public class WifiVendorHal {
                 mLog.err("Failed to register STA iface callback").flush();
                 return stringResult(null);
             }
-            mIWifiRttController = mHalDeviceManager.createRttController();
-            if (mIWifiRttController == null) {
-                mLog.err("Failed to create RTT controller").flush();
-                return stringResult(null);
-            }
-            if (!registerRttEventCallback()) {
-                mLog.err("Failed to register RTT controller callback").flush();
-                return stringResult(null);
-            }
             if (!retrieveWifiChip((IWifiIface) iface)) {
                 mLog.err("Failed to get wifi chip").flush();
                 return stringResult(null);
@@ -554,6 +530,7 @@ public class WifiVendorHal {
             }
             if (!registerChipCallback()) {
                 mLog.err("Failed to register chip callback").flush();
+                mIWifiChip = null;
                 return false;
             }
             return true;
@@ -601,23 +578,6 @@ public class WifiVendorHal {
     }
 
     /**
-     * Registers RTT event callback. Returns whether the registration is successful.
-     */
-    private boolean registerRttEventCallback() {
-        synchronized (sLock) {
-            if (mIWifiRttController == null) return boolResult(false);
-            if (mRttEventCallback == null) return boolResult(false);
-            try {
-                WifiStatus status = mIWifiRttController.registerEventCallback(mRttEventCallback);
-                return ok(status);
-            } catch (RemoteException e) {
-                handleRemoteException(e);
-                return false;
-            }
-        }
-    }
-
-    /**
      * Stops the HAL
      */
     public void stopVendorHal() {
@@ -637,7 +597,6 @@ public class WifiVendorHal {
         mIWifiChip = null;
         mIWifiStaIfaces.clear();
         mIWifiApIfaces.clear();
-        mIWifiRttController = null;
         mDriverDescription = null;
         mFirmwareDescription = null;
     }
@@ -925,6 +884,13 @@ public class WifiVendorHal {
      * @return the statistics, or null if unable to do so
      */
     public WifiLinkLayerStats getWifiLinkLayerStats(@NonNull String ifaceName) {
+        if (getWifiStaIfaceForV1_3Mockable(ifaceName) != null) {
+            return getWifiLinkLayerStats_1_3_Internal(ifaceName);
+        }
+        return getWifiLinkLayerStats_internal(ifaceName);
+    }
+
+    private WifiLinkLayerStats getWifiLinkLayerStats_internal(@NonNull String ifaceName) {
         class AnswerBox {
             public StaLinkLayerStats value = null;
         }
@@ -946,6 +912,30 @@ public class WifiVendorHal {
         return stats;
     }
 
+    private WifiLinkLayerStats getWifiLinkLayerStats_1_3_Internal(@NonNull String ifaceName) {
+        class AnswerBox {
+            public android.hardware.wifi.V1_3.StaLinkLayerStats value = null;
+        }
+        AnswerBox answer = new AnswerBox();
+        synchronized (sLock) {
+            try {
+                android.hardware.wifi.V1_3.IWifiStaIface iface =
+                        getWifiStaIfaceForV1_3Mockable(ifaceName);
+                if (iface == null) return null;
+                iface.getLinkLayerStats_1_3((status, stats) -> {
+                    if (!ok(status)) return;
+                    answer.value = stats;
+                });
+            } catch (RemoteException e) {
+                handleRemoteException(e);
+                return null;
+            }
+        }
+        WifiLinkLayerStats stats = frameworkFromHalLinkLayerStats_1_3(answer.value);
+        return stats;
+    }
+
+
     /**
      * Makes the framework version of link layer stats from the hal version.
      */
@@ -953,43 +943,106 @@ public class WifiVendorHal {
     static WifiLinkLayerStats frameworkFromHalLinkLayerStats(StaLinkLayerStats stats) {
         if (stats == null) return null;
         WifiLinkLayerStats out = new WifiLinkLayerStats();
-        out.beacon_rx = stats.iface.beaconRx;
-        out.rssi_mgmt = stats.iface.avgRssiMgmt;
+        setIfaceStats(out, stats.iface);
+        setRadioStats(out, stats.radios);
+        setTimeStamp(out, stats.timeStampInMs);
+        out.version = WifiLinkLayerStats.V1_0;
+        return out;
+    }
+
+    /**
+     * Makes the framework version of link layer stats from the hal version.
+     */
+    @VisibleForTesting
+    static WifiLinkLayerStats frameworkFromHalLinkLayerStats_1_3(
+            android.hardware.wifi.V1_3.StaLinkLayerStats stats) {
+        if (stats == null) return null;
+        WifiLinkLayerStats out = new WifiLinkLayerStats();
+        setIfaceStats(out, stats.iface);
+        setRadioStats_1_3(out, stats.radios);
+        setTimeStamp(out, stats.timeStampInMs);
+        out.version = WifiLinkLayerStats.V1_3;
+        return out;
+    }
+
+    private static void setIfaceStats(WifiLinkLayerStats stats, StaLinkLayerIfaceStats iface) {
+        if (iface == null) return;
+        stats.beacon_rx = iface.beaconRx;
+        stats.rssi_mgmt = iface.avgRssiMgmt;
         // Statistics are broken out by Wireless Multimedia Extensions categories
         // WME Best Effort Access Category
-        out.rxmpdu_be = stats.iface.wmeBePktStats.rxMpdu;
-        out.txmpdu_be = stats.iface.wmeBePktStats.txMpdu;
-        out.lostmpdu_be = stats.iface.wmeBePktStats.lostMpdu;
-        out.retries_be = stats.iface.wmeBePktStats.retries;
+        stats.rxmpdu_be = iface.wmeBePktStats.rxMpdu;
+        stats.txmpdu_be = iface.wmeBePktStats.txMpdu;
+        stats.lostmpdu_be = iface.wmeBePktStats.lostMpdu;
+        stats.retries_be = iface.wmeBePktStats.retries;
         // WME Background Access Category
-        out.rxmpdu_bk = stats.iface.wmeBkPktStats.rxMpdu;
-        out.txmpdu_bk = stats.iface.wmeBkPktStats.txMpdu;
-        out.lostmpdu_bk = stats.iface.wmeBkPktStats.lostMpdu;
-        out.retries_bk = stats.iface.wmeBkPktStats.retries;
+        stats.rxmpdu_bk = iface.wmeBkPktStats.rxMpdu;
+        stats.txmpdu_bk = iface.wmeBkPktStats.txMpdu;
+        stats.lostmpdu_bk = iface.wmeBkPktStats.lostMpdu;
+        stats.retries_bk = iface.wmeBkPktStats.retries;
         // WME Video Access Category
-        out.rxmpdu_vi = stats.iface.wmeViPktStats.rxMpdu;
-        out.txmpdu_vi = stats.iface.wmeViPktStats.txMpdu;
-        out.lostmpdu_vi = stats.iface.wmeViPktStats.lostMpdu;
-        out.retries_vi = stats.iface.wmeViPktStats.retries;
+        stats.rxmpdu_vi = iface.wmeViPktStats.rxMpdu;
+        stats.txmpdu_vi = iface.wmeViPktStats.txMpdu;
+        stats.lostmpdu_vi = iface.wmeViPktStats.lostMpdu;
+        stats.retries_vi = iface.wmeViPktStats.retries;
         // WME Voice Access Category
-        out.rxmpdu_vo = stats.iface.wmeVoPktStats.rxMpdu;
-        out.txmpdu_vo = stats.iface.wmeVoPktStats.txMpdu;
-        out.lostmpdu_vo = stats.iface.wmeVoPktStats.lostMpdu;
-        out.retries_vo = stats.iface.wmeVoPktStats.retries;
-        // TODO(b/36176141): Figure out how to coalesce this info for multi radio devices.
-        if (stats.radios.size() > 0) {
-            StaLinkLayerRadioStats radioStats = stats.radios.get(0);
-            out.on_time = radioStats.onTimeInMs;
-            out.tx_time = radioStats.txTimeInMs;
-            out.tx_time_per_level = new int[radioStats.txTimeInMsPerLevel.size()];
-            for (int i = 0; i < out.tx_time_per_level.length; i++) {
-                out.tx_time_per_level[i] = radioStats.txTimeInMsPerLevel.get(i);
+        stats.rxmpdu_vo = iface.wmeVoPktStats.rxMpdu;
+        stats.txmpdu_vo = iface.wmeVoPktStats.txMpdu;
+        stats.lostmpdu_vo = iface.wmeVoPktStats.lostMpdu;
+        stats.retries_vo = iface.wmeVoPktStats.retries;
+    }
+
+    private static void setRadioStats(WifiLinkLayerStats stats,
+            List<StaLinkLayerRadioStats> radios) {
+        if (radios == null) return;
+        // NOTE(b/36176141): Figure out how to coalesce this info for multi radio devices.
+        if (radios.size() > 0) {
+            StaLinkLayerRadioStats radioStats = radios.get(0);
+            stats.on_time = radioStats.onTimeInMs;
+            stats.tx_time = radioStats.txTimeInMs;
+            stats.tx_time_per_level = new int[radioStats.txTimeInMsPerLevel.size()];
+            for (int i = 0; i < stats.tx_time_per_level.length; i++) {
+                stats.tx_time_per_level[i] = radioStats.txTimeInMsPerLevel.get(i);
             }
-            out.rx_time = radioStats.rxTimeInMs;
-            out.on_time_scan = radioStats.onTimeInMsForScan;
+            stats.rx_time = radioStats.rxTimeInMs;
+            stats.on_time_scan = radioStats.onTimeInMsForScan;
         }
-        out.timeStampInMs = stats.timeStampInMs;
-        return out;
+    }
+
+    private static void setRadioStats_1_3(WifiLinkLayerStats stats,
+            List<android.hardware.wifi.V1_3.StaLinkLayerRadioStats> radios) {
+        if (radios == null) return;
+        // NOTE(b/36176141): Figure out how to coalesce this info for multi radio devices.
+        if (radios.size() > 0) {
+            android.hardware.wifi.V1_3.StaLinkLayerRadioStats radioStats = radios.get(0);
+            stats.on_time = radioStats.V1_0.onTimeInMs;
+            stats.tx_time = radioStats.V1_0.txTimeInMs;
+            stats.tx_time_per_level = new int[radioStats.V1_0.txTimeInMsPerLevel.size()];
+            for (int i = 0; i < stats.tx_time_per_level.length; i++) {
+                stats.tx_time_per_level[i] = radioStats.V1_0.txTimeInMsPerLevel.get(i);
+            }
+            stats.rx_time = radioStats.V1_0.rxTimeInMs;
+            stats.on_time_scan = radioStats.V1_0.onTimeInMsForScan;
+            stats.on_time_nan_scan = radioStats.onTimeInMsForNanScan;
+            stats.on_time_background_scan = radioStats.onTimeInMsForBgScan;
+            stats.on_time_roam_scan = radioStats.onTimeInMsForRoamScan;
+            stats.on_time_pno_scan = radioStats.onTimeInMsForPnoScan;
+            stats.on_time_hs20_scan = radioStats.onTimeInMsForHs20Scan;
+            /* Copy list of channel stats */
+            for (int i = 0; i < radioStats.channelStats.size(); i++) {
+                android.hardware.wifi.V1_3.WifiChannelStats channelStats =
+                        radioStats.channelStats.get(i);
+                ChannelStats channelStatsEntry = new ChannelStats();
+                channelStatsEntry.frequency = channelStats.channel.centerFreq;
+                channelStatsEntry.radioOnTimeMs = channelStats.onTimeInMs;
+                channelStatsEntry.ccaBusyTimeMs = channelStats.ccaBusyTimeInMs;
+                stats.channelStatsMap.put(channelStats.channel.centerFreq, channelStatsEntry);
+            }
+        }
+    }
+
+    private static void setTimeStamp(WifiLinkLayerStats stats, long timeStampInMs) {
+        stats.timeStampInMs = timeStampInMs;
     }
 
     @VisibleForTesting
@@ -1017,7 +1070,7 @@ public class WifiVendorHal {
     }
 
     /**
-     * Translation table used by getSupportedFeatureSet for translating IWifiChip caps
+     * Translation table used by getSupportedFeatureSet for translating IWifiChip caps for V1.1
      */
     private static final int[][] sChipFeatureCapabilityTranslation = {
             {WifiManager.WIFI_FEATURE_TX_POWER_LIMIT,
@@ -1032,7 +1085,21 @@ public class WifiVendorHal {
     };
 
     /**
-     * Feature bit mask translation for Chip
+     * Translation table used by getSupportedFeatureSet for translating IWifiChip caps for
+     * additional capabilities introduced in V1.3
+     */
+    private static final long[][] sChipFeatureCapabilityTranslation13 = {
+            {WifiManager.WIFI_FEATURE_LOW_LATENCY,
+                    android.hardware.wifi.V1_3.IWifiChip.ChipCapabilityMask.SET_LATENCY_MODE
+            },
+            {WifiManager.WIFI_FEATURE_P2P_RAND_MAC,
+                    android.hardware.wifi.V1_3.IWifiChip.ChipCapabilityMask.P2P_RAND_MAC
+            }
+
+    };
+
+    /**
+     * Feature bit mask translation for Chip V1.1
      *
      * @param capabilities bitmask defined IWifiChip.ChipCapabilityMask
      * @return bitmask defined by WifiManager.WIFI_FEATURE_*
@@ -1045,6 +1112,27 @@ public class WifiVendorHal {
                 features |= sChipFeatureCapabilityTranslation[i][0];
             }
         }
+        return features;
+    }
+
+    /**
+     * Feature bit mask translation for Chip V1.3
+     *
+     * @param capabilities bitmask defined IWifiChip.ChipCapabilityMask
+     * @return bitmask defined by WifiManager.WIFI_FEATURE_*
+     */
+    @VisibleForTesting
+    long wifiFeatureMaskFromChipCapabilities_1_3(int capabilities) {
+        // First collect features from previous versions
+        long features = wifiFeatureMaskFromChipCapabilities(capabilities);
+
+        // Next collect features for V1_3 version
+        for (int i = 0; i < sChipFeatureCapabilityTranslation13.length; i++) {
+            if ((capabilities & sChipFeatureCapabilityTranslation13[i][1]) != 0) {
+                features |= sChipFeatureCapabilityTranslation13[i][0];
+            }
+        }
+
         return features;
     }
 
@@ -1118,15 +1206,21 @@ public class WifiVendorHal {
      * @param ifaceName Name of the interface.
      * @return bitmask defined by WifiManager.WIFI_FEATURE_*
      */
-    public int getSupportedFeatureSet(@NonNull String ifaceName) {
-        int featureSet = 0;
+    public long getSupportedFeatureSet(@NonNull String ifaceName) {
+        long featureSet = 0;
         if (!mHalDeviceManager.isStarted()) {
             return featureSet; // TODO: can't get capabilities with Wi-Fi down
         }
         try {
-            final MutableInt feat = new MutableInt(0);
+            final MutableLong feat = new MutableLong(0);
             synchronized (sLock) {
-                if (mIWifiChip != null) {
+                android.hardware.wifi.V1_3.IWifiChip iWifiChipV13 = getWifiChipForV1_3Mockable();
+                if (iWifiChipV13 != null) {
+                    iWifiChipV13.getCapabilities_1_3((status, capabilities) -> {
+                        if (!ok(status)) return;
+                        feat.value = wifiFeatureMaskFromChipCapabilities_1_3(capabilities);
+                    });
+                } else if (mIWifiChip != null) {
                     mIWifiChip.getCapabilities((status, capabilities) -> {
                         if (!ok(status)) return;
                         feat.value = wifiFeatureMaskFromChipCapabilities(capabilities);
@@ -1161,510 +1255,6 @@ public class WifiVendorHal {
         }
 
         return featureSet;
-    }
-
-    /* RTT related commands/events */
-
-    /**
-     * RTT (Round Trip Time) measurement capabilities of the device.
-     */
-    public RttManager.RttCapabilities getRttCapabilities() {
-        class AnswerBox {
-            public RttManager.RttCapabilities value = null;
-        }
-        synchronized (sLock) {
-            if (mIWifiRttController == null) return null;
-            try {
-                AnswerBox box = new AnswerBox();
-                mIWifiRttController.getCapabilities((status, capabilities) -> {
-                    if (!ok(status)) return;
-                    mVerboseLog.info("rtt capabilites %").c(capabilities.toString()).flush();
-                    RttManager.RttCapabilities ans = new RttManager.RttCapabilities();
-                    ans.oneSidedRttSupported = capabilities.rttOneSidedSupported;
-                    ans.twoSided11McRttSupported = capabilities.rttFtmSupported;
-                    ans.lciSupported = capabilities.lciSupported;
-                    ans.lcrSupported = capabilities.lcrSupported;
-                    ans.preambleSupported = frameworkPreambleFromHalPreamble(
-                            capabilities.preambleSupport);
-                    ans.bwSupported = frameworkBwFromHalBw(capabilities.bwSupport);
-                    ans.responderSupported = capabilities.responderSupported;
-                    ans.secureRttSupported = false;
-                    ans.mcVersion = ((int) capabilities.mcVersion) & 0xff;
-                    box.value = ans;
-                });
-                return box.value;
-            } catch (RemoteException e) {
-                handleRemoteException(e);
-                return null;
-            }
-        }
-    }
-
-    private int mRttCmdIdNext = 1;              // used to generate new command ids
-    private int mRttCmdId;                      // id of currently active request
-    // Event handler for current active RTT request.
-    private WifiNative.RttEventHandler mRttEventHandler;
-
-    /**
-     * Receives a callback from the Hal and passes it along to our client using RttEventHandler
-     */
-    private class RttEventCallback extends IWifiRttControllerEventCallback.Stub {
-
-        @Override
-        public void onResults(int cmdId, java.util.ArrayList<RttResult> results) {
-            WifiNative.RttEventHandler eventHandler;
-            synchronized (sLock) {
-                if (cmdId != mRttCmdId || mRttEventHandler == null) return;
-                eventHandler = mRttEventHandler;
-                // Reset the command id for RTT operations in WifiVendorHal.
-                WifiVendorHal.this.mRttCmdId = 0;
-            }
-            RttManager.RttResult[] rtt = new RttManager.RttResult[results.size()];
-            for (int i = 0; i < rtt.length; i++) {
-                rtt[i] = frameworkRttResultFromHalRttResult(results.get(i));
-            }
-            eventHandler.onRttResults(rtt);
-        }
-    }
-
-    /**
-     * Converts a Hal RttResult to a RttManager.RttResult
-     */
-    @VisibleForTesting
-    static RttManager.RttResult frameworkRttResultFromHalRttResult(RttResult result) {
-        RttManager.RttResult ans = new RttManager.RttResult();
-        ans.bssid = NativeUtil.macAddressFromByteArray(result.addr);
-        ans.burstNumber = result.burstNum;
-        ans.measurementFrameNumber = result.measurementNumber;
-        ans.successMeasurementFrameNumber = result.successNumber;
-        ans.frameNumberPerBurstPeer = result.numberPerBurstPeer;
-        ans.status = result.status; //TODO(b/35138520) - don't assume identity translation
-        ans.retryAfterDuration = result.retryAfterDuration;
-        ans.measurementType = result.type;
-        ans.rssi = result.rssi;
-        ans.rssiSpread = result.rssiSpread;
-        //TODO(b/35138520) Fix HAL and framework to use the same units
-        ans.txRate = result.txRate.bitRateInKbps;
-        ans.rxRate = result.rxRate.bitRateInKbps;
-        ans.rtt = result.rtt;
-        ans.rttStandardDeviation = result.rttSd;
-        ans.rttSpread = result.rttSpread;
-        //TODO(b/35138520) These divide-by-10s were in the legacy Hal
-        ans.distance = result.distanceInMm / 10; // Convert cm to mm
-        ans.distanceStandardDeviation = result.distanceSdInMm / 10; // Convert cm to mm
-        ans.distanceSpread = result.distanceSpreadInMm / 10;
-
-        ans.ts = result.timeStampInUs;
-        ans.burstDuration = result.burstDurationInMs;
-        ans.negotiatedBurstNum = result.negotiatedBurstNum;
-        ans.LCI = ieFromHal(result.lci);
-        ans.LCR = ieFromHal(result.lcr);
-        ans.secure = false; // Not present in HIDL HAL
-        return ans;
-    }
-
-    /**
-     * Convert a Hal WifiInformationElement to its RttManager equivalent
-     */
-    @VisibleForTesting
-    static RttManager.WifiInformationElement ieFromHal(
-            android.hardware.wifi.V1_0.WifiInformationElement ie) {
-        if (ie == null) return null;
-        RttManager.WifiInformationElement ans = new RttManager.WifiInformationElement();
-        ans.id = ie.id;
-        ans.data = NativeUtil.byteArrayFromArrayList(ie.data);
-        return ans;
-    }
-
-    @VisibleForTesting
-    static RttConfig halRttConfigFromFrameworkRttParams(RttManager.RttParams params) {
-        RttConfig rttConfig = new RttConfig();
-        if (params.bssid != null) {
-            byte[] addr = NativeUtil.macAddressToByteArray(params.bssid);
-            for (int i = 0; i < rttConfig.addr.length; i++) {
-                rttConfig.addr[i] = addr[i];
-            }
-        }
-        rttConfig.type = halRttTypeFromFrameworkRttType(params.requestType);
-        rttConfig.peer = halPeerFromFrameworkPeer(params.deviceType);
-        rttConfig.channel.width = halChannelWidthFromFrameworkChannelWidth(params.channelWidth);
-        rttConfig.channel.centerFreq = params.frequency;
-        rttConfig.channel.centerFreq0 = params.centerFreq0;
-        rttConfig.channel.centerFreq1 = params.centerFreq1;
-        rttConfig.burstPeriod = params.interval; // In 100ms units, 0 means no specific
-        rttConfig.numBurst = params.numberBurst;
-        rttConfig.numFramesPerBurst = params.numSamplesPerBurst;
-        rttConfig.numRetriesPerRttFrame = params.numRetriesPerMeasurementFrame;
-        rttConfig.numRetriesPerFtmr = params.numRetriesPerFTMR;
-        rttConfig.mustRequestLci = params.LCIRequest;
-        rttConfig.mustRequestLcr = params.LCRRequest;
-        rttConfig.burstDuration = params.burstTimeout;
-        rttConfig.preamble = halPreambleFromFrameworkPreamble(params.preamble);
-        rttConfig.bw = halBwFromFrameworkBw(params.bandwidth);
-        return rttConfig;
-    }
-
-    @VisibleForTesting
-    static int halRttTypeFromFrameworkRttType(int frameworkRttType) {
-        switch (frameworkRttType) {
-            case RttManager.RTT_TYPE_ONE_SIDED:
-                return RttType.ONE_SIDED;
-            case RttManager.RTT_TYPE_TWO_SIDED:
-                return RttType.TWO_SIDED;
-            default:
-                throw new IllegalArgumentException("bad " + frameworkRttType);
-        }
-    }
-
-    @VisibleForTesting
-    static int frameworkRttTypeFromHalRttType(int halType) {
-        switch (halType) {
-            case RttType.ONE_SIDED:
-                return RttManager.RTT_TYPE_ONE_SIDED;
-            case RttType.TWO_SIDED:
-                return RttManager.RTT_TYPE_TWO_SIDED;
-            default:
-                throw new IllegalArgumentException("bad " + halType);
-        }
-    }
-
-    @VisibleForTesting
-    static int halPeerFromFrameworkPeer(int frameworkPeer) {
-        switch (frameworkPeer) {
-            case RttManager.RTT_PEER_TYPE_AP:
-                return RttPeerType.AP;
-            case RttManager.RTT_PEER_TYPE_STA:
-                return RttPeerType.STA;
-            case RttManager.RTT_PEER_P2P_GO:
-                return RttPeerType.P2P_GO;
-            case RttManager.RTT_PEER_P2P_CLIENT:
-                return RttPeerType.P2P_CLIENT;
-            case RttManager.RTT_PEER_NAN:
-                return RttPeerType.NAN;
-            default:
-                throw new IllegalArgumentException("bad " + frameworkPeer);
-        }
-    }
-
-    @VisibleForTesting
-    static int frameworkPeerFromHalPeer(int halPeer) {
-        switch (halPeer) {
-            case RttPeerType.AP:
-                return RttManager.RTT_PEER_TYPE_AP;
-            case RttPeerType.STA:
-                return RttManager.RTT_PEER_TYPE_STA;
-            case RttPeerType.P2P_GO:
-                return RttManager.RTT_PEER_P2P_GO;
-            case RttPeerType.P2P_CLIENT:
-                return RttManager.RTT_PEER_P2P_CLIENT;
-            case RttPeerType.NAN:
-                return RttManager.RTT_PEER_NAN;
-            default:
-                throw new IllegalArgumentException("bad " + halPeer);
-
-        }
-    }
-
-    @VisibleForTesting
-    static int halChannelWidthFromFrameworkChannelWidth(int frameworkChannelWidth) {
-        switch (frameworkChannelWidth) {
-            case ScanResult.CHANNEL_WIDTH_20MHZ:
-                return WifiChannelWidthInMhz.WIDTH_20;
-            case ScanResult.CHANNEL_WIDTH_40MHZ:
-                return WifiChannelWidthInMhz.WIDTH_40;
-            case ScanResult.CHANNEL_WIDTH_80MHZ:
-                return WifiChannelWidthInMhz.WIDTH_80;
-            case ScanResult.CHANNEL_WIDTH_160MHZ:
-                return WifiChannelWidthInMhz.WIDTH_160;
-            case ScanResult.CHANNEL_WIDTH_80MHZ_PLUS_MHZ:
-                return WifiChannelWidthInMhz.WIDTH_80P80;
-            default:
-                throw new IllegalArgumentException("bad " + frameworkChannelWidth);
-        }
-    }
-
-    @VisibleForTesting
-    static int frameworkChannelWidthFromHalChannelWidth(int halChannelWidth) {
-        switch (halChannelWidth) {
-            case WifiChannelWidthInMhz.WIDTH_20:
-                return ScanResult.CHANNEL_WIDTH_20MHZ;
-            case WifiChannelWidthInMhz.WIDTH_40:
-                return ScanResult.CHANNEL_WIDTH_40MHZ;
-            case WifiChannelWidthInMhz.WIDTH_80:
-                return ScanResult.CHANNEL_WIDTH_80MHZ;
-            case WifiChannelWidthInMhz.WIDTH_160:
-                return ScanResult.CHANNEL_WIDTH_160MHZ;
-            case WifiChannelWidthInMhz.WIDTH_80P80:
-                return ScanResult.CHANNEL_WIDTH_80MHZ_PLUS_MHZ;
-            default:
-                throw new IllegalArgumentException("bad " + halChannelWidth);
-        }
-    }
-
-    @VisibleForTesting
-    static int halPreambleFromFrameworkPreamble(int rttManagerPreamble) {
-        BitMask checkoff = new BitMask(rttManagerPreamble);
-        int flags = 0;
-        if (checkoff.testAndClear(RttManager.PREAMBLE_LEGACY)) {
-            flags |= RttPreamble.LEGACY;
-        }
-        if (checkoff.testAndClear(RttManager.PREAMBLE_HT)) {
-            flags |= RttPreamble.HT;
-        }
-        if (checkoff.testAndClear(RttManager.PREAMBLE_VHT)) {
-            flags |= RttPreamble.VHT;
-        }
-        if (checkoff.value != 0) {
-            throw new IllegalArgumentException("bad " + rttManagerPreamble);
-        }
-        return flags;
-    }
-
-    @VisibleForTesting
-    static int frameworkPreambleFromHalPreamble(int halPreamble) {
-        BitMask checkoff = new BitMask(halPreamble);
-        int flags = 0;
-        if (checkoff.testAndClear(RttPreamble.LEGACY)) {
-            flags |= RttManager.PREAMBLE_LEGACY;
-        }
-        if (checkoff.testAndClear(RttPreamble.HT)) {
-            flags |= RttManager.PREAMBLE_HT;
-        }
-        if (checkoff.testAndClear(RttPreamble.VHT)) {
-            flags |= RttManager.PREAMBLE_VHT;
-        }
-        if (checkoff.value != 0) {
-            throw new IllegalArgumentException("bad " + halPreamble);
-        }
-        return flags;
-    }
-
-    @VisibleForTesting
-    static int halBwFromFrameworkBw(int rttManagerBandwidth) {
-        BitMask checkoff = new BitMask(rttManagerBandwidth);
-        int flags = 0;
-        if (checkoff.testAndClear(RttManager.RTT_BW_5_SUPPORT)) {
-            flags |= RttBw.BW_5MHZ;
-        }
-        if (checkoff.testAndClear(RttManager.RTT_BW_10_SUPPORT)) {
-            flags |= RttBw.BW_10MHZ;
-        }
-        if (checkoff.testAndClear(RttManager.RTT_BW_20_SUPPORT)) {
-            flags |= RttBw.BW_20MHZ;
-        }
-        if (checkoff.testAndClear(RttManager.RTT_BW_40_SUPPORT)) {
-            flags |= RttBw.BW_40MHZ;
-        }
-        if (checkoff.testAndClear(RttManager.RTT_BW_80_SUPPORT)) {
-            flags |= RttBw.BW_80MHZ;
-        }
-        if (checkoff.testAndClear(RttManager.RTT_BW_160_SUPPORT)) {
-            flags |= RttBw.BW_160MHZ;
-        }
-        if (checkoff.value != 0) {
-            throw new IllegalArgumentException("bad " + rttManagerBandwidth);
-        }
-        return flags;
-    }
-
-    @VisibleForTesting
-    static int frameworkBwFromHalBw(int rttBw) {
-        BitMask checkoff = new BitMask(rttBw);
-        int flags = 0;
-        if (checkoff.testAndClear(RttBw.BW_5MHZ)) {
-            flags |= RttManager.RTT_BW_5_SUPPORT;
-        }
-        if (checkoff.testAndClear(RttBw.BW_10MHZ)) {
-            flags |= RttManager.RTT_BW_10_SUPPORT;
-        }
-        if (checkoff.testAndClear(RttBw.BW_20MHZ)) {
-            flags |= RttManager.RTT_BW_20_SUPPORT;
-        }
-        if (checkoff.testAndClear(RttBw.BW_40MHZ)) {
-            flags |= RttManager.RTT_BW_40_SUPPORT;
-        }
-        if (checkoff.testAndClear(RttBw.BW_80MHZ)) {
-            flags |= RttManager.RTT_BW_80_SUPPORT;
-        }
-        if (checkoff.testAndClear(RttBw.BW_160MHZ)) {
-            flags |= RttManager.RTT_BW_160_SUPPORT;
-        }
-        if (checkoff.value != 0) {
-            throw new IllegalArgumentException("bad " + rttBw);
-        }
-        return flags;
-    }
-
-    @VisibleForTesting
-    static ArrayList<RttConfig> halRttConfigArrayFromFrameworkRttParamsArray(
-            RttManager.RttParams[] params) {
-        final int length = params.length;
-        ArrayList<RttConfig> configs = new ArrayList<RttConfig>(length);
-        for (int i = 0; i < length; i++) {
-            RttConfig config = halRttConfigFromFrameworkRttParams(params[i]);
-            if (config != null) {
-                configs.add(config);
-            }
-        }
-        return configs;
-    }
-
-    /**
-     * Starts a new rtt request
-     *
-     * @param params
-     * @param handler
-     * @return success indication
-     */
-    public boolean requestRtt(RttManager.RttParams[] params, WifiNative.RttEventHandler handler) {
-        ArrayList<RttConfig> rttConfigs;
-        try {
-            rttConfigs = halRttConfigArrayFromFrameworkRttParamsArray(params);
-        } catch (IllegalArgumentException e) {
-            mLog.err("Illegal argument for RTT request").c(e.toString()).flush();
-            return false;
-        }
-        synchronized (sLock) {
-            if (mIWifiRttController == null) return boolResult(false);
-            if (mRttCmdId != 0) return boolResult(false);
-            mRttCmdId = mRttCmdIdNext++;
-            mRttEventHandler = handler;
-            if (mRttCmdIdNext <= 0) mRttCmdIdNext = 1;
-            try {
-                WifiStatus status = mIWifiRttController.rangeRequest(mRttCmdId, rttConfigs);
-                if (ok(status)) return true;
-                mRttCmdId = 0;
-                return false;
-            } catch (RemoteException e) {
-                handleRemoteException(e);
-                return false;
-            }
-        }
-    }
-
-    /**
-     * Cancels an outstanding rtt request
-     *
-     * @param params
-     * @return true if there was an outstanding request and it was successfully cancelled
-     */
-    public boolean cancelRtt(RttManager.RttParams[] params) {
-        ArrayList<RttConfig> rttConfigs = halRttConfigArrayFromFrameworkRttParamsArray(params);
-        synchronized (sLock) {
-            if (mIWifiRttController == null) return boolResult(false);
-            if (mRttCmdId == 0) return boolResult(false);
-            ArrayList<byte[/* 6 */]> addrs = new ArrayList<byte[]>(rttConfigs.size());
-            for (RttConfig x : rttConfigs) addrs.add(x.addr);
-            try {
-                WifiStatus status = mIWifiRttController.rangeCancel(mRttCmdId, addrs);
-                mRttCmdId = 0;
-                if (!ok(status)) return false;
-                return true;
-            } catch (RemoteException e) {
-                handleRemoteException(e);
-                return false;
-            }
-        }
-    }
-
-    private int mRttResponderCmdId = 0;
-
-    /**
-     * Get RTT responder information e.g. WiFi channel to enable responder on.
-     *
-     * @return info Instance of |RttResponder|, or null for error.
-     */
-    private RttResponder getRttResponder() {
-        class AnswerBox {
-            public RttResponder value = null;
-        }
-        synchronized (sLock) {
-            if (mIWifiRttController == null) return null;
-            AnswerBox answer = new AnswerBox();
-            try {
-                mIWifiRttController.getResponderInfo((status, info) -> {
-                    if (!ok(status)) return;
-                    answer.value = info;
-                });
-                return answer.value;
-            } catch (RemoteException e) {
-                handleRemoteException(e);
-                return null;
-            }
-        }
-    }
-
-    /**
-     * Convert Hal RttResponder to a framework ResponderConfig
-     *
-     * @param info Instance of |RttResponder|
-     * @return framework version of same
-     */
-    private ResponderConfig frameworkResponderConfigFromHalRttResponder(RttResponder info) {
-        ResponderConfig config = new ResponderConfig();
-        config.frequency = info.channel.centerFreq;
-        config.centerFreq0 = info.channel.centerFreq0;
-        config.centerFreq1 = info.channel.centerFreq1;
-        config.channelWidth = frameworkChannelWidthFromHalChannelWidth(info.channel.width);
-        config.preamble = frameworkPreambleFromHalPreamble(info.preamble);
-        return config;
-    }
-
-    /**
-     * Enables RTT responder role on the device.
-     *
-     * @return {@link ResponderConfig} if the responder role is successfully enabled,
-     * {@code null} otherwise.
-     */
-    public ResponderConfig enableRttResponder(int timeoutSeconds) {
-        RttResponder info = getRttResponder();
-        synchronized (sLock) {
-            if (mIWifiRttController == null) return null;
-            if (mRttResponderCmdId != 0) {
-                mLog.err("responder mode already enabled - this shouldn't happen").flush();
-                return null;
-            }
-            ResponderConfig config = null;
-            int id = mRttCmdIdNext++;
-            if (mRttCmdIdNext <= 0) mRttCmdIdNext = 1;
-            try {
-                WifiStatus status = mIWifiRttController.enableResponder(
-                        /* cmdId */id,
-                        /* WifiChannelInfo channelHint */null,
-                        timeoutSeconds, info);
-                if (ok(status)) {
-                    mRttResponderCmdId = id;
-                    config = frameworkResponderConfigFromHalRttResponder(info);
-                    mVerboseLog.i("enabling rtt " + mRttResponderCmdId);
-                }
-                return config;
-            } catch (RemoteException e) {
-                handleRemoteException(e);
-                return null;
-            }
-        }
-    }
-
-    /**
-     * Disables RTT responder role.
-     *
-     * @return {@code true} if responder role is successfully disabled,
-     * {@code false} otherwise.
-     */
-    public boolean disableRttResponder() {
-        synchronized (sLock) {
-            if (mIWifiRttController == null) return boolResult(false);
-            if (mRttResponderCmdId == 0) return boolResult(false);
-            try {
-                WifiStatus status = mIWifiRttController.disableResponder(mRttResponderCmdId);
-                mRttResponderCmdId = 0;
-                if (!ok(status)) return false;
-                return true;
-            } catch (RemoteException e) {
-                handleRemoteException(e);
-                return false;
-            }
-        }
     }
 
     /**
@@ -1714,6 +1304,34 @@ public class WifiVendorHal {
             } catch (RemoteException e) {
                 handleRemoteException(e);
                 return false;
+            }
+        }
+    }
+
+    /**
+     * Get factory MAC address of the given interface
+     *
+     * @param ifaceName Name of the interface
+     * @return factory MAC address of the interface or null.
+     */
+    public MacAddress getFactoryMacAddress(@NonNull String ifaceName) {
+        class AnswerBox {
+            public MacAddress mac = null;
+        }
+        synchronized (sLock) {
+            try {
+                android.hardware.wifi.V1_3.IWifiStaIface ifaceV13 =
+                        getWifiStaIfaceForV1_3Mockable(ifaceName);
+                if (ifaceV13 == null) return null;
+                AnswerBox box = new AnswerBox();
+                ifaceV13.getFactoryMacAddress((status, macBytes) -> {
+                    if (!ok(status)) return;
+                    box.mac = MacAddress.fromBytes(macBytes);
+                });
+                return box.mac;
+            } catch (RemoteException e) {
+                handleRemoteException(e);
+                return null;
             }
         }
     }
@@ -1863,17 +1481,17 @@ public class WifiVendorHal {
     /**
      * Stops all logging and resets the logger callback.
      * This stops both the alerts and ring buffer data collection.
+     * Existing log handler is cleared.
      */
     public boolean resetLogHandler() {
         synchronized (sLock) {
+            mLogEventHandler = null;
             if (mIWifiChip == null) return boolResult(false);
-            if (mLogEventHandler == null) return boolResult(false);
             try {
                 WifiStatus status = mIWifiChip.enableDebugErrorAlerts(false);
                 if (!ok(status)) return false;
                 status = mIWifiChip.stopLoggingToDebugRingBuffer();
                 if (!ok(status)) return false;
-                mLogEventHandler = null;
                 return true;
             } catch (RemoteException e) {
                 handleRemoteException(e);
@@ -2059,6 +1677,26 @@ public class WifiVendorHal {
                 handleRemoteException(e);
                 return false;
             }
+        }
+    }
+
+    /**
+     * request hal to flush ring buffers to files
+     */
+    public boolean flushRingBufferData() {
+        synchronized (sLock) {
+            if (mIWifiChip == null) return boolResult(false);
+            android.hardware.wifi.V1_3.IWifiChip iWifiChipV13 = getWifiChipForV1_3Mockable();
+            if (iWifiChipV13 != null) {
+                try {
+                    WifiStatus status = iWifiChipV13.flushRingBufferToFile();
+                    return ok(status);
+                } catch (RemoteException e) {
+                    handleRemoteException(e);
+                    return false;
+                }
+            }
+            return false;
         }
     }
 
@@ -2425,10 +2063,10 @@ public class WifiVendorHal {
      * @param h - Hal version of wake reason stats
      * @return framework version of same
      */
-    private static WifiWakeReasonAndCounts halToFrameworkWakeReasons(
+    private static WlanWakeReasonAndCounts halToFrameworkWakeReasons(
             WifiDebugHostWakeReasonStats h) {
         if (h == null) return null;
-        WifiWakeReasonAndCounts ans = new WifiWakeReasonAndCounts();
+        WlanWakeReasonAndCounts ans = new WlanWakeReasonAndCounts();
         ans.totalCmdEventWake = h.totalCmdEventWakeCnt;
         ans.totalDriverFwLocalWake = h.totalDriverFwLocalWakeCnt;
         ans.totalRxDataWake = h.totalRxPacketWakeCnt;
@@ -2451,9 +2089,9 @@ public class WifiVendorHal {
     /**
      * Fetch the host wakeup reasons stats from wlan driver.
      *
-     * @return the |WifiWakeReasonAndCounts| from the wlan driver, or null on failure.
+     * @return the |WlanWakeReasonAndCounts| from the wlan driver, or null on failure.
      */
-    public WifiWakeReasonAndCounts getWlanWakeReasonCount() {
+    public WlanWakeReasonAndCounts getWlanWakeReasonCount() {
         class AnswerBox {
             public WifiDebugHostWakeReasonStats value = null;
         }
@@ -2533,12 +2171,13 @@ public class WifiVendorHal {
      *
      * @param ifaceName Name of the interface.
      * @param state the intended roaming state
-     * @return SUCCESS, FAILURE, or BUSY
+     * @return SET_FIRMWARE_ROAMING_SUCCESS, SET_FIRMWARE_ROAMING_FAILURE,
+     *         or SET_FIRMWARE_ROAMING_BUSY
      */
     public int enableFirmwareRoaming(@NonNull String ifaceName, int state) {
         synchronized (sLock) {
             IWifiStaIface iface = getStaIface(ifaceName);
-            if (iface == null) return WifiStatusCode.ERROR_NOT_STARTED;
+            if (iface == null) return WifiNative.SET_FIRMWARE_ROAMING_FAILURE;
             try {
                 byte val;
                 switch (state) {
@@ -2550,15 +2189,19 @@ public class WifiVendorHal {
                         break;
                     default:
                         mLog.err("enableFirmwareRoaming invalid argument %").c(state).flush();
-                        return WifiStatusCode.ERROR_INVALID_ARGS;
+                        return WifiNative.SET_FIRMWARE_ROAMING_FAILURE;
                 }
-
                 WifiStatus status = iface.setRoamingState(val);
-                mVerboseLog.d("setRoamingState returned " + status.code);
-                return status.code;
+                if (ok(status)) {
+                    return WifiNative.SET_FIRMWARE_ROAMING_SUCCESS;
+                } else if (status.code == WifiStatusCode.ERROR_BUSY) {
+                    return WifiNative.SET_FIRMWARE_ROAMING_BUSY;
+                } else {
+                    return WifiNative.SET_FIRMWARE_ROAMING_FAILURE;
+                }
             } catch (RemoteException e) {
                 handleRemoteException(e);
-                return WifiStatusCode.ERROR_UNKNOWN;
+                return WifiNative.SET_FIRMWARE_ROAMING_FAILURE;
             }
         }
     }
@@ -2588,18 +2231,8 @@ public class WifiVendorHal {
                 // parse the whitelist SSIDs if any
                 if (config.whitelistSsids != null) {
                     for (String ssidStr : config.whitelistSsids) {
-                        String unquotedSsidStr = WifiInfo.removeDoubleQuotes(ssidStr);
-
-                        int len = unquotedSsidStr.length();
-                        if (len > 32) {
-                            mLog.err("configureRoaming: skip invalid SSID %")
-                                    .r(unquotedSsidStr).flush();
-                            continue;
-                        }
-                        byte[] ssid = new byte[len];
-                        for (int i = 0; i < len; i++) {
-                            ssid[i] = (byte) unquotedSsidStr.charAt(i);
-                        }
+                        byte[] ssid = NativeUtil.byteArrayFromArrayList(
+                                NativeUtil.decodeSsid(ssidStr));
                         roamingConfig.ssidWhitelist.add(ssid);
                     }
                 }
@@ -2640,6 +2273,17 @@ public class WifiVendorHal {
     }
 
     /**
+     * Method to mock out the V1_3 IWifiChip retrieval in unit tests.
+     *
+     * @return 1.3 IWifiChip object if the device is running the 1.3 wifi hal service, null
+     * otherwise.
+     */
+    protected android.hardware.wifi.V1_3.IWifiChip getWifiChipForV1_3Mockable() {
+        if (mIWifiChip == null) return null;
+        return android.hardware.wifi.V1_3.IWifiChip.castFrom(mIWifiChip);
+    }
+
+    /**
      * Method to mock out the V1_2 IWifiStaIface retrieval in unit tests.
      *
      * @param ifaceName Name of the interface
@@ -2653,13 +2297,137 @@ public class WifiVendorHal {
         return android.hardware.wifi.V1_2.IWifiStaIface.castFrom(iface);
     }
 
+    /**
+     * Method to mock out the V1_3 IWifiStaIface retrieval in unit tests.
+     *
+     * @param ifaceName Name of the interface
+     * @return 1.3 IWifiStaIface object if the device is running the 1.3 wifi hal service, null
+     * otherwise.
+     */
+    protected android.hardware.wifi.V1_3.IWifiStaIface getWifiStaIfaceForV1_3Mockable(
+            @NonNull String ifaceName) {
+        IWifiStaIface iface = getStaIface(ifaceName);
+        if (iface == null) return null;
+        return android.hardware.wifi.V1_3.IWifiStaIface.castFrom(iface);
+    }
 
-    private int frameworkToHalTxPowerScenario(int scenario) {
-        switch (scenario) {
-            case WifiNative.TX_POWER_SCENARIO_VOICE_CALL:
+    /**
+     * sarPowerBackoffRequired_1_1()
+     * This method checks if we need to backoff wifi Tx power due to SAR requirements.
+     * It handles the case when the device is running the V1_1 version of WifiChip HAL
+     * In that HAL version, it is required to perform wifi Tx power backoff only if
+     * a voice call is ongoing.
+     */
+    private boolean sarPowerBackoffRequired_1_1(SarInfo sarInfo) {
+        /* As long as no voice call is active (in case voice call is supported),
+         * no backoff is needed */
+        if (sarInfo.sarVoiceCallSupported) {
+            return (sarInfo.isVoiceCall || sarInfo.isEarPieceActive);
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * frameworkToHalTxPowerScenario_1_1()
+     * This method maps the information inside the SarInfo instance into a SAR scenario
+     * when device is running the V1_1 version of WifiChip HAL.
+     * In this HAL version, only one scenario is defined which is for VOICE_CALL (if voice call is
+     * supported).
+     * Otherwise, an exception is thrown.
+     */
+    private int frameworkToHalTxPowerScenario_1_1(SarInfo sarInfo) {
+        if (sarInfo.sarVoiceCallSupported && (sarInfo.isVoiceCall || sarInfo.isEarPieceActive)) {
+            return android.hardware.wifi.V1_1.IWifiChip.TxPowerScenario.VOICE_CALL;
+        } else {
+            throw new IllegalArgumentException("bad scenario: voice call not active/supported");
+        }
+    }
+
+    /**
+     * sarPowerBackoffRequired_1_2()
+     * This method checks if we need to backoff wifi Tx power due to SAR requirements.
+     * It handles the case when the device is running the V1_2 version of WifiChip HAL
+     * In that HAL version, behavior depends on if SAR sensor input is considered in this device.
+     * If it is, then whenever the device is near the user body/hand/head, back-off is required.
+     * Otherwise, we should revert to the V1_1 HAL behavior which is only to perform backoff when
+     * a voice call is ongoing.
+     */
+    private boolean sarPowerBackoffRequired_1_2(SarInfo sarInfo) {
+        /* If SAR sensor is supported, output only dependent on device proximity */
+        if (sarInfo.sarSensorSupported) {
+            return (sarInfo.sensorState != SarInfo.SAR_SENSOR_FREE_SPACE);
+        }
+        if (sarInfo.sarSapSupported && sarInfo.isWifiSapEnabled) {
+            return true;
+        }
+        if (sarInfo.sarVoiceCallSupported && (sarInfo.isVoiceCall || sarInfo.isEarPieceActive)) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * frameworkToHalTxPowerScenario_1_2()
+     * This method maps the information inside the SarInfo instance into a SAR scenario
+     * when device is running the V1_2 version of WifiChip HAL.
+     * In this HAL version, behavior depends on if SAR sensor input is considered in this device.
+     * If it is, then based on regulatory compliance requirements,
+     *   - There is no need to treat NEAR_HAND different from NEAR_BODY, both can be considered
+     *     near the user body.
+     *   - Running in softAP mode can be treated the same way as running a voice call from tx power
+     *     backoff perspective.
+     * If SAR sensor input is not supported in this device, but SoftAP is,
+     * we make these assumptions:
+     *   - All voice calls are treated as if device is near the head.
+     *   - SoftAP scenario is treated as if device is near the body.
+     * In case neither SAR sensor, nor SoftAP is supported, then we should revert to the V1_1 HAL
+     * behavior, and the only valid scenario would be when a voice call is ongoing.
+     */
+    private int frameworkToHalTxPowerScenario_1_2(SarInfo sarInfo) {
+        if (sarInfo.sarSensorSupported) {
+            switch(sarInfo.sensorState) {
+                case SarInfo.SAR_SENSOR_NEAR_BODY:
+                case SarInfo.SAR_SENSOR_NEAR_HAND:
+                    if (sarInfo.isVoiceCall || sarInfo.isWifiSapEnabled) {
+                        return android.hardware.wifi.V1_2.IWifiChip
+                                .TxPowerScenario.ON_BODY_CELL_ON;
+                    } else {
+                        return android.hardware.wifi.V1_2.IWifiChip
+                                .TxPowerScenario.ON_BODY_CELL_OFF;
+                    }
+
+                case SarInfo.SAR_SENSOR_NEAR_HEAD:
+                    if (sarInfo.isVoiceCall || sarInfo.isWifiSapEnabled) {
+                        return android.hardware.wifi.V1_2.IWifiChip
+                                .TxPowerScenario.ON_HEAD_CELL_ON;
+                    } else {
+                        return android.hardware.wifi.V1_2.IWifiChip
+                                .TxPowerScenario.ON_HEAD_CELL_OFF;
+                    }
+
+                default:
+                    throw new IllegalArgumentException("bad scenario: Invalid sensor state");
+            }
+        } else if (sarInfo.sarSapSupported && sarInfo.sarVoiceCallSupported) {
+            if (sarInfo.isVoiceCall || sarInfo.isEarPieceActive) {
+                return android.hardware.wifi.V1_2.IWifiChip
+                        .TxPowerScenario.ON_HEAD_CELL_ON;
+            } else if (sarInfo.isWifiSapEnabled) {
+                return android.hardware.wifi.V1_2.IWifiChip
+                        .TxPowerScenario.ON_BODY_CELL_ON;
+            } else {
+                throw new IllegalArgumentException("bad scenario: no voice call/softAP active");
+            }
+        } else if (sarInfo.sarVoiceCallSupported) {
+            /* SAR Sensors and SoftAP not supported, act like V1_1 */
+            if (sarInfo.isVoiceCall || sarInfo.isEarPieceActive) {
                 return android.hardware.wifi.V1_1.IWifiChip.TxPowerScenario.VOICE_CALL;
-            default:
-                throw new IllegalArgumentException("bad scenario: " + scenario);
+            } else {
+                throw new IllegalArgumentException("bad scenario: voice call not active");
+            }
+        } else {
+            throw new IllegalArgumentException("Invalid case: voice call not supported");
         }
     }
 
@@ -2667,35 +2435,166 @@ public class WifiVendorHal {
      * Select one of the pre-configured TX power level scenarios or reset it back to normal.
      * Primarily used for meeting SAR requirements during voice calls.
      *
-     * @param scenario Should be one {@link WifiNative#TX_POWER_SCENARIO_NORMAL} or
-     *        {@link WifiNative#TX_POWER_SCENARIO_VOICE_CALL}.
+     * Note: If it was found out that the scenario to be reported is the same as last reported one,
+     *       then exit with success.
+     *       This is to handle the case when some HAL versions deal with different inputs equally,
+     *       in that case, we should not call the hal unless there is a change in scenario.
+     * Note: It is assumed that this method is only called if SAR is enabled. The logic of whether
+     *       to call it or not resides in SarManager class.
+     * Note: This method is called whether SAR sensor is supported or not. The passed SarInfo object
+     *       contains a flag to indicate the SAR sensor support.
+     *
+     * @param sarInfo The collection of inputs to select the SAR scenario.
      * @return true for success; false for failure or if the HAL version does not support this API.
      */
-    public boolean selectTxPowerScenario(int scenario) {
+    public boolean selectTxPowerScenario(SarInfo sarInfo) {
         synchronized (sLock) {
-            try {
-                android.hardware.wifi.V1_1.IWifiChip iWifiChipV11 = getWifiChipForV1_1Mockable();
-                if (iWifiChipV11 == null) return boolResult(false);
-                WifiStatus status;
-                if (scenario != WifiNative.TX_POWER_SCENARIO_NORMAL) {
-                    int halScenario;
-                    try {
-                        halScenario = frameworkToHalTxPowerScenario(scenario);
-                    } catch (IllegalArgumentException e) {
-                        mLog.err("Illegal argument for select tx power scenario")
-                                .c(e.toString()).flush();
+            // First attempt to get a V_1_2 instance of the Wifi HAL.
+            android.hardware.wifi.V1_2.IWifiChip iWifiChipV12 = getWifiChipForV1_2Mockable();
+            if (iWifiChipV12 != null) {
+                return selectTxPowerScenario_1_2(iWifiChipV12, sarInfo);
+            }
+
+            // Now attempt to get a V_1_1 instance of the Wifi HAL.
+            android.hardware.wifi.V1_1.IWifiChip iWifiChipV11 = getWifiChipForV1_1Mockable();
+            if (iWifiChipV11 != null) {
+                return selectTxPowerScenario_1_1(iWifiChipV11, sarInfo);
+            }
+
+            // HAL version does not support SAR
+            return false;
+        }
+    }
+
+    private boolean selectTxPowerScenario_1_1(
+            android.hardware.wifi.V1_1.IWifiChip iWifiChip, SarInfo sarInfo) {
+        WifiStatus status;
+        try {
+            if (sarPowerBackoffRequired_1_1(sarInfo)) {
+                // Power backoff is needed, so calculate the required scenario,
+                // and attempt to set it.
+                int halScenario = frameworkToHalTxPowerScenario_1_1(sarInfo);
+                if (sarInfo.setSarScenarioNeeded(halScenario)) {
+                    status = iWifiChip.selectTxPowerScenario(halScenario);
+                    if (ok(status)) {
+                        mLog.d("Setting SAR scenario to " + halScenario);
+                        return true;
+                    } else {
+                        mLog.e("Failed to set SAR scenario to " + halScenario);
                         return false;
                     }
-                    status = iWifiChipV11.selectTxPowerScenario(halScenario);
-                } else {
-                    status = iWifiChipV11.resetTxPowerScenario();
                 }
-                if (!ok(status)) return false;
-            } catch (RemoteException e) {
-                handleRemoteException(e);
-                return false;
+
+                // Reaching here means setting SAR scenario would be redundant,
+                // do nothing and return with success.
+                return true;
             }
+
+            // We don't need to perform power backoff, so attempt to reset SAR scenario.
+            if (sarInfo.resetSarScenarioNeeded()) {
+                status = iWifiChip.resetTxPowerScenario();
+                if (ok(status)) {
+                    mLog.d("Resetting SAR scenario");
+                    return true;
+                } else {
+                    mLog.e("Failed to reset SAR scenario");
+                    return false;
+                }
+            }
+
+            // Resetting SAR scenario would be redundant,
+            // do nothing and return with success.
             return true;
+        } catch (RemoteException e) {
+            handleRemoteException(e);
+            return false;
+        } catch (IllegalArgumentException e) {
+            mLog.err("Illegal argument for selectTxPowerScenario_1_1()").c(e.toString()).flush();
+            return false;
+        }
+    }
+
+    private boolean selectTxPowerScenario_1_2(
+            android.hardware.wifi.V1_2.IWifiChip iWifiChip, SarInfo sarInfo) {
+        WifiStatus status;
+        try {
+            if (sarPowerBackoffRequired_1_2(sarInfo)) {
+                // Power backoff is needed, so calculate the required scenario,
+                // and attempt to set it.
+                int halScenario = frameworkToHalTxPowerScenario_1_2(sarInfo);
+                if (sarInfo.setSarScenarioNeeded(halScenario)) {
+                    status = iWifiChip.selectTxPowerScenario_1_2(halScenario);
+                    if (ok(status)) {
+                        mLog.d("Setting SAR scenario to " + halScenario);
+                        return true;
+                    } else {
+                        mLog.e("Failed to set SAR scenario to " + halScenario);
+                        return false;
+                    }
+                }
+
+                // Reaching here means setting SAR scenario would be redundant,
+                // do nothing and return with success.
+                return true;
+            }
+
+            // We don't need to perform power backoff, so attempt to reset SAR scenario.
+            if (sarInfo.resetSarScenarioNeeded()) {
+                status = iWifiChip.resetTxPowerScenario();
+                if (ok(status)) {
+                    mLog.d("Resetting SAR scenario");
+                    return true;
+                } else {
+                    mLog.e("Failed to reset SAR scenario");
+                    return false;
+                }
+            }
+
+            // Resetting SAR scenario would be redundant,
+            // do nothing and return with success.
+            return true;
+        } catch (RemoteException e) {
+            handleRemoteException(e);
+            return false;
+        } catch (IllegalArgumentException e) {
+            mLog.err("Illegal argument for selectTxPowerScenario_1_2()").c(e.toString()).flush();
+            return false;
+        }
+    }
+
+    /**
+     * Enable/Disable low-latency mode
+     *
+     * @param enabled true to enable low-latency mode, false to disable it
+     */
+    public boolean setLowLatencyMode(boolean enabled) {
+        synchronized (sLock) {
+            android.hardware.wifi.V1_3.IWifiChip iWifiChipV13 = getWifiChipForV1_3Mockable();
+            if (iWifiChipV13 != null) {
+                try {
+                    int mode;
+                    if (enabled) {
+                        mode = android.hardware.wifi.V1_3.IWifiChip.LatencyMode.LOW;
+                    } else {
+                        mode = android.hardware.wifi.V1_3.IWifiChip.LatencyMode.NORMAL;
+                    }
+
+                    WifiStatus status = iWifiChipV13.setLatencyMode(mode);
+                    if (ok(status)) {
+                        mVerboseLog.d("Setting low-latency mode to " + enabled);
+                        return true;
+                    } else {
+                        mLog.e("Failed to set low-latency mode to " + enabled);
+                        return false;
+                    }
+                } catch (RemoteException e) {
+                    handleRemoteException(e);
+                    return false;
+                }
+            }
+
+            // HAL version does not support this api
+            return false;
         }
     }
 
@@ -2755,8 +2654,8 @@ public class WifiVendorHal {
             int flags = hidlToFrameworkScanDataFlags(scanData.flags);
             ScanResult[] frameworkScanResults = hidlToFrameworkScanResults(scanData.results);
             frameworkScanDatas[i++] =
-                    new WifiScanner.ScanData(cmdId, flags, scanData.bucketsScanned, false,
-                            frameworkScanResults);
+                    new WifiScanner.ScanData(cmdId, flags, scanData.bucketsScanned,
+                            WifiScanner.WIFI_BAND_UNSPECIFIED, frameworkScanResults);
         }
         return frameworkScanDatas;
     }

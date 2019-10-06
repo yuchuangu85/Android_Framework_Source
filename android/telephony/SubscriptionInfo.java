@@ -18,6 +18,7 @@ package android.telephony;
 
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -31,12 +32,16 @@ import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Parcel;
+import android.os.ParcelUuid;
 import android.os.Parcelable;
+import android.text.TextUtils;
 import android.util.DisplayMetrics;
+import android.util.Log;
 
 import java.util.Arrays;
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * A Parcelable class for Subscription Information.
@@ -77,8 +82,14 @@ public class SubscriptionInfo implements Parcelable {
     private CharSequence mCarrierName;
 
     /**
-     * The source of the name, NAME_SOURCE_UNDEFINED, NAME_SOURCE_DEFAULT_SOURCE,
-     * NAME_SOURCE_SIM_SOURCE or NAME_SOURCE_USER_INPUT.
+     * The subscription carrier id.
+     * @see TelephonyManager#getSimCarrierId()
+     */
+    private int mCarrierId;
+
+    /**
+     * The source of the name, NAME_SOURCE_DEFAULT_SOURCE, NAME_SOURCE_SIM_SOURCE or
+     * NAME_SOURCE_USER_INPUT.
      */
     private int mNameSource;
 
@@ -93,7 +104,7 @@ public class SubscriptionInfo implements Parcelable {
     private String mNumber;
 
     /**
-     * Data roaming state, DATA_RAOMING_ENABLE, DATA_RAOMING_DISABLE
+     * Data roaming state, DATA_ROAMING_ENABLE, DATA_ROAMING_DISABLE
      */
     private int mDataRoaming;
 
@@ -105,12 +116,22 @@ public class SubscriptionInfo implements Parcelable {
     /**
      * Mobile Country Code
      */
-    private int mMcc;
+    private String mMcc;
 
     /**
      * Mobile Network Code
      */
-    private int mMnc;
+    private String mMnc;
+
+    /**
+     * EHPLMNs associated with the subscription
+     */
+    private String[] mEhplmns;
+
+    /**
+     * HPLMNs associated with the subscription
+     */
+    private String[] mHplmns;
 
     /**
      * ISO Country code for the subscription's provider
@@ -129,20 +150,68 @@ public class SubscriptionInfo implements Parcelable {
     private UiccAccessRule[] mAccessRules;
 
     /**
-     * The ID of the SIM card. It is the ICCID of the active profile for a UICC card and the EID
-     * for an eUICC card.
+     * The string ID of the SIM card. It is the ICCID of the active profile for a UICC card and the
+     * EID for an eUICC card.
      */
-    private String mCardId;
+    private String mCardString;
+
+    /**
+     * The card ID of the SIM card. This maps uniquely to the card string.
+     */
+    private int mCardId;
+
+    /**
+     * Whether the subscription is opportunistic.
+     */
+    private boolean mIsOpportunistic;
+
+    /**
+     * A UUID assigned to the subscription group. It returns null if not assigned.
+     * Check {@link SubscriptionManager#createSubscriptionGroup(List)} for more details.
+     */
+    @Nullable
+    private ParcelUuid mGroupUUID;
+
+    /**
+     * A package name that specifies who created the group. Null if mGroupUUID is null.
+     */
+    private String mGroupOwner;
+
+    /**
+     * Whether group of the subscription is disabled.
+     * This is only useful if it's a grouped opportunistic subscription. In this case, if all
+     * primary (non-opportunistic) subscriptions in the group are deactivated (unplugged pSIM
+     * or deactivated eSIM profile), we should disable this opportunistic subscription.
+     */
+    private boolean mIsGroupDisabled = false;
+
+    /**
+     * Profile class, PROFILE_CLASS_TESTING, PROFILE_CLASS_OPERATIONAL
+     * PROFILE_CLASS_PROVISIONING, or PROFILE_CLASS_UNSET.
+     * A profile on the eUICC can be defined as test, operational, provisioning, or unset.
+     * The profile class will be populated from the profile metadata if present. Otherwise,
+     * the profile class defaults to unset if there is no profile metadata or the subscription
+     * is not on an eUICC ({@link #isEmbedded} returns false).
+     */
+    private int mProfileClass;
+
+    /**
+     * Type of subscription
+     */
+    private int mSubscriptionType;
 
     /**
      * @hide
      */
     public SubscriptionInfo(int id, String iccId, int simSlotIndex, CharSequence displayName,
-        CharSequence carrierName, int nameSource, int iconTint, String number, int roaming,
-        Bitmap icon, int mcc, int mnc, String countryIso) {
+            CharSequence carrierName, int nameSource, int iconTint, String number, int roaming,
+            Bitmap icon, String mcc, String mnc, String countryIso, boolean isEmbedded,
+            @Nullable UiccAccessRule[] accessRules, String cardString) {
         this(id, iccId, simSlotIndex, displayName, carrierName, nameSource, iconTint, number,
-            roaming, icon, mcc, mnc, countryIso, false /* isEmbedded */,
-            null /* accessRules */, null /* accessRules */);
+                roaming, icon, mcc, mnc, countryIso, isEmbedded, accessRules, cardString, -1,
+                false, null, false, TelephonyManager.UNKNOWN_CARRIER_ID,
+                SubscriptionManager.PROFILE_CLASS_DEFAULT,
+                SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM, null);
     }
 
     /**
@@ -150,10 +219,13 @@ public class SubscriptionInfo implements Parcelable {
      */
     public SubscriptionInfo(int id, String iccId, int simSlotIndex, CharSequence displayName,
             CharSequence carrierName, int nameSource, int iconTint, String number, int roaming,
-            Bitmap icon, int mcc, int mnc, String countryIso,  boolean isEmbedded,
-            @Nullable UiccAccessRule[] accessRules) {
+            Bitmap icon, String mcc, String mnc, String countryIso, boolean isEmbedded,
+            @Nullable UiccAccessRule[] accessRules, String cardString, boolean isOpportunistic,
+            @Nullable String groupUUID, int carrierId, int profileClass) {
         this(id, iccId, simSlotIndex, displayName, carrierName, nameSource, iconTint, number,
-                roaming, icon, mcc, mnc, countryIso, isEmbedded, accessRules, null /* cardId */);
+                roaming, icon, mcc, mnc, countryIso, isEmbedded, accessRules, cardString, -1,
+                isOpportunistic, groupUUID, false, carrierId, profileClass,
+                SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM, null);
     }
 
     /**
@@ -161,8 +233,10 @@ public class SubscriptionInfo implements Parcelable {
      */
     public SubscriptionInfo(int id, String iccId, int simSlotIndex, CharSequence displayName,
             CharSequence carrierName, int nameSource, int iconTint, String number, int roaming,
-            Bitmap icon, int mcc, int mnc, String countryIso, boolean isEmbedded,
-            @Nullable UiccAccessRule[] accessRules, String cardId) {
+            Bitmap icon, String mcc, String mnc, String countryIso, boolean isEmbedded,
+            @Nullable UiccAccessRule[] accessRules, String cardString, int cardId,
+            boolean isOpportunistic, @Nullable String groupUUID, boolean isGroupDisabled,
+            int carrierId, int profileClass, int subType, @Nullable String groupOwner) {
         this.mId = id;
         this.mIccId = iccId;
         this.mSimSlotIndex = simSlotIndex;
@@ -178,7 +252,15 @@ public class SubscriptionInfo implements Parcelable {
         this.mCountryIso = countryIso;
         this.mIsEmbedded = isEmbedded;
         this.mAccessRules = accessRules;
+        this.mCardString = cardString;
         this.mCardId = cardId;
+        this.mIsOpportunistic = isOpportunistic;
+        this.mGroupUUID = groupUUID == null ? null : ParcelUuid.fromString(groupUUID);
+        this.mIsGroupDisabled = isGroupDisabled;
+        this.mCarrierId = carrierId;
+        this.mProfileClass = profileClass;
+        this.mSubscriptionType = subType;
+        this.mGroupOwner = groupOwner;
     }
 
     /**
@@ -203,6 +285,14 @@ public class SubscriptionInfo implements Parcelable {
     }
 
     /**
+     * @return the carrier id of this Subscription carrier.
+     * @see TelephonyManager#getSimCarrierId()
+     */
+    public int getCarrierId() {
+        return this.mCarrierId;
+    }
+
+    /**
      * @return the name displayed to the user that identifies this subscription
      */
     public CharSequence getDisplayName() {
@@ -213,6 +303,7 @@ public class SubscriptionInfo implements Parcelable {
      * Sets the name displayed to the user that identifies this subscription
      * @hide
      */
+    @UnsupportedAppUsage
     public void setDisplayName(CharSequence name) {
         this.mDisplayName = name;
     }
@@ -233,17 +324,26 @@ public class SubscriptionInfo implements Parcelable {
     }
 
     /**
-     * @return the source of the name, eg NAME_SOURCE_UNDEFINED, NAME_SOURCE_DEFAULT_SOURCE,
-     * NAME_SOURCE_SIM_SOURCE or NAME_SOURCE_USER_INPUT.
+     * @return the source of the name, eg NAME_SOURCE_DEFAULT_SOURCE, NAME_SOURCE_SIM_SOURCE or
+     * NAME_SOURCE_USER_INPUT.
      * @hide
      */
+    @UnsupportedAppUsage
     public int getNameSource() {
         return this.mNameSource;
     }
 
     /**
-     * Creates and returns an icon {@code Bitmap} to represent this {@code SubscriptionInfo} in a user
-     * interface.
+     * @hide
+     */
+    public void setAssociatedPlmns(String[] ehplmns, String[] hplmns) {
+        mEhplmns = ehplmns;
+        mHplmns = hplmns;
+    }
+
+    /**
+     * Creates and returns an icon {@code Bitmap} to represent this {@code SubscriptionInfo} in a
+     * user interface.
      *
      * @param context A {@code Context} to get the {@code DisplayMetrics}s from.
      *
@@ -295,6 +395,7 @@ public class SubscriptionInfo implements Parcelable {
      * Sets the color displayed to the user that identifies this subscription
      * @hide
      */
+    @UnsupportedAppUsage
     public void setIconTint(int iconTint) {
         this.mIconTint = iconTint;
     }
@@ -316,15 +417,43 @@ public class SubscriptionInfo implements Parcelable {
 
     /**
      * @return the MCC.
+     * @deprecated Use {@link #getMccString()} instead.
      */
+    @Deprecated
     public int getMcc() {
-        return this.mMcc;
+        try {
+            return this.mMcc == null ? 0 : Integer.valueOf(this.mMcc);
+        } catch (NumberFormatException e) {
+            Log.w(SubscriptionInfo.class.getSimpleName(), "MCC string is not a number");
+            return 0;
+        }
     }
 
     /**
      * @return the MNC.
+     * @deprecated Use {@link #getMncString()} instead.
      */
+    @Deprecated
     public int getMnc() {
+        try {
+            return this.mMnc == null ? 0 : Integer.valueOf(this.mMnc);
+        } catch (NumberFormatException e) {
+            Log.w(SubscriptionInfo.class.getSimpleName(), "MNC string is not a number");
+            return 0;
+        }
+    }
+
+    /**
+     * @return The MCC, as a string.
+     */
+    public @Nullable String getMccString() {
+        return this.mMcc;
+    }
+
+    /**
+     * @return The MNC, as a string.
+     */
+    public @Nullable String getMncString() {
         return this.mMnc;
     }
 
@@ -338,6 +467,71 @@ public class SubscriptionInfo implements Parcelable {
     /** @return whether the subscription is an eUICC one. */
     public boolean isEmbedded() {
         return this.mIsEmbedded;
+    }
+
+    /**
+     * An opportunistic subscription connects to a network that is
+     * limited in functionality and / or coverage.
+     *
+     * @return whether subscription is opportunistic.
+     */
+    public boolean isOpportunistic() {
+        return mIsOpportunistic;
+    }
+
+    /**
+     * Used in scenarios where different subscriptions are bundled as a group.
+     * It's typically a primary and an opportunistic subscription. (see {@link #isOpportunistic()})
+     * Such that those subscriptions will have some affiliated behaviors such as opportunistic
+     * subscription may be invisible to the user.
+     *
+     * @return group UUID a String of group UUID if it belongs to a group. Otherwise
+     * it will return null.
+     */
+    public @Nullable ParcelUuid getGroupUuid() {
+        return mGroupUUID;
+    }
+
+    /**
+     * @hide
+     */
+    public List<String> getEhplmns() {
+        return mEhplmns == null ? Collections.emptyList() : Arrays.asList(mEhplmns);
+    }
+
+    /**
+     * @hide
+     */
+    public List<String> getHplmns() {
+        return mHplmns == null ? Collections.emptyList() : Arrays.asList(mHplmns);
+    }
+
+    /**
+     * Return owner package of group the subscription belongs to.
+     *
+     * @hide
+     */
+    public @Nullable String getGroupOwner() {
+        return mGroupOwner;
+    }
+
+    /**
+     * @return the profile class of this subscription.
+     * @hide
+     */
+    @SystemApi
+    public @SubscriptionManager.ProfileClass int getProfileClass() {
+        return this.mProfileClass;
+    }
+
+    /**
+     * This method returns the type of a subscription. It can be
+     * {@link SubscriptionManager#SUBSCRIPTION_TYPE_LOCAL_SIM} or
+     * {@link SubscriptionManager#SUBSCRIPTION_TYPE_REMOTE_SIM}.
+     * @return the type of subscription
+     */
+    public @SubscriptionManager.SubscriptionType int getSubscriptionType() {
+        return mSubscriptionType;
     }
 
     /**
@@ -406,14 +600,41 @@ public class SubscriptionInfo implements Parcelable {
     }
 
     /**
-     * @return the ID of the SIM card which contains the subscription.
+     * @return the card string of the SIM card which contains the subscription. The card string is
+     * the ICCID for UICCs or the EID for eUICCs.
      * @hide
+     * //TODO rename usages in LPA: UiccSlotUtil.java, UiccSlotsManager.java, UiccSlotInfoTest.java
      */
-    public String getCardId() {
+    public String getCardString() {
+        return this.mCardString;
+    }
+
+    /**
+     * Returns the card ID of the SIM card which contains the subscription (see
+     * {@link UiccCardInfo#getCardId()}.
+     * @return the cardId
+     */
+    public int getCardId() {
         return this.mCardId;
     }
 
-    public static final Parcelable.Creator<SubscriptionInfo> CREATOR = new Parcelable.Creator<SubscriptionInfo>() {
+    /**
+     * Set whether the subscription's group is disabled.
+     * @hide
+     */
+    public void setGroupDisabled(boolean isGroupDisabled) {
+        this.mIsGroupDisabled = isGroupDisabled;
+    }
+
+    /**
+     * Return whether the subscription's group is disabled.
+     * @hide
+     */
+    public boolean isGroupDisabled() {
+        return mIsGroupDisabled;
+    }
+
+    public static final @android.annotation.NonNull Parcelable.Creator<SubscriptionInfo> CREATOR = new Parcelable.Creator<SubscriptionInfo>() {
         @Override
         public SubscriptionInfo createFromParcel(Parcel source) {
             int id = source.readInt();
@@ -425,17 +646,30 @@ public class SubscriptionInfo implements Parcelable {
             int iconTint = source.readInt();
             String number = source.readString();
             int dataRoaming = source.readInt();
-            int mcc = source.readInt();
-            int mnc = source.readInt();
+            String mcc = source.readString();
+            String mnc = source.readString();
             String countryIso = source.readString();
-            Bitmap iconBitmap = Bitmap.CREATOR.createFromParcel(source);
+            Bitmap iconBitmap = source.readParcelable(Bitmap.class.getClassLoader());
             boolean isEmbedded = source.readBoolean();
             UiccAccessRule[] accessRules = source.createTypedArray(UiccAccessRule.CREATOR);
-            String cardId = source.readString();
+            String cardString = source.readString();
+            int cardId = source.readInt();
+            boolean isOpportunistic = source.readBoolean();
+            String groupUUID = source.readString();
+            boolean isGroupDisabled = source.readBoolean();
+            int carrierid = source.readInt();
+            int profileClass = source.readInt();
+            int subType = source.readInt();
+            String[] ehplmns = source.readStringArray();
+            String[] hplmns = source.readStringArray();
+            String groupOwner = source.readString();
 
-            return new SubscriptionInfo(id, iccId, simSlotIndex, displayName, carrierName,
-                    nameSource, iconTint, number, dataRoaming, iconBitmap, mcc, mnc, countryIso,
-                    isEmbedded, accessRules, cardId);
+            SubscriptionInfo info = new SubscriptionInfo(id, iccId, simSlotIndex, displayName,
+                    carrierName, nameSource, iconTint, number, dataRoaming, iconBitmap, mcc, mnc,
+                    countryIso, isEmbedded, accessRules, cardString, cardId, isOpportunistic,
+                    groupUUID, isGroupDisabled, carrierid, profileClass, subType, groupOwner);
+            info.setAssociatedPlmns(ehplmns, hplmns);
+            return info;
         }
 
         @Override
@@ -455,13 +689,23 @@ public class SubscriptionInfo implements Parcelable {
         dest.writeInt(mIconTint);
         dest.writeString(mNumber);
         dest.writeInt(mDataRoaming);
-        dest.writeInt(mMcc);
-        dest.writeInt(mMnc);
+        dest.writeString(mMcc);
+        dest.writeString(mMnc);
         dest.writeString(mCountryIso);
-        mIconBitmap.writeToParcel(dest, flags);
+        dest.writeParcelable(mIconBitmap, flags);
         dest.writeBoolean(mIsEmbedded);
         dest.writeTypedArray(mAccessRules, flags);
-        dest.writeString(mCardId);
+        dest.writeString(mCardString);
+        dest.writeInt(mCardId);
+        dest.writeBoolean(mIsOpportunistic);
+        dest.writeString(mGroupUUID == null ? null : mGroupUUID.toString());
+        dest.writeBoolean(mIsGroupDisabled);
+        dest.writeInt(mCarrierId);
+        dest.writeInt(mProfileClass);
+        dest.writeInt(mSubscriptionType);
+        dest.writeStringArray(mEhplmns);
+        dest.writeStringArray(mHplmns);
+        dest.writeString(mGroupOwner);
     }
 
     @Override
@@ -487,13 +731,67 @@ public class SubscriptionInfo implements Parcelable {
     @Override
     public String toString() {
         String iccIdToPrint = givePrintableIccid(mIccId);
-        String cardIdToPrint = givePrintableIccid(mCardId);
+        String cardStringToPrint = givePrintableIccid(mCardString);
         return "{id=" + mId + ", iccId=" + iccIdToPrint + " simSlotIndex=" + mSimSlotIndex
-                + " displayName=" + mDisplayName + " carrierName=" + mCarrierName
-                + " nameSource=" + mNameSource + " iconTint=" + mIconTint
+                + " carrierId=" + mCarrierId + " displayName=" + mDisplayName
+                + " carrierName=" + mCarrierName + " nameSource=" + mNameSource
+                + " iconTint=" + mIconTint + " mNumber=" + Rlog.pii(Build.IS_DEBUGGABLE, mNumber)
                 + " dataRoaming=" + mDataRoaming + " iconBitmap=" + mIconBitmap + " mcc " + mMcc
-                + " mnc " + mMnc + " isEmbedded " + mIsEmbedded
+                + " mnc " + mMnc + "mCountryIso=" + mCountryIso + " isEmbedded " + mIsEmbedded
                 + " accessRules " + Arrays.toString(mAccessRules)
-                + " cardId=" + cardIdToPrint + "}";
+                + " cardString=" + cardStringToPrint + " cardId=" + mCardId
+                + " isOpportunistic " + mIsOpportunistic + " mGroupUUID=" + mGroupUUID
+                + " mIsGroupDisabled=" + mIsGroupDisabled
+                + " profileClass=" + mProfileClass
+                + " ehplmns = " + Arrays.toString(mEhplmns)
+                + " hplmns = " + Arrays.toString(mHplmns)
+                + " subscriptionType=" + mSubscriptionType
+                + " mGroupOwner=" + mGroupOwner + "}";
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mId, mSimSlotIndex, mNameSource, mIconTint, mDataRoaming, mIsEmbedded,
+                mIsOpportunistic, mGroupUUID, mIccId, mNumber, mMcc, mMnc,
+                mCountryIso, mCardString, mCardId, mDisplayName, mCarrierName, mAccessRules,
+                mIsGroupDisabled, mCarrierId, mProfileClass, mGroupOwner);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null) return false;
+        if (obj == this) return true;
+
+        SubscriptionInfo toCompare;
+        try {
+            toCompare = (SubscriptionInfo) obj;
+        } catch (ClassCastException ex) {
+            return false;
+        }
+
+        return mId == toCompare.mId
+                && mSimSlotIndex == toCompare.mSimSlotIndex
+                && mNameSource == toCompare.mNameSource
+                && mIconTint == toCompare.mIconTint
+                && mDataRoaming == toCompare.mDataRoaming
+                && mIsEmbedded == toCompare.mIsEmbedded
+                && mIsOpportunistic == toCompare.mIsOpportunistic
+                && mIsGroupDisabled == toCompare.mIsGroupDisabled
+                && mCarrierId == toCompare.mCarrierId
+                && Objects.equals(mGroupUUID, toCompare.mGroupUUID)
+                && Objects.equals(mIccId, toCompare.mIccId)
+                && Objects.equals(mNumber, toCompare.mNumber)
+                && Objects.equals(mMcc, toCompare.mMcc)
+                && Objects.equals(mMnc, toCompare.mMnc)
+                && Objects.equals(mCountryIso, toCompare.mCountryIso)
+                && Objects.equals(mCardString, toCompare.mCardString)
+                && Objects.equals(mCardId, toCompare.mCardId)
+                && Objects.equals(mGroupOwner, toCompare.mGroupOwner)
+                && TextUtils.equals(mDisplayName, toCompare.mDisplayName)
+                && TextUtils.equals(mCarrierName, toCompare.mCarrierName)
+                && Arrays.equals(mAccessRules, toCompare.mAccessRules)
+                && mProfileClass == toCompare.mProfileClass
+                && Arrays.equals(mEhplmns, toCompare.mEhplmns)
+                && Arrays.equals(mHplmns, toCompare.mHplmns);
     }
 }

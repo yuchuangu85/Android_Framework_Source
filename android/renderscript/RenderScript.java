@@ -16,12 +16,7 @@
 
 package android.renderscript;
 
-import java.io.File;
-import java.lang.reflect.Method;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
@@ -30,6 +25,12 @@ import android.os.SystemProperties;
 import android.os.Trace;
 import android.util.Log;
 import android.view.Surface;
+
+import java.io.File;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 // TODO: Clean up the whitespace that separates methods in this class.
 
@@ -103,6 +104,7 @@ public class RenderScript {
      * Detect the bitness of the VM to allow FieldPacker to do the right thing.
      */
     static native int rsnSystemGetPointerSize();
+    @UnsupportedAppUsage
     static int sPointerSize;
 
     static {
@@ -112,8 +114,9 @@ public class RenderScript {
                 Class<?> vm_runtime = Class.forName("dalvik.system.VMRuntime");
                 Method get_runtime = vm_runtime.getDeclaredMethod("getRuntime");
                 sRuntime = get_runtime.invoke(null);
-                registerNativeAllocation = vm_runtime.getDeclaredMethod("registerNativeAllocation", Integer.TYPE);
-                registerNativeFree = vm_runtime.getDeclaredMethod("registerNativeFree", Integer.TYPE);
+                registerNativeAllocation =
+                        vm_runtime.getDeclaredMethod("registerNativeAllocation", Long.TYPE);
+                registerNativeFree = vm_runtime.getDeclaredMethod("registerNativeFree", Long.TYPE);
             } catch (Exception e) {
                 Log.e(LOG_TAG, "Error loading GC methods: " + e);
                 throw new RSRuntimeException("Error loading GC methods: " + e);
@@ -153,6 +156,7 @@ public class RenderScript {
      * @return Always return 1
      *
      */
+    @UnsupportedAppUsage
     public static long getMinorID() {
         return 1;
     }
@@ -443,27 +447,33 @@ public class RenderScript {
         validate();
         return rsnAllocationCreateTyped(mContext, type, mip, usage, pointer);
     }
-    native long rsnAllocationCreateFromBitmap(long con, long type, int mip, Bitmap bmp, int usage);
+    native long rsnAllocationCreateFromBitmap(long con, long type, int mip, long bitmapHandle,
+                int usage);
     synchronized long nAllocationCreateFromBitmap(long type, int mip, Bitmap bmp, int usage) {
         validate();
-        return rsnAllocationCreateFromBitmap(mContext, type, mip, bmp, usage);
+        return rsnAllocationCreateFromBitmap(mContext, type, mip, bmp.getNativeInstance(), usage);
     }
 
-    native long rsnAllocationCreateBitmapBackedAllocation(long con, long type, int mip, Bitmap bmp, int usage);
-    synchronized long nAllocationCreateBitmapBackedAllocation(long type, int mip, Bitmap bmp, int usage) {
+    native long rsnAllocationCreateBitmapBackedAllocation(long con, long type, int mip, long bitmapHandle,
+                int usage);
+    synchronized long nAllocationCreateBitmapBackedAllocation(long type, int mip, Bitmap bmp,
+                int usage) {
         validate();
-        return rsnAllocationCreateBitmapBackedAllocation(mContext, type, mip, bmp, usage);
+        return rsnAllocationCreateBitmapBackedAllocation(mContext, type, mip, bmp.getNativeInstance(),
+                usage);
     }
 
-    native long rsnAllocationCubeCreateFromBitmap(long con, long type, int mip, Bitmap bmp, int usage);
+    native long rsnAllocationCubeCreateFromBitmap(long con, long type, int mip, long bitmapHandle,
+                int usage);
     synchronized long nAllocationCubeCreateFromBitmap(long type, int mip, Bitmap bmp, int usage) {
         validate();
-        return rsnAllocationCubeCreateFromBitmap(mContext, type, mip, bmp, usage);
+        return rsnAllocationCubeCreateFromBitmap(mContext, type, mip, bmp.getNativeInstance(),
+                usage);
     }
-    native long  rsnAllocationCreateBitmapRef(long con, long type, Bitmap bmp);
+    native long  rsnAllocationCreateBitmapRef(long con, long type, long bitmapHandle);
     synchronized long nAllocationCreateBitmapRef(long type, Bitmap bmp) {
         validate();
-        return rsnAllocationCreateBitmapRef(mContext, type, bmp);
+        return rsnAllocationCreateBitmapRef(mContext, type, bmp.getNativeInstance());
     }
     native long  rsnAllocationCreateFromAssetStream(long con, int mips, int assetStream, int usage);
     synchronized long nAllocationCreateFromAssetStream(int mips, int assetStream, int usage) {
@@ -471,10 +481,10 @@ public class RenderScript {
         return rsnAllocationCreateFromAssetStream(mContext, mips, assetStream, usage);
     }
 
-    native void  rsnAllocationCopyToBitmap(long con, long alloc, Bitmap bmp);
+    native void  rsnAllocationCopyToBitmap(long con, long alloc, long bitmapHandle);
     synchronized void nAllocationCopyToBitmap(long alloc, Bitmap bmp) {
         validate();
-        rsnAllocationCopyToBitmap(mContext, alloc, bmp);
+        rsnAllocationCopyToBitmap(mContext, alloc, bmp.getNativeInstance());
     }
 
     native void rsnAllocationSyncAll(long con, long alloc, int src);
@@ -483,8 +493,10 @@ public class RenderScript {
         rsnAllocationSyncAll(mContext, alloc, src);
     }
 
-    native ByteBuffer rsnAllocationGetByteBuffer(long con, long alloc, long[] stride, int xBytesSize, int dimY, int dimZ);
-    synchronized ByteBuffer nAllocationGetByteBuffer(long alloc, long[] stride, int xBytesSize, int dimY, int dimZ) {
+    native ByteBuffer rsnAllocationGetByteBuffer(long con, long alloc, long[] stride,
+                int xBytesSize, int dimY, int dimZ);
+    synchronized ByteBuffer nAllocationGetByteBuffer(long alloc, long[] stride, int xBytesSize,
+                int dimY, int dimZ) {
         validate();
         return rsnAllocationGetByteBuffer(mContext, alloc, stride, xBytesSize, dimY, dimZ);
     }
@@ -525,10 +537,10 @@ public class RenderScript {
         validate();
         rsnAllocationGenerateMipmaps(mContext, alloc);
     }
-    native void  rsnAllocationCopyFromBitmap(long con, long alloc, Bitmap bmp);
+    native void  rsnAllocationCopyFromBitmap(long con, long alloc, long bitmapHandle);
     synchronized void nAllocationCopyFromBitmap(long alloc, Bitmap bmp) {
         validate();
-        rsnAllocationCopyFromBitmap(mContext, alloc, bmp);
+        rsnAllocationCopyFromBitmap(mContext, alloc, bmp.getNativeInstance());
     }
 
 
@@ -833,6 +845,7 @@ public class RenderScript {
 
     native long rsnScriptCCreate(long con, String resName, String cacheDir,
                                  byte[] script, int length);
+    @UnsupportedAppUsage
     synchronized long nScriptCCreate(String resName, String cacheDir, byte[] script, int length) {
         validate();
         return rsnScriptCCreate(mContext, resName, cacheDir, script, length);
@@ -1158,6 +1171,7 @@ public class RenderScript {
      * sendToClient} by scripts from this context.
      *
      */
+    @UnsupportedAppUsage
     RSMessageHandler mMessageCallback = null;
 
     public void setMessageHandler(RSMessageHandler msg) {
@@ -1232,6 +1246,7 @@ public class RenderScript {
         }
     }
 
+    @UnsupportedAppUsage
     void validate() {
         if (mContext == 0) {
             throw new RSInvalidStateException("Calling RS with no Context active.");
@@ -1495,6 +1510,7 @@ public class RenderScript {
      * @param sdkVersion The target SDK Version.
      * @return RenderScript
      */
+    @UnsupportedAppUsage
     public static RenderScript create(Context ctx, int sdkVersion) {
         return create(ctx, sdkVersion, ContextType.NORMAL, CREATE_FLAG_NONE);
     }
@@ -1508,6 +1524,7 @@ public class RenderScript {
      * @param flags The OR of the CREATE_FLAG_* options desired
      * @return RenderScript
      */
+    @UnsupportedAppUsage
     private static RenderScript create(Context ctx, int sdkVersion, ContextType ct, int flags) {
         if (sdkVersion < 23) {
             return internalCreate(ctx, sdkVersion, ct, flags);

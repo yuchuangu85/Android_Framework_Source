@@ -17,7 +17,9 @@
 package android.os;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.annotation.TestApi;
 
 import libcore.util.NativeAllocationRegistry;
 
@@ -28,6 +30,7 @@ import libcore.util.NativeAllocationRegistry;
  * @hide
  */
 @SystemApi
+@TestApi
 public class HwBlob {
     private static final String TAG = "HwBlob";
 
@@ -232,6 +235,14 @@ public class HwBlob {
      * @throws IndexOutOfBoundsException when [offset, offset + sizeof(jstring)] is out of range
      */
     public native final void putString(long offset, String x);
+    /**
+     * Writes a native handle (without duplicating the underlying file descriptors) at an offset.
+     *
+     * @param offset location to write value
+     * @param x a {@link NativeHandle} instance to write
+     * @throws IndexOutOfBoundsException when [offset, offset + sizeof(jobject)] is out of range
+     */
+    public native final void putNativeHandle(long offset, @Nullable NativeHandle x);
 
     /**
      * Put a boolean array contiguously at an offset in the blob.

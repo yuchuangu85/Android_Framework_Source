@@ -16,24 +16,32 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.telephony.Rlog;
 
 /**
  * {@hide}
  */
 public class CommandException extends RuntimeException {
+    @UnsupportedAppUsage
     private Error mError;
 
     public enum Error {
         INVALID_RESPONSE,
+        @UnsupportedAppUsage
         RADIO_NOT_AVAILABLE,
+        @UnsupportedAppUsage
         GENERIC_FAILURE,
+        @UnsupportedAppUsage
         PASSWORD_INCORRECT,
         SIM_PIN2,
+        @UnsupportedAppUsage
         SIM_PUK2,
+        @UnsupportedAppUsage
         REQUEST_NOT_SUPPORTED,
         OP_NOT_ALLOWED_DURING_VOICE_CALL,
         OP_NOT_ALLOWED_BEFORE_REG_NW,
+        @UnsupportedAppUsage
         SMS_FAIL_RETRY,
         SIM_ABSENT,
         SUBSCRIPTION_NOT_AVAILABLE,
@@ -117,6 +125,7 @@ public class CommandException extends RuntimeException {
         OEM_ERROR_25,
     }
 
+    @UnsupportedAppUsage
     public CommandException(Error e) {
         super(e.toString());
         mError = e;
@@ -127,6 +136,7 @@ public class CommandException extends RuntimeException {
         mError = e;
     }
 
+    @UnsupportedAppUsage
     public static CommandException
     fromRilErrno(int ril_errno) {
         switch(ril_errno) {
@@ -318,6 +328,7 @@ public class CommandException extends RuntimeException {
         }
     }
 
+    @UnsupportedAppUsage
     public Error getCommandError() {
         return mError;
     }

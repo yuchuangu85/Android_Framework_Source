@@ -33,11 +33,10 @@ import org.xmlpull.v1.XmlPullParserException;
  * around to map int to instance of the delegate.
  */
 public class Xml_Delegate {
-
     @LayoutlibDelegate
     /*package*/ static XmlPullParser newPullParser() {
         try {
-            return ParserFactory.instantiateParser(null);
+            return ParserFactory.create();
         } catch (XmlPullParserException e) {
             throw new AssertionError();
         }

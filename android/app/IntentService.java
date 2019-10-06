@@ -16,6 +16,7 @@
 
 package android.app;
 
+import android.annotation.UnsupportedAppUsage;
 import android.annotation.WorkerThread;
 import android.annotation.Nullable;
 import android.content.Intent;
@@ -62,6 +63,7 @@ import android.os.Message;
  */
 public abstract class IntentService extends Service {
     private volatile Looper mServiceLooper;
+    @UnsupportedAppUsage
     private volatile ServiceHandler mServiceHandler;
     private String mName;
     private boolean mRedelivery;
@@ -74,7 +76,6 @@ public abstract class IntentService extends Service {
         @Override
         public void handleMessage(Message msg) {
             onHandleIntent((Intent)msg.obj);
-            // stopSelf方法会先判断是否还有消息，如果有不停止服务，没有则停止服务
             stopSelf(msg.arg1);
         }
     }
@@ -116,13 +117,10 @@ public abstract class IntentService extends Service {
         // method that would launch the service & hand off a wakelock.
 
         super.onCreate();
-        // 创建HandlerThread对象，该该线程启动的时候会自自动创建Looper
         HandlerThread thread = new HandlerThread("IntentService[" + mName + "]");
         thread.start();
 
-        // 获取上面线程中的Looper
         mServiceLooper = thread.getLooper();
-        // 创建Handler并传入Looper
         mServiceHandler = new ServiceHandler(mServiceLooper);
     }
 
@@ -138,21 +136,16 @@ public abstract class IntentService extends Service {
      * You should not override this method for your IntentService. Instead,
      * override {@link #onHandleIntent}, which the system calls when the IntentService
      * receives a start request.
-     *
-     * 每次调用startService方法都会调用onStartComman方法
-     *
      * @see android.app.Service#onStartCommand
      */
     @Override
     public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
-        // 发送消息到Handler
         onStart(intent, startId);
         return mRedelivery ? START_REDELIVER_INTENT : START_NOT_STICKY;
     }
 
     @Override
     public void onDestroy() {
-        // 调用looper的quit方法，将子线程的消息循环停止，等待任务完成后结束子线程
         mServiceLooper.quit();
     }
 
@@ -168,7 +161,7 @@ public abstract class IntentService extends Service {
     }
 
     /**
-     * This method is invoked on the worker(子线程) thread with a request to process.
+     * This method is invoked on the worker thread with a request to process.
      * Only one Intent is processed at a time, but the processing happens on a
      * worker thread that runs independently from other application logic.
      * So, if this code takes a long time, it will hold up other requests to

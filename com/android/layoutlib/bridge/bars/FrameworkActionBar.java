@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.layoutlib.bridge.bars;
 
 import com.android.ide.common.rendering.api.RenderResources;
@@ -42,13 +41,12 @@ import android.widget.ListAdapter;
 import android.widget.ListView;
 import android.widget.RelativeLayout;
 
-import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Creates the ActionBar as done by the framework.
  */
 public class FrameworkActionBar extends BridgeActionBar {
-
     private static final String LAYOUT_ATTR_NAME = "windowActionBarFullscreenDecorLayout";
 
     // The Action Bar
@@ -89,11 +87,11 @@ public class FrameworkActionBar extends BridgeActionBar {
     @Override
     protected ResourceValue getLayoutResource(BridgeContext context) {
         ResourceValue layoutName =
-                context.getRenderResources().findItemInTheme(LAYOUT_ATTR_NAME, true);
+                context.getRenderResources().findItemInTheme(
+                        BridgeContext.createFrameworkAttrReference(LAYOUT_ATTR_NAME));
         if (layoutName != null) {
             // We may need to resolve the reference obtained.
-            layoutName = context.getRenderResources().findResValue(layoutName.getValue(),
-                    layoutName.isFramework());
+            layoutName = context.getRenderResources().dereference(layoutName);
         }
         if (layoutName == null) {
              throw new InflateException("Unable to find action bar layout (" + LAYOUT_ATTR_NAME
@@ -124,7 +122,7 @@ public class FrameworkActionBar extends BridgeActionBar {
     }
 
     @Override
-    protected void setIcon(String icon) {
+    protected void setIcon(ResourceValue icon) {
         mActionBar.setIcon(icon);
     }
 
@@ -173,7 +171,7 @@ public class FrameworkActionBar extends BridgeActionBar {
             return false;
         }
         // Copied from android.widget.ActionMenuPresenter.updateMenuView()
-        ArrayList<MenuItemImpl> menus = mActionBar.getMenuBuilder().getNonActionItems();
+        List<MenuItemImpl> menus = mActionBar.getMenuBuilder().getNonActionItems();
         ActionMenuPresenter presenter = mActionBar.getActionMenuPresenter();
         if (presenter == null) {
             assert false : "Failed to create a Presenter for Action Bar Menus.";
@@ -238,7 +236,8 @@ public class FrameworkActionBar extends BridgeActionBar {
     private int getActionBarHeight() {
         RenderResources resources = mBridgeContext.getRenderResources();
         DisplayMetrics metrics = mBridgeContext.getMetrics();
-        ResourceValue value = resources.findItemInTheme("actionBarSize", true);
+        ResourceValue value = resources.findItemInTheme(
+                BridgeContext.createFrameworkAttrReference("actionBarSize"));
 
         // resolve it
         value = resources.resolveResValue(value);

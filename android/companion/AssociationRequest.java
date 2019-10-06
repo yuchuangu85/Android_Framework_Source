@@ -18,6 +18,7 @@ package android.companion;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.provider.OneTimeUseBuilder;
@@ -59,12 +60,14 @@ public final class AssociationRequest implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public boolean isSingleDevice() {
         return mSingleDevice;
     }
 
     /** @hide */
     @NonNull
+    @UnsupportedAppUsage
     public List<DeviceFilter<?>> getDeviceFilters() {
         return mDeviceFilters;
     }
@@ -102,7 +105,7 @@ public final class AssociationRequest implements Parcelable {
         return 0;
     }
 
-    public static final Creator<AssociationRequest> CREATOR = new Creator<AssociationRequest>() {
+    public static final @android.annotation.NonNull Creator<AssociationRequest> CREATOR = new Creator<AssociationRequest>() {
         @Override
         public AssociationRequest createFromParcel(Parcel in) {
             return new AssociationRequest(in);

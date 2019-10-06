@@ -16,6 +16,7 @@
 
 package org.json;
 
+import dalvik.annotation.compat.UnsupportedAppUsage;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -48,6 +49,7 @@ import java.util.List;
  */
 public class JSONArray {
 
+    @UnsupportedAppUsage
     private final List<Object> values;
 
     /**
@@ -607,6 +609,7 @@ public class JSONArray {
         return stringer.toString();
     }
 
+    @UnsupportedAppUsage
     void writeTo(JSONStringer stringer) throws JSONException {
         stringer.array();
         for (Object value : values) {

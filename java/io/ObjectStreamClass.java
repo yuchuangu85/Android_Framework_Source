@@ -53,20 +53,20 @@ import sun.reflect.CallerSensitive;
 import sun.reflect.Reflection;
 import sun.reflect.misc.ReflectUtil;
 import dalvik.system.VMRuntime;
-import dalvik.system.VMStack;
+
 /**
  * Serialization's descriptor for classes.  It contains the name and
  * serialVersionUID of the class.  The ObjectStreamClass for a specific class
  * loaded in this Java VM can be found/created using the lookup method.
  *
  * <p>The algorithm to compute the SerialVersionUID is described in
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/platform/serialization/spec/class.html#4100">Object
+ * <a href="https://docs.oracle.com/javase/8/docs/platform/serialization/spec/class.html#4100">Object
  * Serialization Specification, Section 4.6, Stream Unique Identifiers</a>.
  *
  * @author      Mike Warres
  * @author      Roger Riggs
  * @see ObjectStreamField
- * @see <a href="{@docRoot}openjdk-redirect.html?v=8&path=/platform/serialization/spec/class.html">Object Serialization Specification, Section 4, Class Descriptors</a>
+ * @see <a href="https://docs.oracle.com/javase/8/docs/platform/serialization/spec/class.html">Object Serialization Specification, Section 4, Class Descriptors</a>
  * @since   JDK1.1
  */
 public class ObjectStreamClass implements Serializable {
@@ -279,9 +279,8 @@ public class ObjectStreamClass implements Serializable {
         }
         requireInitialized();
         if (System.getSecurityManager() != null) {
-            // Android-changed: Class loader obtained from VMStack
-            if (ReflectUtil.needsPackageAccessCheck(VMStack.getCallingClassLoader(),
-                  cl.getClassLoader())) {
+            Class<?> caller = Reflection.getCallerClass();
+            if (ReflectUtil.needsPackageAccessCheck(caller.getClassLoader(), cl.getClassLoader())) {
                 ReflectUtil.checkPackageAccess(cl);
             }
         }
@@ -1798,10 +1797,27 @@ public class ObjectStreamClass implements Serializable {
                 }
             }
 
-            // Android-changed: Clinit serialization workaround b/29064453
-            boolean checkSuperclass = !(VMRuntime.getRuntime().getTargetSdkVersion()
-                                       <= MAX_SDK_TARGET_FOR_CLINIT_UIDGEN_WORKAROUND);
-            if (hasStaticInitializer(cl, checkSuperclass)) {
+            // BEGIN Android-changed: Fix/log clinit serialization workaround b/29064453
+            // Prior to SDK 24 hasStaticInitializer() would return true if the superclass had a
+            // static initializer, that was contrary to the specification. In SDK 24 the default
+            // behavior was corrected but the old behavior was preserved for apps that targeted 23
+            // or below in order to maintain backwards compatibility.
+            //
+            // if (hasStaticInitializer(cl)) {
+            boolean inheritStaticInitializer =
+                (VMRuntime.getRuntime().getTargetSdkVersion()
+                <= MAX_SDK_TARGET_FOR_CLINIT_UIDGEN_WORKAROUND);
+            boolean warnIncompatibleSUIDChange = false;
+            if (hasStaticInitializer(cl, inheritStaticInitializer)) {
+                // If a static initializer was found but the current class does not have one then
+                // the class's default SUID will change if the app targets SDK > 24 so send a
+                // warning.
+                if (inheritStaticInitializer && !hasStaticInitializer(cl, false)) {
+                    // Defer until hash has been calculated so the warning message can give precise
+                    // instructions to the developer on how to fix the problems.
+                    warnIncompatibleSUIDChange = true;
+                }
+                // END Android-changed: Fix/log clinit serialization workaround b/29064453
                 dout.writeUTF("<clinit>");
                 dout.writeInt(Modifier.STATIC);
                 dout.writeUTF("()V");
@@ -1866,6 +1882,14 @@ public class ObjectStreamClass implements Serializable {
             for (int i = Math.min(hashBytes.length, 8) - 1; i >= 0; i--) {
                 hash = (hash << 8) | (hashBytes[i] & 0xFF);
             }
+            // BEGIN Android-added: Fix/log clinit serialization workaround b/29064453
+            // ObjectStreamClass instances are cached per Class and caches its default
+            // serialVersionUID so it will only log one message per class per app process
+            // irrespective of the number of times the class is serialized.
+            if (warnIncompatibleSUIDChange) {
+                suidCompatibilityListener.warnDefaultSUIDTargetVersionDependent(cl, hash);
+            }
+            // END Android-added: Fix/log clinit serialization workaround b/29064453
             return hash;
         } catch (IOException ex) {
             throw new InternalError(ex);
@@ -1874,18 +1898,52 @@ public class ObjectStreamClass implements Serializable {
         }
     }
 
-    // BEGIN Android-changed: Clinit serialization workaround b/29064453
-    /** Max SDK target version for which we use buggy hasStaticIntializier implementation. */
+    // BEGIN Android-changed: Fix/log clinit serialization workaround b/29064453
+    /**
+     * Created for testing as there is no nice way to detect when a message is logged.
+     *
+     * @hide
+     */
+    public interface DefaultSUIDCompatibilityListener {
+        /**
+         * Called when a class being serialized/deserialized relies on the default SUID computation
+         * (because it has no explicit {@code serialVersionUID} field) where that computation is
+         * dependent on the app's targetSdkVersion.
+         *
+         * @param clazz the clazz for which the default SUID is being computed.
+         * @param hash the computed value.
+         */
+        void warnDefaultSUIDTargetVersionDependent(Class<?> clazz, long hash);
+    }
+
+    /**
+     * Public and mutable for testing purposes.
+     *
+     * @hide
+     */
+    public static DefaultSUIDCompatibilityListener suidCompatibilityListener =
+        (clazz, hash) -> {
+            System.logW("Class " + clazz.getCanonicalName() + " relies on its default SUID which"
+                + " is dependent on the app's targetSdkVersion. To avoid problems during upgrade"
+                + " add the following to class " + clazz.getCanonicalName() + "\n"
+                + "    private static final long serialVersionUID = " + hash + "L;");
+        };
+
+    /** Max SDK target version for which we use buggy hasStaticInitializer implementation. */
     static final int MAX_SDK_TARGET_FOR_CLINIT_UIDGEN_WORKAROUND = 23;
 
     /**
      * Returns true if the given class defines a static initializer method,
      * false otherwise.
-     * if checkSuperclass is false, we use a buggy version (for compatibility reason) that
-     * will return true even if only the superclass has a static initializer method.
+     *
+     * @param inheritStaticInitializer if false then this method will return true iff the given
+     * class has its own static initializer, if true (used for backwards compatibility for apps
+     * that target SDK version <= {@link #MAX_SDK_TARGET_FOR_CLINIT_UIDGEN_WORKAROUND}) it will
+     * return true if the given class or any of its ancestor classes have a static initializer.
      */
-    private native static boolean hasStaticInitializer(Class<?> cl, boolean checkSuperclass);
-    // END Android-changed: Clinit serialization workaround b/29064453
+    private native static boolean hasStaticInitializer(
+        Class<?> cl, boolean inheritStaticInitializer);
+    // END Android-changed: Fix/log clinit serialization workaround b/29064453
 
     /**
      * Class for computing and caching field/constructor/method signatures

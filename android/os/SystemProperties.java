@@ -20,14 +20,20 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.util.Log;
 import android.util.MutableInt;
 
 import com.android.internal.annotations.GuardedBy;
 
-import java.util.ArrayList;
-import java.util.HashMap;
+import libcore.util.HexEncoding;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 
 /**
  * Gives access to the system properties store.  The system properties
@@ -46,11 +52,13 @@ public class SystemProperties {
      * uses reflection to read this whenever text is selected (http://b/36095274).
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int PROP_NAME_MAX = Integer.MAX_VALUE;
 
     /** @hide */
     public static final int PROP_VALUE_MAX = 91;
 
+    @UnsupportedAppUsage
     @GuardedBy("sChangeCallbacks")
     private static final ArrayList<Runnable> sChangeCallbacks = new ArrayList<Runnable>();
 
@@ -78,9 +86,11 @@ public class SystemProperties {
         }
     }
 
+    @UnsupportedAppUsage
     private static native String native_get(String key);
     private static native String native_get(String key, String def);
     private static native int native_get_int(String key, int def);
+    @UnsupportedAppUsage
     private static native long native_get_long(String key, long def);
     private static native boolean native_get_boolean(String key, boolean def);
     private static native void native_set(String key, String def);
@@ -96,6 +106,7 @@ public class SystemProperties {
      */
     @NonNull
     @SystemApi
+    @TestApi
     public static String get(@NonNull String key) {
         if (TRACK_KEY_ACCESS) onKeyAccess(key);
         return native_get(key);
@@ -163,6 +174,7 @@ public class SystemProperties {
      * @hide
      */
     @SystemApi
+    @TestApi
     public static boolean getBoolean(@NonNull String key, boolean def) {
         if (TRACK_KEY_ACCESS) onKeyAccess(key);
         return native_get_boolean(key, def);
@@ -174,6 +186,7 @@ public class SystemProperties {
      * @throws IllegalArgumentException if the {@code val} exceeds 91 characters
      * @hide
      */
+    @UnsupportedAppUsage
     public static void set(@NonNull String key, @Nullable String val) {
         if (val != null && !val.startsWith("ro.") && val.length() > PROP_VALUE_MAX) {
             throw new IllegalArgumentException("value of system property '" + key
@@ -190,6 +203,7 @@ public class SystemProperties {
      * changes.
      * @hide
      */
+    @UnsupportedAppUsage
     public static void addChangeCallback(@NonNull Runnable callback) {
         synchronized (sChangeCallbacks) {
             if (sChangeCallbacks.size() == 0) {
@@ -207,13 +221,18 @@ public class SystemProperties {
                 return;
             }
             ArrayList<Runnable> callbacks = new ArrayList<Runnable>(sChangeCallbacks);
-            for (int i=0; i<callbacks.size(); i++) {
-                try {
-                    callbacks.get(i).run();
-                } catch (Throwable t) {
-                    Log.wtf(TAG, "Exception in SystemProperties change callback", t);
-                    // Ignore and try to go on.
+            final long token = Binder.clearCallingIdentity();
+            try {
+                for (int i = 0; i < callbacks.size(); i++) {
+                    try {
+                        callbacks.get(i).run();
+                    } catch (Throwable t) {
+                        Log.wtf(TAG, "Exception in SystemProperties change callback", t);
+                        // Ignore and try to go on.
+                    }
                 }
+            } finally {
+                Binder.restoreCallingIdentity(token);
             }
         }
     }
@@ -222,10 +241,33 @@ public class SystemProperties {
      * Notifies listeners that a system property has changed
      * @hide
      */
+    @UnsupportedAppUsage
     public static void reportSyspropChanged() {
         native_report_sysprop_change();
     }
 
+    /**
+     * Return a {@code SHA-1} digest of the given keys and their values as a
+     * hex-encoded string. The ordering of the incoming keys doesn't change the
+     * digest result.
+     *
+     * @hide
+     */
+    public static @NonNull String digestOf(@NonNull String... keys) {
+        Arrays.sort(keys);
+        try {
+            final MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            for (String key : keys) {
+                final String item = key + "=" + get(key) + "\n";
+                digest.update(item.getBytes(StandardCharsets.UTF_8));
+            }
+            return HexEncoding.encodeToString(digest.digest()).toLowerCase();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @UnsupportedAppUsage
     private SystemProperties() {
     }
 }

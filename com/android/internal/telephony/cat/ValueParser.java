@@ -20,6 +20,7 @@ import com.android.internal.telephony.GsmAlphabet;
 import com.android.internal.telephony.cat.Duration.TimeUnit;
 import com.android.internal.telephony.uicc.IccUtils;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.res.Resources;
 import android.content.res.Resources.NotFoundException;
 import java.io.UnsupportedEncodingException;
@@ -213,6 +214,7 @@ abstract class ValueParser {
      * @return A list of TextAttribute objects
      * @throws ResultException
      */
+    @UnsupportedAppUsage
     static List<TextAttribute> retrieveTextAttribute(ComprehensionTlv ctlv)
             throws ResultException {
         ArrayList<TextAttribute> lst = new ArrayList<TextAttribute>();
@@ -273,6 +275,7 @@ abstract class ValueParser {
      * @return String corresponding to the alpha identifier
      * @throws ResultException
      */
+    @UnsupportedAppUsage
     static String retrieveAlphaId(ComprehensionTlv ctlv) throws ResultException {
 
         if (ctlv != null) {
@@ -316,6 +319,7 @@ abstract class ValueParser {
      * @return A Java String object decoded from the Text object
      * @throws ResultException
      */
+    @UnsupportedAppUsage
     static String retrieveTextString(ComprehensionTlv ctlv) throws ResultException {
         byte[] rawValue = ctlv.getRawValue();
         int valueIndex = ctlv.getValueIndex();

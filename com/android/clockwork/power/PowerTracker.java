@@ -14,8 +14,8 @@ import java.util.HashSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * This class provides a single place to fetch or subscribe to power-related info such as
- * whether the device is plugged in or whether we are in power save mode.
+ * This class provides a single place to fetch or subscribe to power-related info such as whether
+ * the device is plugged in or whether we are in power save mode.
  */
 public class PowerTracker {
     private static final String TAG = WearPowerConstants.LOG_TAG;
@@ -128,8 +128,8 @@ public class PowerTracker {
     private boolean fetchInitialChargingState(Context context) {
         // Read the ACTION_BATTERY_CHANGED sticky broadcast for the current
         // battery status.
-        Intent batteryStatus = context.registerReceiver(null,
-                new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        Intent batteryStatus =
+                context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
         if (batteryStatus == null) {
             return false;
         }
@@ -138,11 +138,10 @@ public class PowerTracker {
     }
 
     public void dump(IndentingPrintWriter ipw) {
-        ipw.print("PowerTracker [");
+        ipw.print("PowerTracker [ ");
         ipw.printPair("Charging", mIsCharging);
         ipw.printPair("InPowerSaveMode", mPowerManager.isPowerSaveMode());
         ipw.printPair("InDeviceIdleMode", mPowerManager.isDeviceIdleMode());
-        ipw.print("]");
-        ipw.println();
+        ipw.println("]");
     }
 }

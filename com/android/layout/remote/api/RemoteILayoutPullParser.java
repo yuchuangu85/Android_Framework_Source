@@ -17,6 +17,7 @@
 package com.android.layout.remote.api;
 
 import com.android.ide.common.rendering.api.ILayoutPullParser;
+import com.android.ide.common.rendering.api.ResourceNamespace;
 
 import java.rmi.RemoteException;
 
@@ -25,4 +26,6 @@ import java.rmi.RemoteException;
  */
 public interface RemoteILayoutPullParser extends RemoteXmlPullParser {
     Object getViewCookie() throws RemoteException;
+
+    ResourceNamespace getLayoutNamespace() throws RemoteException;
 }

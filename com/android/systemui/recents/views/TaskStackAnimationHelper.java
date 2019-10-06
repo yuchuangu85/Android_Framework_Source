@@ -28,7 +28,7 @@ import android.view.animation.PathInterpolator;
 
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
-import com.android.systemui.recents.Recents;
+import com.android.systemui.recents.LegacyRecentsImpl;
 import com.android.systemui.recents.RecentsActivityLaunchState;
 import com.android.systemui.recents.RecentsConfiguration;
 import com.android.systemui.recents.RecentsDebugFlags;
@@ -36,9 +36,9 @@ import com.android.systemui.recents.events.EventBus;
 import com.android.systemui.recents.events.component.SetWaitingForTransitionStartEvent;
 import com.android.systemui.recents.misc.ReferenceCountedTrigger;
 import com.android.systemui.shared.recents.model.Task;
-import com.android.systemui.shared.recents.model.TaskStack;
+import com.android.systemui.recents.model.TaskStack;
 import com.android.systemui.recents.views.lowram.TaskStackLowRamLayoutAlgorithm;
-import com.android.systemui.shared.recents.utilities.AnimationProps;
+import com.android.systemui.recents.utilities.AnimationProps;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -115,7 +115,7 @@ public class TaskStackAnimationHelper {
 
     public TaskStackAnimationHelper(Context context, TaskStackView stackView) {
         mStackView = stackView;
-        mEnterAndExitFromHomeTranslationOffset = Recents.getConfiguration().isGridEnabled
+        mEnterAndExitFromHomeTranslationOffset = LegacyRecentsImpl.getConfiguration().isGridEnabled
                 ? 0 : DOUBLE_FRAME_OFFSET_MS;
     }
 
@@ -124,7 +124,7 @@ public class TaskStackAnimationHelper {
      * the in-app enter animations start (after the window-transition completes).
      */
     public void prepareForEnterAnimation() {
-        RecentsConfiguration config = Recents.getConfiguration();
+        RecentsConfiguration config = LegacyRecentsImpl.getConfiguration();
         RecentsActivityLaunchState launchState = config.getLaunchState();
         Resources res = mStackView.getResources();
         Resources appResources = mStackView.getContext().getApplicationContext().getResources();
@@ -148,7 +148,7 @@ public class TaskStackAnimationHelper {
                 == Configuration.ORIENTATION_LANDSCAPE;
 
         float top = 0;
-        final boolean isLowRamDevice = Recents.getConfiguration().isLowRamDevice;
+        final boolean isLowRamDevice = LegacyRecentsImpl.getConfiguration().isLowRamDevice;
         if (isLowRamDevice && launchState.launchedFromApp && !launchState.launchedViaDockGesture) {
             stackLayout.getStackTransform(launchTargetTask, stackScroller.getStackScroll(),
                     mTmpTransform, null /* frontTransform */);
@@ -212,7 +212,7 @@ public class TaskStackAnimationHelper {
      * depending on how Recents was triggered.
      */
     public void startEnterAnimation(final ReferenceCountedTrigger postAnimationTrigger) {
-        RecentsConfiguration config = Recents.getConfiguration();
+        RecentsConfiguration config = LegacyRecentsImpl.getConfiguration();
         RecentsActivityLaunchState launchState = config.getLaunchState();
         Resources res = mStackView.getResources();
         Resources appRes = mStackView.getContext().getApplicationContext().getResources();
@@ -227,7 +227,7 @@ public class TaskStackAnimationHelper {
             return;
         }
 
-        final boolean isLowRamDevice = Recents.getConfiguration().isLowRamDevice;
+        final boolean isLowRamDevice = LegacyRecentsImpl.getConfiguration().isLowRamDevice;
         int taskViewEnterFromAppDuration = res.getInteger(
                 R.integer.recents_task_enter_from_app_duration);
         int taskViewEnterFromAffiliatedAppDuration = res.getInteger(
@@ -342,7 +342,7 @@ public class TaskStackAnimationHelper {
                 taskAnimation = new AnimationProps()
                         .setDuration(AnimationProps.BOUNDS, EXIT_TO_HOME_TRANSLATION_DURATION)
                         .setListener(postAnimationTrigger.decrementOnAnimationEnd());
-                if (Recents.getConfiguration().isLowRamDevice) {
+                if (LegacyRecentsImpl.getConfiguration().isLowRamDevice) {
                     taskAnimation.setInterpolator(AnimationProps.BOUNDS,
                             Interpolators.FAST_OUT_SLOW_IN);
                 } else {
@@ -356,7 +356,7 @@ public class TaskStackAnimationHelper {
             }
 
             mTmpTransform.fillIn(tv);
-            if (Recents.getConfiguration().isLowRamDevice) {
+            if (LegacyRecentsImpl.getConfiguration().isLowRamDevice) {
                 taskAnimation.setInterpolator(AnimationProps.ALPHA,
                                 EXIT_TO_HOME_TRANSLATION_INTERPOLATOR)
                         .setDuration(AnimationProps.ALPHA, EXIT_TO_HOME_TRANSLATION_DURATION);

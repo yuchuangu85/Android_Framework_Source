@@ -151,7 +151,7 @@ public final class AccessibilityManager {
                 public void setState(int state) {
                 }
 
-                public void notifyServicesStateChanged() {
+                public void notifyServicesStateChanged(long updatedUiTimeout) {
                 }
 
                 public void setRelevantEventTypes(int eventTypes) {

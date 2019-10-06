@@ -186,7 +186,7 @@ public class PipedReader extends Reader {
             try {
                 wait(1000);
             } catch (InterruptedException ex) {
-                // BEGIN Android-changed: re-set the thread's interrupt status
+                // Android-changed: re-set the thread's interrupt status
                 // throw new java.io.InterruptedIOException();
                 IoUtils.throwInterruptedIoException();
             }

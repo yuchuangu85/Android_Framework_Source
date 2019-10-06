@@ -16,23 +16,23 @@
 
 package com.android.internal.telephony.imsphone;
 
-import android.telephony.ims.ImsCallProfile;
-import android.telephony.ims.ImsExternalCallState;
-import com.android.ims.ImsExternalCallStateListener;
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.telephony.Call;
-import com.android.internal.telephony.Connection;
-import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.PhoneConstants;
-
 import android.os.AsyncResult;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.telecom.PhoneAccountHandle;
 import android.telecom.VideoProfile;
+import android.telephony.ims.ImsCallProfile;
+import android.telephony.ims.ImsExternalCallState;
 import android.util.ArrayMap;
 import android.util.Log;
+
+import com.android.ims.ImsExternalCallStateListener;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.Call;
+import com.android.internal.telephony.Connection;
+import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneConstants;
 
 import java.util.Iterator;
 import java.util.List;
@@ -225,7 +225,7 @@ public class ImsExternalCallTracker implements ImsPhoneCallTracker.PhoneStateLis
     private void unregisterForNotifications() {
         if (mPhone != null) {
             Log.d(TAG, "Unregistering: " + mPhone);
-            mPhone.unregisterForVideoCapabilityChanged(mHandler);
+            mPhone.getDefaultPhone().unregisterForVideoCapabilityChanged(mHandler);
         }
     }
 

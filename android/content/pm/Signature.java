@@ -16,6 +16,7 @@
 
 package android.content.pm;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -44,6 +45,20 @@ public class Signature implements Parcelable {
     private boolean mHaveHashCode;
     private SoftReference<String> mStringRef;
     private Certificate[] mCertificateChain;
+    /**
+     * APK Signature Scheme v3 includes support for adding a proof-of-rotation record that
+     * contains two pieces of information:
+     *   1) the past signing certificates
+     *   2) the flags that APK wants to assign to each of the past signing certificates.
+     *
+     * These flags represent the second piece of information and are viewed as capabilities.
+     * They are an APK's way of telling the platform: "this is how I want to trust my old certs,
+     * please enforce that." This is useful for situation where this app itself is using its
+     * signing certificate as an authorization mechanism, like whether or not to allow another
+     * app to have its SIGNATURE permission.  An app could specify whether to allow other apps
+     * signed by its old cert 'X' to still get a signature permission it defines, for example.
+     */
+    private int mFlags;
 
     /**
      * Create Signature from an existing raw byte array.
@@ -105,6 +120,22 @@ public class Signature implements Parcelable {
         }
 
         mSignature = sig;
+    }
+
+    /**
+     * Sets the flags representing the capabilities of the past signing certificate.
+     * @hide
+     */
+    public void setFlags(int flags) {
+        this.mFlags = flags;
+    }
+
+    /**
+     * Returns the flags representing the capabilities of the past signing certificate.
+     * @hide
+     */
+    public int getFlags() {
+        return mFlags;
     }
 
     /**
@@ -170,6 +201,7 @@ public class Signature implements Parcelable {
      *             certificate; shouldn't happen.
      * @hide
      */
+    @UnsupportedAppUsage
     public PublicKey getPublicKey() throws CertificateException {
         final CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
         final ByteArrayInputStream bais = new ByteArrayInputStream(mSignature);
@@ -230,7 +262,7 @@ public class Signature implements Parcelable {
         dest.writeByteArray(mSignature);
     }
 
-    public static final Parcelable.Creator<Signature> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<Signature> CREATOR
             = new Parcelable.Creator<Signature>() {
         public Signature createFromParcel(Parcel source) {
             return new Signature(source);

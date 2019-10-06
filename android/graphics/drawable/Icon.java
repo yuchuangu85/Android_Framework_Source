@@ -21,6 +21,7 @@ import android.annotation.DrawableRes;
 import android.annotation.IdRes;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
@@ -29,9 +30,11 @@ import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BlendMode;
 import android.graphics.PorterDuff;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.Parcel;
@@ -99,11 +102,12 @@ public final class Icon implements Parcelable {
 
     private static final int VERSION_STREAM_SERIALIZER = 1;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final int mType;
 
     private ColorStateList mTintList;
-    static final PorterDuff.Mode DEFAULT_TINT_MODE = Drawable.DEFAULT_TINT_MODE; // SRC_IN
-    private PorterDuff.Mode mTintMode = DEFAULT_TINT_MODE;
+    static final BlendMode DEFAULT_BLEND_MODE = Drawable.DEFAULT_BLEND_MODE; // SRC_IN
+    private BlendMode mBlendMode = Drawable.DEFAULT_BLEND_MODE;
 
     // To avoid adding unnecessary overhead, we have a few basic objects that get repurposed
     // based on the value of mType.
@@ -115,6 +119,7 @@ public final class Icon implements Parcelable {
 
     // TYPE_RESOURCE: package name
     // TYPE_URI: uri string
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private String          mString1;
 
     // TYPE_RESOURCE: resId
@@ -139,6 +144,7 @@ public final class Icon implements Parcelable {
      * @return The {@link android.graphics.Bitmap} held by this {@link #TYPE_BITMAP} Icon.
      * @hide
      */
+    @UnsupportedAppUsage
     public Bitmap getBitmap() {
         if (mType != TYPE_BITMAP && mType != TYPE_ADAPTIVE_BITMAP) {
             throw new IllegalStateException("called getBitmap() on " + this);
@@ -154,6 +160,7 @@ public final class Icon implements Parcelable {
      * @return The length of the compressed bitmap byte array held by this {@link #TYPE_DATA} Icon.
      * @hide
      */
+    @UnsupportedAppUsage
     public int getDataLength() {
         if (mType != TYPE_DATA) {
             throw new IllegalStateException("called getDataLength() on " + this);
@@ -168,6 +175,7 @@ public final class Icon implements Parcelable {
      * valid compressed bitmap data is found.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public int getDataOffset() {
         if (mType != TYPE_DATA) {
             throw new IllegalStateException("called getDataOffset() on " + this);
@@ -182,6 +190,7 @@ public final class Icon implements Parcelable {
      * bitmap data.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public byte[] getDataBytes() {
         if (mType != TYPE_DATA) {
             throw new IllegalStateException("called getDataBytes() on " + this);
@@ -195,6 +204,7 @@ public final class Icon implements Parcelable {
      * @return The {@link android.content.res.Resources} for this {@link #TYPE_RESOURCE} Icon.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public Resources getResources() {
         if (mType != TYPE_RESOURCE) {
             throw new IllegalStateException("called getResources() on " + this);
@@ -311,10 +321,10 @@ public final class Icon implements Parcelable {
      */
     public Drawable loadDrawable(Context context) {
         final Drawable result = loadDrawableInner(context);
-        if (result != null && (mTintList != null || mTintMode != DEFAULT_TINT_MODE)) {
+        if (result != null && (mTintList != null || mBlendMode != DEFAULT_BLEND_MODE)) {
             result.mutate();
             result.setTintList(mTintList);
-            result.setTintMode(mTintMode);
+            result.setTintBlendMode(mBlendMode);
         }
         return result;
     }
@@ -560,6 +570,7 @@ public final class Icon implements Parcelable {
      * Version of createWithResource that takes Resources. Do not use.
      * @hide
      */
+    @UnsupportedAppUsage
     public static Icon createWithResource(Resources res, @DrawableRes int resId) {
         if (res == null) {
             throw new IllegalArgumentException("Resource must not be null.");
@@ -686,14 +697,26 @@ public final class Icon implements Parcelable {
      * @param mode a blending mode, as in {@link Drawable#setTintMode(PorterDuff.Mode)}, may be null
      * @return this same object, for use in chained construction
      */
-    public Icon setTintMode(PorterDuff.Mode mode) {
-        mTintMode = mode;
+    public @NonNull Icon setTintMode(@NonNull PorterDuff.Mode mode) {
+        mBlendMode = BlendMode.fromValue(mode.nativeInt);
+        return this;
+    }
+
+    /**
+     * Store a blending mode to use whenever this Icon is drawn.
+     *
+     * @param mode a blending mode, as in {@link Drawable#setTintMode(PorterDuff.Mode)}, may be null
+     * @return this same object, for use in chained construction
+     */
+    public @NonNull Icon setTintBlendMode(@NonNull BlendMode mode) {
+        mBlendMode = mode;
         return this;
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public boolean hasTint() {
-        return (mTintList != null) || (mTintMode != DEFAULT_TINT_MODE);
+        return (mTintList != null) || (mBlendMode != DEFAULT_BLEND_MODE);
     }
 
     /**
@@ -746,7 +769,7 @@ public final class Icon implements Parcelable {
                 sep = "|";
             }
         }
-        if (mTintMode != DEFAULT_TINT_MODE) sb.append(" mode=").append(mTintMode);
+        if (mBlendMode != DEFAULT_BLEND_MODE) sb.append(" mode=").append(mBlendMode);
         sb.append(")");
         return sb.toString();
     }
@@ -796,7 +819,7 @@ public final class Icon implements Parcelable {
         if (in.readInt() == 1) {
             mTintList = ColorStateList.CREATOR.createFromParcel(in);
         }
-        mTintMode = PorterDuff.intToMode(in.readInt());
+        mBlendMode = BlendMode.fromValue(in.readInt());
     }
 
     @Override
@@ -826,10 +849,10 @@ public final class Icon implements Parcelable {
             dest.writeInt(1);
             mTintList.writeToParcel(dest, flags);
         }
-        dest.writeInt(PorterDuff.modeToInt(mTintMode));
+        dest.writeInt(BlendMode.toValue(mBlendMode));
     }
 
-    public static final Parcelable.Creator<Icon> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<Icon> CREATOR
             = new Parcelable.Creator<Icon>() {
         public Icon createFromParcel(Parcel in) {
             return new Icon(in);

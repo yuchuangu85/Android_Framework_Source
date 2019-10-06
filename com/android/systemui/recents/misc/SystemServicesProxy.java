@@ -28,11 +28,12 @@ import static android.app.WindowConfiguration.WINDOWING_MODE_UNDEFINED;
 import android.app.ActivityManager;
 import android.app.ActivityManager.StackInfo;
 import android.app.ActivityOptions;
+import android.app.ActivityTaskManager;
 import android.app.AppGlobals;
 import android.app.IActivityManager;
+import android.app.IActivityTaskManager;
 import android.app.WindowConfiguration;
 import android.content.ComponentName;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.IPackageManager;
@@ -49,10 +50,8 @@ import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.provider.Settings;
 import android.service.dreams.DreamService;
 import android.service.dreams.IDreamManager;
 import android.util.Log;
@@ -69,7 +68,7 @@ import com.android.internal.app.AssistUtils;
 import com.android.internal.os.BackgroundThread;
 import com.android.systemui.Dependency;
 import com.android.systemui.UiOffloadThread;
-import com.android.systemui.recents.Recents;
+import com.android.systemui.recents.LegacyRecentsImpl;
 import com.android.systemui.recents.RecentsImpl;
 import com.android.systemui.statusbar.policy.UserInfoController;
 
@@ -94,6 +93,7 @@ public class SystemServicesProxy {
     AccessibilityManager mAccm;
     ActivityManager mAm;
     IActivityManager mIam;
+    IActivityTaskManager mIatm;
     PackageManager mPm;
     IPackageManager mIpm;
     private final IDreamManager mDreamManager;
@@ -133,6 +133,7 @@ public class SystemServicesProxy {
         mAccm = AccessibilityManager.getInstance(context);
         mAm = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
         mIam = ActivityManager.getService();
+        mIatm = ActivityTaskManager.getService();
         mPm = context.getPackageManager();
         mIpm = AppGlobals.getPackageManager();
         mAssistUtils = new AssistUtils(context);
@@ -203,7 +204,7 @@ public class SystemServicesProxy {
         if (mIam == null) return false;
 
         try {
-            List<StackInfo> stackInfos = mIam.getAllStackInfos();
+            List<StackInfo> stackInfos = mIatm.getAllStackInfos();
             ActivityManager.StackInfo homeStackInfo = null;
             ActivityManager.StackInfo fullscreenStackInfo = null;
             ActivityManager.StackInfo recentsStackInfo = null;
@@ -233,7 +234,7 @@ public class SystemServicesProxy {
                     recentsStackInfo.topActivity : null;
             return (recentsStackVisibleNotOccluded && topActivity != null
                     && topActivity.getPackageName().equals(RecentsImpl.RECENTS_PACKAGE)
-                    && Recents.RECENTS_ACTIVITIES.contains(topActivity.getClassName()));
+                    && LegacyRecentsImpl.RECENTS_ACTIVITIES.contains(topActivity.getClassName()));
         } catch (RemoteException e) {
             e.printStackTrace();
         }
@@ -261,13 +262,13 @@ public class SystemServicesProxy {
     /** Moves an already resumed task to the side of the screen to initiate split screen. */
     public boolean setTaskWindowingModeSplitScreenPrimary(int taskId, int createMode,
             Rect initialBounds) {
-        if (mIam == null) {
+        if (mIatm == null) {
             return false;
         }
 
         try {
-            return mIam.setTaskWindowingModeSplitScreenPrimary(taskId, createMode, true /* onTop */,
-                    false /* animate */, initialBounds, true /* showRecents */);
+            return mIatm.setTaskWindowingModeSplitScreenPrimary(taskId, createMode,
+                    true /* onTop */, false /* animate */, initialBounds, true /* showRecents */);
         } catch (RemoteException e) {
             e.printStackTrace();
         }
@@ -276,7 +277,7 @@ public class SystemServicesProxy {
 
     public ActivityManager.StackInfo getSplitScreenPrimaryStack() {
         try {
-            return mIam.getStackInfo(WINDOWING_MODE_SPLIT_SCREEN_PRIMARY, ACTIVITY_TYPE_UNDEFINED);
+            return mIatm.getStackInfo(WINDOWING_MODE_SPLIT_SCREEN_PRIMARY, ACTIVITY_TYPE_UNDEFINED);
         } catch (RemoteException e) {
             return null;
         }
@@ -301,11 +302,13 @@ public class SystemServicesProxy {
     }
 
     /**
-     * Returns whether there is a soft nav bar.
+     * Returns whether there is a soft nav bar on specified display.
+     *
+     * @param displayId the id of display to check if there is a software navigation bar.
      */
-    public boolean hasSoftNavigationBar() {
+    public boolean hasSoftNavigationBar(int displayId) {
         try {
-            return mIwm.hasNavigationBar();
+            return mIwm.hasNavigationBar(displayId);
         } catch (RemoteException e) {
             e.printStackTrace();
         }
@@ -324,10 +327,10 @@ public class SystemServicesProxy {
 
     /** Set the task's windowing mode. */
     public void setTaskWindowingMode(int taskId, int windowingMode) {
-        if (mIam == null) return;
+        if (mIatm == null) return;
 
         try {
-            mIam.setTaskWindowingMode(taskId, windowingMode, false /* onTop */);
+            mIatm.setTaskWindowingMode(taskId, windowingMode, false /* onTop */);
         } catch (RemoteException | IllegalArgumentException e) {
             e.printStackTrace();
         }
@@ -372,7 +375,7 @@ public class SystemServicesProxy {
         if (mIam == null) return false;
 
         try {
-            return mIam.getLockTaskModeState() == ActivityManager.LOCK_TASK_MODE_PINNED;
+            return mIatm.getLockTaskModeState() == ActivityManager.LOCK_TASK_MODE_PINNED;
         } catch (RemoteException e) {
             return false;
         }
@@ -413,9 +416,9 @@ public class SystemServicesProxy {
         try {
             // Use the recents stack bounds, fallback to fullscreen stack if it is null
             ActivityManager.StackInfo stackInfo =
-                    mIam.getStackInfo(WINDOWING_MODE_UNDEFINED, ACTIVITY_TYPE_RECENTS);
+                    mIatm.getStackInfo(WINDOWING_MODE_UNDEFINED, ACTIVITY_TYPE_RECENTS);
             if (stackInfo == null) {
-                stackInfo = mIam.getStackInfo(WINDOWING_MODE_FULLSCREEN, ACTIVITY_TYPE_STANDARD);
+                stackInfo = mIatm.getStackInfo(WINDOWING_MODE_FULLSCREEN, ACTIVITY_TYPE_STANDARD);
             }
             if (stackInfo != null) {
                 windowRect.set(stackInfo.bounds);
@@ -437,7 +440,7 @@ public class SystemServicesProxy {
         if (mIam == null) return;
 
         try {
-            mIam.startInPlaceAnimationOnFrontMostApplication(
+            mIatm.startInPlaceAnimationOnFrontMostApplication(
                     opts == null ? null : opts.toBundle());
         } catch (Exception e) {
             e.printStackTrace();

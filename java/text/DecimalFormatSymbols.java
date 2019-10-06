@@ -46,7 +46,6 @@ import java.io.ObjectStreamField;
 import java.io.Serializable;
 import java.util.Currency;
 import java.util.Locale;
-import java.util.concurrent.ConcurrentHashMap;
 import libcore.icu.ICU;
 import libcore.icu.LocaleData;
 

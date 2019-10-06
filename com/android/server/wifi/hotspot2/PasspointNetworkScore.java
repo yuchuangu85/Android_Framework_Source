@@ -156,7 +156,10 @@ public class PasspointNetworkScore {
         score += (networkDetail.isInternet() ? 1 : -1) * INTERNET_ACCESS_AWARD;
 
         // Adjust score based on the network type.
-        score += NETWORK_TYPE_SCORES.get(networkDetail.getAnt());
+        Integer ndScore = NETWORK_TYPE_SCORES.get(networkDetail.getAnt());
+        if (ndScore != null) {
+            score += ndScore;
+        }
 
         if (anqpElements != null) {
             HSWanMetricsElement wm =

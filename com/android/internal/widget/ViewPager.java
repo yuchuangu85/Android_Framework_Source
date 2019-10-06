@@ -18,6 +18,7 @@ package com.android.internal.widget;
 
 import android.annotation.DrawableRes;
 import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
@@ -46,6 +47,7 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
 import android.view.animation.Interpolator;
+import android.view.inspector.InspectableProperty;
 import android.widget.EdgeEffect;
 import android.widget.Scroller;
 
@@ -243,6 +245,7 @@ public class ViewPager extends ViewGroup {
          * @param positionOffset Value from [0, 1) indicating the offset from the page at position.
          * @param positionOffsetPixels Value in pixels indicating the offset from position.
          */
+        @UnsupportedAppUsage
         public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels);
 
         /**
@@ -251,6 +254,7 @@ public class ViewPager extends ViewGroup {
          *
          * @param position Position index of the new selected page.
          */
+        @UnsupportedAppUsage
         public void onPageSelected(int position);
 
         /**
@@ -263,6 +267,7 @@ public class ViewPager extends ViewGroup {
          * @see com.android.internal.widget.ViewPager#SCROLL_STATE_DRAGGING
          * @see com.android.internal.widget.ViewPager#SCROLL_STATE_SETTLING
          */
+        @UnsupportedAppUsage
         public void onPageScrollStateChanged(int state);
     }
 
@@ -483,6 +488,7 @@ public class ViewPager extends ViewGroup {
         setCurrentItemInternal(item, smoothScroll, false);
     }
 
+    @UnsupportedAppUsage
     public int getCurrentItem() {
         return mCurItem;
     }
@@ -2779,6 +2785,9 @@ public class ViewPager extends ViewGroup {
          * Where to position the view page within the overall ViewPager
          * container; constants are defined in {@link android.view.Gravity}.
          */
+        @InspectableProperty(
+                name = "layout_gravity",
+                valueType = InspectableProperty.ValueType.GRAVITY)
         public int gravity;
 
         /**

@@ -16,6 +16,7 @@
 
 package java.net;
 
+import dalvik.annotation.compat.UnsupportedAppUsage;
 import libcore.util.BasicLruCache;
 
 /**
@@ -37,10 +38,12 @@ class AddressCache {
     private static final long TTL_NANOS = 2 * 1000000000L;
 
     // The actual cache.
+    @UnsupportedAppUsage
     private final BasicLruCache<AddressCacheKey, AddressCacheEntry> cache
             = new BasicLruCache<AddressCacheKey, AddressCacheEntry>(MAX_ENTRIES);
 
     static class AddressCacheKey {
+        @UnsupportedAppUsage
         private final String mHostname;
         private final int mNetId;
 
@@ -71,6 +74,7 @@ class AddressCache {
     static class AddressCacheEntry {
         // Either an InetAddress[] for a positive entry,
         // or a String detail message for a negative entry.
+        @UnsupportedAppUsage
         final Object value;
 
         /**
@@ -79,8 +83,10 @@ class AddressCache {
          *
          * We don't need to worry about overflow with a TTL_NANOS of 2s.
          */
+        @UnsupportedAppUsage
         final long expiryNanos;
 
+        @UnsupportedAppUsage
         AddressCacheEntry(Object value) {
             this.value = value;
             this.expiryNanos = System.nanoTime() + TTL_NANOS;

@@ -6,15 +6,15 @@ import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.content.Intent;
 import com.google.android.collect.Sets;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.robolectric.RobolectricTestRunner;
-import org.robolectric.annotation.Config;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.shadows.ShadowApplication;
 
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -22,22 +22,19 @@ import static org.mockito.Mockito.when;
 import static org.mockito.MockitoAnnotations.initMocks;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
 public class BluetoothScanModeEnforcerTest {
-    final ShadowApplication shadowApplication = ShadowApplication.getInstance();
 
     private Context mContext;
-    private BluetoothScanModeEnforcer mEnforcer;
 
-    @Mock BluetoothAdapter mockBtAdapter;
-    @Mock CompanionTracker mockCompanionTracker;
+    private @Mock BluetoothAdapter mockBtAdapter;
+    private @Mock CompanionTracker mockCompanionTracker;
 
-    @Mock BluetoothDevice androidPhone;
-    @Mock BluetoothDevice iOSPhone;
-    @Mock BluetoothDevice btClassicPeripheral;
+    private @Mock BluetoothDevice androidPhone;
+    private @Mock BluetoothDevice iOSPhone;
+    private @Mock BluetoothDevice btClassicPeripheral;
 
-    @Mock BluetoothClass phoneBluetoothClass;
-    @Mock BluetoothClass peripheralBluetoothClass;
+    private @Mock BluetoothClass phoneBluetoothClass;
+    private @Mock BluetoothClass peripheralBluetoothClass;
 
     private Intent bondingIntent;
     private Intent scanModeDisableIntent;
@@ -47,8 +44,8 @@ public class BluetoothScanModeEnforcerTest {
     public void setUp() {
         initMocks(this);
 
-        mContext = shadowApplication.getApplicationContext();
-        mEnforcer = new BluetoothScanModeEnforcer(mContext, mockBtAdapter, mockCompanionTracker);
+        mContext = RuntimeEnvironment.application;
+        new BluetoothScanModeEnforcer(mContext, mockBtAdapter, mockCompanionTracker);
 
         when(mockBtAdapter.isEnabled()).thenReturn(true);
 
@@ -78,14 +75,14 @@ public class BluetoothScanModeEnforcerTest {
 
     @Test
     public void testConstructorRegistersReceiver() {
-        Assert.assertTrue(shadowApplication.hasReceiverForIntent(
+        assertTrue(ShadowApplication.getInstance().hasReceiverForIntent(
                 new Intent(BluetoothAdapter.ACTION_SCAN_MODE_CHANGED)));
-        Assert.assertTrue(shadowApplication.hasReceiverForIntent(
+        assertTrue(ShadowApplication.getInstance().hasReceiverForIntent(
                 new Intent(BluetoothDevice.ACTION_BOND_STATE_CHANGED)));
     }
 
     @Test
-    public void testScanModeRemainsEnabledOnPairingCancel() throws Exception {
+    public void testScanModeRemainsEnabledOnPairingCancel() {
         when(mockCompanionTracker.getCompanion()).thenReturn(null);
 
         mContext.sendBroadcast(unbondingIntent);
@@ -94,7 +91,7 @@ public class BluetoothScanModeEnforcerTest {
     }
 
     @Test
-    public void testAndroidWithHeadsetScanModeRemainsEnabled() throws Exception {
+    public void testAndroidWithHeadsetScanModeRemainsEnabled() {
         when(mockCompanionTracker.isCompanionBle()).thenReturn(false);
         when(mockCompanionTracker.getCompanion()).thenReturn(androidPhone);
         when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(androidPhone, btClassicPeripheral));
@@ -108,7 +105,7 @@ public class BluetoothScanModeEnforcerTest {
     // btAdapter.getScanMode is never called or checked; which suggests that the
     // underlying code is doing the wrong thing
     @Test
-    public void testAndroidWithHeadsetScanModeRemainsEnabledOnDelayedBroadcast() throws Exception {
+    public void testAndroidWithHeadsetScanModeRemainsEnabledOnDelayedBroadcast() {
         when(mockCompanionTracker.isCompanionBle()).thenReturn(false);
         when(mockCompanionTracker.getCompanion()).thenReturn(androidPhone);
 
@@ -124,7 +121,7 @@ public class BluetoothScanModeEnforcerTest {
     }
 
     @Test
-    public void testIosWithHeadsetScanModeRemainsEnabled() throws Exception {
+    public void testIosWithHeadsetScanModeRemainsEnabled() {
         when(mockCompanionTracker.isCompanionBle()).thenReturn(true);
         when(mockCompanionTracker.getCompanion()).thenReturn(iOSPhone);
         when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(iOSPhone, btClassicPeripheral));
@@ -135,7 +132,7 @@ public class BluetoothScanModeEnforcerTest {
     }
 
     @Test
-    public void testAndroidScanModeEnabledAfterHeadsetBond() throws Exception {
+    public void testAndroidScanModeEnabledAfterHeadsetBond() {
         when(mockCompanionTracker.isCompanionBle()).thenReturn(false);
         when(mockCompanionTracker.getCompanion()).thenReturn(androidPhone);
         when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(androidPhone, btClassicPeripheral));
@@ -146,7 +143,7 @@ public class BluetoothScanModeEnforcerTest {
     }
 
     @Test
-    public void testIosScanModeEnabledAfterHeadsetBond() throws Exception {
+    public void testIosScanModeEnabledAfterHeadsetBond() {
         when(mockCompanionTracker.isCompanionBle()).thenReturn(true);
         when(mockCompanionTracker.getCompanion()).thenReturn(iOSPhone);
         when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(iOSPhone, btClassicPeripheral));
@@ -157,7 +154,7 @@ public class BluetoothScanModeEnforcerTest {
     }
 
     @Test
-    public void testAndroidScanModeStillEnabledAfterUnbond() throws Exception {
+    public void testAndroidScanModeStillEnabledAfterUnbond() {
         when(mockCompanionTracker.isCompanionBle()).thenReturn(false);
         when(mockCompanionTracker.getCompanion()).thenReturn(androidPhone);
         when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(androidPhone));
@@ -168,7 +165,7 @@ public class BluetoothScanModeEnforcerTest {
     }
 
     @Test
-    public void testIosScanModeStillEnabledAfterUnbond() throws Exception {
+    public void testIosScanModeStillEnabledAfterUnbond() {
         when(mockCompanionTracker.isCompanionBle()).thenReturn(true);
         when(mockCompanionTracker.getCompanion()).thenReturn(iOSPhone);
         when(mockBtAdapter.getBondedDevices()).thenReturn(Sets.newHashSet(iOSPhone));

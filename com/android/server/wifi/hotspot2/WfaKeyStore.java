@@ -31,7 +31,7 @@ import java.util.Set;
  * WFA Keystore
  */
 public class WfaKeyStore {
-    private static final String TAG = "WfaKeyStore";
+    private static final String TAG = "PasspointWfaKeyStore";
     // The WFA Root certs are checked in to /system/ca-certificates/cacerts_wfa
     // The location on device is configured in the corresponding Android.mk
     private static final String DEFAULT_WFA_CERT_DIR =

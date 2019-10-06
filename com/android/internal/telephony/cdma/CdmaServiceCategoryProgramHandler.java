@@ -102,14 +102,19 @@ public final class CdmaServiceCategoryProgramHandler extends WakeLockStateMachin
         }
 
         Intent intent = new Intent(Intents.SMS_SERVICE_CATEGORY_PROGRAM_DATA_RECEIVED_ACTION);
-        intent.setPackage(mContext.getResources().getString(
-                com.android.internal.R.string.config_defaultCellBroadcastReceiverPkg));
         intent.putExtra("sender", sms.getOriginatingAddress());
         intent.putParcelableArrayListExtra("program_data", programDataList);
         SubscriptionManager.putPhoneIdAndSubIdExtra(intent, mPhone.getPhoneId());
-        mContext.sendOrderedBroadcast(intent, Manifest.permission.RECEIVE_SMS,
-                AppOpsManager.OP_RECEIVE_SMS, mScpResultsReceiver,
-                getHandler(), Activity.RESULT_OK, null, null);
+
+        String[] pkgs = mContext.getResources().getStringArray(
+                com.android.internal.R.array.config_defaultCellBroadcastReceiverPkgs);
+        mReceiverCount.addAndGet(pkgs.length);
+        for (String pkg : pkgs) {
+            intent.setPackage(pkg);
+            mContext.sendOrderedBroadcast(intent, Manifest.permission.RECEIVE_SMS,
+                    AppOpsManager.OP_RECEIVE_SMS, mScpResultsReceiver,
+                    getHandler(), Activity.RESULT_OK, null, null);
+        }
         return true;
     }
 
@@ -122,7 +127,9 @@ public final class CdmaServiceCategoryProgramHandler extends WakeLockStateMachin
         public void onReceive(Context context, Intent intent) {
             sendScpResults();
             if (DBG) log("mScpResultsReceiver finished");
-            sendMessage(EVENT_BROADCAST_COMPLETE);
+            if (mReceiverCount.decrementAndGet() == 0) {
+                sendMessage(EVENT_BROADCAST_COMPLETE);
+            }
         }
 
         private void sendScpResults() {

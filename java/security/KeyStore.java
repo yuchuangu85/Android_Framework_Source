@@ -195,7 +195,7 @@ import javax.security.auth.callback.*;
  * </table>
  *
  * These types are described in the <a href=
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyStore">
+ * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#KeyStore">
  * KeyStore section</a> of the
  * Java Cryptography Architecture Standard Algorithm Name Documentation.
  *
@@ -311,7 +311,7 @@ public class KeyStore {
          * @param protectionAlgorithm the encryption algorithm name, for
          *     example, {@code PBEWithHmacSHA256AndAES_256}.
          *     See the Cipher section in the <a href=
-         * "{@docRoot}/openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Cipher">
+         * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#Cipher">
          * Java Cryptography Architecture Standard Algorithm Name
          * Documentation</a>
          *     for information about standard encryption algorithm names.
@@ -868,7 +868,7 @@ public class KeyStore {
      *
      * @param type the type of keystore.
      * See the KeyStore section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyStore">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#KeyStore">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard keystore types.
      *
@@ -906,7 +906,7 @@ public class KeyStore {
      *
      * @param type the type of keystore.
      * See the KeyStore section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyStore">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#KeyStore">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard keystore types.
      *
@@ -949,7 +949,7 @@ public class KeyStore {
      *
      * @param type the type of keystore.
      * See the KeyStore section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyStore">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#KeyStore">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard keystore types.
      *

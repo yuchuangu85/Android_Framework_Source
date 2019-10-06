@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -46,11 +47,13 @@ public final class PhoneStateIntentReceiver extends BroadcastReceiver {
 
     PhoneConstants.State mPhoneState = PhoneConstants.State.IDLE;
     ServiceState mServiceState = new ServiceState();
+    @UnsupportedAppUsage
     SignalStrength mSignalStrength = new SignalStrength();
 
     private Context mContext;
     private Handler mTarget;
     private IntentFilter mFilter;
+    @UnsupportedAppUsage
     private int mWants;
     private int mPhoneStateEventWhat;
     private int mServiceStateEventWhat;
@@ -61,6 +64,7 @@ public final class PhoneStateIntentReceiver extends BroadcastReceiver {
         mFilter = new IntentFilter();
     }
 
+    @UnsupportedAppUsage
     public PhoneStateIntentReceiver(Context context, Handler target) {
         this();
         setContext(context);
@@ -112,6 +116,7 @@ public final class PhoneStateIntentReceiver extends BroadcastReceiver {
      * @return signal strength in dBm, -1 if not yet updated
      * Throws RuntimeException if client has not called notifySignalStrength()
      */
+    @UnsupportedAppUsage
     public int getSignalStrengthDbm() {
         if ((mWants & NOTIF_SIGNAL) == 0) {
             throw new RuntimeException
@@ -130,6 +135,7 @@ public final class PhoneStateIntentReceiver extends BroadcastReceiver {
         return ((mWants & NOTIF_PHONE) != 0);
     }
 
+    @UnsupportedAppUsage
     public void notifyServiceState(int eventWhat) {
         mWants |= NOTIF_SERVICE;
         mServiceStateEventWhat = eventWhat;
@@ -140,6 +146,7 @@ public final class PhoneStateIntentReceiver extends BroadcastReceiver {
         return ((mWants & NOTIF_SERVICE) != 0);
     }
 
+    @UnsupportedAppUsage
     public void notifySignalStrength (int eventWhat) {
         mWants |= NOTIF_SIGNAL;
         mAsuEventWhat = eventWhat;
@@ -150,10 +157,12 @@ public final class PhoneStateIntentReceiver extends BroadcastReceiver {
         return ((mWants & NOTIF_SIGNAL) != 0);
     }
 
+    @UnsupportedAppUsage
     public void registerIntent() {
         mContext.registerReceiver(this, mFilter);
     }
 
+    @UnsupportedAppUsage
     public void unregisterIntent() {
         mContext.unregisterReceiver(this);
     }

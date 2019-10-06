@@ -17,6 +17,8 @@
 package android.view.accessibility;
 
 import android.annotation.IntDef;
+import android.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
@@ -481,7 +483,7 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
 
     /**
      * Represents the event of scrolling a view. This event type is generally not sent directly.
-     * @see View#onScrollChanged(int, int, int, int)
+     * @see android.view.View#onScrollChanged(int, int, int, int)
      */
     public static final int TYPE_VIEW_SCROLLED = 0x00001000;
 
@@ -686,7 +688,9 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
                     CONTENT_CHANGE_TYPE_SUBTREE,
                     CONTENT_CHANGE_TYPE_TEXT,
                     CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION,
-                    CONTENT_CHANGE_TYPE_PANE_TITLE
+                    CONTENT_CHANGE_TYPE_PANE_TITLE,
+                    CONTENT_CHANGE_TYPE_PANE_APPEARED,
+                    CONTENT_CHANGE_TYPE_PANE_DISAPPEARED
             })
     public @interface ContentChangeTypes {}
 
@@ -753,10 +757,12 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
     private static final SynchronizedPool<AccessibilityEvent> sPool =
             new SynchronizedPool<>(MAX_POOL_SIZE);
 
+    @UnsupportedAppUsage
     private @EventType int mEventType;
     private CharSequence mPackageName;
     private long mEventTime;
     int mMovementGranularity;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     int mAction;
     int mContentChangeTypes;
     int mWindowChangeTypes;
@@ -875,6 +881,8 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
      *         <li>{@link #CONTENT_CHANGE_TYPE_TEXT}
      *         <li>{@link #CONTENT_CHANGE_TYPE_PANE_TITLE}
      *         <li>{@link #CONTENT_CHANGE_TYPE_UNDEFINED}
+     *         <li>{@link #CONTENT_CHANGE_TYPE_PANE_APPEARED}
+     *         <li>{@link #CONTENT_CHANGE_TYPE_PANE_DISAPPEARED}
      *         </ul>
      */
     @ContentChangeTypes
@@ -888,13 +896,15 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
 
     private static String singleContentChangeTypeToString(int type) {
         switch (type) {
-            case CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION: {
+            case CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION:
                 return "CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION";
-            }
             case CONTENT_CHANGE_TYPE_SUBTREE: return "CONTENT_CHANGE_TYPE_SUBTREE";
             case CONTENT_CHANGE_TYPE_TEXT: return "CONTENT_CHANGE_TYPE_TEXT";
             case CONTENT_CHANGE_TYPE_PANE_TITLE: return "CONTENT_CHANGE_TYPE_PANE_TITLE";
             case CONTENT_CHANGE_TYPE_UNDEFINED: return "CONTENT_CHANGE_TYPE_UNDEFINED";
+            case CONTENT_CHANGE_TYPE_PANE_APPEARED: return "CONTENT_CHANGE_TYPE_PANE_APPEARED";
+            case CONTENT_CHANGE_TYPE_PANE_DISAPPEARED:
+                return "CONTENT_CHANGE_TYPE_PANE_DISAPPEARED";
             default: return Integer.toHexString(type);
         }
     }
@@ -945,6 +955,7 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
                 return "WINDOWS_CHANGE_ACCESSIBILITY_FOCUSED";
             case WINDOWS_CHANGE_PARENT: return "WINDOWS_CHANGE_PARENT";
             case WINDOWS_CHANGE_CHILDREN: return "WINDOWS_CHANGE_CHILDREN";
+            case WINDOWS_CHANGE_PIP: return "WINDOWS_CHANGE_PIP";
             default: return Integer.toHexString(type);
         }
     }
@@ -1419,7 +1430,7 @@ public final class AccessibilityEvent extends AccessibilityRecord implements Par
     /**
      * @see Parcelable.Creator
      */
-    public static final Parcelable.Creator<AccessibilityEvent> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<AccessibilityEvent> CREATOR =
             new Parcelable.Creator<AccessibilityEvent>() {
         public AccessibilityEvent createFromParcel(Parcel parcel) {
             AccessibilityEvent event = AccessibilityEvent.obtain();

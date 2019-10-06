@@ -33,12 +33,10 @@ import java.io.ObjectInputStream;
 import java.io.ObjectInputStream.GetField;
 import java.io.ObjectOutputStream;
 import java.io.ObjectOutputStream.PutField;
+import libcore.net.InetAddressUtils;
 import sun.net.util.IPAddressUtil;
 import sun.net.spi.nameservice.*;
-import android.system.GaiException;
-import android.system.StructAddrinfo;
 import libcore.io.Libcore;
-import static android.system.OsConstants.*;
 
 /**
  * This class represents an Internet Protocol (IP) address.
@@ -1606,59 +1604,41 @@ class InetAddress implements java.io.Serializable {
     static final int NETID_UNSET = 0;
 
     // BEGIN Android-added: Add methods required by frameworks/base.
-    // Particularly those required to deal with net-ids and scope ids.
+    // Particularly those required to deal with scope ids.
     /**
      * Returns true if the string is a valid numeric IPv4 or IPv6 address (such as "192.168.0.1").
-     * This copes with all forms of address that Java supports, detailed in the {@link InetAddress}
-     * class documentation.
+     *
+     * <p>This copes with all forms of address that Java supports, detailed in the
+     * {@link InetAddress} class documentation. An empty string is not treated as numeric.
      *
      * @hide used by frameworks/base to ensure that a getAllByName won't cause a DNS lookup.
+     * @deprecated Use {@link InetAddressUtils#isNumericAddress(String)} instead, if possible.
+     * @throws NullPointerException if the {@code address} is {@code null}.
      */
+    @Deprecated
     public static boolean isNumeric(String address) {
-        InetAddress inetAddress = parseNumericAddressNoThrow(address);
-        return inetAddress != null && disallowDeprecatedFormats(address, inetAddress) != null;
-    }
-
-    static InetAddress parseNumericAddressNoThrow(String address) {
-        // Accept IPv6 addresses (only) in square brackets for compatibility.
-        if (address.startsWith("[") && address.endsWith("]") && address.indexOf(':') != -1) {
-            address = address.substring(1, address.length() - 1);
-        }
-        StructAddrinfo hints = new StructAddrinfo();
-        hints.ai_flags = AI_NUMERICHOST;
-        InetAddress[] addresses = null;
-        try {
-            addresses = Libcore.os.android_getaddrinfo(address, hints, NETID_UNSET);
-        } catch (GaiException ignored) {
-        }
-        return (addresses != null) ? addresses[0] : null;
-    }
-
-    static InetAddress disallowDeprecatedFormats(String address, InetAddress inetAddress) {
-        // Only IPv4 addresses are problematic.
-        if (!(inetAddress instanceof Inet4Address) || address.indexOf(':') != -1) {
-            return inetAddress;
-        }
-        // If inet_pton(3) can't parse it, it must have been a deprecated format.
-        // We need to return inet_pton(3)'s result to ensure that numbers assumed to be octal
-        // by getaddrinfo(3) are reinterpreted by inet_pton(3) as decimal.
-        return Libcore.os.inet_pton(AF_INET, address);
+        return InetAddressUtils.parseNumericAddressNoThrowStripOptionalBrackets(address) != null;
     }
 
     /**
      * Returns an InetAddress corresponding to the given numeric address (such
      * as {@code "192.168.0.1"} or {@code "2001:4860:800d::68"}).
-     * This method will never do a DNS lookup. Non-numeric addresses are errors.
+     *
+     * <p>This method will never do a DNS lookup. Non-numeric addresses are errors. Passing either
+     * an empty string or a {@code null} as the {@code numericAddress} will return the
+     * {@link Inet6Address#LOOPBACK} address.
      *
      * @hide used by frameworks/base's NetworkUtils.numericToInetAddress
      * @throws IllegalArgumentException if {@code numericAddress} is not a numeric address
+     * @deprecated Use {@link InetAddressUtils#parseNumericAddress(String)} instead, if possible.
      */
+    @Deprecated
     public static InetAddress parseNumericAddress(String numericAddress) {
         if (numericAddress == null || numericAddress.isEmpty()) {
             return Inet6Address.LOOPBACK;
         }
-        InetAddress result = parseNumericAddressNoThrow(numericAddress);
-        result = disallowDeprecatedFormats(numericAddress, result);
+        InetAddress result = InetAddressUtils
+                .parseNumericAddressNoThrowStripOptionalBrackets(numericAddress);
         if (result == null) {
             throw new IllegalArgumentException("Not a numeric address: " + numericAddress);
         }
@@ -1673,7 +1653,8 @@ class InetAddress implements java.io.Serializable {
     public static void clearDnsCache() {
         impl.clearAddressCache();
     }
-
+    // END Android-added: Add methods required by frameworks/base.
+    // BEGIN Android-added: Support for network (netId)-specific DNS resolution.
     /**
      * Operates identically to {@code getByName} except host resolution is
      * performed on the network designated by {@code netId}.
@@ -1702,17 +1683,7 @@ class InetAddress implements java.io.Serializable {
     public static InetAddress[] getAllByNameOnNet(String host, int netId) throws UnknownHostException {
         return impl.lookupAllHostAddr(host, netId).clone();
     }
-    // END Android-added: Add methods required by frameworks/base.
-
-    // Only called by java.net.SocketPermission.
-    static InetAddress[] getAllByName0(String authHost, boolean check) throws UnknownHostException {
-        throw new UnsupportedOperationException();
-    }
-
-    // Only called by java.net.SocketPermission.
-    String getHostName(boolean check) {
-        throw new UnsupportedOperationException();
-    }
+    // END Android-added: Support for network (netId)-specific DNS resolution.
 }
 // BEGIN Android-removed: Android doesn't load user-provided implementation.
 /*

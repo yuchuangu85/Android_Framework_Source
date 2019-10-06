@@ -609,7 +609,7 @@ public class SmsNumberUtils {
             CarrierConfigManager configManager = (CarrierConfigManager)
                     phone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
             if (configManager != null) {
-                PersistableBundle bundle = configManager.getConfig();
+                PersistableBundle bundle = configManager.getConfigForSubId(phone.getSubId());
                 if (bundle != null) {
                     return bundle.getBoolean(CarrierConfigManager
                             .KEY_SMS_REQUIRES_DESTINATION_NUMBER_CONVERSION_BOOL);

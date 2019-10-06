@@ -90,7 +90,7 @@ class WifiBackupDataV1Parser implements WifiBackupDataParser {
 
     private static final String TAG = "WifiBackupDataV1Parser";
 
-    private static final int HIGHEST_SUPPORTED_MINOR_VERSION = 0;
+    private static final int HIGHEST_SUPPORTED_MINOR_VERSION = 1;
 
     // List of tags supported for <WifiConfiguration> section in minor version 0
     private static final Set<String> WIFI_CONFIGURATION_MINOR_V0_SUPPORTED_TAGS =
@@ -111,8 +111,15 @@ class WifiBackupDataV1Parser implements WifiBackupDataParser {
                 WifiConfigurationXmlUtil.XML_TAG_SHARED,
             }));
 
-    // List of tags supported for <IpConfiguration> section in minor version 0
-    private static final Set<String> IP_CONFIGURATION_MINOR_V0_SUPPORTED_TAGS =
+    // List of tags supported for <WifiConfiguration> section in minor version 1
+    private static final Set<String> WIFI_CONFIGURATION_MINOR_V1_SUPPORTED_TAGS =
+            new HashSet<String>() {{
+                addAll(WIFI_CONFIGURATION_MINOR_V0_SUPPORTED_TAGS);
+                add(WifiConfigurationXmlUtil.XML_TAG_METERED_OVERRIDE);
+            }};
+
+    // List of tags supported for <IpConfiguration> section in minor version 0 & 1
+    private static final Set<String> IP_CONFIGURATION_MINOR_V0_V1_SUPPORTED_TAGS =
             new HashSet<String>(Arrays.asList(new String[] {
                 IpConfigurationXmlUtil.XML_TAG_IP_ASSIGNMENT,
                 IpConfigurationXmlUtil.XML_TAG_LINK_ADDRESS,
@@ -167,8 +174,7 @@ class WifiBackupDataV1Parser implements WifiBackupDataParser {
                 in, WifiBackupRestore.XML_TAG_SECTION_HEADER_WIFI_CONFIGURATION,
                 networkTagDepth);
         int configTagDepth = networkTagDepth + 1;
-        configuration = parseWifiConfigurationFromXmlAndValidateConfigKey(in, configTagDepth,
-                minorVersion);
+        configuration = parseWifiConfigurationFromXml(in, configTagDepth, minorVersion);
         if (configuration == null) {
             return null;
         }
@@ -182,12 +188,12 @@ class WifiBackupDataV1Parser implements WifiBackupDataParser {
     }
 
     /**
-     * Helper method to parse the WifiConfiguration object and validate the configKey parsed.
+     * Helper method to parse the WifiConfiguration object.
      */
-    private WifiConfiguration parseWifiConfigurationFromXmlAndValidateConfigKey(XmlPullParser in,
+    private WifiConfiguration parseWifiConfigurationFromXml(XmlPullParser in,
             int outerTagDepth, int minorVersion) throws XmlPullParserException, IOException {
         Pair<String, WifiConfiguration> parsedConfig =
-                parseWifiConfigurationFromXml(in, outerTagDepth, minorVersion);
+                parseWifiConfigurationFromXmlInternal(in, outerTagDepth, minorVersion);
         if (parsedConfig == null || parsedConfig.first == null || parsedConfig.second == null) {
             return null;
         }
@@ -195,17 +201,10 @@ class WifiBackupDataV1Parser implements WifiBackupDataParser {
         WifiConfiguration configuration = parsedConfig.second;
         String configKeyCalculated = configuration.configKey();
         if (!configKeyParsed.equals(configKeyCalculated)) {
-            String configKeyMismatchLog =
-                    "Configuration key does not match. Retrieved: " + configKeyParsed
-                            + ", Calculated: " + configKeyCalculated;
-            if (configuration.shared) {
-                Log.e(TAG, configKeyMismatchLog);
-                return null;
-            } else {
-                // ConfigKey mismatches are expected for private networks because the
-                // UID is not preserved across backup/restore.
-                Log.w(TAG, configKeyMismatchLog);
-            }
+            // configKey is not part of the SDK. So, we can't expect this to be the same
+            // across OEM's. Just log a warning & continue.
+            Log.w(TAG, "Configuration key does not match. Retrieved: " + configKeyParsed
+                    + ", Calculated: " + configKeyCalculated);
         }
         return configuration;
     }
@@ -269,8 +268,9 @@ class WifiBackupDataV1Parser implements WifiBackupDataParser {
      * @param minorVersion  minor version number parsed from incoming data.
      * @return Pair<Config key, WifiConfiguration object> if parsing is successful, null otherwise.
      */
-    private static Pair<String, WifiConfiguration> parseWifiConfigurationFromXml(XmlPullParser in,
-            int outerTagDepth, int minorVersion) throws XmlPullParserException, IOException {
+    private static Pair<String, WifiConfiguration> parseWifiConfigurationFromXmlInternal(
+            XmlPullParser in, int outerTagDepth, int minorVersion)
+            throws XmlPullParserException, IOException {
         WifiConfiguration configuration = new WifiConfiguration();
         String configKeyInData = null;
         Set<String> supportedTags = getSupportedWifiConfigurationTags(minorVersion);
@@ -342,6 +342,9 @@ class WifiBackupDataV1Parser implements WifiBackupDataParser {
                 case WifiConfigurationXmlUtil.XML_TAG_SHARED:
                     configuration.shared = (boolean) value;
                     break;
+                case WifiConfigurationXmlUtil.XML_TAG_METERED_OVERRIDE:
+                    configuration.meteredOverride = (int) value;
+                    break;
                 default:
                     // should never happen, since other tags are filtered out earlier
                     throw new XmlPullParserException(
@@ -362,7 +365,10 @@ class WifiBackupDataV1Parser implements WifiBackupDataParser {
      */
     private static Set<String> getSupportedWifiConfigurationTags(int minorVersion) {
         switch (minorVersion) {
-            case 0: return WIFI_CONFIGURATION_MINOR_V0_SUPPORTED_TAGS;
+            case 0:
+                return WIFI_CONFIGURATION_MINOR_V0_SUPPORTED_TAGS;
+            case 1:
+                return WIFI_CONFIGURATION_MINOR_V1_SUPPORTED_TAGS;
             default:
                 Log.e(TAG, "Invalid minorVersion: " + minorVersion);
                 return Collections.<String>emptySet();
@@ -573,7 +579,9 @@ class WifiBackupDataV1Parser implements WifiBackupDataParser {
      */
     private static Set<String> getSupportedIpConfigurationTags(int minorVersion) {
         switch (minorVersion) {
-            case 0: return IP_CONFIGURATION_MINOR_V0_SUPPORTED_TAGS;
+            case 0:
+            case 1:
+                return IP_CONFIGURATION_MINOR_V0_V1_SUPPORTED_TAGS;
             default:
                 Log.e(TAG, "Invalid minorVersion: " + minorVersion);
                 return Collections.<String>emptySet();

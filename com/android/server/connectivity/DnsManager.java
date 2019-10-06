@@ -18,10 +18,9 @@ package com.android.server.connectivity;
 
 import static android.net.ConnectivityManager.PRIVATE_DNS_DEFAULT_MODE_FALLBACK;
 import static android.net.ConnectivityManager.PRIVATE_DNS_MODE_OFF;
-import static android.net.ConnectivityManager.PRIVATE_DNS_MODE_OPPORTUNISTIC;
 import static android.net.ConnectivityManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME;
-import static android.provider.Settings.Global.DNS_RESOLVER_MIN_SAMPLES;
 import static android.provider.Settings.Global.DNS_RESOLVER_MAX_SAMPLES;
+import static android.provider.Settings.Global.DNS_RESOLVER_MIN_SAMPLES;
 import static android.provider.Settings.Global.DNS_RESOLVER_SAMPLE_VALIDITY_SECONDS;
 import static android.provider.Settings.Global.DNS_RESOLVER_SUCCESS_THRESHOLD_PERCENT;
 import static android.provider.Settings.Global.PRIVATE_DNS_DEFAULT_MODE;
@@ -31,23 +30,23 @@ import static android.provider.Settings.Global.PRIVATE_DNS_SPECIFIER;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.net.IDnsResolver;
 import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkUtils;
+import android.net.ResolverParamsParcel;
 import android.net.Uri;
-import android.net.dns.ResolvUtil;
+import android.net.shared.PrivateDnsConfig;
 import android.os.Binder;
-import android.os.INetworkManagementService;
+import android.os.RemoteException;
+import android.os.ServiceSpecificException;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Pair;
 import android.util.Slog;
 
-import com.android.server.connectivity.MockableSystemProperties;
-
 import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -55,10 +54,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.Objects;
-import java.util.stream.Collectors;
 import java.util.Set;
-import java.util.StringJoiner;
+import java.util.stream.Collectors;
 
 
 /**
@@ -124,43 +121,6 @@ public class DnsManager {
     private static final int DNS_RESOLVER_DEFAULT_MIN_SAMPLES = 8;
     private static final int DNS_RESOLVER_DEFAULT_MAX_SAMPLES = 64;
 
-    public static class PrivateDnsConfig {
-        public final boolean useTls;
-        public final String hostname;
-        public final InetAddress[] ips;
-
-        public PrivateDnsConfig() {
-            this(false);
-        }
-
-        public PrivateDnsConfig(boolean useTls) {
-            this.useTls = useTls;
-            this.hostname = "";
-            this.ips = new InetAddress[0];
-        }
-
-        public PrivateDnsConfig(String hostname, InetAddress[] ips) {
-            this.useTls = !TextUtils.isEmpty(hostname);
-            this.hostname = useTls ? hostname : "";
-            this.ips = (ips != null) ? ips : new InetAddress[0];
-        }
-
-        public PrivateDnsConfig(PrivateDnsConfig cfg) {
-            useTls = cfg.useTls;
-            hostname = cfg.hostname;
-            ips = cfg.ips;
-        }
-
-        public boolean inStrictMode() {
-            return useTls && !TextUtils.isEmpty(hostname);
-        }
-
-        public String toString() {
-            return PrivateDnsConfig.class.getSimpleName() +
-                    "{" + useTls + ":" + hostname + "/" + Arrays.toString(ips) + "}";
-        }
-    }
-
     public static PrivateDnsConfig getPrivateDnsConfig(ContentResolver cr) {
         final String mode = getPrivateDnsMode(cr);
 
@@ -172,15 +132,6 @@ public class DnsManager {
         }
 
         return new PrivateDnsConfig(useTls);
-    }
-
-    public static PrivateDnsConfig tryBlockingResolveOf(Network network, String name) {
-        try {
-            final InetAddress[] ips = ResolvUtil.blockingResolveAllLocally(network, name);
-            return new PrivateDnsConfig(name, ips);
-        } catch (UnknownHostException uhe) {
-            return new PrivateDnsConfig(name, null);
-        }
     }
 
     public static Uri[] getPrivateDnsSettingsUris() {
@@ -281,7 +232,7 @@ public class DnsManager {
 
     private final Context mContext;
     private final ContentResolver mContentResolver;
-    private final INetworkManagementService mNMS;
+    private final IDnsResolver mDnsResolver;
     private final MockableSystemProperties mSystemProperties;
     // TODO: Replace these Maps with SparseArrays.
     private final Map<Integer, PrivateDnsConfig> mPrivateDnsMap;
@@ -295,10 +246,10 @@ public class DnsManager {
     private String mPrivateDnsMode;
     private String mPrivateDnsSpecifier;
 
-    public DnsManager(Context ctx, INetworkManagementService nms, MockableSystemProperties sp) {
+    public DnsManager(Context ctx, IDnsResolver dnsResolver, MockableSystemProperties sp) {
         mContext = ctx;
         mContentResolver = mContext.getContentResolver();
-        mNMS = nms;
+        mDnsResolver = dnsResolver;
         mSystemProperties = sp;
         mPrivateDnsMap = new HashMap<>();
         mPrivateDnsValidationMap = new HashMap<>();
@@ -355,11 +306,9 @@ public class DnsManager {
 
     public void setDnsConfigurationForNetwork(
             int netId, LinkProperties lp, boolean isDefaultNetwork) {
-        final String[] assignedServers = NetworkUtils.makeStrings(lp.getDnsServers());
-        final String[] domainStrs = getDomainStrings(lp.getDomains());
 
         updateParametersSettings();
-        final int[] params = { mSampleValidity, mSuccessThreshold, mMinSamples, mMaxSamples };
+        final ResolverParamsParcel paramsParcel = new ResolverParamsParcel();
 
         // We only use the PrivateDnsConfig data pushed to this class instance
         // from ConnectivityService because it works in coordination with
@@ -373,33 +322,45 @@ public class DnsManager {
 
         final boolean useTls = privateDnsCfg.useTls;
         final boolean strictMode = privateDnsCfg.inStrictMode();
-        final String tlsHostname = strictMode ? privateDnsCfg.hostname : "";
-        final String[] tlsServers =
+        paramsParcel.netId = netId;
+        paramsParcel.sampleValiditySeconds = mSampleValidity;
+        paramsParcel.successThreshold = mSuccessThreshold;
+        paramsParcel.minSamples = mMinSamples;
+        paramsParcel.maxSamples = mMaxSamples;
+        paramsParcel.servers = NetworkUtils.makeStrings(lp.getDnsServers());
+        paramsParcel.domains = getDomainStrings(lp.getDomains());
+        paramsParcel.tlsName = strictMode ? privateDnsCfg.hostname : "";
+        paramsParcel.tlsServers =
                 strictMode ? NetworkUtils.makeStrings(
                         Arrays.stream(privateDnsCfg.ips)
                               .filter((ip) -> lp.isReachable(ip))
                               .collect(Collectors.toList()))
-                : useTls ? assignedServers  // Opportunistic
+                : useTls ? paramsParcel.servers  // Opportunistic
                 : new String[0];            // Off
-
+        paramsParcel.tlsFingerprints = new String[0];
         // Prepare to track the validation status of the DNS servers in the
         // resolver config when private DNS is in opportunistic or strict mode.
         if (useTls) {
             if (!mPrivateDnsValidationMap.containsKey(netId)) {
                 mPrivateDnsValidationMap.put(netId, new PrivateDnsValidationStatuses());
             }
-            mPrivateDnsValidationMap.get(netId).updateTrackedDnses(tlsServers, tlsHostname);
+            mPrivateDnsValidationMap.get(netId).updateTrackedDnses(paramsParcel.tlsServers,
+                    paramsParcel.tlsName);
         } else {
             mPrivateDnsValidationMap.remove(netId);
         }
 
-        Slog.d(TAG, String.format("setDnsConfigurationForNetwork(%d, %s, %s, %s, %s, %s)",
-                netId, Arrays.toString(assignedServers), Arrays.toString(domainStrs),
-                Arrays.toString(params), tlsHostname, Arrays.toString(tlsServers)));
+        Slog.d(TAG, String.format("setDnsConfigurationForNetwork(%d, %s, %s, %d, %d, %d, %d, "
+                + "%d, %d, %s, %s)", paramsParcel.netId, Arrays.toString(paramsParcel.servers),
+                Arrays.toString(paramsParcel.domains), paramsParcel.sampleValiditySeconds,
+                paramsParcel.successThreshold, paramsParcel.minSamples,
+                paramsParcel.maxSamples, paramsParcel.baseTimeoutMsec,
+                paramsParcel.retryCount, paramsParcel.tlsName,
+                Arrays.toString(paramsParcel.tlsServers)));
+
         try {
-            mNMS.setDnsConfigurationForNetwork(
-                    netId, assignedServers, domainStrs, params, tlsHostname, tlsServers);
-        } catch (Exception e) {
+            mDnsResolver.setResolverConfiguration(paramsParcel);
+        } catch (RemoteException | ServiceSpecificException e) {
             Slog.e(TAG, "Error setting DNS configuration: " + e);
             return;
         }

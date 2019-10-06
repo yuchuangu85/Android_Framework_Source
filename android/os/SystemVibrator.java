@@ -16,6 +16,7 @@
 
 package android.os;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.media.AudioAttributes;
 import android.util.Log;
@@ -31,10 +32,12 @@ public class SystemVibrator extends Vibrator {
     private final IVibratorService mService;
     private final Binder mToken = new Binder();
 
+    @UnsupportedAppUsage
     public SystemVibrator() {
         mService = IVibratorService.Stub.asInterface(ServiceManager.getService("vibrator"));
     }
 
+    @UnsupportedAppUsage
     public SystemVibrator(Context context) {
         super(context);
         mService = IVibratorService.Stub.asInterface(ServiceManager.getService("vibrator"));
@@ -67,14 +70,14 @@ public class SystemVibrator extends Vibrator {
     }
 
     @Override
-    public void vibrate(int uid, String opPkg,
-            VibrationEffect effect, AudioAttributes attributes) {
+    public void vibrate(int uid, String opPkg, VibrationEffect effect,
+            String reason, AudioAttributes attributes) {
         if (mService == null) {
             Log.w(TAG, "Failed to vibrate; no vibrator service.");
             return;
         }
         try {
-            mService.vibrate(uid, opPkg, effect, usageForAttributes(attributes), mToken);
+            mService.vibrate(uid, opPkg, effect, usageForAttributes(attributes), reason, mToken);
         } catch (RemoteException e) {
             Log.w(TAG, "Failed to vibrate.", e);
         }

@@ -44,18 +44,21 @@ import com.android.systemui.BatteryMeterView;
 import com.android.systemui.Dependency;
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
+import com.android.systemui.plugins.DarkIconDispatcher.DarkReceiver;
 import com.android.systemui.qs.QSPanel;
 import com.android.systemui.statusbar.phone.StatusBarIconController.TintedIconManager;
 import com.android.systemui.statusbar.policy.BatteryController;
 import com.android.systemui.statusbar.policy.BatteryController.BatteryStateChangeCallback;
 import com.android.systemui.statusbar.policy.ConfigurationController;
 import com.android.systemui.statusbar.policy.ConfigurationController.ConfigurationListener;
-import com.android.systemui.statusbar.policy.DarkIconDispatcher.DarkReceiver;
 import com.android.systemui.statusbar.policy.KeyguardUserSwitcher;
 import com.android.systemui.statusbar.policy.UserInfoController;
 import com.android.systemui.statusbar.policy.UserInfoController.OnUserInfoChangedListener;
 import com.android.systemui.statusbar.policy.UserInfoControllerImpl;
 import com.android.systemui.statusbar.policy.UserSwitcherController;
+
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 
 /**
  * The header group on Keyguard.
@@ -67,15 +70,18 @@ public class KeyguardStatusBarView extends RelativeLayout
     private static final int LAYOUT_CUTOUT = 1;
     private static final int LAYOUT_NO_CUTOUT = 2;
 
+    private final Rect mEmptyRect = new Rect(0, 0, 0, 0);
+
+    private boolean mShowPercentAvailable;
     private boolean mBatteryCharging;
     private boolean mKeyguardUserSwitcherShowing;
     private boolean mBatteryListening;
 
     private TextView mCarrierLabel;
-    private View mSystemIconsSuperContainer;
     private MultiUserSwitch mMultiUserSwitch;
     private ImageView mMultiUserAvatar;
     private BatteryMeterView mBatteryView;
+    private StatusIconContainer mStatusIconContainer;
 
     private BatteryController mBatteryController;
     private KeyguardUserSwitcher mKeyguardUserSwitcher;
@@ -109,6 +115,7 @@ public class KeyguardStatusBarView extends RelativeLayout
         mBatteryView = mSystemIconsContainer.findViewById(R.id.battery);
         mCutoutSpace = findViewById(R.id.cutout_space_view);
         mStatusIconArea = findViewById(R.id.status_icon_area);
+        mStatusIconContainer = findViewById(R.id.statusIcons);
 
         loadDimens();
         updateUserSwitcher();
@@ -165,6 +172,8 @@ public class KeyguardStatusBarView extends RelativeLayout
                 R.dimen.system_icons_super_container_avatarless_margin_end);
         mCutoutSideNudge = getResources().getDimensionPixelSize(
                 R.dimen.display_cutout_margin_consumption);
+        mShowPercentAvailable = getContext().getResources().getBoolean(
+                com.android.internal.R.bool.config_battery_percentage_setting_available);
     }
 
     private void updateVisibilities() {
@@ -178,15 +187,15 @@ public class KeyguardStatusBarView extends RelativeLayout
         }
         if (mKeyguardUserSwitcher == null) {
             // If we have no keyguard switcher, the screen width is under 600dp. In this case,
-            // we don't show the multi-user avatar unless there is more than 1 user on the device.
-            if (mUserSwitcherController != null
-                    && mUserSwitcherController.getSwitchableUserCount() > 1) {
+            // we only show the multi-user switch if it's enabled through UserManager as well as
+            // by the user.
+            if (mMultiUserSwitch.isMultiUserEnabled()) {
                 mMultiUserSwitch.setVisibility(View.VISIBLE);
             } else {
                 mMultiUserSwitch.setVisibility(View.GONE);
             }
         }
-        mBatteryView.setForceShowPercent(mBatteryCharging);
+        mBatteryView.setForceShowPercent(mBatteryCharging && mShowPercentAvailable);
     }
 
     private void updateSystemIconsLayoutParams() {
@@ -434,27 +443,57 @@ public class KeyguardStatusBarView extends RelativeLayout
     }
 
     public void onThemeChanged() {
-        @ColorInt int textColor = Utils.getColorAttr(mContext, R.attr.wallpaperTextColor);
-        @ColorInt int iconColor = Utils.getDefaultColor(mContext, Color.luminance(textColor) < 0.5 ?
-                R.color.dark_mode_icon_color_single_tone :
-                R.color.light_mode_icon_color_single_tone);
-        float intensity = textColor == Color.WHITE ? 0 : 1;
-        mCarrierLabel.setTextColor(iconColor);
-        mBatteryView.setFillColor(iconColor);
-        mIconManager.setTint(iconColor);
-        Rect tintArea = new Rect(0, 0, 0, 0);
-
-        applyDarkness(R.id.battery, tintArea, intensity, iconColor);
-        applyDarkness(R.id.clock, tintArea, intensity, iconColor);
+        mBatteryView.setColorsFromContext(mContext);
+        updateIconsAndTextColors();
         // Reload user avatar
         ((UserInfoControllerImpl) Dependency.get(UserInfoController.class))
                 .onDensityOrFontScaleChanged();
+    }
+
+    @Override
+    public void onDensityOrFontScaleChanged() {
+        loadDimens();
+    }
+
+    @Override
+    public void onOverlayChanged() {
+        mCarrierLabel.setTextAppearance(
+                Utils.getThemeAttr(mContext, com.android.internal.R.attr.textAppearanceSmall));
+        onThemeChanged();
+        mBatteryView.updatePercentView();
+    }
+
+    private void updateIconsAndTextColors() {
+        @ColorInt int textColor = Utils.getColorAttrDefaultColor(mContext,
+                R.attr.wallpaperTextColor);
+        @ColorInt int iconColor = Utils.getColorStateListDefaultColor(mContext,
+                Color.luminance(textColor) < 0.5 ? R.color.dark_mode_icon_color_single_tone :
+                R.color.light_mode_icon_color_single_tone);
+        float intensity = textColor == Color.WHITE ? 0 : 1;
+        mCarrierLabel.setTextColor(iconColor);
+        if (mIconManager != null) {
+            mIconManager.setTint(iconColor);
+        }
+
+        applyDarkness(R.id.battery, mEmptyRect, intensity, iconColor);
+        applyDarkness(R.id.clock, mEmptyRect, intensity, iconColor);
     }
 
     private void applyDarkness(int id, Rect tintArea, float intensity, int color) {
         View v = findViewById(id);
         if (v instanceof DarkReceiver) {
             ((DarkReceiver) v).onDarkChanged(tintArea, intensity, color);
+        }
+    }
+
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        pw.println("KeyguardStatusBarView:");
+        pw.println("  mBatteryCharging: " + mBatteryCharging);
+        pw.println("  mKeyguardUserSwitcherShowing: " + mKeyguardUserSwitcherShowing);
+        pw.println("  mBatteryListening: " + mBatteryListening);
+        pw.println("  mLayoutState: " + mLayoutState);
+        if (mBatteryView != null) {
+            mBatteryView.dump(fd, pw, args);
         }
     }
 }

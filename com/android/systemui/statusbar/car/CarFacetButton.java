@@ -1,19 +1,35 @@
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.android.systemui.statusbar.car;
 
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.TypedArray;
-import android.graphics.drawable.Drawable;
 import android.os.UserHandle;
 import android.util.AttributeSet;
-import android.util.Log;
+import android.view.Display;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 
 import com.android.keyguard.AlphaOptimizedImageButton;
-import com.android.systemui.Dependency;
+import com.android.systemui.CarSystemUIFactory;
 import com.android.systemui.R;
+import com.android.systemui.SystemUIFactory;
 
 /**
  * CarFacetButton is a ui component designed to be used as a shortcut for an app of a defined
@@ -33,6 +49,7 @@ public class CarFacetButton extends LinearLayout {
     private static final String EXTRA_FACET_PACKAGES = "packages";
     private static final String EXTRA_FACET_ID = "filter_id";
     private static final String EXTRA_FACET_LAUNCH_PICKER = "launch_picker";
+    private static final String TAG = "CarFacetButton";
 
     private Context mContext;
     private AlphaOptimizedImageButton mIcon;
@@ -53,26 +70,24 @@ public class CarFacetButton extends LinearLayout {
     private float mSelectedAlpha = 1f;
     private float mUnselectedAlpha = 1f;
 
-
     public CarFacetButton(Context context, AttributeSet attrs) {
         super(context, attrs);
         mContext = context;
         View.inflate(context, R.layout.car_facet_button, this);
-
         // extract custom attributes
         TypedArray typedArray = context.obtainStyledAttributes(attrs, R.styleable.CarFacetButton);
         setupIntents(typedArray);
         setupIcons(typedArray);
-        CarFacetButtonController carFacetButtonController = Dependency.get(
-                CarFacetButtonController.class);
+        CarSystemUIFactory factory = SystemUIFactory.getInstance();
+        CarFacetButtonController carFacetButtonController = factory.getCarDependencyComponent()
+                .getCarFacetButtonController();
         carFacetButtonController.addFacetButton(this);
-
     }
 
     /**
      * Reads the custom attributes to setup click handlers for this component.
      */
-    private void setupIntents(TypedArray typedArray) {
+    protected void setupIntents(TypedArray typedArray) {
         String intentString = typedArray.getString(R.styleable.CarFacetButton_intent);
         String longPressIntentString = typedArray.getString(R.styleable.CarFacetButton_longIntent);
         String categoryString = typedArray.getString(R.styleable.CarFacetButton_categories);
@@ -112,7 +127,6 @@ public class CarFacetButton extends LinearLayout {
             throw new RuntimeException("Failed to attach intent", e);
         }
     }
-
 
     private void setupIcons(TypedArray styledAttributes) {
         mSelectedAlpha = styledAttributes.getFloat(
@@ -155,6 +169,9 @@ public class CarFacetButton extends LinearLayout {
         return mFacetPackages;
     }
 
+    /**
+     * @return The list of component names.
+     */
     public String[] getComponentName() {
         if (mComponentNames == null) {
             return new String[0];
@@ -164,6 +181,7 @@ public class CarFacetButton extends LinearLayout {
 
     /**
      * Updates the alpha of the icons to "selected" and shows the "More icon"
+     *
      * @param selected true if the view must be selected, false otherwise
      */
     public void setSelected(boolean selected) {
@@ -173,7 +191,8 @@ public class CarFacetButton extends LinearLayout {
 
     /**
      * Updates the visual state to let the user know if it's been selected.
-     * @param selected true if should update the alpha of the icon to selected, false otherwise
+     *
+     * @param selected     true if should update the alpha of the icon to selected, false otherwise
      * @param showMoreIcon true if the "more icon" should be shown, false otherwise. Note this
      *                     is ignored if the attribute useMoreIcon is set to false
      */
@@ -184,5 +203,17 @@ public class CarFacetButton extends LinearLayout {
         if (mUseMoreIcon) {
             mMoreIcon.setVisibility(showMoreIcon ? VISIBLE : GONE);
         }
+    }
+
+    /**
+     * @return The id of the display the button is on or Display.INVALID_DISPLAY if it's not yet on
+     *         a display.
+     */
+    public int getDisplayId() {
+        Display display = getDisplay();
+        if (display == null) {
+            return Display.INVALID_DISPLAY;
+        }
+        return display.getDisplayId();
     }
 }

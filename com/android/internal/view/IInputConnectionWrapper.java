@@ -16,11 +16,10 @@
 
 package com.android.internal.view;
 
-import com.android.internal.annotations.GuardedBy;
-import com.android.internal.os.SomeArgs;
-
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -35,6 +34,9 @@ import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputConnectionInspector;
 import android.view.inputmethod.InputConnectionInspector.MissingMethodFlags;
 import android.view.inputmethod.InputContentInfo;
+
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.os.SomeArgs;
 
 public abstract class IInputConnectionWrapper extends IInputContext.Stub {
     private static final String TAG = "IInputConnectionWrapper";
@@ -67,10 +69,12 @@ public abstract class IInputConnectionWrapper extends IInputContext.Stub {
 
     @GuardedBy("mLock")
     @Nullable
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private InputConnection mInputConnection;
 
     private Looper mMainLooper;
     private Handler mH;
+    @UnsupportedAppUsage
     private Object mLock = new Object();
     @GuardedBy("mLock")
     private boolean mFinished = false;
@@ -106,12 +110,6 @@ public abstract class IInputConnectionWrapper extends IInputContext.Stub {
     }
 
     abstract protected boolean isActive();
-
-    /**
-     * Called when the user took some actions that should be taken into consideration to update the
-     * LRU list for input method rotation.
-     */
-    abstract protected void onUserAction();
 
     public void getTextAfterCursor(int length, int flags, int seq, IInputContextCallback callback) {
         dispatchMessage(obtainMessageIISC(DO_GET_TEXT_AFTER_CURSOR, length, flags, seq, callback));
@@ -339,7 +337,6 @@ public abstract class IInputConnectionWrapper extends IInputContext.Stub {
                     return;
                 }
                 ic.commitText((CharSequence)msg.obj, msg.arg1);
-                onUserAction();
                 return;
             }
             case DO_SET_SELECTION: {
@@ -394,7 +391,6 @@ public abstract class IInputConnectionWrapper extends IInputContext.Stub {
                     return;
                 }
                 ic.setComposingText((CharSequence)msg.obj, msg.arg1);
-                onUserAction();
                 return;
             }
             case DO_SET_COMPOSING_REGION: {
@@ -434,7 +430,6 @@ public abstract class IInputConnectionWrapper extends IInputContext.Stub {
                     return;
                 }
                 ic.sendKeyEvent((KeyEvent)msg.obj);
-                onUserAction();
                 return;
             }
             case DO_CLEAR_META_KEY_STATES: {

@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.android.systemui.statusbar.car;
 
 import android.app.ActivityManager;
@@ -8,58 +24,79 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.view.Display;
 import android.view.View;
+import android.view.ViewGroup;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+
+import javax.inject.Inject;
+import javax.inject.Singleton;
 
 /**
  * CarFacetButtons placed on the nav bar are designed to have visual indication that the active
  * application on screen is associated with it. This is basically a similar concept to a radio
  * button group.
  */
+@Singleton
 public class CarFacetButtonController {
 
-    protected HashMap<String, CarFacetButton> mButtonsByCategory = new HashMap<>();
-    protected HashMap<String, CarFacetButton> mButtonsByPackage = new HashMap<>();
-    protected HashMap<String, CarFacetButton> mButtonsByComponentName = new HashMap<>();
-    protected CarFacetButton mSelectedFacetButton;
+    protected ButtonMap mButtonsByCategory = new ButtonMap();
+    protected ButtonMap mButtonsByPackage = new ButtonMap();
+    protected ButtonMap mButtonsByComponentName = new ButtonMap();
+    protected HashSet<CarFacetButton> mSelectedFacetButtons;
     protected Context mContext;
 
+    @Inject
     public CarFacetButtonController(Context context) {
         mContext = context;
+        mSelectedFacetButtons = new HashSet<>();
     }
 
     /**
      * Add facet button to this controller. The expected use is for the facet button
      * to get a reference to this controller via {@link com.android.systemui.Dependency}
      * and self add.
-     * @param facetButton
      */
     public void addFacetButton(CarFacetButton facetButton) {
         String[] categories = facetButton.getCategories();
         for (int i = 0; i < categories.length; i++) {
-            mButtonsByCategory.put(categories[i], facetButton);
+            mButtonsByCategory.add(categories[i], facetButton);
         }
 
         String[] facetPackages = facetButton.getFacetPackages();
         for (int i = 0; i < facetPackages.length; i++) {
-            mButtonsByPackage.put(facetPackages[i], facetButton);
+            mButtonsByPackage.add(facetPackages[i], facetButton);
         }
         String[] componentNames = facetButton.getComponentName();
         for (int i = 0; i < componentNames.length; i++) {
-            mButtonsByComponentName.put(componentNames[i], facetButton);
+            mButtonsByComponentName.add(componentNames[i], facetButton);
         }
-        // Using the following as a default button for display id info it's not
-        // attached to a screen at this point so it can't be extracted here.
-        mSelectedFacetButton = facetButton;
     }
 
     public void removeAll() {
         mButtonsByCategory.clear();
         mButtonsByPackage.clear();
         mButtonsByComponentName.clear();
-        mSelectedFacetButton = null;
+        mSelectedFacetButtons.clear();
+    }
+
+    /**
+     * Iterate through a view looking for CarFacetButtons and adding them to the controller if found
+     *
+     * @param v the View that may contain CarFacetButtons
+     */
+    public void addAllFacetButtons(View v) {
+        if (v instanceof CarFacetButton) {
+            addFacetButton((CarFacetButton) v);
+        } else if (v instanceof ViewGroup) {
+            ViewGroup viewGroup = (ViewGroup) v;
+            for (int i = 0; i < viewGroup.getChildCount(); i++) {
+                addAllFacetButtons(viewGroup.getChildAt(i));
+            }
+        }
     }
 
     /**
@@ -70,15 +107,16 @@ public class CarFacetButtonController {
      * They will then be compared with the supplied StackInfo list.
      * The StackInfo is expected to be supplied in order of recency and StackInfo will only be used
      * for consideration if it has the same displayId as the CarFacetButtons.
-     * @param taskInfo of the currently running application
+     *
+     * @param stackInfoList of the currently running application
      */
     public void taskChanged(List<ActivityManager.StackInfo> stackInfoList) {
-        int displayId = getDisplayId();
         ActivityManager.StackInfo validStackInfo = null;
-        for (ActivityManager.StackInfo stackInfo :stackInfoList) {
-            // If the display id is unknown or it matches the stack, it's valid for use
-            if ((displayId == -1 || displayId == stackInfo.displayId) &&
-                    stackInfo.topActivity != null) {
+        for (ActivityManager.StackInfo stackInfo : stackInfoList) {
+            // Find the first stack info with a topActivity in the primary display.
+            // TODO: We assume that CarFacetButton will launch an app only in the primary display.
+            // We need to extend the functionality to handle the mutliple display properly.
+            if (stackInfo.topActivity != null && stackInfo.displayId == Display.DEFAULT_DISPLAY) {
                 validStackInfo = stackInfo;
                 break;
             }
@@ -89,12 +127,20 @@ public class CarFacetButtonController {
             return;
         }
 
-        if (mSelectedFacetButton != null) {
-            mSelectedFacetButton.setSelected(false);
+        if (mSelectedFacetButtons != null) {
+            Iterator<CarFacetButton> iterator = mSelectedFacetButtons.iterator();
+            while(iterator.hasNext()) {
+                CarFacetButton carFacetButton = iterator.next();
+                if (carFacetButton.getDisplayId() == validStackInfo.displayId) {
+                    carFacetButton.setSelected(false);
+                    iterator.remove();
+                }
+            }
         }
 
         String packageName = validStackInfo.topActivity.getPackageName();
-        CarFacetButton facetButton = findFacetButtongByComponentName(validStackInfo.topActivity);
+        HashSet<CarFacetButton> facetButton =
+                findFacetButtonByComponentName(validStackInfo.topActivity);
         if (facetButton == null) {
             facetButton = mButtonsByPackage.get(packageName);
         }
@@ -106,26 +152,21 @@ public class CarFacetButtonController {
             }
         }
 
-        if (facetButton != null && facetButton.getVisibility() == View.VISIBLE) {
-            facetButton.setSelected(true);
-            mSelectedFacetButton = facetButton;
-        }
-
-    }
-
-    private int getDisplayId() {
-        if (mSelectedFacetButton != null) {
-            Display display = mSelectedFacetButton.getDisplay();
-            if (display != null) {
-                return display.getDisplayId();
+        if (facetButton != null) {
+            for (CarFacetButton carFacetButton : facetButton) {
+                if (carFacetButton.getDisplayId() == validStackInfo.displayId) {
+                    carFacetButton.setSelected(true);
+                    mSelectedFacetButtons.add(carFacetButton);
+                }
             }
         }
-        return -1;
+
     }
 
-    private CarFacetButton findFacetButtongByComponentName(ComponentName componentName) {
-        CarFacetButton button = mButtonsByComponentName.get(componentName.flattenToShortString());
-        return (button != null) ? button :
+    private HashSet<CarFacetButton> findFacetButtonByComponentName(ComponentName componentName) {
+        HashSet<CarFacetButton> buttons =
+                mButtonsByComponentName.get(componentName.flattenToShortString());
+        return (buttons != null) ? buttons :
                 mButtonsByComponentName.get(componentName.flattenToString());
     }
 
@@ -146,5 +187,19 @@ public class CarFacetButtonController {
             }
         }
         return null;
+    }
+
+    // simple multi-map
+    private static class ButtonMap extends HashMap<String, HashSet<CarFacetButton>> {
+
+        public boolean add(String key, CarFacetButton value) {
+            if (containsKey(key)) {
+                return get(key).add(value);
+            }
+            HashSet<CarFacetButton> set = new HashSet<>();
+            set.add(value);
+            put(key, set);
+            return true;
+        }
     }
 }

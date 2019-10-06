@@ -16,6 +16,8 @@
 
 package android.content.pm;
 
+import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.IntentFilter;
 import android.graphics.drawable.Drawable;
@@ -149,6 +151,7 @@ public class ResolveInfo implements Parcelable {
      * If not equal to UserHandle.USER_CURRENT, then the intent will be forwarded to this user.
      * @hide
      */
+    @UnsupportedAppUsage
     public int targetUserId;
 
     /**
@@ -169,14 +172,20 @@ public class ResolveInfo implements Parcelable {
     /**
      * @hide Target comes from system process?
      */
+    @UnsupportedAppUsage
     public boolean system;
 
     /**
-     * @hide Does the associated IntentFilter comes from a Browser ?
+     * Will be set to {@code true} if the {@link IntentFilter} responsible for intent
+     * resolution is classified as a "browser".
+     *
+     * @hide
      */
+    @SystemApi
     public boolean handleAllWebDataURI;
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public ComponentInfo getComponentInfo() {
         if (activityInfo != null) return activityInfo;
         if (serviceInfo != null) return serviceInfo;
@@ -436,7 +445,7 @@ public class ResolveInfo implements Parcelable {
         dest.writeInt(isInstantAppAvailable ? 1 : 0);
     }
 
-    public static final Creator<ResolveInfo> CREATOR
+    public static final @android.annotation.NonNull Creator<ResolveInfo> CREATOR
             = new Creator<ResolveInfo>() {
         public ResolveInfo createFromParcel(Parcel source) {
             return new ResolveInfo(source);

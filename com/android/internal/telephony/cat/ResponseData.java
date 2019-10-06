@@ -25,6 +25,7 @@ import android.text.TextUtils;
 
 import com.android.internal.telephony.cat.AppInterface.CommandType;
 
+import android.annotation.UnsupportedAppUsage;
 import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
 
@@ -33,6 +34,7 @@ abstract class ResponseData {
      * Format the data appropriate for TERMINAL RESPONSE and write it into
      * the ByteArrayOutputStream object.
      */
+    @UnsupportedAppUsage
     public abstract void format(ByteArrayOutputStream buf);
 
     public static void writeLength(ByteArrayOutputStream buf, int length) {

@@ -29,16 +29,14 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
 import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.widget.ProgressBar;
-
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import com.android.setupwizardlib.TemplateLayout;
 import com.android.setupwizardlib.test.R;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -47,111 +45,107 @@ import org.junit.runner.RunWith;
 @SmallTest
 public class ProgressBarMixinTest {
 
-    private TemplateLayout mTemplateLayout;
+  private TemplateLayout mTemplateLayout;
 
-    @Before
-    public void setUp() {
-        Context context = new ContextThemeWrapper(InstrumentationRegistry.getContext(),
-                R.style.SuwThemeMaterial_Light);
-        mTemplateLayout = new TemplateLayout(
-                context,
-                R.layout.test_progress_bar_template, R.id.suw_layout_content);
+  @Before
+  public void setUp() {
+    Context context =
+        new ContextThemeWrapper(
+            InstrumentationRegistry.getContext(), R.style.SuwThemeMaterial_Light);
+    mTemplateLayout =
+        new TemplateLayout(context, R.layout.test_progress_bar_template, R.id.suw_layout_content);
+  }
+
+  @Test
+  public void testSetShown() {
+    ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
+    mixin.setShown(true);
+
+    ProgressBar progressBar = (ProgressBar) mTemplateLayout.findViewById(R.id.suw_layout_progress);
+    assertNotNull("Progress bar should be available after setting to shown", progressBar);
+    assertEquals(View.VISIBLE, progressBar.getVisibility());
+  }
+
+  @Test
+  public void testNotShown() {
+    ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
+    mixin.setShown(true);
+    mixin.setShown(false);
+
+    ProgressBar progressBar = (ProgressBar) mTemplateLayout.findViewById(R.id.suw_layout_progress);
+    assertNotEquals(View.VISIBLE, progressBar.getVisibility());
+  }
+
+  @Test
+  public void testIsShown() {
+    ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
+
+    mixin.setShown(true);
+    assertTrue(mixin.isShown());
+
+    mixin.setShown(false);
+    assertFalse(mixin.isShown());
+  }
+
+  @Test
+  public void testPeekProgressBar() {
+    ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
+    assertNull(
+        "PeekProgressBar should return null when stub not inflated yet", mixin.peekProgressBar());
+
+    mixin.setShown(true);
+    assertNotNull(
+        "PeekProgressBar should be available after setting to shown", mixin.peekProgressBar());
+  }
+
+  @Test
+  public void testSetColorBeforeSetShown() {
+    ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
+    mixin.setColor(ColorStateList.valueOf(Color.MAGENTA));
+
+    mixin.setShown(true);
+
+    if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
+      ProgressBar progressBar =
+          (ProgressBar) mTemplateLayout.findViewById(R.id.suw_layout_progress);
+      assertEquals(ColorStateList.valueOf(Color.MAGENTA), progressBar.getIndeterminateTintList());
+      assertEquals(
+          ColorStateList.valueOf(Color.MAGENTA), progressBar.getProgressBackgroundTintList());
     }
+    // this method is a no-op on versions < lollipop. Just check that it doesn't crash.
+  }
 
-    @Test
-    public void testSetShown() {
-        ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
-        mixin.setShown(true);
+  @Test
+  public void testSetColorAfterSetShown() {
+    ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
+    mixin.setShown(true);
 
-        ProgressBar progressBar = (ProgressBar) mTemplateLayout.findViewById(
-                R.id.suw_layout_progress);
-        assertNotNull("Progress bar should be available after setting to shown", progressBar);
-        assertEquals(View.VISIBLE, progressBar.getVisibility());
+    mixin.setColor(ColorStateList.valueOf(Color.YELLOW));
+
+    if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
+      ProgressBar progressBar =
+          (ProgressBar) mTemplateLayout.findViewById(R.id.suw_layout_progress);
+      assertEquals(ColorStateList.valueOf(Color.YELLOW), progressBar.getIndeterminateTintList());
+      assertEquals(
+          ColorStateList.valueOf(Color.YELLOW), progressBar.getProgressBackgroundTintList());
     }
+    // this method is a no-op on versions < lollipop. Just check that it doesn't crash.
+  }
 
-    @Test
-    public void testNotShown() {
-        ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
-        mixin.setShown(true);
-        mixin.setShown(false);
+  @Test
+  public void testDeterminateProgressBarNullTint() {
+    ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
+    mixin.setShown(true);
+    mixin.peekProgressBar().setIndeterminate(false);
 
-        ProgressBar progressBar = (ProgressBar) mTemplateLayout.findViewById(
-                R.id.suw_layout_progress);
-        assertNotEquals(View.VISIBLE, progressBar.getVisibility());
+    mixin.setColor(null);
+
+    if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
+      ProgressBar progressBar =
+          (ProgressBar) mTemplateLayout.findViewById(R.id.suw_layout_progress);
+      assertEquals(null, progressBar.getProgressBackgroundTintList());
+      progressBar.draw(new Canvas());
     }
-
-    @Test
-    public void testIsShown() {
-        ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
-
-        mixin.setShown(true);
-        assertTrue(mixin.isShown());
-
-        mixin.setShown(false);
-        assertFalse(mixin.isShown());
-    }
-
-    @Test
-    public void testPeekProgressBar() {
-        ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
-        assertNull("PeekProgressBar should return null when stub not inflated yet",
-                mixin.peekProgressBar());
-
-        mixin.setShown(true);
-        assertNotNull("PeekProgressBar should be available after setting to shown",
-                mixin.peekProgressBar());
-    }
-
-    @Test
-    public void testSetColorBeforeSetShown() {
-        ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
-        mixin.setColor(ColorStateList.valueOf(Color.MAGENTA));
-
-        mixin.setShown(true);
-
-        if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            ProgressBar progressBar = (ProgressBar) mTemplateLayout.findViewById(
-                    R.id.suw_layout_progress);
-            assertEquals(ColorStateList.valueOf(Color.MAGENTA),
-                    progressBar.getIndeterminateTintList());
-            assertEquals(ColorStateList.valueOf(Color.MAGENTA),
-                    progressBar.getProgressBackgroundTintList());
-        }
-        // this method is a no-op on versions < lollipop. Just check that it doesn't crash.
-    }
-
-    @Test
-    public void testSetColorAfterSetShown() {
-        ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
-        mixin.setShown(true);
-
-        mixin.setColor(ColorStateList.valueOf(Color.YELLOW));
-
-        if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            ProgressBar progressBar = (ProgressBar) mTemplateLayout.findViewById(
-                    R.id.suw_layout_progress);
-            assertEquals(ColorStateList.valueOf(Color.YELLOW),
-                    progressBar.getIndeterminateTintList());
-            assertEquals(ColorStateList.valueOf(Color.YELLOW),
-                    progressBar.getProgressBackgroundTintList());
-        }
-        // this method is a no-op on versions < lollipop. Just check that it doesn't crash.
-    }
-
-    @Test
-    public void testDeterminateProgressBarNullTint() {
-        ProgressBarMixin mixin = new ProgressBarMixin(mTemplateLayout);
-        mixin.setShown(true);
-        mixin.peekProgressBar().setIndeterminate(false);
-
-        mixin.setColor(null);
-
-        if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            ProgressBar progressBar = (ProgressBar) mTemplateLayout.findViewById(
-                    R.id.suw_layout_progress);
-            assertEquals(null, progressBar.getProgressBackgroundTintList());
-            progressBar.draw(new Canvas());
-        }
-        // setColor is a no-op on versions < lollipop. Just check that it doesn't crash.
-    }
+    // setColor is a no-op on versions < lollipop. Just check that it doesn't crash.
+  }
 }

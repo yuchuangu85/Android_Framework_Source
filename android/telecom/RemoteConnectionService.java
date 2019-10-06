@@ -288,7 +288,7 @@ final class RemoteConnectionService {
 
         @Override
         public void queryRemoteConnectionServices(RemoteServiceCallback callback,
-                Session.Info sessionInfo) {
+                String callingPackage, Session.Info sessionInfo) {
             // Not supported from remote connection service.
         }
 
@@ -465,6 +465,17 @@ final class RemoteConnectionService {
             } else {
                 Log.w(this, "onRemoteRttRequest called on a remote conference");
             }
+        }
+
+        @Override
+        public void resetConnectionTime(String callId, Session.Info sessionInfo) {
+            // Do nothing
+        }
+
+        @Override
+        public void setConferenceState(String callId, boolean isConference,
+                Session.Info sessionInfo) {
+            // Do nothing
         }
     };
 

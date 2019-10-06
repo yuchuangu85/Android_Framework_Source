@@ -18,8 +18,8 @@ package com.android.internal.telephony;
 
 import android.text.TextUtils;
 
-import libcore.util.CountryTimeZones;
-import libcore.util.TimeZoneFinder;
+import libcore.timezone.CountryTimeZones;
+import libcore.timezone.TimeZoneFinder;
 
 import java.util.Date;
 import java.util.TimeZone;

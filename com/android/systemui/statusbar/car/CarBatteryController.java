@@ -58,28 +58,31 @@ public class CarBatteryController extends BroadcastReceiver implements BatteryCo
     private final Context mContext;
 
     private final BluetoothAdapter mAdapter = BluetoothAdapter.getDefaultAdapter();
-    private BluetoothHeadsetClient mBluetoothHeadsetClient;
-
     private final ArrayList<BatteryStateChangeCallback> mChangeCallbacks = new ArrayList<>();
+    private BluetoothHeadsetClient mBluetoothHeadsetClient;
+    private final ServiceListener mHfpServiceListener = new ServiceListener() {
+        @Override
+        public void onServiceConnected(int profile, BluetoothProfile proxy) {
+            if (profile == BluetoothProfile.HEADSET_CLIENT) {
+                mBluetoothHeadsetClient = (BluetoothHeadsetClient) proxy;
+            }
+        }
 
+        @Override
+        public void onServiceDisconnected(int profile) {
+            if (profile == BluetoothProfile.HEADSET_CLIENT) {
+                mBluetoothHeadsetClient = null;
+            }
+        }
+    };
     private int mLevel;
-
-    /**
-     * An interface indicating the container of a View that will display what the information
-     * in the {@link CarBatteryController}.
-     */
-    public interface BatteryViewHandler {
-        void hideBatteryView();
-        void showBatteryView();
-    }
-
     private BatteryViewHandler mBatteryViewHandler;
 
     public CarBatteryController(Context context) {
         mContext = context;
 
         if (mAdapter == null) {
-           return;
+            return;
         }
 
         mAdapter.getProfileProxy(context.getApplicationContext(), mHfpServiceListener,
@@ -159,7 +162,7 @@ public class CarBatteryController extends BroadcastReceiver implements BatteryCo
 
             }
             BluetoothDevice device =
-                    (BluetoothDevice)intent.getExtra(BluetoothDevice.EXTRA_DEVICE);
+                    (BluetoothDevice) intent.getExtra(BluetoothDevice.EXTRA_DEVICE);
             updateBatteryIcon(device, newState);
         }
     }
@@ -261,20 +264,14 @@ public class CarBatteryController extends BroadcastReceiver implements BatteryCo
         }
     }
 
-    private final ServiceListener mHfpServiceListener = new ServiceListener() {
-        @Override
-        public void onServiceConnected(int profile, BluetoothProfile proxy) {
-            if (profile == BluetoothProfile.HEADSET_CLIENT) {
-                mBluetoothHeadsetClient = (BluetoothHeadsetClient) proxy;
-            }
-        }
+    /**
+     * An interface indicating the container of a View that will display what the information
+     * in the {@link CarBatteryController}.
+     */
+    public interface BatteryViewHandler {
+        void hideBatteryView();
 
-        @Override
-        public void onServiceDisconnected(int profile) {
-            if (profile == BluetoothProfile.HEADSET_CLIENT) {
-                mBluetoothHeadsetClient = null;
-            }
-        }
-    };
+        void showBatteryView();
+    }
 
 }

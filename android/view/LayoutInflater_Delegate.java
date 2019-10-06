@@ -233,4 +233,15 @@ public class LayoutInflater_Delegate {
 
         LayoutInflater.consumeChildElements(parser);
     }
+
+    @LayoutlibDelegate
+    /* package */ static void initPrecompiledViews(LayoutInflater thisInflater) {
+        initPrecompiledViews(thisInflater, false);
+    }
+
+    @LayoutlibDelegate
+    /* package */ static void initPrecompiledViews(LayoutInflater thisInflater,
+            boolean enablePrecompiledViews) {
+        thisInflater.initPrecompiledViews_Original(enablePrecompiledViews);
+    }
 }

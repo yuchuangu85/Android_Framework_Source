@@ -25,6 +25,7 @@
 package java.net;
 
 import libcore.io.IoBridge;
+import libcore.io.IoUtils;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
@@ -96,9 +97,10 @@ abstract class AbstractPlainDatagramSocketImpl extends DatagramSocketImpl
             throw ioe;
         }
 
-        // Android-added: CloseGuard
+        // Android-added: CloseGuard/fdsan
         if (fd != null && fd.valid()) {
             guard.open("close");
+            IoUtils.setFdOwner(fd, this);
         }
     }
 

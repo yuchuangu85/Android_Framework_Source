@@ -30,7 +30,7 @@ import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Log;
 import com.android.internal.telephony.PhoneConstants;
-import com.android.carrierdefaultapp.R;
+
 /**
  * This util class provides common logic for carrier actions
  */
@@ -56,6 +56,7 @@ public class CarrierActionUtils {
     public static final int CARRIER_ACTION_DISABLE_DEFAULT_URL_HANDLER       = 8;
     public static final int CARRIER_ACTION_REGISTER_DEFAULT_NETWORK_AVAIL    = 9;
     public static final int CARRIER_ACTION_DEREGISTER_DEFAULT_NETWORK_AVAIL  = 10;
+    public static final int CARRIER_ACTION_RESET_ALL                         = 11;
 
     public static void applyCarrierAction(int actionIdx, Intent intent, Context context) {
         switch (actionIdx) {
@@ -92,6 +93,9 @@ public class CarrierActionUtils {
             case CARRIER_ACTION_DEREGISTER_DEFAULT_NETWORK_AVAIL:
                 onDeregisterDefaultNetworkAvail(intent, context);
                 break;
+            case CARRIER_ACTION_RESET_ALL:
+                onResetAllCarrierActions(intent, context);
+                break;
             default:
                 loge("unsupported carrier action index: " + actionIdx);
         }
@@ -102,7 +106,7 @@ public class CarrierActionUtils {
                 SubscriptionManager.getDefaultVoiceSubscriptionId());
         logd("onDisableAllMeteredApns subId: " + subId);
         final TelephonyManager telephonyMgr = context.getSystemService(TelephonyManager.class);
-        telephonyMgr.carrierActionSetMeteredApnsEnabled(subId, !ENABLE);
+        telephonyMgr.createForSubscriptionId(subId).setCarrierDataEnabled(!ENABLE);
     }
 
     private static void onEnableAllMeteredApns(Intent intent, Context context) {
@@ -110,7 +114,7 @@ public class CarrierActionUtils {
                 SubscriptionManager.getDefaultVoiceSubscriptionId());
         logd("onEnableAllMeteredApns subId: " + subId);
         final TelephonyManager telephonyMgr = context.getSystemService(TelephonyManager.class);
-        telephonyMgr.carrierActionSetMeteredApnsEnabled(subId, ENABLE);
+        telephonyMgr.createForSubscriptionId(subId).setCarrierDataEnabled(ENABLE);
     }
 
     private static void onEnableDefaultURLHandler(Context context) {
@@ -194,6 +198,14 @@ public class CarrierActionUtils {
     private static void onCancelAllNotifications(Context context) {
         logd("onCancelAllNotifications");
         context.getSystemService(NotificationManager.class).cancelAll();
+    }
+
+    private static void onResetAllCarrierActions(Intent intent, Context context) {
+        int subId = intent.getIntExtra(PhoneConstants.SUBSCRIPTION_KEY,
+                SubscriptionManager.getDefaultVoiceSubscriptionId());
+        logd("onResetAllCarrierActions subId: " + subId);
+        final TelephonyManager telephonyMgr = context.getSystemService(TelephonyManager.class);
+        telephonyMgr.carrierActionResetAll(subId);
     }
 
     private static Notification getNotification(Context context, int titleId, int textId,

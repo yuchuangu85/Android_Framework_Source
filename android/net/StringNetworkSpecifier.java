@@ -16,6 +16,7 @@
 
 package android.net;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
@@ -29,6 +30,7 @@ public final class StringNetworkSpecifier extends NetworkSpecifier implements Pa
     /**
      * Arbitrary string used to pass (additional) information to the network factory.
      */
+    @UnsupportedAppUsage
     public final String specifier;
 
     public StringNetworkSpecifier(String specifier) {
@@ -67,7 +69,7 @@ public final class StringNetworkSpecifier extends NetworkSpecifier implements Pa
         dest.writeString(specifier);
     }
 
-    public static final Parcelable.Creator<StringNetworkSpecifier> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<StringNetworkSpecifier> CREATOR =
             new Parcelable.Creator<StringNetworkSpecifier>() {
         public StringNetworkSpecifier createFromParcel(Parcel in) {
             return new StringNetworkSpecifier(in.readString());

@@ -38,8 +38,8 @@ import dalvik.annotation.optimization.FastNative;
  * @author   Mark Reinhold
  * @since    1.2
  */
-// Android-changed: Major parts of the code below were changed to accomodate a
-// different GC and compiler. ClassLinker knows about the fields of this class.
+// BEGIN Android-changed: Reimplemented to accommodate a different GC and compiler.
+// ClassLinker knows about the fields of this class.
 
 public abstract class Reference<T> {
     /**
@@ -156,7 +156,6 @@ public abstract class Reference<T> {
        return queue != null && queue.enqueue(this);
     }
 
-
     /* -- Constructors -- */
 
     Reference(T referent) {
@@ -167,8 +166,10 @@ public abstract class Reference<T> {
         this.referent = referent;
         this.queue = queue;
     }
+    // END Android-changed: Reimplemented to accommodate a different GC and compiler.
 
-    // BEGIN Android-added: reachabilityFence() documentation from upstream OpenJDK9+181
+    // BEGIN Android-added: reachabilityFence() from upstream OpenJDK9+181.
+    // The actual implementation differs from OpenJDK9.
     /**
      * Ensures that the object referenced by the given reference remains
      * <a href="package-summary.html#reachability"><em>strongly reachable</em></a>,
@@ -278,9 +279,7 @@ public abstract class Reference<T> {
      * @param ref the reference. If {@code null}, this method has no effect.
      * @since 9
      */
-    // END Android-added: reachabilityFence() documentation from upstream OpenJDK9+181
-
-    // Android-changed: reachabilityFence implementation differs from OpenJDK9.
+    // @DontInline
     public static void reachabilityFence(Object ref) {
         // This code is usually replaced by much faster intrinsic implementations.
         // It will be executed for tests run with the access checks interpreter in
@@ -312,4 +311,5 @@ public abstract class Reference<T> {
             }
         };
     }
+    // END Android-added: reachabilityFence() from upstream OpenJDK9+181.
 }

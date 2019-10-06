@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.cdma;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Message;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
@@ -43,6 +44,7 @@ public class CdmaSMSDispatcher extends SMSDispatcher {
         Rlog.d(TAG, "CdmaSMSDispatcher created");
     }
 
+    @UnsupportedAppUsage
     @Override
     public String getFormat() {
         return SmsConstants.FORMAT_3GPP2;
@@ -96,6 +98,7 @@ public class CdmaSMSDispatcher extends SMSDispatcher {
      * Called from parent class to handle status report from {@code CdmaInboundSmsHandler}.
      * @param sms the CDMA SMS message to process
      */
+    @UnsupportedAppUsage
     private void handleCdmaStatusReport(SmsMessage sms) {
         for (int i = 0, count = deliveryPendingList.size(); i < count; i++) {
             SmsTracker tracker = deliveryPendingList.get(i);

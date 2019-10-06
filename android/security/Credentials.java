@@ -16,15 +16,11 @@
 
 package android.security;
 
-import android.content.ActivityNotFoundException;
-import android.content.Context;
-import android.content.Intent;
-import android.util.Log;
-
 import com.android.org.bouncycastle.util.io.pem.PemObject;
 import com.android.org.bouncycastle.util.io.pem.PemReader;
 import com.android.org.bouncycastle.util.io.pem.PemWriter;
 
+import android.annotation.UnsupportedAppUsage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -33,7 +29,6 @@ import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
-import java.security.KeyPair;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
@@ -51,8 +46,6 @@ public class Credentials {
     public static final String INSTALL_ACTION = "android.credentials.INSTALL";
 
     public static final String INSTALL_AS_USER_ACTION = "android.credentials.INSTALL_AS_USER";
-
-    public static final String UNLOCK_ACTION = "com.android.credentials.UNLOCK";
 
     /** Key prefix for CA certificates. */
     public static final String CA_CERTIFICATE = "CACERT_";
@@ -130,6 +123,7 @@ public class Credentials {
      * Convert objects to a PEM format which is used for
      * CA_CERTIFICATE and USER_CERTIFICATE entries.
      */
+    @UnsupportedAppUsage
     public static byte[] convertToPem(Certificate... objects)
             throws IOException, CertificateEncodingException {
         ByteArrayOutputStream bao = new ByteArrayOutputStream();
@@ -167,54 +161,6 @@ public class Credentials {
             return result;
         } finally {
             pr.close();
-        }
-    }
-
-    private static Credentials singleton;
-
-    public static Credentials getInstance() {
-        if (singleton == null) {
-            singleton = new Credentials();
-        }
-        return singleton;
-    }
-
-    public void unlock(Context context) {
-        try {
-            Intent intent = new Intent(UNLOCK_ACTION);
-            context.startActivity(intent);
-        } catch (ActivityNotFoundException e) {
-            Log.w(LOGTAG, e.toString());
-        }
-    }
-
-    public void install(Context context) {
-        try {
-            Intent intent = KeyChain.createInstallIntent();
-            context.startActivity(intent);
-        } catch (ActivityNotFoundException e) {
-            Log.w(LOGTAG, e.toString());
-        }
-    }
-
-    public void install(Context context, KeyPair pair) {
-        try {
-            Intent intent = KeyChain.createInstallIntent();
-            intent.putExtra(EXTRA_PRIVATE_KEY, pair.getPrivate().getEncoded());
-            intent.putExtra(EXTRA_PUBLIC_KEY, pair.getPublic().getEncoded());
-            context.startActivity(intent);
-        } catch (ActivityNotFoundException e) {
-            Log.w(LOGTAG, e.toString());
-        }
-    }
-
-    public void install(Context context, String type, byte[] value) {
-        try {
-            Intent intent = KeyChain.createInstallIntent();
-            intent.putExtra(type, value);
-            context.startActivity(intent);
-        } catch (ActivityNotFoundException e) {
-            Log.w(LOGTAG, e.toString());
         }
     }
 
@@ -277,8 +223,11 @@ public class Credentials {
      * Returns {@code true} if the entry no longer exists.
      */
     public static boolean deleteUserKeyTypeForAlias(KeyStore keystore, String alias, int uid) {
-        return keystore.delete(Credentials.USER_PRIVATE_KEY + alias, uid) ||
-                keystore.delete(Credentials.USER_SECRET_KEY + alias, uid);
+        int ret = keystore.delete2(Credentials.USER_PRIVATE_KEY + alias, uid);
+        if (ret == KeyStore.KEY_NOT_FOUND) {
+            return keystore.delete(Credentials.USER_SECRET_KEY + alias, uid);
+        }
+        return ret == KeyStore.NO_ERROR;
     }
 
     /**

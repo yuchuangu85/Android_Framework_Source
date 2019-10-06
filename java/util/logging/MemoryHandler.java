@@ -129,12 +129,13 @@ public class MemoryHandler extends Handler {
                     + " does not specify a target");
         }
         Class<?> clz;
-
         try {
             clz = ClassLoader.getSystemClassLoader().loadClass(targetName);
             target = (Handler) clz.newInstance();
-        } catch (Exception ex) {
-            // Android-changed: Try to load the class from the context class loader.
+        // Android-changed: Fall back to the context classloader before giving up.
+        // } catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
+        //     throw new RuntimeException("MemoryHandler can't load handler target \"" + targetName + "\"" , e);
+        } catch (Exception e) {
             try {
                 clz = Thread.currentThread().getContextClassLoader()
                         .loadClass(targetName);

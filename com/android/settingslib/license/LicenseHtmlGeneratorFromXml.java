@@ -16,10 +16,11 @@
 
 package com.android.settingslib.license;
 
-import android.support.annotation.VisibleForTesting;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Xml;
+
+import androidx.annotation.VisibleForTesting;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -45,7 +46,7 @@ import java.util.zip.GZIPInputStream;
  * TODO: Remove duplicate codes once backward support ends.
  */
 class LicenseHtmlGeneratorFromXml {
-    private static final String TAG = "LicenseHtmlGeneratorFromXml";
+    private static final String TAG = "LicenseGeneratorFromXml";
 
     private static final String TAG_ROOT = "licenses";
     private static final String TAG_FILE_NAME = "file-name";
@@ -106,12 +107,13 @@ class LicenseHtmlGeneratorFromXml {
         mXmlFiles = xmlFiles;
     }
 
-    public static boolean generateHtml(List<File> xmlFiles, File outputFile) {
+    public static boolean generateHtml(List<File> xmlFiles, File outputFile,
+            String noticeHeader) {
         LicenseHtmlGeneratorFromXml genertor = new LicenseHtmlGeneratorFromXml(xmlFiles);
-        return genertor.generateHtml(outputFile);
+        return genertor.generateHtml(outputFile, noticeHeader);
     }
 
-    private boolean generateHtml(File outputFile) {
+    private boolean generateHtml(File outputFile, String noticeHeader) {
         for (File xmlFile : mXmlFiles) {
             parse(xmlFile);
         }
@@ -124,7 +126,8 @@ class LicenseHtmlGeneratorFromXml {
         try {
             writer = new PrintWriter(outputFile);
 
-            generateHtml(mFileNameToContentIdMap, mContentIdToFileContentMap, writer);
+            generateHtml(mFileNameToContentIdMap, mContentIdToFileContentMap, writer,
+                noticeHeader);
 
             writer.flush();
             writer.close();
@@ -238,12 +241,17 @@ class LicenseHtmlGeneratorFromXml {
 
     @VisibleForTesting
     static void generateHtml(Map<String, String> fileNameToContentIdMap,
-            Map<String, String> contentIdToFileContentMap, PrintWriter writer) {
+            Map<String, String> contentIdToFileContentMap, PrintWriter writer,
+            String noticeHeader) {
         List<String> fileNameList = new ArrayList();
         fileNameList.addAll(fileNameToContentIdMap.keySet());
         Collections.sort(fileNameList);
 
         writer.println(HTML_HEAD_STRING);
+
+        if (!TextUtils.isEmpty(noticeHeader)) {
+            writer.println(noticeHeader);
+        }
 
         int count = 0;
         Map<String, Integer> contentIdToOrderMap = new HashMap();

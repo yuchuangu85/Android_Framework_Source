@@ -22,11 +22,11 @@ import android.widget.Button;
 
 public class NavigationBarButton extends Button {
 
-    public NavigationBarButton(Context context) {
-        super(context);
-    }
+  public NavigationBarButton(Context context) {
+    super(context);
+  }
 
-    public NavigationBarButton(Context context, AttributeSet attrs) {
-        super(context, attrs);
-    }
+  public NavigationBarButton(Context context, AttributeSet attrs) {
+    super(context, attrs);
+  }
 }

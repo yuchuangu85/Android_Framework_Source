@@ -62,6 +62,7 @@ public interface RemoteBridge extends Remote {
      *
      * @param platformProperties The build properties for the platform.
      * @param fontLocation the location of the fonts.
+     * @param icuDataPath the location of the ICU data used natively.
      * @param enumValueMap map attrName ⇒ { map enumFlagName ⇒ Integer value }. This is typically
      * read from attrs.xml in the SDK target.
      * @param log a {@link LayoutLog} object. Can be null.
@@ -69,8 +70,8 @@ public interface RemoteBridge extends Remote {
      * @return true if success.
      */
     boolean init(@NotNull Map<String, String> platformProperties, File fontLocation,
-            @NotNull Map<String, Map<String, Integer>> enumValueMap, @Nullable RemoteLayoutLog log)
-            throws RemoteException;
+            String icuDataPath, @NotNull Map<String, Map<String, Integer>> enumValueMap,
+            @Nullable RemoteLayoutLog log) throws RemoteException;
 
     /**
      * Prepares the layoutlib to be unloaded.

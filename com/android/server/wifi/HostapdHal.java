@@ -24,7 +24,9 @@ import android.hardware.wifi.hostapd.V1_0.IHostapd;
 import android.hidl.manager.V1_0.IServiceManager;
 import android.hidl.manager.V1_0.IServiceNotification;
 import android.net.wifi.WifiConfiguration;
+import android.os.Handler;
 import android.os.HwRemoteBinder;
+import android.os.Looper;
 import android.os.RemoteException;
 import android.util.Log;
 
@@ -32,6 +34,11 @@ import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.wifi.WifiNative.HostapdDeathEventHandler;
 import com.android.server.wifi.util.NativeUtil;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.NoSuchElementException;
 
 import javax.annotation.concurrent.ThreadSafe;
 
@@ -42,16 +49,26 @@ import javax.annotation.concurrent.ThreadSafe;
 @ThreadSafe
 public class HostapdHal {
     private static final String TAG = "HostapdHal";
+    @VisibleForTesting
+    public static final String HAL_INSTANCE_NAME = "default";
 
     private final Object mLock = new Object();
     private boolean mVerboseLoggingEnabled = false;
+    private final Handler mEventHandler;
     private final boolean mEnableAcs;
     private final boolean mEnableIeee80211AC;
+    private final List<android.hardware.wifi.hostapd.V1_1.IHostapd.AcsChannelRange>
+            mAcsChannelRanges;
 
     // Hostapd HAL interface objects
     private IServiceManager mIServiceManager = null;
     private IHostapd mIHostapd;
+    private HashMap<String, WifiNative.SoftApListener> mSoftApListeners = new HashMap<>();
     private HostapdDeathEventHandler mDeathEventHandler;
+    private ServiceManagerDeathRecipient mServiceManagerDeathRecipient;
+    private HostapdDeathRecipient mHostapdDeathRecipient;
+    // Death recipient cookie registered for current supplicant instance.
+    private long mDeathRecipientCookie = 0;
 
     private final IServiceNotification mServiceNotificationCallback =
             new IServiceNotification.Stub() {
@@ -63,34 +80,47 @@ public class HostapdHal {
                 }
                 if (!initHostapdService()) {
                     Log.e(TAG, "initalizing IHostapd failed.");
-                    hostapdServiceDiedHandler();
+                    hostapdServiceDiedHandler(mDeathRecipientCookie);
                 } else {
                     Log.i(TAG, "Completed initialization of IHostapd.");
                 }
             }
         }
     };
-    private final HwRemoteBinder.DeathRecipient mServiceManagerDeathRecipient =
-            cookie -> {
+    private class ServiceManagerDeathRecipient implements HwRemoteBinder.DeathRecipient {
+        @Override
+        public void serviceDied(long cookie) {
+            mEventHandler.post(() -> {
                 synchronized (mLock) {
                     Log.w(TAG, "IServiceManager died: cookie=" + cookie);
-                    hostapdServiceDiedHandler();
+                    hostapdServiceDiedHandler(mDeathRecipientCookie);
                     mIServiceManager = null; // Will need to register a new ServiceNotification
                 }
-            };
-    private final HwRemoteBinder.DeathRecipient mHostapdDeathRecipient =
-            cookie -> {
+            });
+        }
+    }
+    private class HostapdDeathRecipient implements HwRemoteBinder.DeathRecipient {
+        @Override
+        public void serviceDied(long cookie) {
+            mEventHandler.post(() -> {
                 synchronized (mLock) {
                     Log.w(TAG, "IHostapd/IHostapd died: cookie=" + cookie);
-                    hostapdServiceDiedHandler();
+                    hostapdServiceDiedHandler(cookie);
                 }
-            };
+            });
+        }
+    }
 
-
-    public HostapdHal(Context context) {
+    public HostapdHal(Context context, Looper looper) {
+        mEventHandler = new Handler(looper);
         mEnableAcs = context.getResources().getBoolean(R.bool.config_wifi_softap_acs_supported);
         mEnableIeee80211AC =
                 context.getResources().getBoolean(R.bool.config_wifi_softap_ieee80211ac_supported);
+        mAcsChannelRanges = toAcsChannelRanges(context.getResources().getString(
+                R.string.config_wifi_softap_acs_supported_channel_list));
+
+        mServiceManagerDeathRecipient = new ServiceManagerDeathRecipient();
+        mHostapdDeathRecipient = new HostapdDeathRecipient();
     }
 
     /**
@@ -105,6 +135,30 @@ public class HostapdHal {
     }
 
     /**
+     * Uses the IServiceManager to check if the device is running V1_1 of the HAL from the VINTF for
+     * the device.
+     * @return true if supported, false otherwise.
+     */
+    private boolean isV1_1() {
+        synchronized (mLock) {
+            if (mIServiceManager == null) {
+                Log.e(TAG, "isV1_1: called but mServiceManager is null!?");
+                return false;
+            }
+            try {
+                return (mIServiceManager.getTransport(
+                        android.hardware.wifi.hostapd.V1_1.IHostapd.kInterfaceName,
+                        HAL_INSTANCE_NAME)
+                        != IServiceManager.Transport.EMPTY);
+            } catch (RemoteException e) {
+                Log.e(TAG, "Exception while operating on IServiceManager: " + e);
+                handleRemoteException(e, "getTransport");
+                return false;
+            }
+        }
+    }
+
+    /**
      * Link to death for IServiceManager object.
      * @return true on success, false otherwise.
      */
@@ -114,7 +168,7 @@ public class HostapdHal {
             try {
                 if (!mIServiceManager.linkToDeath(mServiceManagerDeathRecipient, 0)) {
                     Log.wtf(TAG, "Error on linkToDeath on IServiceManager");
-                    hostapdServiceDiedHandler();
+                    hostapdServiceDiedHandler(mDeathRecipientCookie);
                     mIServiceManager = null; // Will need to register a new ServiceNotification
                     return false;
                 }
@@ -164,7 +218,7 @@ public class HostapdHal {
             } catch (RemoteException e) {
                 Log.e(TAG, "Exception while trying to register a listener for IHostapd service: "
                         + e);
-                hostapdServiceDiedHandler();
+                hostapdServiceDiedHandler(mDeathRecipientCookie);
                 mIServiceManager = null; // Will need to register a new ServiceNotification
                 return false;
             }
@@ -180,9 +234,9 @@ public class HostapdHal {
         synchronized (mLock) {
             if (mIHostapd == null) return false;
             try {
-                if (!mIHostapd.linkToDeath(mHostapdDeathRecipient, 0)) {
+                if (!mIHostapd.linkToDeath(mHostapdDeathRecipient, ++mDeathRecipientCookie)) {
                     Log.wtf(TAG, "Error on linkToDeath on IHostapd");
-                    hostapdServiceDiedHandler();
+                    hostapdServiceDiedHandler(mDeathRecipientCookie);
                     return false;
                 }
             } catch (RemoteException e) {
@@ -190,6 +244,22 @@ public class HostapdHal {
                 return false;
             }
             return true;
+        }
+    }
+
+    private boolean registerCallback(
+            android.hardware.wifi.hostapd.V1_1.IHostapdCallback callback) {
+        synchronized (mLock) {
+            String methodStr = "registerCallback_1_1";
+            try {
+                android.hardware.wifi.hostapd.V1_1.IHostapd iHostapdV1_1 = getHostapdMockableV1_1();
+                if (iHostapdV1_1 == null) return false;
+                HostapdStatus status =  iHostapdV1_1.registerCallback(callback);
+                return checkStatusAndLogFailure(status, methodStr);
+            } catch (RemoteException e) {
+                handleRemoteException(e, methodStr);
+                return false;
+            }
         }
     }
 
@@ -204,12 +274,21 @@ public class HostapdHal {
             } catch (RemoteException e) {
                 Log.e(TAG, "IHostapd.getService exception: " + e);
                 return false;
+            } catch (NoSuchElementException e) {
+                Log.e(TAG, "IHostapd.getService exception: " + e);
+                return false;
             }
             if (mIHostapd == null) {
                 Log.e(TAG, "Got null IHostapd service. Stopping hostapd HIDL startup");
                 return false;
             }
             if (!linkToHostapdDeath()) {
+                mIHostapd = null;
+                return false;
+            }
+            // Register for callbacks for 1.1 hostapd.
+            if (isV1_1() && !registerCallback(new HostapdCallback())) {
+                mIHostapd = null;
                 return false;
             }
         }
@@ -221,9 +300,11 @@ public class HostapdHal {
      *
      * @param ifaceName Name of the interface.
      * @param config Configuration to use for the AP.
+     * @param listener Callback for AP events.
      * @return true on success, false otherwise.
      */
-    public boolean addAccessPoint(@NonNull String ifaceName, @NonNull WifiConfiguration config) {
+    public boolean addAccessPoint(@NonNull String ifaceName, @NonNull WifiConfiguration config,
+                                  @NonNull WifiNative.SoftApListener listener) {
         synchronized (mLock) {
             final String methodStr = "addAccessPoint";
             IHostapd.IfaceParams ifaceParams = new IHostapd.IfaceParams();
@@ -263,8 +344,26 @@ public class HostapdHal {
             nwParams.pskPassphrase = (config.preSharedKey != null) ? config.preSharedKey : "";
             if (!checkHostapdAndLogFailure(methodStr)) return false;
             try {
-                HostapdStatus status = mIHostapd.addAccessPoint(ifaceParams, nwParams);
-                return checkStatusAndLogFailure(status, methodStr);
+                HostapdStatus status;
+                if (isV1_1()) {
+                    android.hardware.wifi.hostapd.V1_1.IHostapd.IfaceParams ifaceParams1_1 =
+                            new android.hardware.wifi.hostapd.V1_1.IHostapd.IfaceParams();
+                    ifaceParams1_1.V1_0 = ifaceParams;
+                    if (mEnableAcs) {
+                        ifaceParams1_1.channelParams.acsChannelRanges.addAll(mAcsChannelRanges);
+                    }
+                    android.hardware.wifi.hostapd.V1_1.IHostapd iHostapdV1_1 =
+                            getHostapdMockableV1_1();
+                    if (iHostapdV1_1 == null) return false;
+                    status = iHostapdV1_1.addAccessPoint_1_1(ifaceParams1_1, nwParams);
+                } else {
+                    status = mIHostapd.addAccessPoint(ifaceParams, nwParams);
+                }
+                if (!checkStatusAndLogFailure(status, methodStr)) {
+                    return false;
+                }
+                mSoftApListeners.put(ifaceName, listener);
+                return true;
             } catch (RemoteException e) {
                 handleRemoteException(e, methodStr);
                 return false;
@@ -284,7 +383,11 @@ public class HostapdHal {
             if (!checkHostapdAndLogFailure(methodStr)) return false;
             try {
                 HostapdStatus status = mIHostapd.removeAccessPoint(ifaceName);
-                return checkStatusAndLogFailure(status, methodStr);
+                if (!checkStatusAndLogFailure(status, methodStr)) {
+                    return false;
+                }
+                mSoftApListeners.remove(ifaceName);
+                return true;
             } catch (RemoteException e) {
                 handleRemoteException(e, methodStr);
                 return false;
@@ -328,8 +431,12 @@ public class HostapdHal {
     /**
      * Handle hostapd death.
      */
-    private void hostapdServiceDiedHandler() {
+    private void hostapdServiceDiedHandler(long cookie) {
         synchronized (mLock) {
+            if (mDeathRecipientCookie != cookie) {
+                Log.i(TAG, "Ignoring stale death recipient notification");
+                return;
+            }
             clearState();
             if (mDeathEventHandler != null) {
                 mDeathEventHandler.onDeath();
@@ -352,6 +459,29 @@ public class HostapdHal {
     public boolean isInitializationComplete() {
         synchronized (mLock) {
             return mIHostapd != null;
+        }
+    }
+
+    /**
+     * Start the hostapd daemon.
+     *
+     * @return true on success, false otherwise.
+     */
+    public boolean startDaemon() {
+        synchronized (mLock) {
+            try {
+                // This should startup hostapd daemon using the lazy start HAL mechanism.
+                getHostapdMockable();
+            } catch (RemoteException e) {
+                Log.e(TAG, "Exception while trying to start hostapd: "
+                        + e);
+                hostapdServiceDiedHandler(mDeathRecipientCookie);
+                return false;
+            } catch (NoSuchElementException e) {
+                // We're starting the daemon, so expect |NoSuchElementException|.
+                Log.d(TAG, "Successfully triggered start of hostapd using HIDL");
+            }
+            return true;
         }
     }
 
@@ -384,6 +514,19 @@ public class HostapdHal {
     protected IHostapd getHostapdMockable() throws RemoteException {
         synchronized (mLock) {
             return IHostapd.getService();
+        }
+    }
+
+    @VisibleForTesting
+    protected android.hardware.wifi.hostapd.V1_1.IHostapd getHostapdMockableV1_1()
+            throws RemoteException {
+        synchronized (mLock) {
+            try {
+                return android.hardware.wifi.hostapd.V1_1.IHostapd.castFrom(mIHostapd);
+            } catch (NoSuchElementException e) {
+                Log.e(TAG, "Failed to get IHostapd", e);
+                return null;
+            }
         }
     }
 
@@ -427,6 +570,46 @@ public class HostapdHal {
     }
 
     /**
+     * Convert channel list string like '1-6,11' to list of AcsChannelRanges
+     */
+    private List<android.hardware.wifi.hostapd.V1_1.IHostapd.AcsChannelRange>
+            toAcsChannelRanges(String channelListStr) {
+        ArrayList<android.hardware.wifi.hostapd.V1_1.IHostapd.AcsChannelRange> acsChannelRanges =
+                new ArrayList<>();
+        String[] channelRanges = channelListStr.split(",");
+        for (String channelRange : channelRanges) {
+            android.hardware.wifi.hostapd.V1_1.IHostapd.AcsChannelRange acsChannelRange =
+                    new android.hardware.wifi.hostapd.V1_1.IHostapd.AcsChannelRange();
+            try {
+                if (channelRange.contains("-")) {
+                    String[] channels  = channelRange.split("-");
+                    if (channels.length != 2) {
+                        Log.e(TAG, "Unrecognized channel range, length is " + channels.length);
+                        continue;
+                    }
+                    int start = Integer.parseInt(channels[0]);
+                    int end = Integer.parseInt(channels[1]);
+                    if (start > end) {
+                        Log.e(TAG, "Invalid channel range, from " + start + " to " + end);
+                        continue;
+                    }
+                    acsChannelRange.start = start;
+                    acsChannelRange.end = end;
+                } else {
+                    acsChannelRange.start = Integer.parseInt(channelRange);
+                    acsChannelRange.end = acsChannelRange.start;
+                }
+            } catch (NumberFormatException e) {
+                // Ignore malformed value
+                Log.e(TAG, "Malformed channel value detected: " + e);
+                continue;
+            }
+            acsChannelRanges.add(acsChannelRange);
+        }
+        return acsChannelRanges;
+    }
+
+    /**
      * Returns false if Hostapd is null, and logs failure to call methodStr
      */
     private boolean checkHostapdAndLogFailure(String methodStr) {
@@ -461,20 +644,20 @@ public class HostapdHal {
 
     private void handleRemoteException(RemoteException e, String methodStr) {
         synchronized (mLock) {
-            hostapdServiceDiedHandler();
+            hostapdServiceDiedHandler(mDeathRecipientCookie);
             Log.e(TAG, "IHostapd." + methodStr + " failed with exception", e);
         }
     }
 
-    private static void logd(String s) {
-        Log.d(TAG, s);
-    }
-
-    private static void logi(String s) {
-        Log.i(TAG, s);
-    }
-
-    private static void loge(String s) {
-        Log.e(TAG, s);
+    private class HostapdCallback extends
+            android.hardware.wifi.hostapd.V1_1.IHostapdCallback.Stub {
+        @Override
+        public void onFailure(String ifaceName) {
+            Log.w(TAG, "Failure on iface " + ifaceName);
+            WifiNative.SoftApListener listener = mSoftApListeners.get(ifaceName);
+            if (listener != null) {
+                listener.onFailure();
+            }
+        }
     }
 }

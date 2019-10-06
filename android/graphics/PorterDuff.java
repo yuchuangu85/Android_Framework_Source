@@ -16,11 +16,15 @@
 
 package android.graphics;
 
+import android.annotation.UnsupportedAppUsage;
+
 /**
  * <p>This class contains the list of alpha compositing and blending modes
  * that can be passed to {@link PorterDuffXfermode}, a specialized implementation
  * of {@link Paint}'s {@link Paint#setXfermode(Xfermode) transfer mode}.
  * All the available modes can be found in the {@link Mode} enum.</p>
+ *
+ * Consider using {@link BlendMode} instead as it provides a wider variety of tinting options
  */
 public class PorterDuff {
     /**
@@ -364,6 +368,7 @@ public class PorterDuff {
         /**
          * @hide
          */
+        @UnsupportedAppUsage
         public final int nativeInt;
     }
 

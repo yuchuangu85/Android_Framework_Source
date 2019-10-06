@@ -35,6 +35,7 @@ import java.util.TimeZone;
 public final class NitzData {
     private static final String LOG_TAG = ServiceStateTracker.LOG_TAG;
     private static final int MS_PER_QUARTER_HOUR = 15 * 60 * 1000;
+    private static final int MS_PER_HOUR = 60 * 60 * 1000;
 
     /* Time stamp after 19 January 2038 is not supported under 32 bit */
     private static final int MAX_NITZ_YEAR = 2037;
@@ -111,11 +112,11 @@ public final class NitzData {
 
             // DST correction is already applied to the UTC offset. We could subtract it if we
             // wanted the raw offset.
-            Integer dstAdjustmentQuarterHours =
+            Integer dstAdjustmentHours =
                     (nitzSubs.length >= 8) ? Integer.parseInt(nitzSubs[7]) : null;
             Integer dstAdjustmentMillis = null;
-            if (dstAdjustmentQuarterHours != null) {
-                dstAdjustmentMillis = dstAdjustmentQuarterHours * MS_PER_QUARTER_HOUR;
+            if (dstAdjustmentHours != null) {
+                dstAdjustmentMillis = dstAdjustmentHours * MS_PER_HOUR;
             }
 
             // As a special extension, the Android emulator appends the name of

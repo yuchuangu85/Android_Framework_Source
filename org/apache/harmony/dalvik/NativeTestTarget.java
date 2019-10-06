@@ -23,47 +23,62 @@ import dalvik.annotation.optimization.FastNative;
  * Methods used to test calling into native code. The methods in this
  * class are all effectively no-ops and may be used to test the mechanisms
  * and performance of calling native methods.
+ * @hide
  */
+@libcore.api.CorePlatformApi
 public final class NativeTestTarget {
+    @libcore.api.CorePlatformApi
     public NativeTestTarget() {
     }
 
     /**
      * This is used to benchmark dalvik's inline natives.
      */
+    @libcore.api.CorePlatformApi
     public static void emptyInlineMethod() {
     }
 
     /**
      * This is used to benchmark dalvik's inline natives.
      */
+    @libcore.api.CorePlatformApi
     public static native void emptyInternalStaticMethod();
 
     // Synchronized methods. Test normal JNI only.
+    @libcore.api.CorePlatformApi
     public static native synchronized void emptyJniStaticSynchronizedMethod0();
+    @libcore.api.CorePlatformApi
     public native synchronized void emptyJniSynchronizedMethod0();
 
     // Static methods without object parameters. Test all optimization combinations.
 
     // Normal native.
+    @libcore.api.CorePlatformApi
     public static native void emptyJniStaticMethod0();
     // Normal native.
+    @libcore.api.CorePlatformApi
     public static native void emptyJniStaticMethod6(int a, int b, int c, int d, int e, int f);
 
+    @libcore.api.CorePlatformApi
     @FastNative
     public static native void emptyJniStaticMethod0_Fast();
+    @libcore.api.CorePlatformApi
     @FastNative
     public static native void emptyJniStaticMethod6_Fast(int a, int b, int c, int d, int e, int f);
 
+    @libcore.api.CorePlatformApi
     @CriticalNative
     public static native void emptyJniStaticMethod0_Critical();
+    @libcore.api.CorePlatformApi
     @CriticalNative
     public static native void emptyJniStaticMethod6_Critical(int a, int b, int c, int d, int e, int f);
     // Instance methods or methods with object parameters. Test {Normal, @FastNative} combinations.
 
     // Normal native.
+    @libcore.api.CorePlatformApi
     public native void emptyJniMethod0();
     // Normal native.
+    @libcore.api.CorePlatformApi
     public native void emptyJniMethod6(int a, int b, int c, int d, int e, int f);
 
     /**
@@ -73,15 +88,19 @@ public final class NativeTestTarget {
      * references.
      */
     // Normal native.
+    @libcore.api.CorePlatformApi
     public static native void emptyJniStaticMethod6L(String a, String[] b,
         int[][] c, Object d, Object[] e, Object[][][][] f);
 
     // Normal native.
+    @libcore.api.CorePlatformApi
     public native void emptyJniMethod6L(String a, String[] b,
         int[][] c, Object d, Object[] e, Object[][][][] f);
 
+    @libcore.api.CorePlatformApi
     @FastNative
     public native void emptyJniMethod0_Fast();
+    @libcore.api.CorePlatformApi
     @FastNative
     public native void emptyJniMethod6_Fast(int a, int b, int c, int d, int e, int f);
 
@@ -91,10 +110,12 @@ public final class NativeTestTarget {
      * parsing the signature. All six values should be null
      * references.
      */
+    @libcore.api.CorePlatformApi
     @FastNative
     public static native void emptyJniStaticMethod6L_Fast(String a, String[] b,
         int[][] c, Object d, Object[] e, Object[][][][] f);
 
+    @libcore.api.CorePlatformApi
     @FastNative
     public native void emptyJniMethod6L_Fast(String a, String[] b,
         int[][] c, Object d, Object[] e, Object[][][][] f);

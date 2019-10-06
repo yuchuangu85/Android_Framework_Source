@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.telephony.Rlog;
 
 import com.android.internal.telephony.Phone;
@@ -178,6 +179,7 @@ public class TelephonyCapabilities {
      * of public API, with which the argument should be replaced with
      * something more appropriate.
      */
+    @UnsupportedAppUsage
     public static boolean supportsAdn(int phoneType) {
         return phoneType == PhoneConstants.PHONE_TYPE_GSM;
     }

@@ -94,12 +94,8 @@ public class WakeupConfigStoreData implements StoreData {
     }
 
     @Override
-    public void serializeData(XmlSerializer out, boolean shared)
+    public void serializeData(XmlSerializer out)
             throws XmlPullParserException, IOException {
-        if (shared) {
-            throw new XmlPullParserException("Share data not supported");
-        }
-
         writeFeatureState(out);
 
         for (ScanResultMatchInfo scanResultMatchInfo : mNetworkDataSource.getData()) {
@@ -145,21 +141,15 @@ public class WakeupConfigStoreData implements StoreData {
     }
 
     @Override
-    public void deserializeData(XmlPullParser in, int outerTagDepth, boolean shared)
+    public void deserializeData(XmlPullParser in, int outerTagDepth)
             throws XmlPullParserException, IOException {
-        if (!shared) {
-            if (!mHasBeenRead) {
-                Log.d(TAG, "WifiWake user data has been read");
-                mHasBeenRead = true;
-            }
+        if (!mHasBeenRead) {
+            Log.d(TAG, "WifiWake user data has been read");
+            mHasBeenRead = true;
         }
-
         // Ignore empty reads.
         if (in == null) {
             return;
-        }
-        if (shared) {
-            throw new XmlPullParserException("Shared data not supported");
         }
 
         Set<ScanResultMatchInfo> networks = new ArraySet<>();
@@ -254,13 +244,17 @@ public class WakeupConfigStoreData implements StoreData {
     }
 
     @Override
-    public void resetData(boolean shared) {
-        if (!shared) {
-            mNetworkDataSource.setData(Collections.emptySet());
-            mIsActiveDataSource.setData(false);
-            mIsOnboardedDataSource.setData(false);
-            mNotificationsDataSource.setData(0);
-        }
+    public void resetData() {
+        mNetworkDataSource.setData(Collections.emptySet());
+        mIsActiveDataSource.setData(false);
+        mIsOnboardedDataSource.setData(false);
+        mNotificationsDataSource.setData(0);
+    }
+
+    @Override
+    public boolean hasNewDataToSerialize() {
+        // always persist.
+        return true;
     }
 
     @Override
@@ -269,7 +263,8 @@ public class WakeupConfigStoreData implements StoreData {
     }
 
     @Override
-    public boolean supportShareData() {
-        return false;
+    public @WifiConfigStore.StoreFileId int getStoreFileId() {
+        // Shared general store.
+        return WifiConfigStore.STORE_FILE_USER_GENERAL;
     }
 }

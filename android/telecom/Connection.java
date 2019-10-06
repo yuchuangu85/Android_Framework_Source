@@ -16,13 +16,10 @@
 
 package android.telecom;
 
-import com.android.internal.os.SomeArgs;
-import com.android.internal.telecom.IVideoCallback;
-import com.android.internal.telecom.IVideoProvider;
-
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.app.Notification;
 import android.bluetooth.BluetoothDevice;
 import android.content.Intent;
@@ -37,14 +34,21 @@ import android.os.Message;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import android.telephony.ServiceState;
+import android.telephony.TelephonyManager;
 import android.util.ArraySet;
 import android.view.Surface;
+
+import com.android.internal.os.SomeArgs;
+import com.android.internal.telecom.IVideoCallback;
+import com.android.internal.telecom.IVideoProvider;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.nio.channels.Channels;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -268,6 +272,9 @@ public abstract class Connection extends Conferenceable {
 
     /**
      * Call can be upgraded to a video call.
+     * @deprecated Use {@link #CAPABILITY_SUPPORTS_VT_LOCAL_BIDIRECTIONAL} and
+     * {@link #CAPABILITY_SUPPORTS_VT_REMOTE_BIDIRECTIONAL} to indicate for a call whether or not
+     * video calling is supported.
      */
     public static final int CAPABILITY_CAN_UPGRADE_TO_VIDEO = 0x00080000;
 
@@ -410,8 +417,23 @@ public abstract class Connection extends Conferenceable {
      */
     public static final int PROPERTY_ASSISTED_DIALING_USED = 1 << 9;
 
+    /**
+     * Set by the framework to indicate that the network has identified a Connection as an emergency
+     * call.
+     * @hide
+     */
+    public static final int PROPERTY_NETWORK_IDENTIFIED_EMERGENCY_CALL = 1 << 10;
+
+    /**
+     * Set by the framework to indicate that a Conference or Connection is hosted by a device other
+     * than the current one.  Used in scenarios where the conference originator is the remote device
+     * and the current device is a participant of that conference.
+     * @hide
+     */
+    public static final int PROPERTY_REMOTELY_HOSTED = 1 << 11;
+
     //**********************************************************************************************
-    // Next PROPERTY value: 1<<10
+    // Next PROPERTY value: 1<<12
     //**********************************************************************************************
 
     /**
@@ -491,6 +513,14 @@ public abstract class Connection extends Conferenceable {
             "android.telecom.extra.ORIGINAL_CONNECTION_ID";
 
     /**
+     * Boolean connection extra key set on the extras passed to
+     * {@link Connection#sendConnectionEvent} which indicates that audio is present
+     * on the RTT call when the extra value is true.
+     */
+    public static final String EXTRA_IS_RTT_AUDIO_PRESENT =
+            "android.telecom.extra.IS_RTT_AUDIO_PRESENT";
+
+    /**
      * Connection event used to inform Telecom that it should play the on hold tone.  This is used
      * to play a tone when the peer puts the current call on hold.  Sent to Telecom via
      * {@link #sendConnectionEvent(String, Bundle)}.
@@ -531,6 +561,15 @@ public abstract class Connection extends Conferenceable {
      * expected to be null when this connection event is used.
      */
     public static final String EVENT_CALL_MERGE_FAILED = "android.telecom.event.CALL_MERGE_FAILED";
+
+    /**
+     * Connection event used to inform Telecom when a hold operation on a call has failed.
+     * Not intended for use by the UI at this time.
+     * Sent via {@link #sendConnectionEvent(String, Bundle)}.  The {@link Bundle} parameter is
+     * expected to be null when this connection event is used.
+     * @hide
+     */
+    public static final String EVENT_CALL_HOLD_FAILED = "android.telecom.event.CALL_HOLD_FAILED";
 
     /**
      * Connection event used to inform {@link InCallService}s when the process of merging a
@@ -583,6 +622,8 @@ public abstract class Connection extends Conferenceable {
      * {@link Call#EVENT_REQUEST_HANDOVER} that the handover from this {@link Connection} has
      * successfully completed.
      * @hide
+     * @deprecated Use {@link Call#handoverTo(PhoneAccountHandle, int, Bundle)} and its associated
+     * APIs instead.
      */
     public static final String EVENT_HANDOVER_COMPLETE =
             "android.telecom.event.HANDOVER_COMPLETE";
@@ -592,9 +633,23 @@ public abstract class Connection extends Conferenceable {
      * {@link Call#EVENT_REQUEST_HANDOVER} that the handover from this {@link Connection} has failed
      * to complete.
      * @hide
+     * @deprecated Use {@link Call#handoverTo(PhoneAccountHandle, int, Bundle)} and its associated
+     * APIs instead.
      */
     public static final String EVENT_HANDOVER_FAILED =
             "android.telecom.event.HANDOVER_FAILED";
+
+    /**
+     * String Connection extra key used to store SIP invite fields for an incoming call for IMS call
+     */
+    public static final String EXTRA_SIP_INVITE = "android.telecom.extra.SIP_INVITE";
+
+    /**
+     * Connection event used to inform an {@link InCallService} that the RTT audio indication
+     * has changed.
+     */
+    public static final String EVENT_RTT_AUDIO_INDICATION_CHANGED =
+            "android.telecom.event.RTT_AUDIO_INDICATION_CHANGED";
 
     // Flag controlling whether PII is emitted into the logs
     private static final boolean PII_DEBUG = Log.isLoggable(android.util.Log.DEBUG);
@@ -799,6 +854,14 @@ public abstract class Connection extends Conferenceable {
             builder.append(isLong ? " PROPERTY_IS_RTT" : " rtt");
         }
 
+        if (can(properties, PROPERTY_NETWORK_IDENTIFIED_EMERGENCY_CALL)) {
+            builder.append(isLong ? " PROPERTY_NETWORK_IDENTIFIED_EMERGENCY_CALL" : " ecall");
+        }
+
+        if (can(properties, PROPERTY_REMOTELY_HOSTED)) {
+            builder.append(isLong ? " PROPERTY_REMOTELY_HOSTED" : " remote_hst");
+        }
+
         builder.append("]");
         return builder.toString();
     }
@@ -842,6 +905,7 @@ public abstract class Connection extends Conferenceable {
         public void onRemoteRttRequest(Connection c) {}
         /** @hide */
         public void onPhoneAccountChanged(Connection c, PhoneAccountHandle pHandle) {}
+        public void onConnectionTimeReset(Connection c) {}
     }
 
     /**
@@ -853,6 +917,8 @@ public abstract class Connection extends Conferenceable {
         private final OutputStreamWriter mPipeToInCall;
         private final ParcelFileDescriptor mFdFromInCall;
         private final ParcelFileDescriptor mFdToInCall;
+
+        private final FileInputStream mFromInCallFileInputStream;
         private char[] mReadBuffer = new char[READ_BUFFER_SIZE];
 
         /**
@@ -861,8 +927,11 @@ public abstract class Connection extends Conferenceable {
         public RttTextStream(ParcelFileDescriptor toInCall, ParcelFileDescriptor fromInCall) {
             mFdFromInCall = fromInCall;
             mFdToInCall = toInCall;
+            mFromInCallFileInputStream = new FileInputStream(fromInCall.getFileDescriptor());
+
+            // Wrap the FileInputStream in a Channel so that it's interruptible.
             mPipeFromInCall = new InputStreamReader(
-                    new FileInputStream(fromInCall.getFileDescriptor()));
+                    Channels.newInputStream(Channels.newChannel(mFromInCallFileInputStream)));
             mPipeToInCall = new OutputStreamWriter(
                     new FileOutputStream(toInCall.getFileDescriptor()));
         }
@@ -910,7 +979,7 @@ public abstract class Connection extends Conferenceable {
          * not entered any new text yet.
          */
         public String readImmediately() throws IOException {
-            if (mPipeFromInCall.ready()) {
+            if (mFromInCallFileInputStream.available() > 0) {
                 return read();
             } else {
                 return null;
@@ -1273,6 +1342,7 @@ public abstract class Connection extends Conferenceable {
          * @param looper The looper.
          * @hide
          */
+        @UnsupportedAppUsage
         public VideoProvider(Looper looper) {
             mBinder = new VideoProvider.VideoProviderBinder();
             mMessageHandler = new VideoProvider.VideoProviderHandler(looper);
@@ -1723,6 +1793,11 @@ public abstract class Connection extends Conferenceable {
     private ConnectionService mConnectionService;
     private Bundle mExtras;
     private final Object mExtrasLock = new Object();
+    /**
+     * The direction of the connection; used where an existing connection is created and we need to
+     * communicate to Telecom whether its incoming or outgoing.
+     */
+    private @Call.Details.CallDirection int mCallDirection = Call.Details.DIRECTION_UNKNOWN;
 
     /**
      * Tracks the key set for the extras bundle provided on the last invocation of
@@ -1873,6 +1948,24 @@ public abstract class Connection extends Conferenceable {
      */
     public final long getConnectElapsedTimeMillis() {
         return mConnectElapsedTimeMillis;
+    }
+
+    /**
+     * Returns RIL voice radio technology used for current connection.
+     *
+     * @return the RIL voice radio technology used for current connection,
+     *         see {@code RIL_RADIO_TECHNOLOGY_*} in {@link android.telephony.ServiceState}.
+     *
+     * @hide
+     */
+    public final @ServiceState.RilRadioTechnology int getCallRadioTech() {
+        int voiceNetworkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
+        Bundle extras = getExtras();
+        if (extras != null) {
+            voiceNetworkType = extras.getInt(TelecomManager.EXTRA_CALL_NETWORK_TYPE,
+                    TelephonyManager.NETWORK_TYPE_UNKNOWN);
+        }
+        return ServiceState.networkTypeToRilRadioTechnology(voiceNetworkType);
     }
 
     /**
@@ -2309,6 +2402,26 @@ public abstract class Connection extends Conferenceable {
     }
 
     /**
+     * Sets RIL voice radio technology used for current connection.
+     *
+     * @param vrat the RIL Voice Radio Technology used for current connection,
+     *             see {@code RIL_RADIO_TECHNOLOGY_*} in {@link android.telephony.ServiceState}.
+     *
+     * @hide
+     */
+    public final void setCallRadioTech(@ServiceState.RilRadioTechnology int vrat) {
+        putExtra(TelecomManager.EXTRA_CALL_NETWORK_TYPE,
+                ServiceState.rilRadioTechnologyToNetworkType(vrat));
+        // Propagates the call radio technology to its parent {@link android.telecom.Conference}
+        // This action only covers non-IMS CS conference calls.
+        // For IMS PS call conference call, it can be updated via its host connection
+        // {@link #Listener.onExtrasChanged} event.
+        if (getConference() != null) {
+            getConference().setCallRadioTech(vrat);
+        }
+    }
+
+    /**
      * Sets the label and icon status to display in the in-call UI.
      *
      * @param statusHints The status label and icon to set.
@@ -2363,6 +2476,16 @@ public abstract class Connection extends Conferenceable {
             }
         }
         fireOnConferenceableConnectionsChanged();
+    }
+
+    /**
+     * @hide
+     * Resets the cdma connection time.
+     */
+    public final void resetConnectionTime() {
+        for (Listener l : mListeners) {
+            l.onConnectionTimeReset(this);
+        }
     }
 
     /**
@@ -2804,9 +2927,21 @@ public abstract class Connection extends Conferenceable {
     public void onReject(String replyMessage) {}
 
     /**
-     * Notifies the Connection of a request to silence the ringer.
-     *
-     * @hide
+     * Notifies this Connection of a request to silence the ringer.
+     * <p>
+     * The ringer may be silenced by any of the following methods:
+     * <ul>
+     *     <li>{@link TelecomManager#silenceRinger()}</li>
+     *     <li>The user presses the volume-down button while a call is ringing.</li>
+     * </ul>
+     * <p>
+     * Self-managed {@link ConnectionService} implementations should override this method in their
+     * {@link Connection} implementation and implement logic to silence their app's ringtone.  If
+     * your app set the ringtone as part of the incoming call {@link Notification} (see
+     * {@link #onShowIncomingCallUi()}), it should re-post the notification now, except call
+     * {@link android.app.Notification.Builder#setOnlyAlertOnce(boolean)} with {@code true}.  This
+     * will ensure the ringtone sound associated with your {@link android.app.NotificationChannel}
+     * stops playing.
      */
     public void onSilence() {}
 
@@ -2883,7 +3018,29 @@ public abstract class Connection extends Conferenceable {
      * <p>
      * You should trigger the display of the incoming call user interface for your application by
      * showing a {@link Notification} with a full-screen {@link Intent} specified.
-     * For example:
+     *
+     * In your application code, you should create a {@link android.app.NotificationChannel} for
+     * incoming call notifications from your app:
+     * <pre><code>
+     * NotificationChannel channel = new NotificationChannel(YOUR_CHANNEL_ID, "Incoming Calls",
+     *          NotificationManager.IMPORTANCE_MAX);
+     * // other channel setup stuff goes here.
+     *
+     * // We'll use the default system ringtone for our incoming call notification channel.  You can
+     * // use your own audio resource here.
+     * Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+     * channel.setSound(ringtoneUri, new AudioAttributes.Builder()
+     *          // Setting the AudioAttributes is important as it identifies the purpose of your
+     *          // notification sound.
+     *          .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+     *          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+     *      .build());
+     *
+     * NotificationManager mgr = getSystemService(NotificationManager.class);
+     * mgr.createNotificationChannel(channel);
+     * </code></pre>
+     * When it comes time to post a notification for your incoming call, ensure it uses your
+     * incoming call {@link android.app.NotificationChannel}.
      * <pre><code>
      *     // Create an intent which triggers your fullscreen incoming call user interface.
      *     Intent intent = new Intent(Intent.ACTION_MAIN, null);
@@ -2909,11 +3066,14 @@ public abstract class Connection extends Conferenceable {
      *     builder.setContentTitle("Your notification title");
      *     builder.setContentText("Your notification content.");
      *
-     *     // Use builder.addAction(..) to add buttons to answer or reject the call.
+     *     // Set notification as insistent to cause your ringtone to loop.
+     *     Notification notification = builder.build();
+     *     notification.flags |= Notification.FLAG_INSISTENT;
      *
+     *     // Use builder.addAction(..) to add buttons to answer or reject the call.
      *     NotificationManager notificationManager = mContext.getSystemService(
      *         NotificationManager.class);
-     *     notificationManager.notify(YOUR_TAG, YOUR_ID, builder.build());
+     *     notificationManager.notify(YOUR_CHANNEL_ID, YOUR_TAG, YOUR_ID, notification);
      * </code></pre>
      */
     public void onShowIncomingCallUi() {}
@@ -3201,5 +3361,22 @@ public abstract class Connection extends Conferenceable {
         for (Listener l : mListeners) {
             l.onConnectionEvent(this, event, extras);
         }
+    }
+
+    /**
+     * @return The direction of the call.
+     * @hide
+     */
+    public final @Call.Details.CallDirection int getCallDirection() {
+        return mCallDirection;
+    }
+
+    /**
+     * Sets the direction of this connection.
+     * @param callDirection The direction of this connection.
+     * @hide
+     */
+    public void setCallDirection(@Call.Details.CallDirection int callDirection) {
+        mCallDirection = callDirection;
     }
 }

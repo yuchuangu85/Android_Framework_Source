@@ -16,6 +16,7 @@
 
 package com.android.internal.util;
 
+import android.annotation.UnsupportedAppUsage;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Bitmap.CompressFormat;
@@ -48,6 +49,7 @@ public class XmlUtils {
 
     private static final String STRING_ARRAY_SEPARATOR = ":";
 
+    @UnsupportedAppUsage
     public static void skipCurrentTag(XmlPullParser parser)
             throws XmlPullParserException, IOException {
         int outerDepth = parser.getDepth();
@@ -61,7 +63,7 @@ public class XmlUtils {
     public static final int
     convertValueToList(CharSequence value, String[] options, int defaultValue)
     {
-        if (null != value) {
+        if (!TextUtils.isEmpty(value)) {
             for (int i = 0; i < options.length; i++) {
                 if (value.equals(options[i]))
                     return i;
@@ -71,13 +73,15 @@ public class XmlUtils {
         return defaultValue;
     }
 
+    @UnsupportedAppUsage
     public static final boolean
     convertValueToBoolean(CharSequence value, boolean defaultValue)
     {
         boolean result = false;
 
-        if (null == value)
+        if (TextUtils.isEmpty(value)) {
             return defaultValue;
+        }
 
         if (value.equals("1")
         ||  value.equals("true")
@@ -87,11 +91,13 @@ public class XmlUtils {
         return result;
     }
 
+    @UnsupportedAppUsage
     public static final int
     convertValueToInt(CharSequence charSeq, int defaultValue)
     {
-        if (null == charSeq)
+        if (TextUtils.isEmpty(charSeq)) {
             return defaultValue;
+        }
 
         String nm = charSeq.toString();
 
@@ -134,7 +140,7 @@ public class XmlUtils {
     }
 
     public static int convertValueToUnsignedInt(String value, int defaultValue) {
-        if (null == value) {
+        if (TextUtils.isEmpty(value)) {
             return defaultValue;
         }
 
@@ -183,6 +189,7 @@ public class XmlUtils {
      * @see #writeValueXml
      * @see #readMapXml
      */
+    @UnsupportedAppUsage
     public static final void writeMapXml(Map val, OutputStream out)
             throws XmlPullParserException, java.io.IOException {
         XmlSerializer serializer = new FastXmlSerializer();
@@ -732,6 +739,7 @@ public class XmlUtils {
      * #see #writeMapXml
      */
     @SuppressWarnings("unchecked")
+    @UnsupportedAppUsage
     public static final HashMap<String, ?> readMapXml(InputStream in)
     throws XmlPullParserException, java.io.IOException
     {
@@ -1550,6 +1558,7 @@ public class XmlUtils {
         }
     }
 
+    @UnsupportedAppUsage
     public static final void beginDocument(XmlPullParser parser, String firstElementName) throws XmlPullParserException, IOException
     {
         int type;
@@ -1568,6 +1577,7 @@ public class XmlUtils {
         }
     }
 
+    @UnsupportedAppUsage
     public static final void nextElement(XmlPullParser parser) throws XmlPullParserException, IOException
     {
         int type;
@@ -1666,7 +1676,7 @@ public class XmlUtils {
     public static boolean readBooleanAttribute(XmlPullParser in, String name,
             boolean defaultValue) {
         final String value = in.getAttributeValue(null, name);
-        if (value == null) {
+        if (TextUtils.isEmpty(value)) {
             return defaultValue;
         } else {
             return Boolean.parseBoolean(value);
@@ -1703,7 +1713,7 @@ public class XmlUtils {
 
     public static byte[] readByteArrayAttribute(XmlPullParser in, String name) {
         final String value = in.getAttributeValue(null, name);
-        if (value != null) {
+        if (!TextUtils.isEmpty(value)) {
             return Base64.decode(value, Base64.DEFAULT);
         } else {
             return null;

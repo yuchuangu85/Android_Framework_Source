@@ -18,9 +18,11 @@ package android.widget;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
+import android.graphics.BlendMode;
 import android.graphics.Canvas;
 import android.graphics.Insets;
 import android.graphics.PorterDuff;
@@ -33,8 +35,14 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.ViewConfiguration;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.inspector.InspectableProperty;
 
 import com.android.internal.R;
+import com.android.internal.util.Preconditions;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 
 /**
@@ -43,30 +51,34 @@ import com.android.internal.R;
 public abstract class AbsSeekBar extends ProgressBar {
     private final Rect mTempRect = new Rect();
 
+    @UnsupportedAppUsage
     private Drawable mThumb;
     private ColorStateList mThumbTintList = null;
-    private PorterDuff.Mode mThumbTintMode = null;
+    private BlendMode mThumbBlendMode = null;
     private boolean mHasThumbTint = false;
-    private boolean mHasThumbTintMode = false;
+    private boolean mHasThumbBlendMode = false;
 
     private Drawable mTickMark;
     private ColorStateList mTickMarkTintList = null;
-    private PorterDuff.Mode mTickMarkTintMode = null;
+    private BlendMode mTickMarkBlendMode = null;
     private boolean mHasTickMarkTint = false;
-    private boolean mHasTickMarkTintMode = false;
+    private boolean mHasTickMarkBlendMode = false;
 
     private int mThumbOffset;
+    @UnsupportedAppUsage
     private boolean mSplitTrack;
 
     /**
      * On touch, this offset plus the scaled value from the position of the
      * touch will form the progress value. Usually 0.
      */
+    @UnsupportedAppUsage
     float mTouchProgressOffset;
 
     /**
      * Whether this is user seekable.
      */
+    @UnsupportedAppUsage
     boolean mIsUserSeekable = true;
 
     /**
@@ -76,11 +88,17 @@ public abstract class AbsSeekBar extends ProgressBar {
     private int mKeyProgressIncrement = 1;
 
     private static final int NO_ALPHA = 0xFF;
+    @UnsupportedAppUsage
     private float mDisabledAlpha;
 
     private int mScaledTouchSlop;
     private float mTouchDownX;
+    @UnsupportedAppUsage
     private boolean mIsDragging;
+
+    private List<Rect> mUserGestureExclusionRects = Collections.emptyList();
+    private final List<Rect> mGestureExclusionRects = new ArrayList<>();
+    private final Rect mThumbRect = new Rect();
 
     public AbsSeekBar(Context context) {
         super(context);
@@ -99,14 +117,16 @@ public abstract class AbsSeekBar extends ProgressBar {
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, R.styleable.SeekBar, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.SeekBar, attrs, a, defStyleAttr,
+                defStyleRes);
 
         final Drawable thumb = a.getDrawable(R.styleable.SeekBar_thumb);
         setThumb(thumb);
 
         if (a.hasValue(R.styleable.SeekBar_thumbTintMode)) {
-            mThumbTintMode = Drawable.parseTintMode(a.getInt(
-                    R.styleable.SeekBar_thumbTintMode, -1), mThumbTintMode);
-            mHasThumbTintMode = true;
+            mThumbBlendMode = Drawable.parseBlendMode(a.getInt(
+                    R.styleable.SeekBar_thumbTintMode, -1), mThumbBlendMode);
+            mHasThumbBlendMode = true;
         }
 
         if (a.hasValue(R.styleable.SeekBar_thumbTint)) {
@@ -118,9 +138,9 @@ public abstract class AbsSeekBar extends ProgressBar {
         setTickMark(tickMark);
 
         if (a.hasValue(R.styleable.SeekBar_tickMarkTintMode)) {
-            mTickMarkTintMode = Drawable.parseTintMode(a.getInt(
-                    R.styleable.SeekBar_tickMarkTintMode, -1), mTickMarkTintMode);
-            mHasTickMarkTintMode = true;
+            mTickMarkBlendMode = Drawable.parseBlendMode(a.getInt(
+                    R.styleable.SeekBar_tickMarkTintMode, -1), mTickMarkBlendMode);
+            mHasTickMarkBlendMode = true;
         }
 
         if (a.hasValue(R.styleable.SeekBar_tickMarkTint)) {
@@ -245,6 +265,7 @@ public abstract class AbsSeekBar extends ProgressBar {
      * @attr ref android.R.styleable#SeekBar_thumbTint
      * @see #setThumbTintList(ColorStateList)
      */
+    @InspectableProperty(name = "thumbTint")
     @Nullable
     public ColorStateList getThumbTintList() {
         return mThumbTintList;
@@ -263,9 +284,25 @@ public abstract class AbsSeekBar extends ProgressBar {
      * @see Drawable#setTintMode(PorterDuff.Mode)
      */
     public void setThumbTintMode(@Nullable PorterDuff.Mode tintMode) {
-        mThumbTintMode = tintMode;
-        mHasThumbTintMode = true;
+        setThumbTintBlendMode(tintMode != null ? BlendMode.fromValue(tintMode.nativeInt) :
+                null);
+    }
 
+    /**
+     * Specifies the blending mode used to apply the tint specified by
+     * {@link #setThumbTintList(ColorStateList)}} to the thumb drawable. The
+     * default mode is {@link BlendMode#SRC_IN}.
+     *
+     * @param blendMode the blending mode used to apply the tint, may be
+     *                 {@code null} to clear tint
+     *
+     * @attr ref android.R.styleable#SeekBar_thumbTintMode
+     * @see #getThumbTintMode()
+     * @see Drawable#setTintBlendMode(BlendMode)
+     */
+    public void setThumbTintBlendMode(@Nullable BlendMode blendMode) {
+        mThumbBlendMode = blendMode;
+        mHasThumbBlendMode = true;
         applyThumbTint();
     }
 
@@ -277,21 +314,36 @@ public abstract class AbsSeekBar extends ProgressBar {
      * @attr ref android.R.styleable#SeekBar_thumbTintMode
      * @see #setThumbTintMode(PorterDuff.Mode)
      */
+    @InspectableProperty
     @Nullable
     public PorterDuff.Mode getThumbTintMode() {
-        return mThumbTintMode;
+        return mThumbBlendMode != null
+                ? BlendMode.blendModeToPorterDuffMode(mThumbBlendMode) : null;
+    }
+
+    /**
+     * Returns the blending mode used to apply the tint to the thumb drawable,
+     * if specified.
+     *
+     * @return the blending mode used to apply the tint to the thumb drawable
+     * @attr ref android.R.styleable#SeekBar_thumbTintMode
+     * @see #setThumbTintBlendMode(BlendMode)
+     */
+    @Nullable
+    public BlendMode getThumbTintBlendMode() {
+        return mThumbBlendMode;
     }
 
     private void applyThumbTint() {
-        if (mThumb != null && (mHasThumbTint || mHasThumbTintMode)) {
+        if (mThumb != null && (mHasThumbTint || mHasThumbBlendMode)) {
             mThumb = mThumb.mutate();
 
             if (mHasThumbTint) {
                 mThumb.setTintList(mThumbTintList);
             }
 
-            if (mHasThumbTintMode) {
-                mThumb.setTintMode(mThumbTintMode);
+            if (mHasThumbBlendMode) {
+                mThumb.setTintBlendMode(mThumbBlendMode);
             }
 
             // The drawable (or one of its children) may not have been
@@ -399,6 +451,7 @@ public abstract class AbsSeekBar extends ProgressBar {
      * @attr ref android.R.styleable#SeekBar_tickMarkTint
      * @see #setTickMarkTintList(ColorStateList)
      */
+    @InspectableProperty(name = "tickMarkTint")
     @Nullable
     public ColorStateList getTickMarkTintList() {
         return mTickMarkTintList;
@@ -417,8 +470,24 @@ public abstract class AbsSeekBar extends ProgressBar {
      * @see Drawable#setTintMode(PorterDuff.Mode)
      */
     public void setTickMarkTintMode(@Nullable PorterDuff.Mode tintMode) {
-        mTickMarkTintMode = tintMode;
-        mHasTickMarkTintMode = true;
+        setTickMarkTintBlendMode(tintMode != null ? BlendMode.fromValue(tintMode.nativeInt) : null);
+    }
+
+    /**
+     * Specifies the blending mode used to apply the tint specified by
+     * {@link #setTickMarkTintList(ColorStateList)}} to the tick mark drawable. The
+     * default mode is {@link BlendMode#SRC_IN}.
+     *
+     * @param blendMode the blending mode used to apply the tint, may be
+     *                 {@code null} to clear tint
+     *
+     * @attr ref android.R.styleable#SeekBar_tickMarkTintMode
+     * @see #getTickMarkTintMode()
+     * @see Drawable#setTintBlendMode(BlendMode)
+     */
+    public void setTickMarkTintBlendMode(@Nullable BlendMode blendMode) {
+        mTickMarkBlendMode = blendMode;
+        mHasTickMarkBlendMode = true;
 
         applyTickMarkTint();
     }
@@ -431,21 +500,37 @@ public abstract class AbsSeekBar extends ProgressBar {
      * @attr ref android.R.styleable#SeekBar_tickMarkTintMode
      * @see #setTickMarkTintMode(PorterDuff.Mode)
      */
+    @InspectableProperty
     @Nullable
     public PorterDuff.Mode getTickMarkTintMode() {
-        return mTickMarkTintMode;
+        return mTickMarkBlendMode != null
+                ? BlendMode.blendModeToPorterDuffMode(mTickMarkBlendMode) : null;
+    }
+
+    /**
+     * Returns the blending mode used to apply the tint to the tick mark drawable,
+     * if specified.
+     *
+     * @return the blending mode used to apply the tint to the tick mark drawable
+     * @attr ref android.R.styleable#SeekBar_tickMarkTintMode
+     * @see #setTickMarkTintMode(PorterDuff.Mode)
+     */
+    @InspectableProperty(attributeId = android.R.styleable.SeekBar_tickMarkTintMode)
+    @Nullable
+    public BlendMode getTickMarkTintBlendMode() {
+        return mTickMarkBlendMode;
     }
 
     private void applyTickMarkTint() {
-        if (mTickMark != null && (mHasTickMarkTint || mHasTickMarkTintMode)) {
+        if (mTickMark != null && (mHasTickMarkTint || mHasTickMarkBlendMode)) {
             mTickMark = mTickMark.mutate();
 
             if (mHasTickMarkTint) {
                 mTickMark.setTintList(mTickMarkTintList);
             }
 
-            if (mHasTickMarkTintMode) {
-                mTickMark.setTintMode(mTickMarkTintMode);
+            if (mHasTickMarkBlendMode) {
+                mTickMark.setTintBlendMode(mTickMarkBlendMode);
             }
 
             // The drawable (or one of its children) may not have been
@@ -659,6 +744,27 @@ public abstract class AbsSeekBar extends ProgressBar {
 
         // Canvas will be translated, so 0,0 is where we start drawing
         thumb.setBounds(left, top, right, bottom);
+        updateGestureExclusionRects();
+    }
+
+    @Override
+    public void setSystemGestureExclusionRects(@NonNull List<Rect> rects) {
+        Preconditions.checkNotNull(rects, "rects must not be null");
+        mUserGestureExclusionRects = rects;
+        updateGestureExclusionRects();
+    }
+
+    private void updateGestureExclusionRects() {
+        final Drawable thumb = mThumb;
+        if (thumb == null) {
+            super.setSystemGestureExclusionRects(mUserGestureExclusionRects);
+            return;
+        }
+        mGestureExclusionRects.clear();
+        thumb.copyBounds(mThumbRect);
+        mGestureExclusionRects.add(mThumbRect);
+        mGestureExclusionRects.addAll(mUserGestureExclusionRects);
+        super.setSystemGestureExclusionRects(mGestureExclusionRects);
     }
 
     /**
@@ -729,6 +835,7 @@ public abstract class AbsSeekBar extends ProgressBar {
     /**
      * Draw the thumb.
      */
+    @UnsupportedAppUsage
     void drawThumb(Canvas canvas) {
         if (mThumb != null) {
             final int saveCount = canvas.save();
@@ -834,6 +941,7 @@ public abstract class AbsSeekBar extends ProgressBar {
         }
     }
 
+    @UnsupportedAppUsage
     private void trackTouchEvent(MotionEvent event) {
         final int x = Math.round(event.getX());
         final int y = Math.round(event.getY());

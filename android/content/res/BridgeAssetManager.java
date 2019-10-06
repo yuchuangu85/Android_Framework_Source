@@ -13,15 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package android.content.res;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import com.android.ide.common.rendering.api.AssetRepository;
 import com.android.layoutlib.bridge.Bridge;
 
 public class BridgeAssetManager extends AssetManager {
-
-    private AssetRepository mAssetRepository;
+    @Nullable private AssetRepository mAssetRepository;
 
     /**
      * This initializes the static field {@link AssetManager#sSystem} which is used
@@ -48,11 +48,22 @@ public class BridgeAssetManager extends AssetManager {
         AssetManager.sSystem = null;
     }
 
-    public void setAssetRepository(AssetRepository assetRepository) {
+    public void setAssetRepository(@NonNull AssetRepository assetRepository) {
         mAssetRepository = assetRepository;
     }
 
+    /**
+     * Clears the AssetRepository reference.
+     */
+    public void releaseAssetRepository() {
+        mAssetRepository = null;
+    }
+
+    @NonNull
     public AssetRepository getAssetRepository() {
+        if (mAssetRepository == null) {
+            throw new IllegalStateException("Asset repository is not set");
+        }
         return mAssetRepository;
     }
 

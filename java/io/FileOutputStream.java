@@ -26,6 +26,11 @@
 
 package java.io;
 
+import static android.system.OsConstants.O_APPEND;
+import static android.system.OsConstants.O_CREAT;
+import static android.system.OsConstants.O_TRUNC;
+import static android.system.OsConstants.O_WRONLY;
+
 import java.nio.channels.FileChannel;
 
 import dalvik.annotation.optimization.ReachabilitySensitive;
@@ -34,6 +39,7 @@ import dalvik.system.CloseGuard;
 import sun.nio.ch.FileChannelImpl;
 import libcore.io.IoBridge;
 import libcore.io.IoTracker;
+import libcore.io.IoUtils;
 
 /**
  * A file output stream is an output stream for writing data to a
@@ -223,7 +229,11 @@ class FileOutputStream extends OutputStream
         if (file.isInvalid()) {
             throw new FileNotFoundException("Invalid file path");
         }
-        this.fd = new FileDescriptor();
+        // BEGIN Android-changed: Open files through common bridge code.
+        // this.fd = new FileDescriptor();
+        int flags = O_WRONLY | O_CREAT | (append ? O_APPEND : O_TRUNC);
+        this.fd = IoBridge.open(name, flags);
+        // END Android-changed: Open files through common bridge code.
 
         // Android-changed: Tracking mechanism for FileDescriptor sharing.
         // fd.attach(this);
@@ -232,10 +242,11 @@ class FileOutputStream extends OutputStream
         this.append = append;
         this.path = name;
 
-        // Android-added: BlockGuard support.
-        BlockGuard.getThreadPolicy().onWriteToDisk();
+        // Android-removed: Open files through common bridge code.
+        // open(name, append);
 
-        open(name, append);
+        // Android-added: File descriptor ownership tracking.
+        IoUtils.setFdOwner(this.fd, this);
 
         // Android-added: CloseGuard support.
         guard.open("close");

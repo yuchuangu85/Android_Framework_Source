@@ -4,8 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.mockito.Matchers.anyObject;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.anyObject;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -17,30 +17,22 @@ import android.bluetooth.MockBluetoothProxyHelper;
 import android.content.Context;
 import android.net.ConnectivityManager;
 import android.os.ParcelFileDescriptor;
-import android.os.RemoteException;
-import com.android.clockwork.WearRobolectricTestRunner;
 import com.android.clockwork.bluetooth.proxy.ProxyServiceHelper;
 import com.android.internal.util.IndentingPrintWriter;
 import java.lang.reflect.Field;
-import java.net.InetAddress;
-import java.util.HashSet;
-import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
-import org.robolectric.shadows.ShadowApplication;
 import org.robolectric.shadows.ShadowLooper;
 
 /** Test for {@link CompanionProxyShard} */
-@RunWith(WearRobolectricTestRunner.class)
-@Config(manifest = Config.NONE,
-        shadows = {ShadowBluetoothAdapter.class },
-        sdk = 26)
+@RunWith(RobolectricTestRunner.class)
+@Config(shadows = ShadowBluetoothAdapter.class)
 public class CompanionProxyShardTest {
-    final ShadowApplication shadowApplication = ShadowApplication.getInstance();
 
     private static final int INSTANCE = -1;
     private static final int FD = 2;
@@ -60,19 +52,19 @@ public class CompanionProxyShardTest {
 
     private static final int INVALID_NETWORK_TYPE = ConnectivityManager.TYPE_NONE;
 
-    @Mock BluetoothAdapter mockBluetoothAdapter;
-    @Mock BluetoothDevice mockBluetoothDevice;
-    @Mock Context mockContext;
-    @Mock IndentingPrintWriter mockIndentingPrintWriter;
-    @Mock ParcelFileDescriptor mockParcelFileDescriptor;
-    @Mock ProxyServiceHelper mockProxyServiceHelper;
-    @Mock CompanionProxyShard.Listener mockCompanionProxyShardListener;
+    private @Mock BluetoothAdapter mockBluetoothAdapter;
+    private @Mock BluetoothDevice mockBluetoothDevice;
+    private @Mock Context mockContext;
+    private @Mock IndentingPrintWriter mockIndentingPrintWriter;
+    private @Mock ParcelFileDescriptor mockParcelFileDescriptor;
+    private @Mock ProxyServiceHelper mockProxyServiceHelper;
+    private @Mock CompanionProxyShard.Listener mockCompanionProxyShardListener;
 
     private CompanionProxyShardTestClass mCompanionProxyShard;
     private MockBluetoothProxyHelper mBluetoothProxyHelper;
 
     @Before
-    public void setUp() throws RemoteException {
+    public void setUp() {
         MockitoAnnotations.initMocks(this);
 
         ShadowLooper.pauseMainLooper();
@@ -472,12 +464,11 @@ public class CompanionProxyShardTest {
     private class CompanionProxyShardTestClass extends CompanionProxyShard {
         int connectNativeCount;
         int disconnectNativeCount;
-        int unregisterCount;
 
         boolean connectReturnValue = true;
         boolean disconnectReturnValue = true;
 
-        public CompanionProxyShardTestClass(
+        private CompanionProxyShardTestClass(
                 final Context context,
                 final ProxyServiceHelper proxyServiceHelper,
                 final BluetoothDevice device,
@@ -529,10 +520,5 @@ public class CompanionProxyShardTest {
             fail();
         }
         return isWaiting;
-    }
-
-    public static <InetAddress> boolean listEqualsIgnoreOrder(List<InetAddress> list1,
-            List<InetAddress> list2) {
-        return new HashSet<>(list1).equals(new HashSet<>(list2));
     }
 }

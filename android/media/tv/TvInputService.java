@@ -22,6 +22,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.app.ActivityManager;
 import android.app.Service;
 import android.content.Context;
@@ -58,9 +59,7 @@ import com.android.internal.os.SomeArgs;
 import com.android.internal.util.Preconditions;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * The TvInputService class represents a TV input or source such as HDMI or built-in tuner which
@@ -283,6 +282,7 @@ public abstract class TvInputService extends Service {
         private OverlayViewCleanUpTask mOverlayViewCleanUpTask;
         private boolean mOverlayViewEnabled;
         private IBinder mWindowToken;
+        @UnsupportedAppUsage
         private Rect mOverlayFrame;
         private long mStartPositionMs = TvInputManager.TIME_SHIFT_INVALID_TIME;
         private long mCurrentPositionMs = TvInputManager.TIME_SHIFT_INVALID_TIME;
@@ -1398,7 +1398,7 @@ public abstract class TvInputService extends Service {
                 // ViewRootImpl always consumes the keys. In this case, the application loses
                 // a chance to handle media keys. Therefore, media keys are not dispatched to
                 // ViewRootImpl.
-                skipDispatchToOverlayView = KeyEvent.isMediaKey(keyEvent.getKeyCode())
+                skipDispatchToOverlayView = KeyEvent.isMediaSessionKey(keyEvent.getKeyCode())
                         || keyEvent.getKeyCode() == KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK;
             } else if (event instanceof MotionEvent) {
                 MotionEvent motionEvent = (MotionEvent) event;

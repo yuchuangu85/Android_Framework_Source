@@ -1,42 +1,36 @@
 package com.android.clockwork.bluetooth.proxy;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
 
 import android.content.Context;
 import android.net.NetworkCapabilities;
-import android.os.RemoteException;
-import com.android.clockwork.WearRobolectricTestRunner;
 import com.android.internal.util.IndentingPrintWriter;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.robolectric.annotation.Config;
+import org.robolectric.RobolectricTestRunner;
 
 /** Test for {@link ProxyNetworkFactory} */
-@RunWith(WearRobolectricTestRunner.class)
-@Config(manifest = Config.NONE,
-        sdk = 26)
+@RunWith(RobolectricTestRunner.class)
 public class ProxyNetworkFactoryTest {
     private static final int NETWORK_SCORE = 123;
 
-    @Mock Context mockContext;
-    @Mock IndentingPrintWriter mockIndentingPrintWriter;
-    @Mock NetworkCapabilities mockCapabilities;
+    private @Mock Context mockContext;
+    private @Mock IndentingPrintWriter mockIndentingPrintWriter;
+    private @Mock NetworkCapabilities mockCapabilities;
 
     private ProxyNetworkFactoryTestClass mProxyNetworkFactory;
 
     @Before
-    public void setUp() throws RemoteException {
+    public void setUp() {
         MockitoAnnotations.initMocks(this);
-        mProxyNetworkFactory = new ProxyNetworkFactoryTestClass(
-                mockContext,
-                mockCapabilities);
-       assertEquals(1, mProxyNetworkFactory.registerMethod);
+        mProxyNetworkFactory = new ProxyNetworkFactoryTestClass(mockContext, mockCapabilities);
+        assertEquals(1, mProxyNetworkFactory.registerMethod);
     }
 
     @Test
@@ -69,25 +63,23 @@ public class ProxyNetworkFactoryTest {
     }
 
     private class ProxyNetworkFactoryTestClass extends ProxyNetworkFactory {
-        public int registerMethod;
-        public int setScoreFilterMethod;
-        public int scoreFilter;
+        private int registerMethod;
+        private int setScoreFilterMethod;
+        private int scoreFilter;
 
-        public ProxyNetworkFactoryTestClass(
-                Context context,
-                NetworkCapabilities capabilities) {
+        private ProxyNetworkFactoryTestClass(Context context, NetworkCapabilities capabilities) {
             super(context, capabilities);
         }
 
         @Override
         public void register() {
-            registerMethod  += 1;
+            registerMethod++;
         }
 
         @Override
         public void setScoreFilter(int score) {
             scoreFilter = score;
-            setScoreFilterMethod += 1;
+            setScoreFilterMethod++;
         }
     }
 }

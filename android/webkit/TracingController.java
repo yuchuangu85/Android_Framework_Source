@@ -36,13 +36,20 @@ import java.util.concurrent.Executor;
  * <pre class="prettyprint">
  * TracingController tracingController = TracingController.getInstance();
  * tracingController.start(new TracingConfig.Builder()
- *                  .addCategories(CATEGORIES_WEB_DEVELOPER).build());
+ *                  .addCategories(TracingConfig.CATEGORIES_WEB_DEVELOPER).build());
  * ...
  * tracingController.stop(new FileOutputStream("trace.json"),
  *                        Executors.newSingleThreadExecutor());
  * </pre></p>
  */
 public abstract class TracingController {
+    /**
+     * @deprecated This class should not be constructed by applications, use {@link #getInstance}
+     * instead to fetch the singleton instance.
+     */
+    // TODO(ntfschr): mark this as @SystemApi after a year.
+    @Deprecated
+    public TracingController() {}
 
     /**
      * Returns the default TracingController instance. At present there is

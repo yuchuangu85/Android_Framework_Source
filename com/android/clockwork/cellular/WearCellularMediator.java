@@ -22,6 +22,8 @@ import static com.google.android.clockwork.signaldetector.SignalStateModel.STATE
 import static com.google.android.clockwork.signaldetector.SignalStateModel.STATE_OK_SIGNAL;
 import static com.google.android.clockwork.signaldetector.SignalStateModel.STATE_UNSTABLE_SIGNAL;
 
+import android.app.AlarmManager;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -33,6 +35,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.Message;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.telephony.PhoneStateListener;
 import android.telephony.ServiceState;
@@ -41,7 +44,7 @@ import android.util.EventLog;
 import android.util.Log;
 
 import com.android.clockwork.common.EventHistory;
-import com.android.clockwork.flags.UserAbsentRadiosOffObserver;
+import com.android.clockwork.flags.BooleanFlag;
 import com.android.clockwork.power.PowerTracker;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.IccCardConstants;
@@ -57,7 +60,6 @@ import java.util.concurrent.TimeUnit;
  */
 public class WearCellularMediator implements
         PowerTracker.Listener,
-        UserAbsentRadiosOffObserver.Listener,
         SignalStateDetector.Listener {
     public static final String TAG = "WearCellularMediator";
     // Whether cell is turned off when around the phone or not.
@@ -81,15 +83,29 @@ public class WearCellularMediator implements
     @VisibleForTesting static final int MSG_DISABLE_CELL = 0;
     @VisibleForTesting static final int MSG_ENABLE_CELL = 1;
 
+    static final String ACTION_EXIT_CELL_LINGER =
+            "com.android.clockwork.connectivity.action.ACTION_EXIT_CELL_LINGER";
+
+    /**
+     * Enforces a delay every time bluetooth sysproxy connects.
+     * Prevents Cell from thrashing when we very quickly transition between desired cell states.
+     *
+     * We use AlarmManager to enforce the turning off of Cell after the linger period.
+     * The constants below define the default linger window to be 30-60 seconds.
+     */
+    private static final long DEFAULT_CELL_LINGER_DURATION_MS = TimeUnit.SECONDS.toMillis(30);
+    private static final long MAX_ACCEPTABLE_LINGER_DELAY_MS = TimeUnit.SECONDS.toMillis(30);
+
     private static final long WAIT_FOR_SET_RADIO_POWER_IN_MS = TimeUnit.SECONDS.toMillis(2);
 
     private final Context mContext;
+    private final AlarmManager mAlarmManager;
     private final TelephonyManager mTelephonyManager;
     private final WearCellularMediatorSettings mSettings;
     private final SignalStateDetector mSignalStateDetector;
     private final PowerTracker mPowerTracker;
 
-    private final UserAbsentRadiosOffObserver mUserAbsentRadiosOff;
+    private final BooleanFlag mUserAbsentRadiosOff;
 
     private final Object mLock = new Object();
 
@@ -110,6 +126,10 @@ public class WearCellularMediator implements
     private int mLastServiceState = ServiceState.STATE_POWER_OFF;
 
     @VisibleForTesting Handler mHandler;
+
+    private boolean mCellLingering;
+    private Reason mCellLingeringReason;
+    private long mCellLingerDurationMs;
 
     private final EventHistory<CellDecision> mHistory =
             new EventHistory<>("Cell Radio Power History", 30, false);
@@ -211,36 +231,55 @@ public class WearCellularMediator implements
                 && mLastServiceState == ServiceState.STATE_POWER_OFF);
     }
 
+    @VisibleForTesting final PendingIntent exitCellLingerIntent;
+    @VisibleForTesting
+    BroadcastReceiver exitCellLingerReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (ACTION_EXIT_CELL_LINGER.equals(intent.getAction())) {
+                if (mCellLingering) {
+                    mCellLingering = false;
+                    mHandler.sendMessage(Message.obtain(mHandler, MSG_DISABLE_CELL, mCellLingeringReason));
+                    mCellLingeringReason = null;
+                }
+            }
+        }
+    };
+
     public WearCellularMediator(
             Context context,
+            AlarmManager alarmManager,
             TelephonyManager telephonyManager,
             WearCellularMediatorSettings settings,
             PowerTracker powerTracker,
-            UserAbsentRadiosOffObserver userAbsentRadiosOffObserver) {
+            BooleanFlag userAbsentRadiosOff) {
         this(context,
-             context.getContentResolver(),
-             telephonyManager,
-             settings,
-             powerTracker,
-             userAbsentRadiosOffObserver,
-             new SignalStateDetector(context, new SignalStateModel(settings), settings));
+                context.getContentResolver(),
+                alarmManager,
+                telephonyManager,
+                settings,
+                powerTracker,
+                userAbsentRadiosOff,
+                new SignalStateDetector(context, new SignalStateModel(settings), settings));
     }
 
     @VisibleForTesting
     WearCellularMediator(
             Context context,
             ContentResolver contentResolver,
+            AlarmManager alarmManager,
             TelephonyManager telephonyManager,
             WearCellularMediatorSettings wearCellularMediatorSettings,
             PowerTracker powerTracker,
-            UserAbsentRadiosOffObserver userAbsentRadiosOffObserver,
+            BooleanFlag userAbsentRadiosOff,
             SignalStateDetector signalStateDetector) {
         mContext = context;
+        mAlarmManager = alarmManager;
         mTelephonyManager = telephonyManager;
         mSettings = wearCellularMediatorSettings;
         mPowerTracker = powerTracker;
 
-        mUserAbsentRadiosOff = userAbsentRadiosOffObserver;
+        mUserAbsentRadiosOff = userAbsentRadiosOff;
 
         mSignalStateDetector = signalStateDetector;
 
@@ -249,7 +288,7 @@ public class WearCellularMediator implements
         mHandler = new RadioPowerHandler(thread.getLooper());
 
         mPowerTracker.addListener(this);
-        mUserAbsentRadiosOff.addListener(this);
+        mUserAbsentRadiosOff.addListener(this::onUserAbsentRadiosOffChanged);
 
         // Register broadcast receivers and content observers.
         IntentFilter filter = new IntentFilter();
@@ -281,16 +320,28 @@ public class WearCellularMediator implements
         mTelephonyManager.listen(mPhoneStateListener, PhoneStateListener.LISTEN_SERVICE_STATE);
 
         mSignalStateDetector.setListener(this);
+
+        mCellLingerDurationMs = DEFAULT_CELL_LINGER_DURATION_MS;
+        exitCellLingerIntent = PendingIntent.getBroadcast(
+                context, 0, new Intent(ACTION_EXIT_CELL_LINGER), 0);
     }
 
     // Called when boot complete.
     public void onBootCompleted(boolean proxyConnected) {
+        mContext.registerReceiver(exitCellLingerReceiver,
+                new IntentFilter(ACTION_EXIT_CELL_LINGER));
+
         mIsProxyConnected = proxyConnected;
         mCellAuto = mSettings.getCellAutoSetting();
         mCellState = mSettings.getCellState();
         updateDetectorState(mSettings.getMobileSignalDetectorAllowed());
         mBooted = true;
         updateRadioPower();
+    }
+
+    @VisibleForTesting
+    void setCellLingerDuration(long durationMs) {
+        mCellLingerDurationMs = durationMs;
     }
 
     @VisibleForTesting
@@ -320,7 +371,6 @@ public class WearCellularMediator implements
         }
     }
 
-    @Override
     public void onUserAbsentRadiosOffChanged(boolean isEnabled) {
         updateRadioPower();
     }
@@ -395,8 +445,30 @@ public class WearCellularMediator implements
             Log.d(TAG, reason.name() + " attempt to change radio power: " + enable);
         }
 
-        Message msg = Message.obtain(mHandler, enable ? MSG_ENABLE_CELL : MSG_DISABLE_CELL, reason);
-        mHandler.sendMessage(msg);
+        if (enable) {
+            mAlarmManager.cancel(exitCellLingerIntent);
+            mCellLingering = false;
+            mCellLingeringReason = null;
+            mHandler.sendMessage(Message.obtain(mHandler, MSG_ENABLE_CELL, reason));
+        } else if (shouldLingerCellRadio(reason)) {
+            // if we're already lingering, then scheduling another alarm is redundant
+            if (!mCellLingering) {
+                mAlarmManager.cancel(exitCellLingerIntent);
+                mCellLingering = true;
+                mCellLingeringReason = reason;
+                mAlarmManager.setWindow(AlarmManager.ELAPSED_REALTIME,
+                        SystemClock.elapsedRealtime() + mCellLingerDurationMs,
+                        MAX_ACCEPTABLE_LINGER_DELAY_MS,
+                        exitCellLingerIntent);
+            }
+        } else {
+            mHandler.sendMessage(Message.obtain(mHandler, MSG_DISABLE_CELL, reason));
+        }
+    }
+
+    // for now, only linger cell radio for BT proxy disconnects
+    private boolean shouldLingerCellRadio(Reason reason) {
+        return mCellLingerDurationMs > 0 && Reason.OFF_PROXY_CONNECTED.equals(reason);
     }
 
     public void dump(IndentingPrintWriter ipw) {
@@ -409,6 +481,9 @@ public class WearCellularMediator implements
         ipw.printPair("mIccState", mIccState);
         ipw.println();
         ipw.printPair("mActivityMode", mActivityMode);
+        ipw.println();
+        ipw.printPair("mCellLingering", mCellLingering);
+        ipw.printPair("mCellLingerDurationMs", mCellLingerDurationMs);
         ipw.println();
 
         mSignalStateDetector.dump(ipw);

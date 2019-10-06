@@ -233,7 +233,9 @@ public class BlockingCameraManager {
             }
 
             synchronized (mLock) {
-                assertInitialState();
+                // Don't assert all initial states. onDisconnected can be called after camera
+                // is successfully opened.
+                assertEquals(false, mDisconnected);
                 mNoReply = false;
                 mDisconnected = true;
                 mDevice = camera;

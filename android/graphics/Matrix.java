@@ -16,6 +16,8 @@
 
 package android.graphics;
 
+import android.annotation.UnsupportedAppUsage;
+
 import dalvik.annotation.optimization.CriticalNative;
 import dalvik.annotation.optimization.FastNative;
 
@@ -39,6 +41,7 @@ public class Matrix {
     public static final int MPERSP_2 = 8;   //!< use with getValues/setValues
 
     /** @hide */
+    @UnsupportedAppUsage
     public final static Matrix IDENTITY_MATRIX = new Matrix() {
         void oops() {
             throw new IllegalStateException("Matrix can not be modified");
@@ -220,17 +223,16 @@ public class Matrix {
         }
     };
 
-    // sizeof(SkMatrix) is 9 * sizeof(float) + uint32_t
-    private static final long NATIVE_ALLOCATION_SIZE = 40;
-
     private static class NoImagePreloadHolder {
-        public static final NativeAllocationRegistry sRegistry = new NativeAllocationRegistry(
-                Matrix.class.getClassLoader(), nGetNativeFinalizer(), NATIVE_ALLOCATION_SIZE);
+        public static final NativeAllocationRegistry sRegistry =
+                NativeAllocationRegistry.createMalloced(
+                Matrix.class.getClassLoader(), nGetNativeFinalizer());
     }
 
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public final long native_instance;
 
     /**

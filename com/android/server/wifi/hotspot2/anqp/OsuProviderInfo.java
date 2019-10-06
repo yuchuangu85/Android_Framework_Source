@@ -29,8 +29,10 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -70,7 +72,7 @@ public class OsuProviderInfo {
      */
     private static final int MAXIMUM_I18N_STRING_LENGTH = 252;
 
-    private final List<I18Name> mFriendlyNames;
+    private final Map<String, String> mFriendlyNames;
     private final Uri mServerUri;
     private final List<Integer> mMethodList;
     private final List<IconInfo> mIconInfoList;
@@ -80,7 +82,11 @@ public class OsuProviderInfo {
     @VisibleForTesting
     public OsuProviderInfo(List<I18Name> friendlyNames, Uri serverUri, List<Integer> methodList,
             List<IconInfo> iconInfoList, String nai, List<I18Name> serviceDescriptions) {
-        mFriendlyNames = friendlyNames;
+        mFriendlyNames = new HashMap<>();
+        if (friendlyNames != null) {
+            friendlyNames.forEach(
+                    e -> mFriendlyNames.put(e.getLocale().getLanguage(), e.getText()));
+        }
         mServerUri = serverUri;
         mMethodList = methodList;
         mIconInfoList = iconInfoList;
@@ -145,8 +151,13 @@ public class OsuProviderInfo {
                 serviceDescriptionList);
     }
 
-    public List<I18Name> getFriendlyNames() {
-        return Collections.unmodifiableList(mFriendlyNames);
+    /**
+     * Returns friendly names for the OSU Provider.
+     *
+     * @return {@link Map} that consists of language code and friendly name expressed in the locale.
+     */
+    public Map<String, String> getFriendlyNames() {
+        return mFriendlyNames;
     }
 
     public Uri getServerUri() {
@@ -170,14 +181,27 @@ public class OsuProviderInfo {
     }
 
     /**
-     * Return the friendly name string from the friendly name list.  The string matching
-     * the default locale will be returned if it is found, otherwise the first name in the list
-     * will be returned.  A null will be returned if the list is empty.
+     * Return the friendly Name for current language from the list of friendly names of OSU
+     * provider.
      *
-     * @return friendly name string
+     * The string matching the default locale will be returned if it is found, otherwise the string
+     * in english or the first string in the list will be returned if english is not found.
+     * A null will be returned if the list is empty.
+     *
+     * @return String matching the default locale, null otherwise
      */
     public String getFriendlyName() {
-        return getI18String(mFriendlyNames);
+        if (mFriendlyNames == null || mFriendlyNames.isEmpty()) return null;
+        String lang = Locale.getDefault().getLanguage();
+        String friendlyName = mFriendlyNames.get(lang);
+        if (friendlyName != null) {
+            return friendlyName;
+        }
+        friendlyName = mFriendlyNames.get("en");
+        if (friendlyName != null) {
+            return friendlyName;
+        }
+        return mFriendlyNames.get(mFriendlyNames.keySet().stream().findFirst().get());
     }
 
     /**

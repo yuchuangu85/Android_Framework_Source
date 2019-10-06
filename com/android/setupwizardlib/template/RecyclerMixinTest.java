@@ -30,16 +30,14 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.RecyclerView.Adapter;
+import android.view.View;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
-import android.support.v7.widget.RecyclerView;
-import android.support.v7.widget.RecyclerView.Adapter;
-import android.view.View;
-
 import com.android.setupwizardlib.TemplateLayout;
 import com.android.setupwizardlib.test.R;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -50,120 +48,119 @@ import org.mockito.MockitoAnnotations;
 @SmallTest
 public class RecyclerMixinTest {
 
-    private Context mContext;
-    private TemplateLayout mTemplateLayout;
+  private Context mContext;
+  private TemplateLayout mTemplateLayout;
 
-    private RecyclerView mRecyclerView;
+  private RecyclerView mRecyclerView;
 
-    @Mock
-    private Adapter mAdapter;
+  @Mock private Adapter mAdapter;
 
-    @Before
-    public void setUp() {
-        MockitoAnnotations.initMocks(this);
+  @Before
+  public void setUp() {
+    MockitoAnnotations.initMocks(this);
 
-        mContext = InstrumentationRegistry.getTargetContext();
-        mTemplateLayout = spy(new TemplateLayout(mContext, R.layout.test_template,
-                R.id.suw_layout_content));
+    mContext = InstrumentationRegistry.getTargetContext();
+    mTemplateLayout =
+        spy(new TemplateLayout(mContext, R.layout.test_template, R.id.suw_layout_content));
 
-        mRecyclerView = mock(RecyclerView.class, delegatesTo(new RecyclerView(mContext)));
+    mRecyclerView = mock(RecyclerView.class, delegatesTo(new RecyclerView(mContext)));
 
-        doReturn(true).when(mTemplateLayout).isLayoutDirectionResolved();
+    doReturn(true).when(mTemplateLayout).isLayoutDirectionResolved();
+  }
+
+  @Test
+  public void testGetRecyclerView() {
+    RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
+    assertSame(mRecyclerView, mixin.getRecyclerView());
+  }
+
+  @Test
+  public void testGetAdapter() {
+    mRecyclerView.setAdapter(mAdapter);
+
+    RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
+    assertSame(mAdapter, mixin.getAdapter());
+  }
+
+  @Test
+  public void testSetAdapter() {
+    assertNull(mRecyclerView.getAdapter());
+
+    RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
+    mixin.setAdapter(mAdapter);
+
+    assertSame(mAdapter, mRecyclerView.getAdapter());
+  }
+
+  @Test
+  public void testDividerLegacyInset() {
+    RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
+    mixin.setDividerInset(123);
+
+    assertEquals(123, mixin.getDividerInset());
+
+    final Drawable divider = mixin.getDivider();
+    InsetDrawable insetDrawable = (InsetDrawable) divider;
+    Rect rect = new Rect();
+    insetDrawable.getPadding(rect);
+
+    assertEquals(new Rect(123, 0, 0, 0), rect);
+  }
+
+  @Test
+  public void testDividerInsets() {
+    RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
+    mixin.setDividerInsets(123, 456);
+
+    assertEquals(123, mixin.getDividerInsetStart());
+    assertEquals(456, mixin.getDividerInsetEnd());
+
+    final Drawable divider = mixin.getDivider();
+    InsetDrawable insetDrawable = (InsetDrawable) divider;
+    Rect rect = new Rect();
+    insetDrawable.getPadding(rect);
+
+    assertEquals(new Rect(123, 0, 456, 0), rect);
+  }
+
+  @Test
+  public void testDividerInsetLegacyRtl() {
+    if (VERSION.SDK_INT >= VERSION_CODES.JELLY_BEAN_MR1) {
+      doReturn(View.LAYOUT_DIRECTION_RTL).when(mTemplateLayout).getLayoutDirection();
+
+      RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
+      mixin.setDividerInset(123);
+
+      assertEquals(123, mixin.getDividerInset());
+
+      final Drawable divider = mixin.getDivider();
+      InsetDrawable insetDrawable = (InsetDrawable) divider;
+      Rect rect = new Rect();
+      insetDrawable.getPadding(rect);
+
+      assertEquals(new Rect(0, 0, 123, 0), rect);
     }
+    // else the test passes
+  }
 
-    @Test
-    public void testGetRecyclerView() {
-        RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
-        assertSame(mRecyclerView, mixin.getRecyclerView());
+  @Test
+  public void testDividerInsetsRtl() {
+    if (VERSION.SDK_INT >= VERSION_CODES.JELLY_BEAN_MR1) {
+      doReturn(View.LAYOUT_DIRECTION_RTL).when(mTemplateLayout).getLayoutDirection();
+
+      RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
+      mixin.setDividerInsets(123, 456);
+
+      assertEquals(123, mixin.getDividerInsetStart());
+      assertEquals(456, mixin.getDividerInsetEnd());
+
+      final Drawable divider = mixin.getDivider();
+      InsetDrawable insetDrawable = (InsetDrawable) divider;
+      Rect rect = new Rect();
+      insetDrawable.getPadding(rect);
+
+      assertEquals(new Rect(456, 0, 123, 0), rect);
     }
-
-    @Test
-    public void testGetAdapter() {
-        mRecyclerView.setAdapter(mAdapter);
-
-        RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
-        assertSame(mAdapter, mixin.getAdapter());
-    }
-
-    @Test
-    public void testSetAdapter() {
-        assertNull(mRecyclerView.getAdapter());
-
-        RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
-        mixin.setAdapter(mAdapter);
-
-        assertSame(mAdapter, mRecyclerView.getAdapter());
-    }
-
-    @Test
-    public void testDividerLegacyInset() {
-        RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
-        mixin.setDividerInset(123);
-
-        assertEquals(123, mixin.getDividerInset());
-
-        final Drawable divider = mixin.getDivider();
-        InsetDrawable insetDrawable = (InsetDrawable) divider;
-        Rect rect = new Rect();
-        insetDrawable.getPadding(rect);
-
-        assertEquals(new Rect(123, 0, 0, 0), rect);
-    }
-
-    @Test
-    public void testDividerInsets() {
-        RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
-        mixin.setDividerInsets(123, 456);
-
-        assertEquals(123, mixin.getDividerInsetStart());
-        assertEquals(456, mixin.getDividerInsetEnd());
-
-        final Drawable divider = mixin.getDivider();
-        InsetDrawable insetDrawable = (InsetDrawable) divider;
-        Rect rect = new Rect();
-        insetDrawable.getPadding(rect);
-
-        assertEquals(new Rect(123, 0, 456, 0), rect);
-    }
-
-    @Test
-    public void testDividerInsetLegacyRtl() {
-        if (VERSION.SDK_INT >= VERSION_CODES.JELLY_BEAN_MR1) {
-            doReturn(View.LAYOUT_DIRECTION_RTL).when(mTemplateLayout).getLayoutDirection();
-
-            RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
-            mixin.setDividerInset(123);
-
-            assertEquals(123, mixin.getDividerInset());
-
-            final Drawable divider = mixin.getDivider();
-            InsetDrawable insetDrawable = (InsetDrawable) divider;
-            Rect rect = new Rect();
-            insetDrawable.getPadding(rect);
-
-            assertEquals(new Rect(0, 0, 123, 0), rect);
-        }
-        // else the test passes
-    }
-
-    @Test
-    public void testDividerInsetsRtl() {
-        if (VERSION.SDK_INT >= VERSION_CODES.JELLY_BEAN_MR1) {
-            doReturn(View.LAYOUT_DIRECTION_RTL).when(mTemplateLayout).getLayoutDirection();
-
-            RecyclerMixin mixin = new RecyclerMixin(mTemplateLayout, mRecyclerView);
-            mixin.setDividerInsets(123, 456);
-
-            assertEquals(123, mixin.getDividerInsetStart());
-            assertEquals(456, mixin.getDividerInsetEnd());
-
-            final Drawable divider = mixin.getDivider();
-            InsetDrawable insetDrawable = (InsetDrawable) divider;
-            Rect rect = new Rect();
-            insetDrawable.getPadding(rect);
-
-            assertEquals(new Rect(456, 0, 123, 0), rect);
-        }
-        // else the test passes
-    }
+    // else the test passes
+  }
 }

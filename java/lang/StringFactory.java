@@ -237,17 +237,10 @@ public final class StringFactory {
         } else {
             CharBuffer cb = charset.decode(ByteBuffer.wrap(data, offset, byteCount));
             length = cb.length();
-            if (length > 0) {
-                // We could use cb.array() directly, but that would mean we'd have to trust
-                // the CharsetDecoder doesn't hang on to the CharBuffer and mutate it later,
-                // which would break String's immutability guarantee. It would also tend to
-                // mean that we'd be wasting memory because CharsetDecoder doesn't trim the
-                // array. So we copy.
-                value = new char[length];
-                System.arraycopy(cb.array(), 0, value, 0, length);
-            } else {
-                value = EmptyArray.CHAR;
-            }
+            // The call to newStringFromChars below will copy length bytes out of value, so it does
+            // not matter that cb.array().length may be > cb.length() or that a Charset could keep a
+            // reference to the CharBuffer it returns and later mutate it.
+            value = cb.array();
         }
         return newStringFromChars(value, 0, length);
     }

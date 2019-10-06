@@ -107,6 +107,11 @@ public final class IDN {
         try {
             return IDNA.convertIDNToASCII(input, flag).toString();
         } catch (android.icu.text.StringPrepParseException e) {
+            // b/113787610: "." is a valid IDN but is rejected by ICU.
+            // Usage is relatively uncommon, so only check for it if ICU throws.
+            if (".".equals(input)) {
+                return input;
+            }
             throw new IllegalArgumentException("Invalid input to toASCII: " + input, e);
         }
         // END Android-changed: Use ICU4J implementation

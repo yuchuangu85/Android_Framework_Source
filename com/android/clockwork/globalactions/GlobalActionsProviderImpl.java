@@ -7,28 +7,21 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.res.TypedArray;
-import android.os.BatteryManager;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.provider.Settings;
 import android.service.dreams.DreamService;
 import android.service.dreams.IDreamManager;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
-import android.widget.Switch;
 import com.android.internal.globalactions.Action;
 import com.android.internal.globalactions.LongPressAction;
 import com.android.internal.globalactions.SinglePressAction;
-import com.android.internal.globalactions.ToggleAction;
 import com.android.internal.R;
 import com.android.server.policy.GlobalActionsProvider;
 import com.android.server.policy.PhoneWindowManager;
@@ -44,19 +37,13 @@ final class GlobalActionsProviderImpl implements
         View.OnLongClickListener {
     private static final int MESSAGE_DISMISS = 0;
     private static final int MESSAGE_SHOW = 2;
-    private static final int MESSAGE_UPDATE_POWER_SAVER = 5;
-    private static final String TAG = "GlobalActionsService";
 
     private final ContentResolver mContentResolver;
     private final Context mContext;
     private final WindowManagerPolicy.WindowManagerFuncs mWindowManagerFuncs;
     private final IDreamManager mDreamManager;
-    private final PowerManager mPowerManager;
     private boolean mDeviceProvisioned = false;
-    private boolean mIsCharging = false;
     private View mSettingsView;
-    private PowerSaverAction mPowerSaverAction;
-    private View mPowerSaverView;
     private Dialog mDialog;
     private LayoutInflater mInflater;
     private GlobalActionsProvider.GlobalActionsListener mListener;
@@ -70,13 +57,11 @@ final class GlobalActionsProviderImpl implements
 
         mDreamManager = IDreamManager.Stub.asInterface(
                 ServiceManager.getService(DreamService.DREAM_SERVICE));
-        mPowerManager = mContext.getSystemService(PowerManager.class);
 
         // receive broadcasts
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
         filter.addAction(Intent.ACTION_SCREEN_OFF);
-        filter.addAction(Intent.ACTION_BATTERY_CHANGED);
         context.registerReceiver(mBroadcastReceiver, filter);
     }
 
@@ -146,7 +131,6 @@ final class GlobalActionsProviderImpl implements
 
         addAction(container, new PowerAction(mContext, mWindowManagerFuncs));
         addAction(container, new RestartAction(mContext, mWindowManagerFuncs));
-        mPowerSaverView = addAction(container, mPowerSaverAction = new PowerSaverAction());
         mSettingsView = addAction(container, new SettingsAction());
 
         Dialog dialog = new Dialog(mContext);
@@ -193,21 +177,8 @@ final class GlobalActionsProviderImpl implements
     }
 
     private void prepareDialog() {
-        refreshPowerSaverMode();
         mDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG);
         mSettingsView.setVisibility(mDeviceProvisioned ? View.GONE : View.VISIBLE);
-        mPowerSaverView.setVisibility(mDeviceProvisioned ? View.VISIBLE : View.GONE);
-    }
-
-    private void refreshPowerSaverMode() {
-        if (mPowerSaverAction != null) {
-            final boolean powerSaverOn = mPowerManager.isPowerSaveMode();
-            mPowerSaverAction.updateState(
-                    powerSaverOn ? ToggleAction.State.On : ToggleAction.State.Off);
-        }
-        if (mPowerSaverView != null) {
-            mPowerSaverView.setEnabled(!mIsCharging);
-        }
     }
 
     private BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
@@ -220,11 +191,6 @@ final class GlobalActionsProviderImpl implements
                 if (!PhoneWindowManager.SYSTEM_DIALOG_REASON_GLOBAL_ACTIONS.equals(reason)) {
                     mHandler.sendEmptyMessage(MESSAGE_DISMISS);
                 }
-            } else if (Intent.ACTION_BATTERY_CHANGED.equals(action)) {
-                int status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
-                mIsCharging = status == BatteryManager.BATTERY_STATUS_CHARGING
-                        || status == BatteryManager.BATTERY_STATUS_FULL;
-                mHandler.sendEmptyMessage(MESSAGE_UPDATE_POWER_SAVER);
             }
         }
     };
@@ -242,93 +208,9 @@ final class GlobalActionsProviderImpl implements
             case MESSAGE_SHOW:
                 handleShow();
                 break;
-            case MESSAGE_UPDATE_POWER_SAVER:
-                refreshPowerSaverMode();
-                break;
             }
         }
     };
-
-    private class PowerSaverAction extends ToggleAction {
-        private Switch mSwitchWidget;
-
-        public PowerSaverAction() {
-            super(com.android.internal.R.drawable.ic_qs_battery_saver,
-                    com.android.internal.R.drawable.ic_qs_battery_saver,
-                    R.string.global_action_toggle_battery_saver,
-                    R.string.global_action_battery_saver_off_status,
-                    R.string.global_action_battery_saver_on_status);
-        }
-
-        @Override
-        public void onToggle(boolean on) {
-            if (!mPowerManager.setPowerSaveMode(on)) {
-                Log.e(TAG, "Setting power save mode to " + on + " failed");
-            }
-            mContext.startActivity(new Intent(Intent.ACTION_MAIN)
-                    .addCategory(Intent.CATEGORY_HOME)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        }
-
-        @Override
-        public boolean showDuringKeyguard() {
-            return true;
-        }
-
-        @Override
-        public boolean showBeforeProvisioning() {
-            return false;
-        }
-
-        @Override
-        public View create(Context context, View convertView, ViewGroup parent,
-                LayoutInflater inflater) {
-            View v = super.create(context, convertView, parent, inflater);
-
-            int switchPreferenceStyleResId = 0;
-            TypedArray themeAttributes = context.obtainStyledAttributes(
-                    new int[] { R.attr.switchPreferenceStyle });
-            try {
-                switchPreferenceStyleResId = themeAttributes.getResourceId(0, 0);
-            } finally {
-                themeAttributes.recycle();
-            }
-
-            int widgetlayoutResId = 0;
-            if (switchPreferenceStyleResId != 0) {
-                TypedArray preferenceAttributes =
-                        context.obtainStyledAttributes(
-                                switchPreferenceStyleResId,
-                                android.R.styleable.Preference);
-                try {
-                    widgetlayoutResId = preferenceAttributes.getResourceId(
-                            R.styleable.Preference_widgetLayout, 0);
-                } finally {
-                    preferenceAttributes.recycle();
-                }
-            }
-
-            if (widgetlayoutResId != 0) {
-                v.findViewById(R.id.icon).setVisibility(View.GONE);
-                ViewGroup frame = v.findViewById(R.id.widget_frame);
-                frame.setVisibility(View.VISIBLE);
-                mSwitchWidget = (Switch) inflater.inflate(widgetlayoutResId, frame, false);
-                mSwitchWidget.setDuplicateParentStateEnabled(true);
-                updateState(mState);
-                frame.addView(mSwitchWidget);
-            }
-
-            return v;
-        }
-
-        @Override
-        public void updateState(State state) {
-            super.updateState(state);
-            if (mSwitchWidget != null) {
-                mSwitchWidget.setChecked((state == State.On) || (state == State.TurningOn));
-            }
-        }
-    }
 
     private class SettingsAction extends SinglePressAction {
         public SettingsAction() {

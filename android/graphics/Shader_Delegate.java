@@ -49,6 +49,7 @@ public abstract class Shader_Delegate {
 
     // ---- delegate data ----
     private Matrix_Delegate mLocalMatrix = null;
+    private float mAlpha = 1.0f;
 
     // ---- Public Helper methods ----
 
@@ -107,4 +108,11 @@ public abstract class Shader_Delegate {
         return new java.awt.geom.AffineTransform();
     }
 
+    public void setAlpha(float alpha) {
+        mAlpha = alpha;
+    }
+
+    public float getAlpha() {
+        return mAlpha;
+    }
 }

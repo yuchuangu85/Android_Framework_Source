@@ -19,6 +19,7 @@ package com.android.server.display;
 import android.hardware.display.DisplayViewport;
 import android.util.DisplayMetrics;
 import android.view.Display;
+import android.view.DisplayAddress;
 import android.view.DisplayCutout;
 import android.view.Surface;
 
@@ -95,13 +96,29 @@ final class DisplayDeviceInfo {
     /**
      * Flag: This display can show its content when non-secure keyguard is shown.
      */
+    // TODO (b/114338689): Remove the flag and use IWindowManager#shouldShowWithInsecureKeyguard
     public static final int FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD = 1 << 9;
 
     /**
      * Flag: This display will destroy its content on removal.
      * @hide
      */
+    // TODO (b/114338689): Remove the flag and use WindowManager#REMOVE_CONTENT_MODE_DESTROY
     public static final int FLAG_DESTROY_CONTENT_ON_REMOVAL = 1 << 10;
+
+    /**
+     * Flag: The display cutout of this display is masked.
+     * @hide
+     */
+    public static final int FLAG_MASK_DISPLAY_CUTOUT = 1 << 11;
+
+    /**
+     * Flag: This flag identifies secondary displays that should show system decorations, such as
+     * status bar, navigation bar, home activity or IME.
+     * @hide
+     */
+    // TODO (b/114338689): Remove the flag and use IWindowManager#setShouldShowSystemDecors
+    public static final int FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS = 1 << 12;
 
     /**
      * Touch attachment: Display does not receive touch.
@@ -258,7 +275,7 @@ final class DisplayDeviceInfo {
      * Display address, or null if none.
      * Interpretation varies by display type.
      */
-    public String address;
+    public DisplayAddress address;
 
     /**
      * Display state.
@@ -452,6 +469,9 @@ final class DisplayDeviceInfo {
         }
         if ((flags & FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD) != 0) {
             msg.append(", FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD");
+        }
+        if ((flags & FLAG_MASK_DISPLAY_CUTOUT) != 0) {
+            msg.append(", FLAG_MASK_DISPLAY_CUTOUT");
         }
         return msg.toString();
     }

@@ -33,7 +33,7 @@ import java.util.Set;
  */
 public class WfaCertBuilder {
 
-    private static final String TAG = "WfaCertBuilder";
+    private static final String TAG = "PasspointWfaCertBuilder";
 
     /**
      * Returns a set of X509 Certificates from a set of WFA cert files

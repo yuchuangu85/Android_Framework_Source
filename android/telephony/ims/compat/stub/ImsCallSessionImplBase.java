@@ -18,17 +18,17 @@ package android.telephony.ims.compat.stub;
 
 import android.os.Message;
 import android.os.RemoteException;
-
+import android.telephony.CallQuality;
 import android.telephony.ims.ImsCallProfile;
+import android.telephony.ims.ImsCallSession;
 import android.telephony.ims.ImsConferenceState;
 import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.ImsStreamMediaProfile;
 import android.telephony.ims.ImsSuppServiceNotification;
 import android.telephony.ims.aidl.IImsCallSessionListener;
+
 import com.android.ims.internal.IImsCallSession;
 import com.android.ims.internal.IImsVideoCallProvider;
-
-import android.telephony.ims.ImsCallSession;
 
 /**
  * Compat implementation of ImsCallSessionImplBase for older implementations.
@@ -589,6 +589,17 @@ public class ImsCallSessionImplBase extends IImsCallSession.Stub {
         @Override
         public void callSessionRttMessageReceived(String rttMessage) throws RemoteException {
             mNewListener.callSessionRttMessageReceived(rttMessage);
+        }
+
+        @Override
+        public void callSessionRttAudioIndicatorChanged(ImsStreamMediaProfile profile)
+                throws RemoteException {
+            mNewListener.callSessionRttAudioIndicatorChanged(profile);
+        }
+
+        @Override
+        public void callQualityChanged(CallQuality callQuality) throws RemoteException {
+            mNewListener.callQualityChanged(callQuality);
         }
     }
 }

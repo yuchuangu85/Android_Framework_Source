@@ -22,6 +22,7 @@ import static android.text.format.DateUtils.MINUTE_IN_MILLIS;
 import static android.text.format.DateUtils.YEAR_IN_MILLIS;
 import static android.text.format.Time.getJulianDay;
 
+import android.annotation.UnsupportedAppUsage;
 import android.app.ActivityThread;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -30,17 +31,18 @@ import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.content.res.TypedArray;
 import android.database.ContentObserver;
-import android.icu.util.Calendar;
 import android.os.Handler;
 import android.text.format.Time;
 import android.util.AttributeSet;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.inspector.InspectableProperty;
 import android.widget.RemoteViews.RemoteView;
 
 import com.android.internal.R;
 
 import java.text.DateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.TimeZone;
 
@@ -76,6 +78,7 @@ public class DateTimeView extends TextView {
         this(context, null);
     }
 
+    @UnsupportedAppUsage
     public DateTimeView(Context context, AttributeSet attrs) {
         super(context, attrs);
         final TypedArray a = context.obtainStyledAttributes(attrs,
@@ -124,6 +127,7 @@ public class DateTimeView extends TextView {
     }
 
     @android.view.RemotableViewMethod
+    @UnsupportedAppUsage
     public void setTime(long time) {
         Time t = new Time();
         t.set(time);
@@ -139,6 +143,16 @@ public class DateTimeView extends TextView {
         update();
     }
 
+    /**
+     * Returns whether this view shows relative time
+     *
+     * @return True if it shows relative time, false otherwise
+     */
+    @InspectableProperty(name = "showReleative", hasAttributeId = false)
+    public boolean isShowRelativeTime() {
+        return mShowRelativeTime;
+    }
+
     @Override
     @android.view.RemotableViewMethod
     public void setVisibility(@Visibility int visibility) {
@@ -149,6 +163,7 @@ public class DateTimeView extends TextView {
         }
     }
 
+    @UnsupportedAppUsage
     void update() {
         if (mTime == null || getVisibility() == GONE) {
             return;
@@ -301,7 +316,7 @@ public class DateTimeView extends TextView {
      */
     private long computeNextMidnight(TimeZone timeZone) {
         Calendar c = Calendar.getInstance();
-        c.setTimeZone(libcore.icu.DateUtilsBridge.icuTimeZone(timeZone));
+        c.setTimeZone(timeZone);
         c.add(Calendar.DAY_OF_MONTH, 1);
         c.set(Calendar.HOUR_OF_DAY, 0);
         c.set(Calendar.MINUTE, 0);

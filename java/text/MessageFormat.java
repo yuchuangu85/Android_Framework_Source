@@ -692,7 +692,9 @@ public class MessageFormat extends Format {
     public void setFormat(int formatElementIndex, Format newFormat) {
         // Android-added: prevent setting unused formatters.
         if (formatElementIndex > maxOffset) {
-            throw new ArrayIndexOutOfBoundsException(maxOffset, formatElementIndex);
+            // Note: maxOffset is maximum index, not the length.
+            throw new ArrayIndexOutOfBoundsException(
+                    "maxOffset=" + maxOffset + "; formatElementIndex=" + formatElementIndex);
         }
         formats[formatElementIndex] = newFormat;
     }

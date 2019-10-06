@@ -31,9 +31,9 @@ import android.widget.OverScroller;
 
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
-import com.android.systemui.recents.Recents;
-import com.android.systemui.shared.recents.utilities.AnimationProps;
-import com.android.systemui.shared.recents.utilities.Utilities;
+import com.android.systemui.recents.LegacyRecentsImpl;
+import com.android.systemui.recents.utilities.AnimationProps;
+import com.android.systemui.recents.utilities.Utilities;
 import com.android.systemui.recents.views.lowram.TaskStackLowRamLayoutAlgorithm;
 import com.android.systemui.statusbar.FlingAnimationUtils;
 
@@ -89,7 +89,7 @@ public class TaskStackViewScroller {
         mContext = context;
         mCb = cb;
         mScroller = new OverScroller(context);
-        if (Recents.getConfiguration().isLowRamDevice) {
+        if (LegacyRecentsImpl.getConfiguration().isLowRamDevice) {
             mScroller.setFriction(0.06f);
         }
         mLayoutAlgorithm = layoutAlgorithm;
@@ -206,7 +206,7 @@ public class TaskStackViewScroller {
         float stackScroll = getStackScroll();
 
         // Skip if not in low ram layout and if the scroll is out of min and max bounds
-        if (!Recents.getConfiguration().isLowRamDevice || stackScroll < mLayoutAlgorithm.mMinScrollP
+        if (!LegacyRecentsImpl.getConfiguration().isLowRamDevice || stackScroll < mLayoutAlgorithm.mMinScrollP
                 || stackScroll > mLayoutAlgorithm.mMaxScrollP) {
             return;
         }

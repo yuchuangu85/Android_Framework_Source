@@ -468,12 +468,13 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
             Log.v(TAG, "eventDataPathRequest: discoverySessionId=" + event.discoverySessionId
                     + ", peerDiscMacAddr=" + String.valueOf(
                     HexEncoding.encode(event.peerDiscMacAddr)) + ", ndpInstanceId="
-                    + event.ndpInstanceId);
+                    + event.ndpInstanceId + ", appInfo.size()=" + event.appInfo.size());
         }
         incrementCbCount(CB_EV_DATA_PATH_REQUEST);
 
         mWifiAwareStateManager.onDataPathRequestNotification(event.discoverySessionId,
-                event.peerDiscMacAddr, event.ndpInstanceId);
+                event.peerDiscMacAddr, event.ndpInstanceId,
+                convertArrayListToNativeByteArray(event.appInfo));
     }
 
     @Override
@@ -482,7 +483,7 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
             Log.v(TAG, "onDataPathConfirm: ndpInstanceId=" + event.ndpInstanceId
                     + ", peerNdiMacAddr=" + String.valueOf(HexEncoding.encode(event.peerNdiMacAddr))
                     + ", dataPathSetupSuccess=" + event.dataPathSetupSuccess + ", reason="
-                    + event.status.status);
+                    + event.status.status + ", appInfo.size()=" + event.appInfo.size());
         }
         if (mIsHal12OrLater) {
             Log.wtf(TAG, "eventDataPathConfirm should not be called by a >=1.2 HAL!");
@@ -500,7 +501,8 @@ public class WifiAwareNativeCallback extends IWifiNanIfaceEventCallback.Stub imp
             Log.v(TAG, "eventDataPathConfirm_1_2: ndpInstanceId=" + event.V1_0.ndpInstanceId
                     + ", peerNdiMacAddr=" + String.valueOf(
                     HexEncoding.encode(event.V1_0.peerNdiMacAddr)) + ", dataPathSetupSuccess="
-                    + event.V1_0.dataPathSetupSuccess + ", reason=" + event.V1_0.status.status);
+                    + event.V1_0.dataPathSetupSuccess + ", reason=" + event.V1_0.status.status
+                    + ", appInfo.size()=" + event.V1_0.appInfo.size());
         }
         if (!mIsHal12OrLater) {
             Log.wtf(TAG, "eventDataPathConfirm_1_2 should not be called by a <1.2 HAL!");

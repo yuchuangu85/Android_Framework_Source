@@ -1,9 +1,9 @@
 package android.bluetooth;
 
 import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyObject;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyObject;
 import static org.mockito.Mockito.when;
 
 import android.os.ParcelFileDescriptor;
@@ -13,9 +13,9 @@ import org.mockito.MockitoAnnotations;
 
 /** Mock {@link BluetoothAdapter} in the same package to access package private methods */
 public class MockBluetoothProxyHelper {
-    @Mock IBluetooth mockBluetoothService;
-    @Mock IBluetoothSocketManager mockBluetoothSocketManager;
-    @Mock ParcelFileDescriptor mockParcelFileDescriptor;
+    private @Mock IBluetooth mockBluetoothService;
+    private @Mock IBluetoothSocketManager mockBluetoothSocketManager;
+    private @Mock ParcelFileDescriptor mockParcelFileDescriptor;
 
     private BluetoothAdapter mockBluetoothAdapter;
 
@@ -24,17 +24,17 @@ public class MockBluetoothProxyHelper {
 
         MockitoAnnotations.initMocks(this);
 
-        /** Mocks out package protected method */
+        // Mocks out package protected method
         when(mockBluetoothAdapter.getBluetoothService(any())).thenReturn(mockBluetoothService);
 
-        /** IBluetooth package protected method */
+        // IBluetooth package protected method
         try {
             when(mockBluetoothService.getSocketManager()).thenReturn(mockBluetoothSocketManager);
         } catch (RemoteException e) {
             fail(e.getMessage());
         }
 
-        /** IBluetooth package protected method */
+        // IBluetooth package protected method
         try {
             when(mockBluetoothSocketManager.connectSocket(anyObject(), anyInt(), anyObject(),
                         anyInt(), anyInt())).thenReturn(mockParcelFileDescriptor);

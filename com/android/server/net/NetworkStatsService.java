@@ -25,6 +25,7 @@ import static android.content.Intent.ACTION_USER_REMOVED;
 import static android.content.Intent.EXTRA_UID;
 import static android.net.ConnectivityManager.ACTION_TETHER_STATE_CHANGED;
 import static android.net.ConnectivityManager.isNetworkTypeMobile;
+import static android.net.NetworkStack.checkNetworkStackPermission;
 import static android.net.NetworkStats.DEFAULT_NETWORK_ALL;
 import static android.net.NetworkStats.IFACE_ALL;
 import static android.net.NetworkStats.INTERFACES_ALL;
@@ -82,7 +83,6 @@ import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.net.DataUsageRequest;
-import android.net.IConnectivityManager;
 import android.net.INetworkManagementEventObserver;
 import android.net.INetworkStatsService;
 import android.net.INetworkStatsSession;
@@ -105,6 +105,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.INetworkManagementService;
+import android.os.Looper;
 import android.os.Message;
 import android.os.Messenger;
 import android.os.PowerManager;
@@ -130,7 +131,6 @@ import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.net.NetworkStatsFactory;
 import com.android.internal.net.VpnInfo;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.DumpUtils;
@@ -159,15 +159,24 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
     static final boolean LOGD = Log.isLoggable(TAG, Log.DEBUG);
     static final boolean LOGV = Log.isLoggable(TAG, Log.VERBOSE);
 
+    // Perform polling and persist all (FLAG_PERSIST_ALL).
     private static final int MSG_PERFORM_POLL = 1;
-    private static final int MSG_UPDATE_IFACES = 2;
-    private static final int MSG_REGISTER_GLOBAL_ALERT = 3;
+    // Perform polling, persist network, and register the global alert again.
+    private static final int MSG_PERFORM_POLL_REGISTER_ALERT = 2;
 
     /** Flags to control detail level of poll event. */
     private static final int FLAG_PERSIST_NETWORK = 0x1;
     private static final int FLAG_PERSIST_UID = 0x2;
     private static final int FLAG_PERSIST_ALL = FLAG_PERSIST_NETWORK | FLAG_PERSIST_UID;
     private static final int FLAG_PERSIST_FORCE = 0x100;
+
+    /**
+     * When global alert quota is high, wait for this delay before processing each polling,
+     * and do not schedule further polls once there is already one queued.
+     * This avoids firing the global alert too often on devices with high transfer speeds and
+     * high quota.
+     */
+    private static final int PERFORM_POLL_DELAY_MS = 1000;
 
     private static final String TAG_NETSTATS_ERROR = "netstats_error";
 
@@ -185,8 +194,6 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
     private final PowerManager.WakeLock mWakeLock;
 
     private final boolean mUseBpfTrafficStats;
-
-    private IConnectivityManager mConnManager;
 
     @VisibleForTesting
     public static final String ACTION_NETWORK_STATS_POLL =
@@ -249,6 +256,7 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
     private final ArrayMap<String, NetworkIdentitySet> mActiveUidIfaces = new ArrayMap<>();
 
     /** Current default active iface. */
+    @GuardedBy("mStatsLock")
     private String mActiveIface;
 
     /** Set of any ifaces associated with mobile networks since boot. */
@@ -258,6 +266,10 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
     /** Set of all ifaces currently used by traffic that does not explicitly specify a Network. */
     @GuardedBy("mStatsLock")
     private Network[] mDefaultNetworks = new Network[0];
+
+    /** Set containing info about active VPNs and their underlying networks. */
+    @GuardedBy("mStatsLock")
+    private VpnInfo[] mVpnInfos = new VpnInfo[0];
 
     private final DropBoxNonMonotonicObserver mNonMonotonicObserver =
             new DropBoxNonMonotonicObserver();
@@ -314,6 +326,12 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
                 Clock.systemUTC());
     }
 
+    private static final class NetworkStatsHandler extends Handler {
+        NetworkStatsHandler(Looper looper, Handler.Callback callback) {
+            super(looper, callback);
+        }
+    }
+
     public static NetworkStatsService create(Context context,
                 INetworkManagementService networkManager) {
         AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
@@ -325,15 +343,18 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
                 wakeLock, getDefaultClock(), TelephonyManager.getDefault(),
                 new DefaultNetworkStatsSettings(context), new NetworkStatsObservers(),
                 getDefaultSystemDir(), getDefaultBaseDir());
+        service.registerLocalService();
 
         HandlerThread handlerThread = new HandlerThread(TAG);
         Handler.Callback callback = new HandlerCallback(service);
         handlerThread.start();
-        Handler handler = new Handler(handlerThread.getLooper(), callback);
+        Handler handler = new NetworkStatsHandler(handlerThread.getLooper(), callback);
         service.setHandler(handler, callback);
         return service;
     }
 
+    // This must not be called outside of tests, even within the same package, as this constructor
+    // does not register the local service. Use the create() helper above.
     @VisibleForTesting
     NetworkStatsService(Context context, INetworkManagementService networkManager,
             AlarmManager alarmManager, PowerManager.WakeLock wakeLock, Clock clock,
@@ -349,8 +370,10 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
         mStatsObservers = checkNotNull(statsObservers, "missing NetworkStatsObservers");
         mSystemDir = checkNotNull(systemDir, "missing systemDir");
         mBaseDir = checkNotNull(baseDir, "missing baseDir");
-        mUseBpfTrafficStats = new File("/sys/fs/bpf/traffic_uid_stats_map").exists();
+        mUseBpfTrafficStats = new File("/sys/fs/bpf/map_netd_app_uid_stats_map").exists();
+    }
 
+    private void registerLocalService() {
         LocalServices.addService(NetworkStatsManagerInternal.class,
                 new NetworkStatsManagerInternalImpl());
     }
@@ -359,10 +382,6 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
     void setHandler(Handler handler, Handler.Callback callback) {
         mHandler = handler;
         mHandlerCallback = callback;
-    }
-
-    public void bindConnectivityManager(IConnectivityManager connManager) {
-        mConnManager = checkNotNull(connManager, "missing IConnectivityManager");
     }
 
     public void systemReady() {
@@ -843,13 +862,17 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
     }
 
     @Override
-    public void forceUpdateIfaces(Network[] defaultNetworks) {
-        mContext.enforceCallingOrSelfPermission(READ_NETWORK_USAGE_HISTORY, TAG);
+    public void forceUpdateIfaces(
+            Network[] defaultNetworks,
+            VpnInfo[] vpnArray,
+            NetworkState[] networkStates,
+            String activeIface) {
+        checkNetworkStackPermission(mContext);
         assertBandwidthControlEnabled();
 
         final long token = Binder.clearCallingIdentity();
         try {
-            updateIfaces(defaultNetworks);
+            updateIfaces(defaultNetworks, vpnArray, networkStates, activeIface);
         } finally {
             Binder.restoreCallingIdentity(token);
         }
@@ -916,7 +939,7 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
         }
 
         // Create baseline stats
-        mHandler.sendMessage(mHandler.obtainMessage(MSG_PERFORM_POLL, FLAG_PERSIST_ALL));
+        mHandler.sendMessage(mHandler.obtainMessage(MSG_PERFORM_POLL));
 
         return normalizedRequest;
    }
@@ -941,12 +964,64 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
 
     @Override
     public long getIfaceStats(String iface, int type) {
-        return nativeGetIfaceStat(iface, type, checkBpfStatsEnable());
+        long nativeIfaceStats = nativeGetIfaceStat(iface, type, checkBpfStatsEnable());
+        if (nativeIfaceStats == -1) {
+            return nativeIfaceStats;
+        } else {
+            // When tethering offload is in use, nativeIfaceStats does not contain usage from
+            // offload, add it back here.
+            // When tethering offload is not in use, nativeIfaceStats contains tethering usage.
+            // this does not cause double-counting of tethering traffic, because
+            // NetdTetheringStatsProvider returns zero NetworkStats
+            // when called with STATS_PER_IFACE.
+            return nativeIfaceStats + getTetherStats(iface, type);
+        }
     }
 
     @Override
     public long getTotalStats(int type) {
-        return nativeGetTotalStat(type, checkBpfStatsEnable());
+        long nativeTotalStats = nativeGetTotalStat(type, checkBpfStatsEnable());
+        if (nativeTotalStats == -1) {
+            return nativeTotalStats;
+        } else {
+            // Refer to comment in getIfaceStats
+            return nativeTotalStats + getTetherStats(IFACE_ALL, type);
+        }
+    }
+
+    private long getTetherStats(String iface, int type) {
+        final NetworkStats tetherSnapshot;
+        final long token = Binder.clearCallingIdentity();
+        try {
+            tetherSnapshot = getNetworkStatsTethering(STATS_PER_IFACE);
+        } catch (RemoteException e) {
+            Slog.w(TAG, "Error get TetherStats: " + e);
+            return 0;
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+        HashSet<String> limitIfaces;
+        if (iface == IFACE_ALL) {
+            limitIfaces = null;
+        } else {
+            limitIfaces = new HashSet<String>();
+            limitIfaces.add(iface);
+        }
+        NetworkStats.Entry entry = tetherSnapshot.getTotal(null, limitIfaces);
+        if (LOGD) Slog.d(TAG, "TetherStats: iface=" + iface + " type=" + type +
+                " entry=" + entry);
+        switch (type) {
+            case 0: // TYPE_RX_BYTES
+                return entry.rxBytes;
+            case 1: // TYPE_RX_PACKETS
+                return entry.rxPackets;
+            case 2: // TYPE_TX_BYTES
+                return entry.txBytes;
+            case 3: // TYPE_TX_PACKETS
+                return entry.txPackets;
+            default:
+                return 0;
+        }
     }
 
     private boolean checkBpfStatsEnable() {
@@ -1051,22 +1126,27 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
             mContext.enforceCallingOrSelfPermission(CONNECTIVITY_INTERNAL, TAG);
 
             if (LIMIT_GLOBAL_ALERT.equals(limitName)) {
-                // kick off background poll to collect network stats; UID stats
-                // are handled during normal polling interval.
-                final int flags = FLAG_PERSIST_NETWORK;
-                mHandler.obtainMessage(MSG_PERFORM_POLL, flags, 0).sendToTarget();
-
-                // re-arm global alert for next update
-                mHandler.obtainMessage(MSG_REGISTER_GLOBAL_ALERT).sendToTarget();
+                // kick off background poll to collect network stats unless there is already
+                // such a call pending; UID stats are handled during normal polling interval.
+                if (!mHandler.hasMessages(MSG_PERFORM_POLL_REGISTER_ALERT)) {
+                    mHandler.sendEmptyMessageDelayed(MSG_PERFORM_POLL_REGISTER_ALERT,
+                            PERFORM_POLL_DELAY_MS);
+                }
             }
         }
     };
 
-    private void updateIfaces(Network[] defaultNetworks) {
+    private void updateIfaces(
+            Network[] defaultNetworks,
+            VpnInfo[] vpnArray,
+            NetworkState[] networkStates,
+            String activeIface) {
         synchronized (mStatsLock) {
             mWakeLock.acquire();
             try {
-                updateIfacesLocked(defaultNetworks);
+                mVpnInfos = vpnArray;
+                mActiveIface = activeIface;
+                updateIfacesLocked(defaultNetworks, networkStates);
             } finally {
                 mWakeLock.release();
             }
@@ -1080,7 +1160,7 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
      * {@link NetworkIdentitySet}.
      */
     @GuardedBy("mStatsLock")
-    private void updateIfacesLocked(Network[] defaultNetworks) {
+    private void updateIfacesLocked(Network[] defaultNetworks, NetworkState[] states) {
         if (!mSystemReady) return;
         if (LOGV) Slog.v(TAG, "updateIfacesLocked()");
 
@@ -1091,18 +1171,6 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
         // poll, but only persist network stats to keep codepath fast. UID stats
         // will be persisted during next alarm poll event.
         performPollLocked(FLAG_PERSIST_NETWORK);
-
-        final NetworkState[] states;
-        final LinkProperties activeLink;
-        try {
-            states = mConnManager.getAllNetworkState();
-            activeLink = mConnManager.getActiveLinkProperties();
-        } catch (RemoteException e) {
-            // ignored; service lives in system_server
-            return;
-        }
-
-        mActiveIface = activeLink != null ? activeLink.getInterfaceName() : null;
 
         // Rebuild active interfaces based on connected networks
         mActiveIfaces.clear();
@@ -1149,14 +1217,22 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
                     }
                 }
 
-                // Traffic occurring on stacked interfaces is usually clatd,
-                // which is already accounted against its final egress interface
-                // by the kernel. Thus, we only need to collect stacked
-                // interface stats at the UID level.
+                // Traffic occurring on stacked interfaces is usually clatd.
+                // UID stats are always counted on the stacked interface and never
+                // on the base interface, because the packets on the base interface
+                // do not actually match application sockets until they are translated.
+                //
+                // Interface stats are more complicated. Packets subject to BPF offload
+                // never appear on the base interface and only appear on the stacked
+                // interface, so to ensure those packets increment interface stats, interface
+                // stats from stacked interfaces must be collected.
                 final List<LinkProperties> stackedLinks = state.linkProperties.getStackedLinks();
                 for (LinkProperties stackedLink : stackedLinks) {
                     final String stackedIface = stackedLink.getInterfaceName();
                     if (stackedIface != null) {
+                        if (mUseBpfTrafficStats) {
+                            findOrCreateNetworkIdentitySet(mActiveIfaces, stackedIface).add(ident);
+                        }
                         findOrCreateNetworkIdentitySet(mActiveUidIfaces, stackedIface).add(ident);
                         if (isMobile) {
                             mobileIfaces.add(stackedIface);
@@ -1215,7 +1291,7 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
         Trace.traceEnd(TRACE_TAG_NETWORK);
 
         // For per-UID stats, pass the VPN info so VPN traffic is reattributed to responsible apps.
-        VpnInfo[] vpnArray = mConnManager.getAllVpnInfo();
+        VpnInfo[] vpnArray = mVpnInfos;
         Trace.traceBegin(TRACE_TAG_NETWORK, "recordUid");
         mUidRecorder.recordSnapshotLocked(uidSnapshot, mActiveUidIfaces, vpnArray, currentTime);
         Trace.traceEnd(TRACE_TAG_NETWORK);
@@ -1607,7 +1683,8 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
         // fold tethering stats and operations into uid snapshot
         final NetworkStats tetherSnapshot = getNetworkStatsTethering(STATS_PER_UID);
         tetherSnapshot.filter(UID_ALL, ifaces, TAG_ALL);
-        NetworkStatsFactory.apply464xlatAdjustments(uidSnapshot, tetherSnapshot);
+        NetworkStatsFactory.apply464xlatAdjustments(uidSnapshot, tetherSnapshot,
+                mUseBpfTrafficStats);
         uidSnapshot.combineAllValues(tetherSnapshot);
 
         final TelephonyManager telephonyManager = (TelephonyManager) mContext.getSystemService(
@@ -1617,7 +1694,8 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
         final NetworkStats vtStats = telephonyManager.getVtDataUsage(STATS_PER_UID);
         if (vtStats != null) {
             vtStats.filter(UID_ALL, ifaces, TAG_ALL);
-            NetworkStatsFactory.apply464xlatAdjustments(uidSnapshot, vtStats);
+            NetworkStatsFactory.apply464xlatAdjustments(uidSnapshot, vtStats,
+                    mUseBpfTrafficStats);
             uidSnapshot.combineAllValues(vtStats);
         }
 
@@ -1669,15 +1747,11 @@ public class NetworkStatsService extends INetworkStatsService.Stub {
         public boolean handleMessage(Message msg) {
             switch (msg.what) {
                 case MSG_PERFORM_POLL: {
-                    final int flags = msg.arg1;
-                    mService.performPoll(flags);
+                    mService.performPoll(FLAG_PERSIST_ALL);
                     return true;
                 }
-                case MSG_UPDATE_IFACES: {
-                    mService.updateIfaces(null);
-                    return true;
-                }
-                case MSG_REGISTER_GLOBAL_ALERT: {
+                case MSG_PERFORM_POLL_REGISTER_ALERT: {
+                    mService.performPoll(FLAG_PERSIST_NETWORK);
                     mService.registerGlobalAlert();
                     return true;
                 }

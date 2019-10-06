@@ -21,7 +21,7 @@ import android.content.Intent;
 import android.os.IBinder;
 import android.util.Log;
 
-import com.android.systemui.SystemUIApplication;
+import com.android.systemui.SysUiServiceProvider;
 
 /**
  * A strictly system-user service that is started by the secondary user's Recents (with a limited
@@ -40,8 +40,7 @@ public class RecentsSystemUserService extends Service {
 
     @Override
     public IBinder onBind(Intent intent) {
-        SystemUIApplication app = (SystemUIApplication) getApplication();
-        Recents recents = app.getComponent(Recents.class);
+        LegacyRecentsImpl recents = SysUiServiceProvider.getComponent(this, LegacyRecentsImpl.class);
         if (DEBUG) {
             Log.d(TAG, "onBind: " + recents);
         }

@@ -20,8 +20,6 @@ import android.annotation.HalfFloat;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 
-import sun.misc.FloatingDecimal;
-
 /**
  * <p>The {@code Half} class is a wrapper and a utility class to manipulate half-precision 16-bit
  * <a href="https://en.wikipedia.org/wiki/Half-precision_floating-point_format">IEEE 754</a>
@@ -164,6 +162,7 @@ public final class Half extends Number implements Comparable<Half> {
     private static final int FP32_EXPONENT_MASK     = 0xff;
     private static final int FP32_SIGNIFICAND_MASK  = 0x7fffff;
     private static final int FP32_EXPONENT_BIAS     = 127;
+    private static final int FP32_QNAN_MASK         = 0x400000;
 
     private static final int FP32_DENORMAL_MAGIC = 126 << 23;
     private static final float FP32_DENORMAL_FLOAT = Float.intBitsToFloat(FP32_DENORMAL_MAGIC);
@@ -905,6 +904,9 @@ public final class Half extends Number implements Comparable<Half> {
             outM = m << 13;
             if (e == 0x1f) { // Infinite or NaN
                 outE = 0xff;
+                if (outM != 0) { // SNaNs are quieted
+                    outM |= FP32_QNAN_MASK;
+                }
             } else {
                 outE = e - FP16_EXPONENT_BIAS + FP32_EXPONENT_BIAS;
             }
@@ -1026,7 +1028,7 @@ public final class Half extends Number implements Comparable<Half> {
      *         half-precision float value
      */
     public static @HalfFloat short parseHalf(@NonNull String s) throws NumberFormatException {
-        return toHalf(FloatingDecimal.parseFloat(s));
+        return toHalf(Float.parseFloat(s));
     }
 
     /**

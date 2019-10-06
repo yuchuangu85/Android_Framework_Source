@@ -16,6 +16,7 @@
 
 package com.android.internal.os;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -31,6 +32,7 @@ import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.RemoteException;
+import android.os.SELinux;
 import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.os.UserHandle;
@@ -74,9 +76,11 @@ public class BatteryStatsHelper {
     final private boolean mCollectBatteryBroadcast;
     final private boolean mWifiOnly;
 
+    @UnsupportedAppUsage
     private IBatteryStats mBatteryInfo;
     private BatteryStats mStats;
     private Intent mBatteryBroadcast;
+    @UnsupportedAppUsage
     private PowerProfile mPowerProfile;
 
     private String[] mSystemPackageArray;
@@ -86,6 +90,7 @@ public class BatteryStatsHelper {
     /**
      * List of apps using power.
      */
+    @UnsupportedAppUsage
     private final List<BatterySipper> mUsageList = new ArrayList<>();
 
     /**
@@ -165,14 +170,17 @@ public class BatteryStatsHelper {
                 profile.getAveragePower(PowerProfile.POWER_BLUETOOTH_CONTROLLER_TX) != 0;
     }
 
+    @UnsupportedAppUsage
     public BatteryStatsHelper(Context context) {
         this(context, true);
     }
 
+    @UnsupportedAppUsage
     public BatteryStatsHelper(Context context, boolean collectBatteryBroadcast) {
         this(context, collectBatteryBroadcast, checkWifiOnly(context));
     }
 
+    @UnsupportedAppUsage
     public BatteryStatsHelper(Context context, boolean collectBatteryBroadcast, boolean wifiOnly) {
         mContext = context;
         mCollectBatteryBroadcast = collectBatteryBroadcast;
@@ -240,6 +248,7 @@ public class BatteryStatsHelper {
                 ServiceManager.getService(BatteryStats.SERVICE_NAME)));
     }
 
+    @UnsupportedAppUsage
     public static void dropFile(Context context, String fname) {
         makeFilePath(context, fname).delete();
     }
@@ -249,10 +258,12 @@ public class BatteryStatsHelper {
     }
 
     /** Clears the current stats and forces recreating for future use. */
+    @UnsupportedAppUsage
     public void clearStats() {
         mStats = null;
     }
 
+    @UnsupportedAppUsage
     public BatteryStats getStats() {
         if (mStats == null) {
             load();
@@ -260,6 +271,7 @@ public class BatteryStatsHelper {
         return mStats;
     }
 
+    @UnsupportedAppUsage
     public Intent getBatteryBroadcast() {
         if (mBatteryBroadcast == null && mCollectBatteryBroadcast) {
             load();
@@ -276,6 +288,7 @@ public class BatteryStatsHelper {
         mStats = stats;
     }
 
+    @UnsupportedAppUsage
     public void create(Bundle icicle) {
         if (icicle != null) {
             mStats = sStatsXfer;
@@ -286,6 +299,7 @@ public class BatteryStatsHelper {
         mPowerProfile = new PowerProfile(mContext);
     }
 
+    @UnsupportedAppUsage
     public void storeState() {
         sStatsXfer = mStats;
         sBatteryBroadcastXfer = mBatteryBroadcast;
@@ -322,6 +336,7 @@ public class BatteryStatsHelper {
     /**
      * Refreshes the power usage list.
      */
+    @UnsupportedAppUsage
     public void refreshStats(int statsType, int asUser) {
         SparseArray<UserHandle> users = new SparseArray<>(1);
         users.put(asUser, new UserHandle(asUser));
@@ -331,6 +346,7 @@ public class BatteryStatsHelper {
     /**
      * Refreshes the power usage list.
      */
+    @UnsupportedAppUsage
     public void refreshStats(int statsType, List<UserHandle> asUsers) {
         final int n = asUsers.size();
         SparseArray<UserHandle> users = new SparseArray<>(n);
@@ -344,6 +360,7 @@ public class BatteryStatsHelper {
     /**
      * Refreshes the power usage list.
      */
+    @UnsupportedAppUsage
     public void refreshStats(int statsType, SparseArray<UserHandle> asUsers) {
         refreshStats(statsType, asUsers, SystemClock.elapsedRealtime() * 1000,
                 SystemClock.uptimeMillis() * 1000);
@@ -351,6 +368,11 @@ public class BatteryStatsHelper {
 
     public void refreshStats(int statsType, SparseArray<UserHandle> asUsers, long rawRealtimeUs,
             long rawUptimeUs) {
+        if (statsType != BatteryStats.STATS_SINCE_CHARGED) {
+            Log.w(TAG, "refreshStats called for statsType " + statsType + " but only "
+                    + "STATS_SINCE_CHARGED is supported. Using STATS_SINCE_CHARGED instead.");
+        }
+
         // Initialize mStats if necessary.
         getStats();
 
@@ -782,6 +804,7 @@ public class BatteryStatsHelper {
         return bs;
     }
 
+    @UnsupportedAppUsage
     public List<BatterySipper> getUsageList() {
         return mUsageList;
     }
@@ -798,6 +821,7 @@ public class BatteryStatsHelper {
         return mStatsType;
     }
 
+    @UnsupportedAppUsage
     public double getMaxPower() {
         return mMaxPower;
     }
@@ -806,6 +830,7 @@ public class BatteryStatsHelper {
         return mMaxRealPower;
     }
 
+    @UnsupportedAppUsage
     public double getTotalPower() {
         return mTotalPower;
     }
@@ -1016,6 +1041,7 @@ public class BatteryStatsHelper {
         mServicepackageArray = array;
     }
 
+    @UnsupportedAppUsage
     private void load() {
         if (mBatteryInfo == null) {
             return;
@@ -1031,6 +1057,10 @@ public class BatteryStatsHelper {
         try {
             ParcelFileDescriptor pfd = service.getStatisticsStream();
             if (pfd != null) {
+                if (false) {
+                    Log.d(TAG, "selinux context: "
+                            + SELinux.getFileContext(pfd.getFileDescriptor()));
+                }
                 try (FileInputStream fis = new ParcelFileDescriptor.AutoCloseInputStream(pfd)) {
                     byte[] data = readFully(fis, MemoryFile.getSize(pfd.getFileDescriptor()));
                     Parcel parcel = Parcel.obtain();

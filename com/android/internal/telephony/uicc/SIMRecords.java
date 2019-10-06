@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.os.AsyncResult;
@@ -24,7 +25,6 @@ import android.os.PersistableBundle;
 import android.telephony.CarrierConfigManager;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.Rlog;
-import android.telephony.ServiceState;
 import android.telephony.SmsMessage;
 import android.telephony.SubscriptionInfo;
 import android.text.TextUtils;
@@ -40,6 +40,7 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * {@hide}
@@ -53,12 +54,12 @@ public class SIMRecords extends IccRecords {
 
     // ***** Instance Variables
 
+    @UnsupportedAppUsage
     VoiceMailConstants mVmConfig;
 
     // ***** Cached SIM State; cleared on channel close
 
     private int mCallForwardingStatus;
-
 
     /**
      * States only used by getSpnFsm FSM
@@ -73,18 +74,21 @@ public class SIMRecords extends IccRecords {
     private byte[] mCphsInfo = null;
     boolean mCspPlmnEnabled = true;
 
+    @UnsupportedAppUsage
     byte[] mEfMWIS = null;
+    @UnsupportedAppUsage
     byte[] mEfCPHS_MWI =null;
+    @UnsupportedAppUsage
     byte[] mEfCff = null;
+    @UnsupportedAppUsage
     byte[] mEfCfis = null;
 
+    @UnsupportedAppUsage
     byte[] mEfLi = null;
+    @UnsupportedAppUsage
     byte[] mEfPl = null;
 
-    int mSpnDisplayCondition;
-    // Numeric network codes listed in TS 51.011 EF[SPDI]
-    ArrayList<String> mSpdiNetworks = null;
-
+    @UnsupportedAppUsage
     UsimServiceTable mUsimServiceTable;
 
     @Override
@@ -172,31 +176,6 @@ public class SIMRecords extends IccRecords {
     private static final int EVENT_APP_NETWORK_LOCKED = 3 + SYSTEM_EVENT_BASE;
 
 
-    // Lookup table for carriers known to produce SIMs which incorrectly indicate MNC length.
-
-    private static final String[] MCCMNC_CODES_HAVING_3DIGITS_MNC = {
-        "302370", "302720", "310260",
-        "405025", "405026", "405027", "405028", "405029", "405030", "405031", "405032",
-        "405033", "405034", "405035", "405036", "405037", "405038", "405039", "405040",
-        "405041", "405042", "405043", "405044", "405045", "405046", "405047", "405750",
-        "405751", "405752", "405753", "405754", "405755", "405756", "405799", "405800",
-        "405801", "405802", "405803", "405804", "405805", "405806", "405807", "405808",
-        "405809", "405810", "405811", "405812", "405813", "405814", "405815", "405816",
-        "405817", "405818", "405819", "405820", "405821", "405822", "405823", "405824",
-        "405825", "405826", "405827", "405828", "405829", "405830", "405831", "405832",
-        "405833", "405834", "405835", "405836", "405837", "405838", "405839", "405840",
-        "405841", "405842", "405843", "405844", "405845", "405846", "405847", "405848",
-        "405849", "405850", "405851", "405852", "405853", "405854", "405855", "405856",
-        "405857", "405858", "405859", "405860", "405861", "405862", "405863", "405864",
-        "405865", "405866", "405867", "405868", "405869", "405870", "405871", "405872",
-        "405873", "405874", "405875", "405876", "405877", "405878", "405879", "405880",
-        "405881", "405882", "405883", "405884", "405885", "405886", "405908", "405909",
-        "405910", "405911", "405912", "405913", "405914", "405915", "405916", "405917",
-        "405918", "405919", "405920", "405921", "405922", "405923", "405924", "405925",
-        "405926", "405927", "405928", "405929", "405930", "405931", "405932", "502142",
-        "502143", "502145", "502146", "502147", "502148"
-    };
-
     // ***** Constructor
 
     public SIMRecords(UiccCardApplication app, Context c, CommandsInterface ci) {
@@ -247,11 +226,10 @@ public class SIMRecords extends IccRecords {
         log("setting0 mMncLength" + mMncLength);
         mIccId = null;
         mFullIccId = null;
-        // -1 means no EF_SPN found; treat accordingly.
-        mSpnDisplayCondition = -1;
+        mCarrierNameDisplayCondition = DEFAULT_CARRIER_NAME_DISPLAY_CONDITION;
         mEfMWIS = null;
         mEfCPHS_MWI = null;
-        mSpdiNetworks = null;
+        mSpdi = null;
         mPnnHomeName = null;
         mGid1 = null;
         mGid2 = null;
@@ -279,6 +257,7 @@ public class SIMRecords extends IccRecords {
 
     //***** Public Methods
 
+    @UnsupportedAppUsage
     @Override
     public String getMsisdnNumber() {
         return mMsisdn;
@@ -289,6 +268,7 @@ public class SIMRecords extends IccRecords {
         return mUsimServiceTable;
     }
 
+    @UnsupportedAppUsage
     private int getExtFromEf(int ef) {
         int ext;
         switch (ef) {
@@ -344,6 +324,7 @@ public class SIMRecords extends IccRecords {
         return mMsisdnTag;
     }
 
+    @UnsupportedAppUsage
     @Override
     public String getVoiceMailNumber() {
         return mVoiceMailNum;
@@ -523,6 +504,7 @@ public class SIMRecords extends IccRecords {
     /**
      * {@inheritDoc}
      */
+    @UnsupportedAppUsage
     @Override
     public void setVoiceCallForwardingFlag(int line, boolean enable, String dialNumber) {
 
@@ -605,6 +587,7 @@ public class SIMRecords extends IccRecords {
     /**
      * {@inheritDoc}
      */
+    @UnsupportedAppUsage
     @Override
     public String getOperatorNumeric() {
         String imsi = getIMSI();
@@ -656,7 +639,6 @@ public class SIMRecords extends IccRecords {
                 /* IO events */
                 case EVENT_GET_IMSI_DONE:
                     isRecordLoadResponse = true;
-
                     ar = (AsyncResult) msg.obj;
 
                     if (ar.exception != null) {
@@ -664,58 +646,7 @@ public class SIMRecords extends IccRecords {
                         break;
                     }
 
-                    mImsi = (String) ar.result;
-
-                    // IMSI (MCC+MNC+MSIN) is at least 6 digits, but not more
-                    // than 15 (and usually 15).
-                    if (mImsi != null && (mImsi.length() < 6 || mImsi.length() > 15)) {
-                        loge("invalid IMSI " + mImsi);
-                        mImsi = null;
-                    }
-
-                    log("IMSI: mMncLength=" + mMncLength);
-
-                    if (mImsi != null && mImsi.length() >= 6) {
-                        log("IMSI: " + mImsi.substring(0, 6)
-                                + Rlog.pii(LOG_TAG, mImsi.substring(6)));
-                    }
-
-                    String imsi = getIMSI();
-
-                    if (((mMncLength == UNKNOWN) || (mMncLength == 2))
-                            && ((imsi != null) && (imsi.length() >= 6))) {
-                        String mccmncCode = imsi.substring(0, 6);
-                        for (String mccmnc : MCCMNC_CODES_HAVING_3DIGITS_MNC) {
-                            if (mccmnc.equals(mccmncCode)) {
-                                mMncLength = 3;
-                                log("IMSI: setting1 mMncLength=" + mMncLength);
-                                break;
-                            }
-                        }
-                    }
-
-                    if (mMncLength == UNKNOWN) {
-                        // the SIM has told us all it knows, but it didn't know the mnc length.
-                        // guess using the mcc
-                        try {
-                            int mcc = Integer.parseInt(imsi.substring(0, 3));
-                            mMncLength = MccTable.smallestDigitsMccForMnc(mcc);
-                            log("setting2 mMncLength=" + mMncLength);
-                        } catch (NumberFormatException e) {
-                            mMncLength = UNKNOWN;
-                            loge("Corrupt IMSI! setting3 mMncLength=" + mMncLength);
-                        }
-                    }
-
-                    if (mMncLength != UNKNOWN && mMncLength != UNINITIALIZED
-                            && imsi.length() >= 3 + mMncLength) {
-                        log("update mccmnc=" + imsi.substring(0, 3 + mMncLength));
-                        // finally have both the imsi and the mncLength and
-                        // can parse the imsi properly
-                        MccTable.updateMccMncConfiguration(mContext,
-                                imsi.substring(0, 3 + mMncLength), false);
-                    }
-                    mImsiReadyRegistrants.notifyRegistrants();
+                    setImsi((String) ar.result);
                     break;
 
                 case EVENT_GET_MBI_DONE:
@@ -903,20 +834,10 @@ public class SIMRecords extends IccRecords {
                     break;
 
                 case EVENT_GET_AD_DONE:
+                    isRecordLoadResponse = true;
+                    mMncLength = UNKNOWN;
                     try {
-                        isRecordLoadResponse = true;
-
-                        if (mCarrierTestOverride.isInTestMode() && getIMSI() != null) {
-                            imsi = getIMSI();
-                            try {
-                                int mcc = Integer.parseInt(imsi.substring(0, 3));
-                                mMncLength = MccTable.smallestDigitsMccForMnc(mcc);
-                                log("[TestMode] mMncLength=" + mMncLength);
-                            } catch (NumberFormatException e) {
-                                mMncLength = UNKNOWN;
-                                loge("[TestMode] Corrupt IMSI! mMncLength=" + mMncLength);
-                            }
-                        } else {
+                        if (!mCarrierTestOverride.isInTestMode()) {
                             ar = (AsyncResult) msg.obj;
                             data = (byte[]) ar.result;
 
@@ -936,62 +857,15 @@ public class SIMRecords extends IccRecords {
                                 break;
                             }
 
-                            mMncLength = data[3] & 0xf;
-                            log("setting4 mMncLength=" + mMncLength);
-                        }
-
-                        if (mMncLength == 0xf) {
-                            mMncLength = UNKNOWN;
-                            log("setting5 mMncLength=" + mMncLength);
-                        } else if (mMncLength != 2 && mMncLength != 3) {
-                            mMncLength = UNINITIALIZED;
-                            log("setting5 mMncLength=" + mMncLength);
+                            int len = data[3] & 0xf;
+                            if (len == 2 || len == 3) {
+                                mMncLength = len;
+                            } else {
+                                log("Received invalid or unset MNC Length=" + len);
+                            }
                         }
                     } finally {
-
-                        // IMSI could be a value reading from Sim or a fake IMSI if in the test mode
-                        imsi = getIMSI();
-
-                        if (((mMncLength == UNINITIALIZED) || (mMncLength == UNKNOWN)
-                                    || (mMncLength == 2)) && ((imsi != null)
-                                    && (imsi.length() >= 6))) {
-                            String mccmncCode = imsi.substring(0, 6);
-                            log("mccmncCode=" + mccmncCode);
-                            for (String mccmnc : MCCMNC_CODES_HAVING_3DIGITS_MNC) {
-                                if (mccmnc.equals(mccmncCode)) {
-                                    mMncLength = 3;
-                                    log("setting6 mMncLength=" + mMncLength);
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (mMncLength == UNKNOWN || mMncLength == UNINITIALIZED) {
-                            if (imsi != null) {
-                                try {
-                                    int mcc = Integer.parseInt(imsi.substring(0, 3));
-
-                                    mMncLength = MccTable.smallestDigitsMccForMnc(mcc);
-                                    log("setting7 mMncLength=" + mMncLength);
-                                } catch (NumberFormatException e) {
-                                    mMncLength = UNKNOWN;
-                                    loge("Corrupt IMSI! setting8 mMncLength=" + mMncLength);
-                                }
-                            } else {
-                                // Indicate we got this info, but it didn't contain the length.
-                                mMncLength = UNKNOWN;
-                                log("MNC length not present in EF_AD setting9 "
-                                        + "mMncLength=" + mMncLength);
-                            }
-                        }
-                        if (imsi != null && mMncLength != UNKNOWN
-                                && imsi.length() >= 3 + mMncLength) {
-                            // finally have both imsi and the length of the mnc and can parse
-                            // the imsi properly
-                            log("update mccmnc=" + imsi.substring(0, 3 + mMncLength));
-                            MccTable.updateMccMncConfiguration(mContext,
-                                    imsi.substring(0, 3 + mMncLength), false);
-                        }
+                        updateOperatorPlmn();
                     }
                     break;
 
@@ -1163,16 +1037,23 @@ public class SIMRecords extends IccRecords {
                                         onCphsCompleted));
                     } else {
                         if (ar.userObj != null) {
-                            CarrierConfigManager configLoader = (CarrierConfigManager)
+                            CarrierConfigManager configManager = (CarrierConfigManager)
                                     mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
-                            if (ar.exception != null && configLoader != null
-                                    && configLoader.getConfig().getBoolean(
-                                    CarrierConfigManager.KEY_EDITABLE_VOICEMAIL_NUMBER_BOOL)) {
-                                // GsmCdmaPhone will store vm number on device
-                                // when IccVmNotSupportedException occurred
-                                AsyncResult.forMessage(((Message) ar.userObj)).exception =
-                                        new IccVmNotSupportedException(
-                                            "Update SIM voice mailbox error");
+                            if (ar.exception != null && configManager != null) {
+                                PersistableBundle b = configManager.getConfigForSubId(
+                                        SubscriptionController.getInstance().getSubIdUsingPhoneId(
+                                                mParentApp.getPhoneId()));
+                                if (b != null && b.getBoolean(
+                                        CarrierConfigManager.KEY_EDITABLE_VOICEMAIL_NUMBER_BOOL)) {
+                                    // GsmCdmaPhone will store vm number on device
+                                    // when IccVmNotSupportedException occurred
+                                    AsyncResult.forMessage(((Message) ar.userObj)).exception =
+                                            new IccVmNotSupportedException(
+                                                    "Update SIM voice mailbox error");
+                                } else {
+                                    AsyncResult.forMessage(((Message) ar.userObj))
+                                            .exception = ar.exception;
+                                }
                             } else {
                                 AsyncResult.forMessage(((Message) ar.userObj))
                                     .exception = ar.exception;
@@ -1536,6 +1417,7 @@ public class SIMRecords extends IccRecords {
 
     private void onLockedAllRecordsLoaded() {
         setSimLanguageFromEF();
+        setVoiceCallForwardingFlagFromSimRecords();
         if (mLockedRecordsReqReason == LOCKED_RECORDS_REQ_REASON_LOCKED) {
             mLockedRecordsLoadedRegistrants.notifyRegistrants(new AsyncResult(null, null, null));
         } else if (mLockedRecordsReqReason == LOCKED_RECORDS_REQ_REASON_NETWORK_LOCKED) {
@@ -1571,8 +1453,7 @@ public class SIMRecords extends IccRecords {
         if (!TextUtils.isEmpty(imsi) && imsi.length() >= 3) {
             log("onAllRecordsLoaded set mcc imsi" + (VDBG ? ("=" + imsi) : ""));
             mTelephonyManager.setSimCountryIsoForPhone(
-                    mParentApp.getPhoneId(), MccTable.countryCodeForMcc(
-                    Integer.parseInt(imsi.substring(0, 3))));
+                    mParentApp.getPhoneId(), MccTable.countryCodeForMcc(imsi.substring(0, 3)));
         } else {
             log("onAllRecordsLoaded empty imsi skipping setting mcc");
         }
@@ -1638,6 +1519,7 @@ public class SIMRecords extends IccRecords {
         mRecordsToLoad++;
     }
 
+    @UnsupportedAppUsage
     protected void fetchSimRecords() {
         mRecordsRequested = true;
 
@@ -1742,81 +1624,10 @@ public class SIMRecords extends IccRecords {
         if (DBG) log("fetchSimRecords " + mRecordsToLoad + " requested: " + mRecordsRequested);
     }
 
-    /**
-     * Returns the SpnDisplayRule based on settings on the SIM and the
-     * current service state. See TS 22.101 Annex A and TS 51.011 10.3.11
-     * for details.
-     *
-     * If the SPN is not found on the SIM or is empty, the rule is
-     * always PLMN_ONLY.
-     *
-     * @param serviceState Service state
-     * @return the display rule
-     *
-     * @see #SPN_RULE_SHOW_SPN
-     * @see #SPN_RULE_SHOW_PLMN
-     */
     @Override
-    public int getDisplayRule(ServiceState serviceState) {
-        int rule;
-
-        if (mParentApp != null && mParentApp.getUiccProfile() != null
-                && mParentApp.getUiccProfile().getOperatorBrandOverride() != null) {
-        // If the operator has been overridden, treat it as the SPN file on the SIM did not exist.
-            rule = SPN_RULE_SHOW_PLMN;
-        } else if (TextUtils.isEmpty(getServiceProviderName()) || mSpnDisplayCondition == -1) {
-            // No EF_SPN content was found on the SIM, or not yet loaded.  Just show ONS.
-            rule = SPN_RULE_SHOW_PLMN;
-        } else if (useRoamingFromServiceState() ? !serviceState.getRoaming()
-                : isOnMatchingPlmn(serviceState.getOperatorNumeric())) {
-            rule = SPN_RULE_SHOW_SPN;
-            if ((mSpnDisplayCondition & 0x01) == 0x01) {
-                // ONS required when registered to HPLMN or PLMN in EF_SPDI
-                rule |= SPN_RULE_SHOW_PLMN;
-            }
-        } else {
-            rule = SPN_RULE_SHOW_PLMN;
-            if ((mSpnDisplayCondition & 0x02) == 0x00) {
-                // SPN required if not registered to HPLMN or PLMN in EF_SPDI
-                rule |= SPN_RULE_SHOW_SPN;
-            }
-        }
-        return rule;
-    }
-
-    private boolean useRoamingFromServiceState() {
-        CarrierConfigManager configManager = (CarrierConfigManager)
-                mContext.getSystemService(Context.CARRIER_CONFIG_SERVICE);
-        if (configManager != null) {
-            PersistableBundle b = configManager.getConfigForSubId(
-                    SubscriptionController.getInstance().getSubIdUsingPhoneId(
-                    mParentApp.getPhoneId()));
-            if (b != null && b.getBoolean(CarrierConfigManager
-                    .KEY_SPN_DISPLAY_RULE_USE_ROAMING_FROM_SERVICE_STATE_BOOL)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Checks if plmn is HPLMN or on the spdiNetworks list.
-     */
-    private boolean isOnMatchingPlmn(String plmn) {
-        if (plmn == null) return false;
-
-        if (plmn.equals(getOperatorNumeric())) {
-            return true;
-        }
-
-        if (mSpdiNetworks != null) {
-            for (String spdiNet : mSpdiNetworks) {
-                if (plmn.equals(spdiNet)) {
-                    return true;
-                }
-            }
-        }
-        return false;
+    @CarrierNameDisplayConditionBitmask
+    public int getCarrierNameDisplayCondition() {
+        return mCarrierNameDisplayCondition;
     }
 
     /**
@@ -1824,9 +1635,13 @@ public class SIMRecords extends IccRecords {
      */
     private enum GetSpnFsmState {
         IDLE,               // No initialized
+        @UnsupportedAppUsage
         INIT,               // Start FSM
+        @UnsupportedAppUsage
         READ_SPN_3GPP,      // Load EF_SPN firstly
+        @UnsupportedAppUsage
         READ_SPN_CPHS,      // Load EF_SPN_CPHS secondly
+        @UnsupportedAppUsage
         READ_SPN_SHORT_CPHS // Load EF_SPN_SHORT_CPHS last
     }
 
@@ -1847,6 +1662,7 @@ public class SIMRecords extends IccRecords {
      *        ar.exception holds exception in error
      *        ar.result is byte[] for data in success
      */
+    @UnsupportedAppUsage
     private void getSpnFsm(boolean start, AsyncResult ar) {
         byte[] data;
 
@@ -1879,7 +1695,11 @@ public class SIMRecords extends IccRecords {
             case READ_SPN_3GPP:
                 if (ar != null && ar.exception == null) {
                     data = (byte[]) ar.result;
-                    mSpnDisplayCondition = 0xff & data[0];
+
+                    // Reference: 3GPP TS 31.102 section 4.2.12 EF_SPN
+                    // The first byte is display condition.
+                    mCarrierNameDisplayCondition =
+                            convertSpnDisplayConditionToBitmask(data[0] & 0xff);
 
                     setServiceProviderName(IccUtils.adnStringFieldToString(
                                 data, 1, data.length - 1));
@@ -1891,7 +1711,7 @@ public class SIMRecords extends IccRecords {
                         mSpnState = GetSpnFsmState.READ_SPN_CPHS;
                     } else {
                         if (DBG) log("Load EF_SPN: " + spn
-                                + " spnDisplayCondition: " + mSpnDisplayCondition);
+                                + " carrierNameDisplayCondition: " + mCarrierNameDisplayCondition);
                         mTelephonyManager.setSimOperatorNameForPhone(
                                 mParentApp.getPhoneId(), spn);
 
@@ -1906,9 +1726,7 @@ public class SIMRecords extends IccRecords {
                             obtainMessage(EVENT_GET_SPN_DONE));
                     mRecordsToLoad++;
 
-                    // See TS 51.011 10.3.11.  Basically, default to
-                    // show PLMN always, and SPN also if roaming.
-                    mSpnDisplayCondition = -1;
+                    mCarrierNameDisplayCondition = DEFAULT_CARRIER_NAME_DISPLAY_CONDITION;
                 }
                 break;
             case READ_SPN_CPHS:
@@ -1925,7 +1743,7 @@ public class SIMRecords extends IccRecords {
                         mSpnState = GetSpnFsmState.READ_SPN_SHORT_CPHS;
                     } else {
                         // Display CPHS Operator Name only when not roaming
-                        mSpnDisplayCondition = 2;
+                        mCarrierNameDisplayCondition = 0;
 
                         if (DBG) log("Load EF_SPN_CPHS: " + spn);
                         mTelephonyManager.setSimOperatorNameForPhone(
@@ -1957,7 +1775,7 @@ public class SIMRecords extends IccRecords {
                         if (DBG) log("No SPN loaded in either CHPS or 3GPP");
                     } else {
                         // Display CPHS Operator Name only when not roaming
-                        mSpnDisplayCondition = 2;
+                        mCarrierNameDisplayCondition = 0;
 
                         if (DBG) log("Load EF_SPN_SHORT_CPHS: " + spn);
                         mTelephonyManager.setSimOperatorNameForPhone(
@@ -1980,8 +1798,7 @@ public class SIMRecords extends IccRecords {
      * This record contains the list of numeric network IDs that
      * are treated specially when determining SPN display
      */
-    private void
-    parseEfSpdi(byte[] data) {
+    private void parseEfSpdi(byte[] data) {
         SimTlv tlv = new SimTlv(data, 0, data.length);
 
         byte[] plmnEntries = null;
@@ -2002,18 +1819,15 @@ public class SIMRecords extends IccRecords {
             return;
         }
 
-        mSpdiNetworks = new ArrayList<String>(plmnEntries.length / 3);
-
-        for (int i = 0 ; i + 2 < plmnEntries.length ; i += 3) {
-            String plmnCode;
-            plmnCode = IccUtils.bcdPlmnToString(plmnEntries, i);
-
-            // Valid operator codes are 5 or 6 digits
-            if (plmnCode != null && plmnCode.length() >= 5) {
-                log("EF_SPDI network: " + plmnCode);
-                mSpdiNetworks.add(plmnCode);
+        List<String> tmpSpdi = new ArrayList<>(plmnEntries.length / 3);
+        for (int i = 0; i + 2 < plmnEntries.length; i += 3) {
+            String plmnCode = IccUtils.bcdPlmnToString(plmnEntries, i);
+            if (!TextUtils.isEmpty(plmnCode)) {
+                log("EF_SPDI PLMN: " + plmnCode);
+                tmpSpdi.add(plmnCode);
             }
         }
+        mSpdi = (String[]) tmpSpdi.toArray();
     }
 
     /**
@@ -2042,16 +1856,19 @@ public class SIMRecords extends IccRecords {
     /**
      * check to see if Mailbox Number is allocated and activated in CPHS SST
      */
+    @UnsupportedAppUsage
     private boolean isCphsMailboxEnabled() {
         if (mCphsInfo == null)  return false;
         return ((mCphsInfo[1] & CPHS_SST_MBN_MASK) == CPHS_SST_MBN_ENABLED );
     }
 
+    @UnsupportedAppUsage
     @Override
     protected void log(String s) {
         Rlog.d(LOG_TAG, "[SIMRecords] " + s);
     }
 
+    @UnsupportedAppUsage
     @Override
     protected void loge(String s) {
         Rlog.e(LOG_TAG, "[SIMRecords] " + s);
@@ -2061,6 +1878,7 @@ public class SIMRecords extends IccRecords {
         Rlog.w(LOG_TAG, "[SIMRecords] " + s, tr);
     }
 
+    @UnsupportedAppUsage
     protected void logv(String s) {
         Rlog.v(LOG_TAG, "[SIMRecords] " + s);
     }
@@ -2129,8 +1947,8 @@ public class SIMRecords extends IccRecords {
         pw.println(" mEfCPHS_MWI[]=" + Arrays.toString(mEfCPHS_MWI));
         pw.println(" mEfCff[]=" + Arrays.toString(mEfCff));
         pw.println(" mEfCfis[]=" + Arrays.toString(mEfCfis));
-        pw.println(" mSpnDisplayCondition=" + mSpnDisplayCondition);
-        pw.println(" mSpdiNetworks[]=" + mSpdiNetworks);
+        pw.println(" mCarrierNameDisplayCondition=" + mCarrierNameDisplayCondition);
+        pw.println(" mSpdi[]=" + mSpdi);
         pw.println(" mUsimServiceTable=" + mUsimServiceTable);
         pw.println(" mGid1=" + mGid1);
         if (mCarrierTestOverride.isInTestMode()) {

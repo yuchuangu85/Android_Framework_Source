@@ -17,7 +17,7 @@
 package android.app;
 
 import static android.Manifest.permission.CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS;
-import static android.app.ActivityManager.SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT;
+import static android.app.ActivityTaskManager.SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT;
 import static android.app.WindowConfiguration.ACTIVITY_TYPE_UNDEFINED;
 import static android.app.WindowConfiguration.WINDOWING_MODE_UNDEFINED;
 import static android.view.Display.INVALID_DISPLAY;
@@ -25,6 +25,7 @@ import static android.view.Display.INVALID_DISPLAY;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -194,6 +195,13 @@ public class ActivityOptions {
     private static final String KEY_LAUNCH_TASK_ID = "android.activity.launchTaskId";
 
     /**
+     * See {@link #setPendingIntentLaunchFlags(int)}
+     * @hide
+     */
+    private static final String KEY_PENDING_INTENT_LAUNCH_FLAGS =
+            "android.activity.pendingIntentLaunchFlags";
+
+    /**
      * See {@link #setTaskOverlay}.
      * @hide
      */
@@ -211,6 +219,13 @@ public class ActivityOptions {
      * @hide
      */
     private static final String KEY_AVOID_MOVE_TO_FRONT = "android.activity.avoidMoveToFront";
+
+    /**
+     * See {@link #setFreezeRecentTasksReordering()}.
+     * @hide
+     */
+    private static final String KEY_FREEZE_RECENT_TASKS_REORDERING =
+            "android.activity.freezeRecentTasksReordering";
 
     /**
      * Where the split-screen-primary stack should be positioned.
@@ -302,18 +317,20 @@ public class ActivityOptions {
     private int mResultCode;
     private int mExitCoordinatorIndex;
     private PendingIntent mUsageTimeReport;
-    private boolean mLockTaskMode = false;
     private int mLaunchDisplayId = INVALID_DISPLAY;
     @WindowConfiguration.WindowingMode
     private int mLaunchWindowingMode = WINDOWING_MODE_UNDEFINED;
     @WindowConfiguration.ActivityType
     private int mLaunchActivityType = ACTIVITY_TYPE_UNDEFINED;
     private int mLaunchTaskId = -1;
+    private int mPendingIntentLaunchFlags;
     private int mSplitScreenCreateMode = SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT;
+    private boolean mLockTaskMode = false;
     private boolean mDisallowEnterPictureInPictureWhileLaunching;
     private boolean mTaskOverlay;
     private boolean mTaskOverlayCanResume;
     private boolean mAvoidMoveToFront;
+    private boolean mFreezeRecentTasksReordering;
     private AppTransitionAnimationSpec mAnimSpecs[];
     private int mRotationAnimationHint = -1;
     private Bundle mAppVerificationBundle;
@@ -357,6 +374,7 @@ public class ActivityOptions {
      * supply these options as the options Bundle when starting an activity.
      * @hide
      */
+    @UnsupportedAppUsage
     public static ActivityOptions makeCustomAnimation(Context context,
             int enterResId, int exitResId, Handler handler, OnAnimationStartedListener listener) {
         ActivityOptions opts = new ActivityOptions();
@@ -582,6 +600,7 @@ public class ActivityOptions {
      * thumbnails are aspect scaled to/from a new location.
      * @hide
      */
+    @UnsupportedAppUsage
     public static ActivityOptions makeMultiThumbFutureAspectScaleAnimation(Context context,
             Handler handler, IAppTransitionAnimationSpecsFuture specsFuture,
             OnAnimationStartedListener listener, boolean scaleUp) {
@@ -847,6 +866,7 @@ public class ActivityOptions {
      * @hide
      */
     @RequiresPermission(CONTROL_REMOTE_APP_TRANSITION_ANIMATIONS)
+    @UnsupportedAppUsage
     public static ActivityOptions makeRemoteAnimation(
             RemoteAnimationAdapter remoteAnimationAdapter) {
         final ActivityOptions opts = new ActivityOptions();
@@ -904,7 +924,7 @@ public class ActivityOptions {
                 // Unpackage the GraphicBuffer from the parceled thumbnail
                 final GraphicBuffer buffer = opts.getParcelable(KEY_ANIM_THUMBNAIL);
                 if (buffer != null) {
-                    mThumbnail = Bitmap.createHardwareBitmap(buffer);
+                    mThumbnail = Bitmap.wrapHardwareBuffer(buffer, null);
                 }
                 mStartX = opts.getInt(KEY_ANIM_START_X, 0);
                 mStartY = opts.getInt(KEY_ANIM_START_Y, 0);
@@ -928,9 +948,11 @@ public class ActivityOptions {
         mLaunchWindowingMode = opts.getInt(KEY_LAUNCH_WINDOWING_MODE, WINDOWING_MODE_UNDEFINED);
         mLaunchActivityType = opts.getInt(KEY_LAUNCH_ACTIVITY_TYPE, ACTIVITY_TYPE_UNDEFINED);
         mLaunchTaskId = opts.getInt(KEY_LAUNCH_TASK_ID, -1);
+        mPendingIntentLaunchFlags = opts.getInt(KEY_PENDING_INTENT_LAUNCH_FLAGS, 0);
         mTaskOverlay = opts.getBoolean(KEY_TASK_OVERLAY, false);
         mTaskOverlayCanResume = opts.getBoolean(KEY_TASK_OVERLAY_CAN_RESUME, false);
         mAvoidMoveToFront = opts.getBoolean(KEY_AVOID_MOVE_TO_FRONT, false);
+        mFreezeRecentTasksReordering = opts.getBoolean(KEY_FREEZE_RECENT_TASKS_REORDERING, false);
         mSplitScreenCreateMode = opts.getInt(KEY_SPLIT_SCREEN_CREATE_MODE,
                 SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT);
         mDisallowEnterPictureInPictureWhileLaunching = opts.getBoolean(
@@ -946,7 +968,7 @@ public class ActivityOptions {
             mAnimationFinishedListener = IRemoteCallback.Stub.asInterface(
                     opts.getBinder(KEY_ANIMATION_FINISHED_LISTENER));
         }
-        mRotationAnimationHint = opts.getInt(KEY_ROTATION_ANIMATION_HINT);
+        mRotationAnimationHint = opts.getInt(KEY_ROTATION_ANIMATION_HINT, -1);
         mAppVerificationBundle = opts.getBundle(KEY_INSTANT_APP_VERIFICATION_BUNDLE);
         if (opts.containsKey(KEY_SPECS_FUTURE)) {
             mSpecsFuture = IAppTransitionAnimationSpecsFuture.Stub.asInterface(opts.getBinder(
@@ -956,14 +978,15 @@ public class ActivityOptions {
     }
 
     /**
-     * Sets the bounds (window size) that the activity should be launched in.
+     * Sets the bounds (window size and position) that the activity should be launched in.
      * Rect position should be provided in pixels and in screen coordinates.
-     * Set to null explicitly for fullscreen.
+     * Set to {@code null} to explicitly launch fullscreen.
      * <p>
-     * <strong>NOTE:<strong/> This value is ignored on devices that don't have
+     * <strong>NOTE:</strong> This value is ignored on devices that don't have
      * {@link android.content.pm.PackageManager#FEATURE_FREEFORM_WINDOW_MANAGEMENT} or
      * {@link android.content.pm.PackageManager#FEATURE_PICTURE_IN_PICTURE} enabled.
-     * @param screenSpacePixelRect Launch bounds to use for the activity or null for fullscreen.
+     * @param screenSpacePixelRect launch bounds or {@code null} for fullscreen
+     * @return {@code this} {@link ActivityOptions} instance
      */
     public ActivityOptions setLaunchBounds(@Nullable Rect screenSpacePixelRect) {
         mLaunchBounds = screenSpacePixelRect != null ? new Rect(screenSpacePixelRect) : null;
@@ -1228,6 +1251,22 @@ public class ActivityOptions {
     }
 
     /**
+     * Specifies intent flags to be applied for any activity started from a PendingIntent.
+     *
+     * @hide
+     */
+    public void setPendingIntentLaunchFlags(@android.content.Intent.Flags int flags) {
+        mPendingIntentLaunchFlags = flags;
+    }
+
+    /**
+     * @hide
+     */
+    public int getPendingIntentLaunchFlags() {
+        return mPendingIntentLaunchFlags;
+    }
+
+    /**
      * Set's whether the activity launched with this option should be a task overlay. That is the
      * activity will always be the top activity of the task.  If {@param canResume} is true, then
      * the task will also not be moved to the front of the stack.
@@ -1272,12 +1311,31 @@ public class ActivityOptions {
         return mAvoidMoveToFront;
     }
 
+    /**
+     * Sets whether the launch of this activity should freeze the recent task list reordering until
+     * the next user interaction or timeout. This flag is only applied when starting an activity
+     * in recents.
+     * @hide
+     */
+    public void setFreezeRecentTasksReordering() {
+        mFreezeRecentTasksReordering = true;
+    }
+
+    /**
+     * @return whether the launch of this activity should freeze the recent task list reordering
+     * @hide
+     */
+    public boolean freezeRecentTasksReordering() {
+        return mFreezeRecentTasksReordering;
+    }
+
     /** @hide */
     public int getSplitScreenCreateMode() {
         return mSplitScreenCreateMode;
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setSplitScreenCreateMode(int splitScreenCreateMode) {
         mSplitScreenCreateMode = splitScreenCreateMode;
     }
@@ -1442,17 +1500,43 @@ public class ActivityOptions {
                 b.putInt(KEY_EXIT_COORDINATOR_INDEX, mExitCoordinatorIndex);
                 break;
         }
-        b.putBoolean(KEY_LOCK_TASK_MODE, mLockTaskMode);
-        b.putInt(KEY_LAUNCH_DISPLAY_ID, mLaunchDisplayId);
-        b.putInt(KEY_LAUNCH_WINDOWING_MODE, mLaunchWindowingMode);
-        b.putInt(KEY_LAUNCH_ACTIVITY_TYPE, mLaunchActivityType);
-        b.putInt(KEY_LAUNCH_TASK_ID, mLaunchTaskId);
-        b.putBoolean(KEY_TASK_OVERLAY, mTaskOverlay);
-        b.putBoolean(KEY_TASK_OVERLAY_CAN_RESUME, mTaskOverlayCanResume);
-        b.putBoolean(KEY_AVOID_MOVE_TO_FRONT, mAvoidMoveToFront);
-        b.putInt(KEY_SPLIT_SCREEN_CREATE_MODE, mSplitScreenCreateMode);
-        b.putBoolean(KEY_DISALLOW_ENTER_PICTURE_IN_PICTURE_WHILE_LAUNCHING,
-                mDisallowEnterPictureInPictureWhileLaunching);
+        if (mLockTaskMode) {
+            b.putBoolean(KEY_LOCK_TASK_MODE, mLockTaskMode);
+        }
+        if (mLaunchDisplayId != INVALID_DISPLAY) {
+            b.putInt(KEY_LAUNCH_DISPLAY_ID, mLaunchDisplayId);
+        }
+        if (mLaunchWindowingMode != WINDOWING_MODE_UNDEFINED) {
+            b.putInt(KEY_LAUNCH_WINDOWING_MODE, mLaunchWindowingMode);
+        }
+        if (mLaunchActivityType != ACTIVITY_TYPE_UNDEFINED) {
+            b.putInt(KEY_LAUNCH_ACTIVITY_TYPE, mLaunchActivityType);
+        }
+        if (mLaunchTaskId != -1) {
+            b.putInt(KEY_LAUNCH_TASK_ID, mLaunchTaskId);
+        }
+        if (mPendingIntentLaunchFlags != 0) {
+            b.putInt(KEY_PENDING_INTENT_LAUNCH_FLAGS, mPendingIntentLaunchFlags);
+        }
+        if (mTaskOverlay) {
+            b.putBoolean(KEY_TASK_OVERLAY, mTaskOverlay);
+        }
+        if (mTaskOverlayCanResume) {
+            b.putBoolean(KEY_TASK_OVERLAY_CAN_RESUME, mTaskOverlayCanResume);
+        }
+        if (mAvoidMoveToFront) {
+            b.putBoolean(KEY_AVOID_MOVE_TO_FRONT, mAvoidMoveToFront);
+        }
+        if (mFreezeRecentTasksReordering) {
+            b.putBoolean(KEY_FREEZE_RECENT_TASKS_REORDERING, mFreezeRecentTasksReordering);
+        }
+        if (mSplitScreenCreateMode != SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT) {
+            b.putInt(KEY_SPLIT_SCREEN_CREATE_MODE, mSplitScreenCreateMode);
+        }
+        if (mDisallowEnterPictureInPictureWhileLaunching) {
+            b.putBoolean(KEY_DISALLOW_ENTER_PICTURE_IN_PICTURE_WHILE_LAUNCHING,
+                    mDisallowEnterPictureInPictureWhileLaunching);
+        }
         if (mAnimSpecs != null) {
             b.putParcelableArray(KEY_ANIM_SPECS, mAnimSpecs);
         }
@@ -1462,7 +1546,9 @@ public class ActivityOptions {
         if (mSpecsFuture != null) {
             b.putBinder(KEY_SPECS_FUTURE, mSpecsFuture.asBinder());
         }
-        b.putInt(KEY_ROTATION_ANIMATION_HINT, mRotationAnimationHint);
+        if (mRotationAnimationHint != -1) {
+            b.putInt(KEY_ROTATION_ANIMATION_HINT, mRotationAnimationHint);
+        }
         if (mAppVerificationBundle != null) {
             b.putBundle(KEY_INSTANT_APP_VERIFICATION_BUNDLE, mAppVerificationBundle);
         }
@@ -1473,7 +1559,7 @@ public class ActivityOptions {
     }
 
     /**
-     * Ask the the system track that time the user spends in the app being launched, and
+     * Ask the system track that time the user spends in the app being launched, and
      * report it back once done.  The report will be sent to the given receiver, with
      * the extras {@link #EXTRA_USAGE_TIME_REPORT} and {@link #EXTRA_USAGE_TIME_REPORT_PACKAGES}
      * filled in.

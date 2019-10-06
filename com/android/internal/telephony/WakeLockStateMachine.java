@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -26,6 +27,8 @@ import android.telephony.Rlog;
 
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
+
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Generic state machine for handling messages and waiting for ordered broadcasts to complete.
@@ -48,16 +51,19 @@ public abstract class WakeLockStateMachine extends StateMachine {
     /** Release wakelock after a short timeout when returning to idle state. */
     static final int EVENT_RELEASE_WAKE_LOCK = 3;
 
-    static final int EVENT_UPDATE_PHONE_OBJECT = 4;
-
+    @UnsupportedAppUsage
     protected Phone mPhone;
 
+    @UnsupportedAppUsage
     protected Context mContext;
+
+    protected AtomicInteger mReceiverCount = new AtomicInteger(0);
 
     /** Wakelock release delay when returning to idle state. */
     private static final int WAKE_LOCK_TIMEOUT = 3000;
 
     private final DefaultState mDefaultState = new DefaultState();
+    @UnsupportedAppUsage
     private final IdleState mIdleState = new IdleState();
     private final WaitingState mWaitingState = new WaitingState();
 
@@ -75,10 +81,6 @@ public abstract class WakeLockStateMachine extends StateMachine {
         addState(mIdleState, mDefaultState);
         addState(mWaitingState, mDefaultState);
         setInitialState(mIdleState);
-    }
-
-    public void updatePhoneObject(Phone phone) {
-        sendMessage(EVENT_UPDATE_PHONE_OBJECT, phone);
     }
 
     /**
@@ -112,11 +114,6 @@ public abstract class WakeLockStateMachine extends StateMachine {
         @Override
         public boolean processMessage(Message msg) {
             switch (msg.what) {
-                case EVENT_UPDATE_PHONE_OBJECT: {
-                    mPhone = (Phone) msg.obj;
-                    log("updatePhoneObject: phone=" + mPhone.getClass().getSimpleName());
-                    break;
-                }
                 default: {
                     String errorText = "processMessage: unhandled message type " + msg.what;
                     if (Build.IS_DEBUGGABLE) {
@@ -220,7 +217,9 @@ public abstract class WakeLockStateMachine extends StateMachine {
     protected final BroadcastReceiver mReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            sendMessage(EVENT_BROADCAST_COMPLETE);
+            if (mReceiverCount.decrementAndGet() == 0) {
+                sendMessage(EVENT_BROADCAST_COMPLETE);
+            }
         }
     };
 
@@ -228,6 +227,7 @@ public abstract class WakeLockStateMachine extends StateMachine {
      * Log with debug level.
      * @param s the string to log
      */
+    @UnsupportedAppUsage
     @Override
     protected void log(String s) {
         Rlog.d(getName(), s);

@@ -20,7 +20,6 @@ import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.content.Context;
-import android.content.Intent;
 import android.os.IInterface;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
@@ -167,59 +166,6 @@ public abstract class ImsFeature {
      */
     public static final int CAPABILITY_SUCCESS = 0;
 
-
-    /**
-     * The framework implements this callback in order to register for Feature Capability status
-     * updates, via {@link #onCapabilitiesStatusChanged(Capabilities)}, query Capability
-     * configurations, via {@link #onQueryCapabilityConfiguration}, as well as to receive error
-     * callbacks when the ImsService can not change the capability as requested, via
-     * {@link #onChangeCapabilityConfigurationError}.
-     *
-     * @hide
-     */
-    public static class CapabilityCallback extends IImsCapabilityCallback.Stub {
-
-        @Override
-        public final void onCapabilitiesStatusChanged(int config) throws RemoteException {
-            onCapabilitiesStatusChanged(new Capabilities(config));
-        }
-
-        /**
-         * Returns the result of a query for the capability configuration of a requested capability.
-         *
-         * @param capability The capability that was requested.
-         * @param radioTech The IMS radio technology associated with the capability.
-         * @param isEnabled true if the capability is enabled, false otherwise.
-         */
-        @Override
-        public void onQueryCapabilityConfiguration(int capability, int radioTech,
-                boolean isEnabled) {
-
-        }
-
-        /**
-         * Called when a change to the capability configuration has returned an error.
-         *
-         * @param capability The capability that was requested to be changed.
-         * @param radioTech The IMS radio technology associated with the capability.
-         * @param reason error associated with the failure to change configuration.
-         */
-        @Override
-        public void onChangeCapabilityConfigurationError(int capability, int radioTech,
-                @ImsCapabilityError int reason) {
-        }
-
-        /**
-         * The status of the feature's capabilities has changed to either available or unavailable.
-         * If unavailable, the feature is not able to support the unavailable capability at this
-         * time.
-         *
-         * @param config The new availability of the capabilities.
-         */
-        public void onCapabilitiesStatusChanged(Capabilities config) {
-        }
-    }
-
     /**
      * Used by the ImsFeature to call back to the CapabilityCallback that the framework has
      * provided.
@@ -263,13 +209,21 @@ public abstract class ImsFeature {
     /**
      * Contains the capabilities defined and supported by an ImsFeature in the form of a bit mask.
      * @hide
+     * @deprecated Use {@link MmTelFeature.MmTelCapabilities} instead.
      */
+    @SystemApi  // SystemApi only because it was leaked through type usage in a previous release.
     public static class Capabilities {
         protected int mCapabilities = 0;
 
+        /**
+         * @hide
+         */
         public Capabilities() {
         }
 
+        /**
+         * @hide
+         */
         protected Capabilities(int capabilities) {
             mCapabilities = capabilities;
         }
@@ -277,6 +231,7 @@ public abstract class ImsFeature {
         /**
          * @param capabilities Capabilities to be added to the configuration in the form of a
          *     bit mask.
+         * @hide
          */
         public void addCapabilities(int capabilities) {
             mCapabilities |= capabilities;
@@ -285,6 +240,7 @@ public abstract class ImsFeature {
         /**
          * @param capabilities Capabilities to be removed to the configuration in the form of a
          *     bit mask.
+         * @hide
          */
         public void removeCapabilities(int capabilities) {
             mCapabilities &= ~capabilities;
@@ -292,6 +248,7 @@ public abstract class ImsFeature {
 
         /**
          * @return true if all of the capabilities specified are capable.
+         * @hide
          */
         public boolean isCapable(int capabilities) {
             return (mCapabilities & capabilities) == capabilities;
@@ -299,6 +256,7 @@ public abstract class ImsFeature {
 
         /**
          * @return a deep copy of the Capabilites.
+         * @hide
          */
         public Capabilities copy() {
             return new Capabilities(mCapabilities);
@@ -306,6 +264,7 @@ public abstract class ImsFeature {
 
         /**
          * @return a bitmask containing the capability flags directly.
+         * @hide
          */
         public int getMask() {
             return mCapabilities;
@@ -341,15 +300,15 @@ public abstract class ImsFeature {
         }
     }
 
+    /** @hide */
+    protected Context mContext;
+    /** @hide */
+    protected final Object mLock = new Object();
+
     private final Set<IImsFeatureStatusCallback> mStatusCallbacks = Collections.newSetFromMap(
             new WeakHashMap<IImsFeatureStatusCallback, Boolean>());
     private @ImsState int mState = STATE_UNAVAILABLE;
     private int mSlotId = SubscriptionManager.INVALID_SIM_SLOT_INDEX;
-    /**
-     * @hide
-     */
-    protected Context mContext;
-    private final Object mLock = new Object();
     private final RemoteCallbackList<IImsCapabilityCallback> mCapabilityCallbacks
             = new RemoteCallbackList<>();
     private Capabilities mCapabilityStatus = new Capabilities();
@@ -435,30 +394,6 @@ public abstract class ImsFeature {
                 }
             }
         }
-        sendImsServiceIntent(state);
-    }
-
-    /**
-     * Provide backwards compatibility using deprecated service UP/DOWN intents.
-     */
-    private void sendImsServiceIntent(@ImsState int state) {
-        if (mContext == null || mSlotId == SubscriptionManager.INVALID_SIM_SLOT_INDEX) {
-            return;
-        }
-        Intent intent;
-        switch (state) {
-            case ImsFeature.STATE_UNAVAILABLE:
-            case ImsFeature.STATE_INITIALIZING:
-                intent = new Intent(ACTION_IMS_SERVICE_DOWN);
-                break;
-            case ImsFeature.STATE_READY:
-                intent = new Intent(ACTION_IMS_SERVICE_UP);
-                break;
-            default:
-                intent = new Intent(ACTION_IMS_SERVICE_DOWN);
-        }
-        intent.putExtra(EXTRA_PHONE_ID, mSlotId);
-        mContext.sendBroadcast(intent);
     }
 
     /**
@@ -466,6 +401,12 @@ public abstract class ImsFeature {
      */
     public final void addCapabilityCallback(IImsCapabilityCallback c) {
         mCapabilityCallbacks.register(c);
+        try {
+            // Notify the Capability callback that was just registered of the current capabilities.
+            c.onCapabilitiesStatusChanged(queryCapabilityStatus().mCapabilities);
+        } catch (RemoteException e) {
+            Log.w(LOG_TAG, "addCapabilityCallback: error accessing callback: " + e.getMessage());
+        }
     }
 
     /**

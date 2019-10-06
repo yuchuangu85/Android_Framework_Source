@@ -167,11 +167,18 @@ public abstract class AbstractPreferences extends Preferences {
     /**
      * Registered preference change listeners.
      */
+    // Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+    // It's not clear if this change provides overall benefit; it might be
+    // reverted in future. Discussion: http://b/111195881
+    // private PreferenceChangeListener[] prefListeners =
+    //     new PreferenceChangeListener[0];
     private final ArrayList<PreferenceChangeListener> prefListeners = new ArrayList<>();
 
     /**
      * Registered node change listeners.
      */
+    // Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+    // private NodeChangeListener[] nodeListeners = new NodeChangeListener[0];
     private final ArrayList<NodeChangeListener> nodeListeners = new ArrayList<>();
 
     /**
@@ -1036,6 +1043,14 @@ public abstract class AbstractPreferences extends Preferences {
             if (removed)
                 throw new IllegalStateException("Node has been removed.");
 
+            // Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+            /*
+            // Copy-on-write
+            PreferenceChangeListener[] old = prefListeners;
+            prefListeners = new PreferenceChangeListener[old.length + 1];
+            System.arraycopy(old, 0, prefListeners, 0, old.length);
+            prefListeners[old.length] = pcl;
+            */
             prefListeners.add(pcl);
         }
         startEventDispatchThreadIfNecessary();
@@ -1045,11 +1060,27 @@ public abstract class AbstractPreferences extends Preferences {
         synchronized(lock) {
             if (removed)
                 throw new IllegalStateException("Node has been removed.");
-
+            // Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+            // if ((prefListeners == null) || (prefListeners.length == 0))
             if (!prefListeners.contains(pcl)) {
                 throw new IllegalArgumentException("Listener not registered.");
             }
 
+            // Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+            /*
+            // Copy-on-write
+            PreferenceChangeListener[] newPl =
+                new PreferenceChangeListener[prefListeners.length - 1];
+            int i = 0;
+            while (i < newPl.length && prefListeners[i] != pcl)
+                newPl[i] = prefListeners[i++];
+
+            if (i == newPl.length &&  prefListeners[i] != pcl)
+                throw new IllegalArgumentException("Listener not registered.");
+            while (i < newPl.length)
+                newPl[i] = prefListeners[++i];
+            prefListeners = newPl;
+            */
             prefListeners.remove(pcl);
         }
     }
@@ -1061,6 +1092,19 @@ public abstract class AbstractPreferences extends Preferences {
             if (removed)
                 throw new IllegalStateException("Node has been removed.");
 
+            // Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+            /*
+            // Copy-on-write
+            if (nodeListeners == null) {
+                nodeListeners = new NodeChangeListener[1];
+                nodeListeners[0] = ncl;
+            } else {
+                NodeChangeListener[] old = nodeListeners;
+                nodeListeners = new NodeChangeListener[old.length + 1];
+                System.arraycopy(old, 0, nodeListeners, 0, old.length);
+                nodeListeners[old.length] = ncl;
+            }
+            */
             nodeListeners.add(ncl);
         }
         startEventDispatchThreadIfNecessary();
@@ -1070,11 +1114,29 @@ public abstract class AbstractPreferences extends Preferences {
         synchronized(lock) {
             if (removed)
                 throw new IllegalStateException("Node has been removed.");
-
+            // Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+            // if ((nodeListeners == null) || (nodeListeners.length == 0))
             if (!nodeListeners.contains(ncl)) {
                 throw new IllegalArgumentException("Listener not registered.");
             }
 
+            // Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+            /*
+            // Copy-on-write
+            int i = 0;
+            while (i < nodeListeners.length && nodeListeners[i] != ncl)
+                i++;
+            if (i == nodeListeners.length)
+                throw new IllegalArgumentException("Listener not registered.");
+            NodeChangeListener[] newNl =
+                new NodeChangeListener[nodeListeners.length - 1];
+            if (i != 0)
+                System.arraycopy(nodeListeners, 0, newNl, 0, i);
+            if (i != newNl.length)
+                System.arraycopy(nodeListeners, i + 1,
+                                 newNl, i, newNl.length - i);
+            nodeListeners = newNl;
+            */
             nodeListeners.remove(ncl);
         }
     }
@@ -1493,19 +1555,34 @@ public abstract class AbstractPreferences extends Preferences {
         }
     }
 
+    // BEGIN Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+    // Changed documentation.
+    /*
+    /**
+     * Return this node's preference/node change listeners.  Even though
+     * we're using a copy-on-write lists, we use synchronized accessors to
+     * ensure information transmission from the writing thread to the
+     * reading thread.
+     *
+    */
     /**
      * Return this node's preference/node change listeners. All accesses to prefListeners
      * and nodeListeners are guarded by |lock|. We return a copy of the list so that the
      * EventQueue thread will iterate over a fixed snapshot of the listeners at the time of
      * this call.
      */
+    // END Android-changed: Copy-on-read List of listeners, not copy-on-write array.
     PreferenceChangeListener[] prefListeners() {
         synchronized(lock) {
+            // Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+            // return prefListeners;
             return prefListeners.toArray(new PreferenceChangeListener[prefListeners.size()]);
         }
     }
     NodeChangeListener[] nodeListeners() {
         synchronized(lock) {
+            // Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+            // return nodeListeners;
             return nodeListeners.toArray(new NodeChangeListener[nodeListeners.size()]);
         }
     }
@@ -1516,6 +1593,8 @@ public abstract class AbstractPreferences extends Preferences {
      * listeners.  Invoked with this.lock held.
      */
     private void enqueuePreferenceChangeEvent(String key, String newValue) {
+        // Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+        // if (prefListeners.length != 0) {
         if (!prefListeners.isEmpty()) {
             synchronized(eventQueue) {
                 eventQueue.add(new PreferenceChangeEvent(this, key, newValue));
@@ -1530,6 +1609,8 @@ public abstract class AbstractPreferences extends Preferences {
      * this.lock held.
      */
     private void enqueueNodeAddedEvent(Preferences child) {
+        // Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+        // if (nodeListeners.length != 0) {
         if (!nodeListeners.isEmpty()) {
             synchronized(eventQueue) {
                 eventQueue.add(new NodeAddedEvent(this, child));
@@ -1544,6 +1625,8 @@ public abstract class AbstractPreferences extends Preferences {
      * this.lock held.
      */
     private void enqueueNodeRemovedEvent(Preferences child) {
+        // Android-changed: Copy-on-read List of listeners, not copy-on-write array.
+        // if (nodeListeners.length != 0) {
         if (!nodeListeners.isEmpty()) {
             synchronized(eventQueue) {
                 eventQueue.add(new NodeRemovedEvent(this, child));

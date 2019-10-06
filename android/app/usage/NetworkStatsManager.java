@@ -21,6 +21,7 @@ import static com.android.internal.util.Preconditions.checkNotNull;
 import android.annotation.Nullable;
 import android.annotation.SystemService;
 import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.app.usage.NetworkStats.Bucket;
 import android.content.Context;
 import android.net.ConnectivityManager;
@@ -121,6 +122,7 @@ public class NetworkStatsManager {
     /**
      * {@hide}
      */
+    @UnsupportedAppUsage
     public NetworkStatsManager(Context context) throws ServiceNotFoundException {
         this(context, INetworkStatsService.Stub.asInterface(
                 ServiceManager.getServiceOrThrow(Context.NETWORK_STATS_SERVICE)));
@@ -276,6 +278,12 @@ public class NetworkStatsManager {
             return null;
         }
 
+        return querySummary(template, startTime, endTime);
+    }
+
+    /** @hide */
+    public NetworkStats querySummary(NetworkTemplate template, long startTime,
+            long endTime) throws SecurityException, RemoteException {
         NetworkStats result;
         result = new NetworkStats(mContext, template, mFlags, startTime, endTime, mService);
         result.startSummaryEnumeration();
@@ -292,6 +300,13 @@ public class NetworkStatsManager {
             long startTime, long endTime, int uid) throws SecurityException {
         return queryDetailsForUidTagState(networkType, subscriberId, startTime, endTime, uid,
             NetworkStats.Bucket.TAG_NONE, NetworkStats.Bucket.STATE_ALL);
+    }
+
+    /** @hide */
+    public NetworkStats queryDetailsForUid(NetworkTemplate template,
+            long startTime, long endTime, int uid) throws SecurityException {
+        return queryDetailsForUidTagState(template, startTime, endTime, uid,
+                NetworkStats.Bucket.TAG_NONE, NetworkStats.Bucket.STATE_ALL);
     }
 
     /**
@@ -337,6 +352,13 @@ public class NetworkStatsManager {
             long startTime, long endTime, int uid, int tag, int state) throws SecurityException {
         NetworkTemplate template;
         template = createTemplate(networkType, subscriberId);
+
+        return queryDetailsForUidTagState(template, startTime, endTime, uid, tag, state);
+    }
+
+    /** @hide */
+    public NetworkStats queryDetailsForUidTagState(NetworkTemplate template,
+            long startTime, long endTime, int uid, int tag, int state) throws SecurityException {
 
         NetworkStats result;
         try {

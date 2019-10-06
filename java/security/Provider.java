@@ -57,7 +57,7 @@ import java.util.function.Function;
  * in each runtime it is installed in.
  *
  * <p>See <a href =
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/CryptoSpec.html#Provider">The Provider Class</a>
+ * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html#Provider">The Provider Class</a>
  * in the "Java Cryptography Architecture API Specification &amp; Reference"
  * for information about how a particular type of provider, the
  * cryptographic service provider, works and is installed. However,
@@ -817,14 +817,15 @@ public abstract class Provider extends Properties {
             if (!checkLegacy(key)) {
                 return null;
             }
-            // BEGIN Android-changed: was
+            // BEGIN Android-changed: use compute() instead of computeIfAbsent() to avoid cast fails
+            // The upstream code cannot ever succeed as the cast from BiFunction to Function
+            // always fails.
             // legacyStrings.computeIfAbsent((String) key,
             //         (Function<? super String, ? extends String>) remappingFunction);
-            // which cannot ever succeed as the cast from BiFunction to Function always fails
             legacyStrings.compute((String) key,
                     (BiFunction<? super String, ? super String, ? extends String>)
                             remappingFunction);
-            // END Android-changed
+            // END Android-changed: use compute() instead of computeIfAbsent() to avoid cast fails
         }
         return super.compute(key, remappingFunction);
     }
@@ -1124,7 +1125,7 @@ public abstract class Provider extends Properties {
      * it is replaced by the new service.
      * This method also places information about this service
      * in the provider's Hashtable values in the format described in the
-     * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/CryptoSpec.html">
+     * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html">
      * Java Cryptography Architecture API Specification &amp; Reference </a>.
      *
      * <p>Also, if there is a security manager, its
@@ -1414,7 +1415,7 @@ public abstract class Provider extends Properties {
      * suitable services and instantiates them. The valid arguments to those
      * methods depend on the type of service. For the service types defined
      * within Java SE, see the
-     * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/CryptoSpec.html">
+     * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html">
      * Java Cryptography Architecture API Specification &amp; Reference </a>
      * for the valid values.
      * Note that components outside of Java SE can define additional types of
@@ -1590,7 +1591,7 @@ public abstract class Provider extends Properties {
          * instantiation in a different way.
          * For details and the values of constructorParameter that are
          * valid for the various types of services see the
-         * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/CryptoSpec.html">
+         * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html">
          * Java Cryptography Architecture API Specification &amp;
          * Reference</a>.
          *
@@ -1739,7 +1740,7 @@ public abstract class Provider extends Properties {
          *
          * <p>For details and the values of parameter that are valid for the
          * various types of services see the top of this class and the
-         * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/CryptoSpec.html">
+         * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html">
          * Java Cryptography Architecture API Specification &amp;
          * Reference</a>.
          * Security providers can override it to implement their own test.

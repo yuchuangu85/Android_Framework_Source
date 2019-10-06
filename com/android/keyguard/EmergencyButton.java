@@ -16,8 +16,8 @@
 
 package com.android.keyguard;
 
-import android.app.ActivityManager;
 import android.app.ActivityOptions;
+import android.app.ActivityTaskManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
@@ -36,8 +36,9 @@ import android.widget.Button;
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.internal.telephony.IccCardConstants.State;
-import com.android.internal.widget.LockPatternUtils;
 import com.android.internal.util.EmergencyAffordanceManager;
+import com.android.internal.widget.LockPatternUtils;
+import com.android.systemui.util.EmergencyDialerConstants;
 
 /**
  * This class implements a smart emergency button that updates itself based
@@ -47,11 +48,13 @@ import com.android.internal.util.EmergencyAffordanceManager;
  */
 public class EmergencyButton extends Button {
     private static final Intent INTENT_EMERGENCY_DIAL = new Intent()
-            .setAction("com.android.phone.EmergencyDialer.DIAL")
+            .setAction(EmergencyDialerConstants.ACTION_DIAL)
             .setPackage("com.android.phone")
             .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                     | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
-                    | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra(EmergencyDialerConstants.EXTRA_ENTRY_TYPE,
+                    EmergencyDialerConstants.ENTRY_TYPE_LOCKSCREEN_BUTTON);
 
     private static final String LOG_TAG = "EmergencyButton";
     private final EmergencyAffordanceManager mEmergencyAffordanceManager;
@@ -171,7 +174,7 @@ public class EmergencyButton extends Button {
         // should be the equivalent to the old userActivity(EMERGENCY_CALL_TIMEOUT)
         mPowerManager.userActivity(SystemClock.uptimeMillis(), true);
         try {
-            ActivityManager.getService().stopSystemLockTaskMode();
+            ActivityTaskManager.getService().stopSystemLockTaskMode();
         } catch (RemoteException e) {
             Slog.w(LOG_TAG, "Failed to stop app pinning");
         }

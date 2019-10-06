@@ -16,6 +16,7 @@
 
 package android.util;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -49,6 +50,7 @@ public class RecurrenceRule implements Parcelable {
     @VisibleForTesting
     public static Clock sClock = Clock.systemDefaultZone();
 
+    @UnsupportedAppUsage
     public final ZonedDateTime start;
     public final ZonedDateTime end;
     public final Period period;
@@ -65,6 +67,7 @@ public class RecurrenceRule implements Parcelable {
     }
 
     @Deprecated
+    @UnsupportedAppUsage
     public static RecurrenceRule buildRecurringMonthly(int dayOfMonth, ZoneId zone) {
         // Assume we started last January, since it has all possible days
         final ZonedDateTime now = ZonedDateTime.now(sClock).withZoneSameInstant(zone);
@@ -137,7 +140,7 @@ public class RecurrenceRule implements Parcelable {
         return false;
     }
 
-    public static final Parcelable.Creator<RecurrenceRule> CREATOR = new Parcelable.Creator<RecurrenceRule>() {
+    public static final @android.annotation.NonNull Parcelable.Creator<RecurrenceRule> CREATOR = new Parcelable.Creator<RecurrenceRule>() {
         @Override
         public RecurrenceRule createFromParcel(Parcel source) {
             return new RecurrenceRule(source);

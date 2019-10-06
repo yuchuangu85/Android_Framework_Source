@@ -16,12 +16,15 @@
 
 package android.view;
 
+import android.annotation.FloatRange;
 import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.app.AppGlobals;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Point;
+import android.os.Build;
 import android.os.RemoteException;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
@@ -81,6 +84,12 @@ public class ViewConfiguration {
      * lock screen, etc).
      */
     private static final int GLOBAL_ACTIONS_KEY_TIMEOUT = 500;
+
+    /**
+     * Defines the duration in milliseconds a user needs to hold down the
+     * appropriate buttons (power + volume down) to trigger the screenshot chord.
+     */
+    private static final int SCREENSHOT_CHORD_KEY_TIMEOUT = 500;
 
     /**
      * Defines the duration in milliseconds a user needs to hold down the
@@ -224,6 +233,7 @@ public class ViewConfiguration {
     /**
      * The coefficient of friction applied to flings/scrolls.
      */
+    @UnsupportedAppUsage
     private static final float SCROLL_FRICTION = 0.015f;
 
     /**
@@ -284,12 +294,19 @@ public class ViewConfiguration {
     private static final int HAS_PERMANENT_MENU_KEY_TRUE = 1;
     private static final int HAS_PERMANENT_MENU_KEY_FALSE = 2;
 
+    /**
+     * The multiplication factor for inhibiting default gestures.
+     */
+    private static final float AMBIGUOUS_GESTURE_MULTIPLIER = 2f;
+
+    private final boolean mConstructedWithContext;
     private final int mEdgeSlop;
     private final int mFadingEdgeLength;
     private final int mMinimumFlingVelocity;
     private final int mMaximumFlingVelocity;
     private final int mScrollbarSize;
     private final int mTouchSlop;
+    private final int mMinScalingSpan;
     private final int mHoverSlop;
     private final int mMinScrollbarTouchTarget;
     private final int mDoubleTapTouchSlop;
@@ -299,15 +316,20 @@ public class ViewConfiguration {
     private final int mMaximumDrawingCacheSize;
     private final int mOverscrollDistance;
     private final int mOverflingDistance;
+    @UnsupportedAppUsage
     private final boolean mFadingMarqueeEnabled;
     private final long mGlobalActionsKeyTimeout;
     private final float mVerticalScrollFactor;
     private final float mHorizontalScrollFactor;
     private final boolean mShowMenuShortcutsWhenKeyboardPresent;
+    private final long mScreenshotChordKeyTimeout;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 123768915)
     private boolean sHasPermanentMenuKey;
+    @UnsupportedAppUsage
     private boolean sHasPermanentMenuKeySet;
 
+    @UnsupportedAppUsage
     static final SparseArray<ViewConfiguration> sConfigurations =
             new SparseArray<ViewConfiguration>(2);
 
@@ -316,6 +338,7 @@ public class ViewConfiguration {
      */
     @Deprecated
     public ViewConfiguration() {
+        mConstructedWithContext = false;
         mEdgeSlop = EDGE_SLOP;
         mFadingEdgeLength = FADING_EDGE_LENGTH;
         mMinimumFlingVelocity = MINIMUM_FLING_VELOCITY;
@@ -337,6 +360,11 @@ public class ViewConfiguration {
         mHorizontalScrollFactor = HORIZONTAL_SCROLL_FACTOR;
         mVerticalScrollFactor = VERTICAL_SCROLL_FACTOR;
         mShowMenuShortcutsWhenKeyboardPresent = false;
+        mScreenshotChordKeyTimeout = SCREENSHOT_CHORD_KEY_TIMEOUT;
+
+        // Getter throws if mConstructedWithContext is false so doesn't matter what
+        // this value is.
+        mMinScalingSpan = 0;
     }
 
     /**
@@ -350,6 +378,7 @@ public class ViewConfiguration {
      * @see android.util.DisplayMetrics
      */
     private ViewConfiguration(Context context) {
+        mConstructedWithContext = true;
         final Resources res = context.getResources();
         final DisplayMetrics metrics = res.getDisplayMetrics();
         final Configuration config = res.getConfiguration();
@@ -387,7 +416,7 @@ public class ViewConfiguration {
                 case HAS_PERMANENT_MENU_KEY_AUTODETECT: {
                     IWindowManager wm = WindowManagerGlobal.getWindowManagerService();
                     try {
-                        sHasPermanentMenuKey = !wm.hasNavigationBar();
+                        sHasPermanentMenuKey = !wm.hasNavigationBar(context.getDisplayId());
                         sHasPermanentMenuKeySet = true;
                     } catch (RemoteException ex) {
                         sHasPermanentMenuKey = false;
@@ -434,6 +463,11 @@ public class ViewConfiguration {
         mShowMenuShortcutsWhenKeyboardPresent = res.getBoolean(
             com.android.internal.R.bool.config_showMenuShortcutsWhenKeyboardPresent);
 
+        mMinScalingSpan = res.getDimensionPixelSize(
+                com.android.internal.R.dimen.config_minScalingSpan);
+
+        mScreenshotChordKeyTimeout = res.getInteger(
+                com.android.internal.R.integer.config_screenshotChordKeyTimeout);
     }
 
     /**
@@ -589,6 +623,7 @@ public class ViewConfiguration {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static int getDoubleTapMinTime() {
         return DOUBLE_TAP_MIN_TIME;
     }
@@ -609,6 +644,7 @@ public class ViewConfiguration {
      * to a hover movement gesture.
      * @hide
      */
+    @UnsupportedAppUsage
     public static int getHoverTapSlop() {
         return HOVER_TAP_SLOP;
     }
@@ -662,6 +698,7 @@ public class ViewConfiguration {
      * potential double tap event
      * @hide
      */
+    @UnsupportedAppUsage
     public int getScaledDoubleTapTouchSlop() {
         return mDoubleTapTouchSlop;
     }
@@ -682,6 +719,7 @@ public class ViewConfiguration {
      *       for clients that still use its deprecated constructor.
      */
     @Deprecated
+    @UnsupportedAppUsage
     public static int getDoubleTapSlop() {
         return DOUBLE_TAP_SLOP;
     }
@@ -857,8 +895,21 @@ public class ViewConfiguration {
      *   the global actions dialog.
      * @hide
      */
+    @TestApi
     public long getDeviceGlobalActionKeyTimeout() {
         return mGlobalActionsKeyTimeout;
+    }
+
+    /**
+     * The amount of time a user needs to press the relevant keys to trigger
+     * the screenshot chord.
+     *
+     * @return how long a user needs to press the relevant keys to trigger
+     *   the screenshot chord.
+     * @hide
+     */
+    public long getScreenshotChordKeyTimeout() {
+        return mScreenshotChordKeyTimeout;
     }
 
     /**
@@ -900,6 +951,22 @@ public class ViewConfiguration {
     }
 
     /**
+     * If a MotionEvent has {@link android.view.MotionEvent#CLASSIFICATION_AMBIGUOUS_GESTURE} set,
+     * then certain actions, such as scrolling, will be inhibited.
+     * However, to account for the possibility of incorrect classification,
+     * the default scrolling will only be inhibited if the pointer travels less than
+     * (getScaledTouchSlop() * this factor).
+     * Likewise, the default long press timeout will be increased by this factor for some situations
+     * where the default behaviour is to cancel it.
+     *
+     * @return The multiplication factor for inhibiting default gestures.
+     */
+    @FloatRange(from = 1.0)
+    public static float getAmbiguousGestureMultiplier() {
+        return AMBIGUOUS_GESTURE_MULTIPLIER;
+    }
+
+    /**
      * Report if the device has a permanent menu key available to the user.
      *
      * <p>As of Android 3.0, devices may not have a permanent menu key available.
@@ -925,9 +992,30 @@ public class ViewConfiguration {
     }
 
     /**
+     * Retrieves the distance in pixels between touches that must be reached for a gesture to be
+     * interpreted as scaling.
+     *
+     * In general, scaling shouldn't start until this distance has been met or surpassed, and
+     * scaling should end when the distance in pixels between touches drops below this distance.
+     *
+     * @return The distance in pixels
+     * @throws IllegalStateException if this method is called on a ViewConfiguration that was
+     *         instantiated using a constructor with no Context parameter.
+     */
+    public int getScaledMinimumScalingSpan() {
+        if (!mConstructedWithContext) {
+            throw new IllegalStateException("Min scaling span cannot be determined when this "
+                    + "method is called on a ViewConfiguration that was instantiated using a "
+                    + "constructor with no Context parameter");
+        }
+        return mMinScalingSpan;
+    }
+
+    /**
      * @hide
      * @return Whether or not marquee should use fading edges.
      */
+    @UnsupportedAppUsage
     public boolean isFadingMarqueeEnabled() {
         return mFadingMarqueeEnabled;
     }

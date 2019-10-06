@@ -19,11 +19,10 @@ import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.Message;
 import android.os.SystemClock;
-import android.provider.Settings;
 import android.util.EventLog;
 import android.util.Log;
 import com.android.clockwork.common.EventHistory;
-import com.android.clockwork.flags.UserAbsentRadiosOffObserver;
+import com.android.clockwork.flags.BooleanFlag;
 import com.android.clockwork.power.PowerTracker;
 import com.android.clockwork.power.TimeOnlyMode;
 import com.android.internal.annotations.VisibleForTesting;
@@ -52,7 +51,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class WearBluetoothMediator implements
         CompanionProxyShard.Listener,
         CompanionTracker.Listener,
-        UserAbsentRadiosOffObserver.Listener,
+        WearBluetoothMediatorSettings.Listener,
         PowerTracker.Listener,
         TimeOnlyMode.Listener {
     private static final String TAG = WearBluetoothConstants.LOG_TAG;
@@ -75,7 +74,9 @@ public class WearBluetoothMediator implements
         OFF_ACTIVITY_MODE,
         OFF_TIME_ONLY_MODE,
         OFF_USER_ABSENT,
-        ON_AUTO
+        OFF_SETTINGS_PREFERENCE,
+        ON_AUTO,
+        ON_BOOT_AUTO,
     }
 
     /** Encapsulate the decision process for modifying the bluetooth radio power state */
@@ -116,12 +117,15 @@ public class WearBluetoothMediator implements
     private final CompanionTracker mCompanionTracker;
     private final Context mContext;
     private final PowerTracker mPowerTracker;
+    private final WearBluetoothMediatorSettings mSettings;
 
-    private final UserAbsentRadiosOffObserver mUserAbsentRadiosOff;
+    private final BooleanFlag mUserAbsentRadiosOff;
 
     private boolean mAclConnected;
     private boolean mActivityMode;
     private boolean mTimeOnlyMode;
+    private boolean mIsAirplaneModeOn;
+    private boolean mIsSettingsPreferenceBluetoothOn;
 
     /**
      * Information describing a proxy connection event
@@ -233,10 +237,6 @@ public class WearBluetoothMediator implements
         }
     };
 
-    /**
-     * This BroadcastReceiver is only used for logging purposes. We no longer rely on
-     * BOND_STATE events as an input signal.
-     */
     private final BroadcastReceiver bondStateReceiver = new BroadcastReceiver() {
         @MainThread
         @Override
@@ -250,6 +250,9 @@ public class WearBluetoothMediator implements
                         BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE);
 
                 Log.i(TAG, "Device " + device + " changed bond state: " + currentBondState);
+                if (currentBondState == BluetoothDevice.BOND_BONDED) {
+                    mCompanionTracker.receivedBondedAction(device);
+                }
 
                 if (previousBondState == BluetoothDevice.BOND_BONDED
                         && currentBondState == BluetoothDevice.BOND_BONDING) {
@@ -261,26 +264,32 @@ public class WearBluetoothMediator implements
 
     public WearBluetoothMediator(final Context context,
                                  final AlarmManager alarmManager,
+                                 final WearBluetoothMediatorSettings btSettings,
                                  final BluetoothAdapter btAdapter,
                                  final BluetoothLogger btLogger,
                                  final BluetoothShardRunner shardRunner,
                                  final CompanionTracker companionTracker,
                                  final PowerTracker powerTracker,
-                                 final UserAbsentRadiosOffObserver userAbsentRadiosOffObserver,
+                                 final BooleanFlag userAbsentRadiosOff,
                                  final TimeOnlyMode timeOnlyMode) {
         mContext = context;
         mAlarmManager = alarmManager;
+        mSettings = btSettings;
         mAdapter = btAdapter;
         mBtLogger = btLogger;
         mShardRunner = shardRunner;
         mCompanionTracker = companionTracker;
-        mUserAbsentRadiosOff = userAbsentRadiosOffObserver;
+        mUserAbsentRadiosOff = userAbsentRadiosOff;
         mPowerTracker = powerTracker;
 
         mCompanionTracker.addListener(this);
         mPowerTracker.addListener(this);
-        mUserAbsentRadiosOff.addListener(this);
+        mSettings.addListener(this);
+        mUserAbsentRadiosOff.addListener(this::onUserAbsentRadiosOffChanged);
         timeOnlyMode.addListener(this);
+
+        mIsAirplaneModeOn = mSettings.getIsInAirplaneMode();
+        mIsSettingsPreferenceBluetoothOn = mSettings.getIsSettingsPreferenceBluetoothOn();
 
         mRadioPowerThread = new HandlerThread(TAG + ".RadioPowerHandler");
         mRadioPowerThread.start();
@@ -317,10 +326,10 @@ public class WearBluetoothMediator implements
                 onAdapterEnabled();
             } else {
                 // Not enabled. Enable if airplane mode is NOT on.
-                if (Settings.Global.getInt(mContext.getContentResolver(),
-                        Settings.Global.AIRPLANE_MODE_ON, 0) == 0) {
+                if (!mSettings.getIsInAirplaneMode()) {
                     Log.w(TAG, "Enabling an unexpectedly disabled Bluetooth adapter.");
-                    mAdapter.enable();
+                    changeRadioPower(true, Reason.ON_BOOT_AUTO);
+                    mSettings.setSettingsPreferenceBluetoothOn(true);
                 }
             }
         });
@@ -341,18 +350,24 @@ public class WearBluetoothMediator implements
         }
     }
 
-    @Override
     public void onUserAbsentRadiosOffChanged(boolean isEnabled) {
         updateRadioPower();
     }
 
     private void updateRadioPower() {
-        if (mActivityMode) {
+        if (mIsAirplaneModeOn) {
+            if (Log.isLoggable(TAG, Log.VERBOSE)) {
+                Log.v(TAG, "Disabling mediator while airplane mode enabled");
+            }
+            return;
+        } else if (mActivityMode) {
             changeRadioPower(false, Reason.OFF_ACTIVITY_MODE);
         } else if (mPowerTracker.isDeviceIdle() && mUserAbsentRadiosOff.isEnabled()) {
             changeRadioPower(false, Reason.OFF_USER_ABSENT);
         } else if (mTimeOnlyMode) {
             changeRadioPower(false, Reason.OFF_TIME_ONLY_MODE);
+        } else if (!mIsSettingsPreferenceBluetoothOn) {
+            changeRadioPower(false, Reason.OFF_SETTINGS_PREFERENCE);
         } else {
             changeRadioPower(true, Reason.ON_AUTO);
         }
@@ -381,6 +396,17 @@ public class WearBluetoothMediator implements
     @Override
     public void onDeviceIdleModeChanged() {
         updateRadioPower();
+    }
+
+    @Override  // WearBluetoothMediatorSettings.Listener
+    public void onAirplaneModeSettingChanged(boolean isAirplaneModeOn) {
+        mIsAirplaneModeOn = isAirplaneModeOn;
+    }
+
+    @Override  // WearBluetoothMediatorSettings.Listener
+    public void onSettingsPreferenceBluetoothSettingChanged(
+            boolean isSettingsPreferenceBluetoothOn) {
+        mIsSettingsPreferenceBluetoothOn = isSettingsPreferenceBluetoothOn;
     }
 
     @Override  // CompanionProxyShard.Listener
@@ -516,6 +542,9 @@ public class WearBluetoothMediator implements
         ipw.printPair("ACL", mAclConnected ? "connected" : "disconnected");
         ipw.printPair("Proxy", mProxyConnected.get() ? "connected" : "disconnected");
         ipw.printPair("btAdapter", mAdapter.isEnabled() ? "enabled" : "disabled");
+        ipw.println();
+        ipw.printPair("mIsAirplaneModeOn", mIsAirplaneModeOn);
+        ipw.printPair("mIsSettingsPreferenceBluetoothOn", mIsSettingsPreferenceBluetoothOn);
         ipw.println();
         ipw.printPair("mActivityMode", mActivityMode);
         ipw.printPair("mTimeOnlyMode", mTimeOnlyMode);

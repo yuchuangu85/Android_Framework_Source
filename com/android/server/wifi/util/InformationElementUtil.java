@@ -400,17 +400,22 @@ public class InformationElementUtil {
         private static final int WPA_VENDOR_OUI_TYPE_ONE = 0x01f25000;
         private static final int WPS_VENDOR_OUI_TYPE = 0x04f25000;
         private static final short WPA_VENDOR_OUI_VERSION = 0x0001;
+        private static final int OWE_VENDOR_OUI_TYPE = 0x1c9a6f50;
         private static final short RSNE_VERSION = 0x0001;
 
         private static final int WPA_AKM_EAP = 0x01f25000;
         private static final int WPA_AKM_PSK = 0x02f25000;
 
-        private static final int WPA2_AKM_EAP = 0x01ac0f00;
-        private static final int WPA2_AKM_PSK = 0x02ac0f00;
-        private static final int WPA2_AKM_FT_EAP = 0x03ac0f00;
-        private static final int WPA2_AKM_FT_PSK = 0x04ac0f00;
-        private static final int WPA2_AKM_EAP_SHA256 = 0x05ac0f00;
-        private static final int WPA2_AKM_PSK_SHA256 = 0x06ac0f00;
+        private static final int RSN_AKM_EAP = 0x01ac0f00;
+        private static final int RSN_AKM_PSK = 0x02ac0f00;
+        private static final int RSN_AKM_FT_EAP = 0x03ac0f00;
+        private static final int RSN_AKM_FT_PSK = 0x04ac0f00;
+        private static final int RSN_AKM_EAP_SHA256 = 0x05ac0f00;
+        private static final int RSN_AKM_PSK_SHA256 = 0x06ac0f00;
+        private static final int RSN_AKM_SAE = 0x08ac0f00;
+        private static final int RSN_AKM_FT_SAE = 0x09ac0f00;
+        private static final int RSN_AKM_OWE = 0x12ac0f00;
+        private static final int RSN_AKM_EAP_SUITE_B_192 = 0x0cac0f00;
 
         private static final int WPA_CIPHER_NONE = 0x00f25000;
         private static final int WPA_CIPHER_TKIP = 0x02f25000;
@@ -420,6 +425,7 @@ public class InformationElementUtil {
         private static final int RSN_CIPHER_TKIP = 0x02ac0f00;
         private static final int RSN_CIPHER_CCMP = 0x04ac0f00;
         private static final int RSN_CIPHER_NO_GROUP_ADDRESSED = 0x07ac0f00;
+        private static final int RSN_CIPHER_GCMP_256 = 0x09ac0f00;
 
         public ArrayList<Integer> protocol;
         public ArrayList<ArrayList<Integer>> keyManagement;
@@ -456,7 +462,7 @@ public class InformationElementUtil {
                 }
 
                 // found the RSNE IE, hence start building the capability string
-                protocol.add(ScanResult.PROTOCOL_WPA2);
+                protocol.add(ScanResult.PROTOCOL_RSN);
 
                 // group data cipher suite
                 groupCipher.add(parseRsnCipher(buf.getInt()));
@@ -478,23 +484,35 @@ public class InformationElementUtil {
                 for (int i = 0; i < akmCount; i++) {
                     int akm = buf.getInt();
                     switch (akm) {
-                        case WPA2_AKM_EAP:
+                        case RSN_AKM_EAP:
                             rsnKeyManagement.add(ScanResult.KEY_MGMT_EAP);
                             break;
-                        case WPA2_AKM_PSK:
+                        case RSN_AKM_PSK:
                             rsnKeyManagement.add(ScanResult.KEY_MGMT_PSK);
                             break;
-                        case WPA2_AKM_FT_EAP:
+                        case RSN_AKM_FT_EAP:
                             rsnKeyManagement.add(ScanResult.KEY_MGMT_FT_EAP);
                             break;
-                        case WPA2_AKM_FT_PSK:
+                        case RSN_AKM_FT_PSK:
                             rsnKeyManagement.add(ScanResult.KEY_MGMT_FT_PSK);
                             break;
-                        case WPA2_AKM_EAP_SHA256:
+                        case RSN_AKM_EAP_SHA256:
                             rsnKeyManagement.add(ScanResult.KEY_MGMT_EAP_SHA256);
                             break;
-                        case WPA2_AKM_PSK_SHA256:
+                        case RSN_AKM_PSK_SHA256:
                             rsnKeyManagement.add(ScanResult.KEY_MGMT_PSK_SHA256);
+                            break;
+                        case RSN_AKM_SAE:
+                            rsnKeyManagement.add(ScanResult.KEY_MGMT_SAE);
+                            break;
+                        case RSN_AKM_FT_SAE:
+                            rsnKeyManagement.add(ScanResult.KEY_MGMT_FT_SAE);
+                            break;
+                        case RSN_AKM_OWE:
+                            rsnKeyManagement.add(ScanResult.KEY_MGMT_OWE);
+                            break;
+                        case RSN_AKM_EAP_SUITE_B_192:
+                            rsnKeyManagement.add(ScanResult.KEY_MGMT_EAP_SUITE_B_192);
                             break;
                         default:
                             // do nothing
@@ -534,6 +552,8 @@ public class InformationElementUtil {
                     return ScanResult.CIPHER_TKIP;
                 case RSN_CIPHER_CCMP:
                     return ScanResult.CIPHER_CCMP;
+                case RSN_CIPHER_GCMP_256:
+                    return ScanResult.CIPHER_GCMP_256;
                 case RSN_CIPHER_NO_GROUP_ADDRESSED:
                     return ScanResult.CIPHER_NO_GROUP_ADDRESSED;
                 default:
@@ -589,7 +609,7 @@ public class InformationElementUtil {
                 buf.getInt();
 
                 // version
-                if (buf.getShort() != WPA_VENDOR_OUI_VERSION)  {
+                if (buf.getShort() != WPA_VENDOR_OUI_VERSION) {
                     // incorrect version
                     return;
                 }
@@ -643,11 +663,12 @@ public class InformationElementUtil {
          * Parse the Information Element and the 16-bit Capability Information field
          * to build the InformationElemmentUtil.capabilities object.
          *
-         * @param ies -- Information Element array
-         * @param beaconCap -- 16-bit Beacon Capability Information field
+         * @param ies            -- Information Element array
+         * @param beaconCap      -- 16-bit Beacon Capability Information field
+         * @param isOweSupported -- Boolean flag to indicate if OWE is supported by the device
          */
 
-        public void from(InformationElement[] ies, BitSet beaconCap) {
+        public void from(InformationElement[] ies, BitSet beaconCap, boolean isOweSupported) {
             protocol = new ArrayList<Integer>();
             keyManagement = new ArrayList<ArrayList<Integer>>();
             groupCipher = new ArrayList<Integer>();
@@ -671,7 +692,42 @@ public class InformationElementUtil {
                         // TODO(b/62134557): parse WPS IE to provide finer granularity information.
                         isWPS = true;
                     }
+                    if (isOweSupported && isOweElement(ie)) {
+                        /* From RFC 8110: Once the client and AP have finished 802.11 association,
+                           they then complete the Diffie-Hellman key exchange and create a Pairwise
+                           Master Key (PMK) and its associated identifier, PMKID [IEEE802.11].
+                           Upon completion of 802.11 association, the AP initiates the 4-way
+                           handshake to the client using the PMK generated above.  The 4-way
+                           handshake generates a Key-Encrypting Key (KEK), a Key-Confirmation
+                           Key (KCK), and a Message Integrity Code (MIC) to use for protection
+                           of the frames that define the 4-way handshake.
+
+                           We check if OWE is supported here because we are adding the OWE
+                           capabilities to the Open BSS. Non-supporting devices need to see this
+                           open network and ignore this element. Supporting devices need to hide
+                           the Open BSS of OWE in transition mode and connect to the Hidden one.
+                        */
+                        protocol.add(ScanResult.PROTOCOL_RSN);
+                        groupCipher.add(ScanResult.CIPHER_CCMP);
+                        ArrayList<Integer> owePairwiseCipher = new ArrayList<>();
+                        owePairwiseCipher.add(ScanResult.CIPHER_CCMP);
+                        pairwiseCipher.add(owePairwiseCipher);
+                        ArrayList<Integer> oweKeyManagement = new ArrayList<>();
+                        oweKeyManagement.add(ScanResult.KEY_MGMT_OWE_TRANSITION);
+                        keyManagement.add(oweKeyManagement);
+                    }
                 }
+            }
+        }
+
+        private static boolean isOweElement(InformationElement ie) {
+            ByteBuffer buf = ByteBuffer.wrap(ie.bytes).order(ByteOrder.LITTLE_ENDIAN);
+            try {
+                // OWE OUI and type
+                return (buf.getInt() == OWE_VENDOR_OUI_TYPE);
+            } catch (BufferUnderflowException e) {
+                Log.e("IE_Capabilities", "Couldn't parse VSA IE, buffer underflow");
+                return false;
             }
         }
 
@@ -681,8 +737,8 @@ public class InformationElementUtil {
                     return "None";
                 case ScanResult.PROTOCOL_WPA:
                     return "WPA";
-                case ScanResult.PROTOCOL_WPA2:
-                    return "WPA2";
+                case ScanResult.PROTOCOL_RSN:
+                    return "RSN";
                 default:
                     return "?";
             }
@@ -704,6 +760,16 @@ public class InformationElementUtil {
                     return "EAP-SHA256";
                 case ScanResult.KEY_MGMT_PSK_SHA256:
                     return "PSK-SHA256";
+                case ScanResult.KEY_MGMT_OWE:
+                    return "OWE";
+                case ScanResult.KEY_MGMT_OWE_TRANSITION:
+                    return "OWE_TRANSITION";
+                case ScanResult.KEY_MGMT_SAE:
+                    return "SAE";
+                case ScanResult.KEY_MGMT_FT_SAE:
+                    return "FT/SAE";
+                case ScanResult.KEY_MGMT_EAP_SUITE_B_192:
+                    return "EAP_SUITE_B_192";
                 default:
                     return "?";
             }
@@ -715,6 +781,8 @@ public class InformationElementUtil {
                     return "None";
                 case ScanResult.CIPHER_CCMP:
                     return "CCMP";
+                case ScanResult.CIPHER_GCMP_256:
+                    return "GCMP-256";
                 case ScanResult.CIPHER_TKIP:
                     return "TKIP";
                 default:
@@ -728,39 +796,92 @@ public class InformationElementUtil {
          * @return security string that mirrors what wpa_supplicant generates
          */
         public String generateCapabilitiesString() {
-            String capabilities = "";
+            StringBuilder capabilities = new StringBuilder();
             // private Beacon without an RSNE or WPA IE, hence WEP0
             boolean isWEP = (protocol.isEmpty()) && isPrivacy;
 
             if (isWEP) {
-                capabilities += "[WEP]";
+                capabilities.append("[WEP]");
             }
             for (int i = 0; i < protocol.size(); i++) {
-                capabilities += "[" + protocolToString(protocol.get(i));
-                if (i < keyManagement.size()) {
-                    for (int j = 0; j < keyManagement.get(i).size(); j++) {
-                        capabilities += ((j == 0) ? "-" : "+")
-                                + keyManagementToString(keyManagement.get(i).get(j));
-                    }
-                }
-                if (i < pairwiseCipher.size()) {
-                    for (int j = 0; j < pairwiseCipher.get(i).size(); j++) {
-                        capabilities += ((j == 0) ? "-" : "+")
-                                + cipherToString(pairwiseCipher.get(i).get(j));
-                    }
-                }
-                capabilities += "]";
+                String capability = generateCapabilitiesStringPerProtocol(i);
+                // add duplicate capabilities for WPA2 for backward compatibility:
+                // duplicate "RSN" entries as "WPA2"
+                String capWpa2 = generateWPA2CapabilitiesString(capability, i);
+                capabilities.append(capWpa2);
+                capabilities.append(capability);
             }
             if (isESS) {
-                capabilities += "[ESS]";
+                capabilities.append("[ESS]");
             }
             if (isWPS) {
-                capabilities += "[WPS]";
+                capabilities.append("[WPS]");
             }
 
-            return capabilities;
+            return capabilities.toString();
+        }
+
+        /**
+         * Build the Capability String for one protocol
+         * @param index: index number of the protocol
+         * @return security string for one protocol
+         */
+        private String generateCapabilitiesStringPerProtocol(int index) {
+            StringBuilder capability = new StringBuilder();
+            capability.append("[").append(protocolToString(protocol.get(index)));
+
+            if (index < keyManagement.size()) {
+                for (int j = 0; j < keyManagement.get(index).size(); j++) {
+                    capability.append((j == 0) ? "-" : "+").append(
+                            keyManagementToString(keyManagement.get(index).get(j)));
+                }
+            }
+            if (index < pairwiseCipher.size()) {
+                for (int j = 0; j < pairwiseCipher.get(index).size(); j++) {
+                    capability.append((j == 0) ? "-" : "+").append(
+                            cipherToString(pairwiseCipher.get(index).get(j)));
+                }
+            }
+            capability.append("]");
+            return capability.toString();
+        }
+
+        /**
+         * Build the duplicate Capability String for WPA2
+         * @param cap: original capability String
+         * @param index: index number of the protocol
+         * @return security string for WPA2, empty String if protocol is not WPA2
+         */
+        private String generateWPA2CapabilitiesString(String cap, int index) {
+            StringBuilder capWpa2 = new StringBuilder();
+            // if not WPA2, return empty String
+            if (cap.contains("EAP_SUITE_B_192")
+                    || (!cap.contains("RSN-EAP") && !cap.contains("RSN-FT/EAP")
+                    && !cap.contains("RSN-PSK") && !cap.contains("RSN-FT/PSK"))) {
+                return "";
+            }
+            capWpa2.append("[").append("WPA2");
+            if (index < keyManagement.size()) {
+                for (int j = 0; j < keyManagement.get(index).size(); j++) {
+                    capWpa2.append((j == 0) ? "-" : "+").append(
+                            keyManagementToString(keyManagement.get(index).get(j)));
+                    // WPA3/WPA2 transition mode
+                    if (cap.contains("SAE")) {
+                        break;
+                    }
+                }
+            }
+            if (index < pairwiseCipher.size()) {
+                for (int j = 0; j < pairwiseCipher.get(index).size(); j++) {
+                    capWpa2.append((j == 0) ? "-" : "+").append(
+                            cipherToString(pairwiseCipher.get(index).get(j)));
+                }
+            }
+            capWpa2.append("]");
+            return capWpa2.toString();
         }
     }
+
 
     /**
      * Parser for the Traffic Indication Map (TIM) Information Element (EID 5). This element will

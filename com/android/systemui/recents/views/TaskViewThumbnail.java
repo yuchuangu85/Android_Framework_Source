@@ -37,7 +37,7 @@ import android.view.ViewDebug;
 import com.android.systemui.R;
 import com.android.systemui.recents.events.EventBus;
 import com.android.systemui.recents.events.ui.TaskSnapshotChangedEvent;
-import com.android.systemui.shared.recents.utilities.Utilities;
+import com.android.systemui.recents.utilities.Utilities;
 import com.android.systemui.shared.recents.model.Task;
 import com.android.systemui.shared.recents.model.ThumbnailData;
 import java.io.PrintWriter;

@@ -25,42 +25,42 @@ import android.util.AttributeSet;
  */
 public abstract class AbstractItem extends AbstractItemHierarchy implements IItem {
 
-    public AbstractItem() {
-        super();
-    }
+  public AbstractItem() {
+    super();
+  }
 
-    public AbstractItem(Context context, AttributeSet attrs) {
-        super(context, attrs);
-    }
+  public AbstractItem(Context context, AttributeSet attrs) {
+    super(context, attrs);
+  }
 
-    @Override
-    public int getCount() {
-        return 1;
-    }
+  @Override
+  public int getCount() {
+    return 1;
+  }
 
-    @Override
-    public IItem getItemAt(int position) {
-        return this;
-    }
+  @Override
+  public IItem getItemAt(int position) {
+    return this;
+  }
 
-    @Override
-    public ItemHierarchy findItemById(int id) {
-        if (id == getId()) {
-            return this;
-        }
-        return null;
+  @Override
+  public ItemHierarchy findItemById(int id) {
+    if (id == getId()) {
+      return this;
     }
+    return null;
+  }
 
-    /**
-     * Convenience method to notify the adapter that the contents of this item has changed. This
-     * only includes non-structural changes. Changes that causes the item to be removed should use
-     * the other notification methods.
-     *
-     * @see #notifyItemRangeChanged(int, int)
-     * @see #notifyItemRangeInserted(int, int)
-     * @see #notifyItemRangeRemoved(int, int)
-     */
-    public void notifyItemChanged() {
-        notifyItemRangeChanged(0, 1);
-    }
+  /**
+   * Convenience method to notify the adapter that the contents of this item has changed. This only
+   * includes non-structural changes. Changes that causes the item to be removed should use the
+   * other notification methods.
+   *
+   * @see #notifyItemRangeChanged(int, int)
+   * @see #notifyItemRangeInserted(int, int)
+   * @see #notifyItemRangeRemoved(int, int)
+   */
+  public void notifyItemChanged() {
+    notifyItemRangeChanged(0, 1);
+  }
 }

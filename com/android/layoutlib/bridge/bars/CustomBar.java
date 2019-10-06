@@ -23,14 +23,12 @@ import com.android.ide.common.rendering.api.StyleResourceValue;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.layoutlib.bridge.android.BridgeXmlBlockParser;
-import com.android.layoutlib.bridge.impl.ParserFactory;
 import com.android.layoutlib.bridge.impl.ResourceHelper;
+import com.android.layoutlib.bridge.resources.IconLoader;
+import com.android.layoutlib.bridge.resources.SysUiResources;
 import com.android.resources.Density;
 import com.android.resources.LayoutDirection;
 import com.android.resources.ResourceType;
-
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
 
 import android.annotation.NonNull;
 import android.content.res.ColorStateList;
@@ -55,20 +53,16 @@ import static android.os._Original_Build.VERSION_CODES.LOLLIPOP;
  * Base "bar" class for the window decor around the the edited layout.
  * This is basically an horizontal layout that loads a given layout on creation (it is read
  * through {@link Class#getResourceAsStream(String)}).
- *
+ * <p>
  * The given layout should be a merge layout so that all the children belong to this class directly.
- *
+ * <p>
  * It also provides a few utility methods to configure the content of the layout.
  */
 abstract class CustomBar extends LinearLayout {
-
-
     private final int mSimulatedPlatformVersion;
 
-    protected abstract TextView getStyleableTextView();
-
-    protected CustomBar(BridgeContext context, int orientation, String layoutPath,
-            String name, int simulatedPlatformVersion) {
+    protected CustomBar(BridgeContext context, int orientation, String layoutName,
+            int simulatedPlatformVersion) {
         super(context);
         mSimulatedPlatformVersion = simulatedPlatformVersion;
         setOrientation(orientation);
@@ -79,89 +73,83 @@ abstract class CustomBar extends LinearLayout {
         }
 
         LayoutInflater inflater = LayoutInflater.from(mContext);
-
-        XmlPullParser parser;
+        BridgeXmlBlockParser bridgeParser = loadXml(layoutName);
         try {
-            parser = ParserFactory.create(getClass().getResourceAsStream(layoutPath), name);
-
-            BridgeXmlBlockParser bridgeParser = new BridgeXmlBlockParser(parser, context, false);
-
-            try {
-                inflater.inflate(bridgeParser, this, true);
-            } finally {
-                bridgeParser.ensurePopped();
-            }
-        } catch (XmlPullParserException e) {
-            // Should not happen as the resource is bundled with the jar, and  ParserFactory should
-            // have been initialized.
-            assert false;
+            inflater.inflate(bridgeParser, this, true);
+        } finally {
+            bridgeParser.ensurePopped();
         }
     }
 
-    protected void loadIcon(int index, String iconName, Density density) {
-        loadIcon(index, iconName, density, false);
+    protected abstract TextView getStyleableTextView();
+
+    protected BridgeXmlBlockParser loadXml(String layoutName) {
+        return SysUiResources.loadXml((BridgeContext) mContext, mSimulatedPlatformVersion,
+                layoutName);
     }
 
-    protected void loadIcon(int index, String iconName, Density density, boolean isRtl) {
+    protected ImageView loadIcon(ImageView imageView, String iconName, Density density) {
+        return SysUiResources.loadIcon(mContext, mSimulatedPlatformVersion, imageView, iconName,
+                density, false);
+    }
+
+    protected ImageView loadIcon(int index, String iconName, Density density, boolean isRtl) {
         View child = getChildAt(index);
         if (child instanceof ImageView) {
             ImageView imageView = (ImageView) child;
-
-            LayoutDirection dir = isRtl ? LayoutDirection.RTL : null;
-            IconLoader iconLoader = new IconLoader(iconName, density, mSimulatedPlatformVersion,
-                    dir);
-            InputStream stream = iconLoader.getIcon();
-
-            if (stream != null) {
-                density = iconLoader.getDensity();
-                String path = iconLoader.getPath();
-                // look for a cached bitmap
-                Bitmap bitmap = Bridge.getCachedBitmap(path, Boolean.TRUE /*isFramework*/);
-                if (bitmap == null) {
-                    try {
-                        bitmap = Bitmap_Delegate.createBitmap(stream, false /*isMutable*/, density);
-                        Bridge.setCachedBitmap(path, bitmap, Boolean.TRUE /*isFramework*/);
-                    } catch (IOException e) {
-                        return;
-                    }
-                }
-
-                if (bitmap != null) {
-                    BitmapDrawable drawable = new BitmapDrawable(getContext().getResources(),
-                            bitmap);
-                    imageView.setImageDrawable(drawable);
-                }
-            }
+            return SysUiResources.loadIcon(mContext, mSimulatedPlatformVersion, imageView, iconName,
+                    density, isRtl);
         }
+
+        return null;
     }
 
-    protected TextView setText(int index, String string, boolean reference) {
+    protected ImageView loadIcon(ImageView imageView, String iconName, Density density,
+            boolean isRtl) {
+        LayoutDirection dir = isRtl ? LayoutDirection.RTL : null;
+        IconLoader iconLoader = new IconLoader(iconName, density, mSimulatedPlatformVersion, dir);
+        InputStream stream = iconLoader.getIcon();
+
+        if (stream != null) {
+            density = iconLoader.getDensity();
+            String path = iconLoader.getPath();
+            // look for a cached bitmap
+            Bitmap bitmap = Bridge.getCachedBitmap(path, Boolean.TRUE /*isFramework*/);
+            if (bitmap == null) {
+                try {
+                    bitmap = Bitmap_Delegate.createBitmap(stream, false /*isMutable*/, density);
+                    Bridge.setCachedBitmap(path, bitmap, Boolean.TRUE /*isFramework*/);
+                } catch (IOException e) {
+                    return imageView;
+                }
+            }
+
+            if (bitmap != null) {
+                BitmapDrawable drawable = new BitmapDrawable(getContext().getResources(), bitmap);
+                imageView.setImageDrawable(drawable);
+            }
+        }
+
+        return imageView;
+    }
+
+    protected TextView setText(int index, String string) {
         View child = getChildAt(index);
         if (child instanceof TextView) {
             TextView textView = (TextView) child;
-            setText(textView, string, reference);
+            textView.setText(string);
             return textView;
         }
 
         return null;
     }
 
-    private void setText(TextView textView, String string, boolean reference) {
-        if (reference) {
-            ResourceValue value = getResourceValue(string);
-            if (value != null) {
-                string = value.getValue();
-            }
-        }
-        textView.setText(string);
-    }
-
     protected void setStyle(String themeEntryName) {
-
         BridgeContext bridgeContext = getContext();
         RenderResources res = bridgeContext.getRenderResources();
 
-        ResourceValue value = res.findItemInTheme(themeEntryName, true /*isFrameworkAttr*/);
+        ResourceValue value =
+                res.findItemInTheme(BridgeContext.createFrameworkAttrReference(themeEntryName));
         value = res.resolveResValue(value);
 
         if (!(value instanceof StyleResourceValue)) {
@@ -171,8 +159,8 @@ abstract class CustomBar extends LinearLayout {
         StyleResourceValue style = (StyleResourceValue) value;
 
         // get the background
-        ResourceValue backgroundValue = res.findItemInStyle(style, "background",
-                true /*isFrameworkAttr*/);
+        ResourceValue backgroundValue = res.findItemInStyle(style,
+                BridgeContext.createFrameworkAttrReference("background"));
         backgroundValue = res.resolveResValue(backgroundValue);
         if (backgroundValue != null) {
             Drawable d = ResourceHelper.getDrawable(backgroundValue, bridgeContext);
@@ -184,14 +172,14 @@ abstract class CustomBar extends LinearLayout {
         TextView textView = getStyleableTextView();
         if (textView != null) {
             // get the text style
-            ResourceValue textStyleValue = res.findItemInStyle(style, "titleTextStyle",
-                    true /*isFrameworkAttr*/);
+            ResourceValue textStyleValue = res.findItemInStyle(style,
+                    BridgeContext.createFrameworkAttrReference("titleTextStyle"));
             textStyleValue = res.resolveResValue(textStyleValue);
             if (textStyleValue instanceof StyleResourceValue) {
                 StyleResourceValue textStyle = (StyleResourceValue) textStyleValue;
 
-                ResourceValue textSize = res.findItemInStyle(textStyle, "textSize",
-                        true /*isFrameworkAttr*/);
+                ResourceValue textSize = res.findItemInStyle(textStyle,
+                        BridgeContext.createFrameworkAttrReference("textSize"));
                 textSize = res.resolveResValue(textSize);
 
                 if (textSize != null) {
@@ -203,13 +191,12 @@ abstract class CustomBar extends LinearLayout {
                     }
                 }
 
-
-                ResourceValue textColor = res.findItemInStyle(textStyle, "textColor",
-                        true);
+                ResourceValue textColor = res.findItemInStyle(textStyle,
+                        BridgeContext.createFrameworkAttrReference("textColor"));
                 textColor = res.resolveResValue(textColor);
                 if (textColor != null) {
-                    ColorStateList stateList = ResourceHelper.getColorStateList(
-                            textColor, bridgeContext, null);
+                    ColorStateList stateList =
+                            ResourceHelper.getColorStateList(textColor, bridgeContext, null);
                     if (stateList != null) {
                         textView.setTextColor(stateList);
                     }
@@ -240,14 +227,14 @@ abstract class CustomBar extends LinearLayout {
         }
         RenderResources renderResources = getContext().getRenderResources();
         // First check if the bar is translucent.
-        boolean translucent = ResourceHelper.getBooleanThemeValue(renderResources,
-                translucentAttrName, true, false);
+        boolean translucent = ResourceHelper.getBooleanThemeFrameworkAttrValue(renderResources,
+                translucentAttrName, false);
         if (translucent) {
             // Keep in sync with R.color.system_bar_background_semi_transparent from system ui.
             return 0x66000000;  // 40% black.
         }
-        boolean transparent = ResourceHelper.getBooleanThemeValue(renderResources,
-                "windowDrawsSystemBarBackgrounds", true, false);
+        boolean transparent = ResourceHelper.getBooleanThemeFrameworkAttrValue(renderResources,
+                "windowDrawsSystemBarBackgrounds", false);
         if (transparent) {
             return getColor(renderResources, colorAttrName);
         }
@@ -255,8 +242,9 @@ abstract class CustomBar extends LinearLayout {
     }
 
     private static int getColor(RenderResources renderResources, String attr) {
-        // From ?attr/foo to @color/bar. This is most likely an ItemResourceValue.
-        ResourceValue resource = renderResources.findItemInTheme(attr, true);
+        // From ?attr/foo to @color/bar. This is most likely an StyleItemResourceValue.
+        ResourceValue resource =
+                renderResources.findItemInTheme(BridgeContext.createFrameworkAttrReference(attr));
         // Form @color/bar to the #AARRGGBB
         resource = renderResources.resolveResValue(resource);
         if (resource != null) {
@@ -276,15 +264,5 @@ abstract class CustomBar extends LinearLayout {
             }
         }
         return 0;
-    }
-
-    private ResourceValue getResourceValue(String reference) {
-        RenderResources res = getContext().getRenderResources();
-
-        // find the resource
-        ResourceValue value = res.findResValue(reference, false);
-
-        // resolve it if needed
-        return res.resolveResValue(value);
     }
 }

@@ -29,7 +29,7 @@ import java.util.ArrayList;
  * access WifiNative. It starts with firmware roaming. TODO(b/34819513): Move operations
  * such as connection to network and legacy framework roaming here.
  *
- * NOTE: This class is not thread safe and should only be used from the WifiStateMachine thread.
+ * NOTE: This class is not thread safe and should only be used from the ClientModeImpl thread.
  */
 public class WifiConnectivityHelper {
     private static final String TAG = "WifiConnectivityHelper";
@@ -59,8 +59,9 @@ public class WifiConnectivityHelper {
         mMaxNumBlacklistBssid = INVALID_LIST_SIZE;
         mMaxNumWhitelistSsid = INVALID_LIST_SIZE;
 
-        int fwFeatureSet = mWifiNative.getSupportedFeatureSet(mWifiNative.getClientInterfaceName());
-        Log.d(TAG, "Firmware supported feature set: " + Integer.toHexString(fwFeatureSet));
+        long fwFeatureSet =
+                mWifiNative.getSupportedFeatureSet(mWifiNative.getClientInterfaceName());
+        Log.d(TAG, "Firmware supported feature set: " + Long.toHexString(fwFeatureSet));
 
         if ((fwFeatureSet & WIFI_FEATURE_CONTROL_ROAMING) == 0) {
             Log.d(TAG, "Firmware roaming is not supported");

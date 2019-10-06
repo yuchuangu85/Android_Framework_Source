@@ -19,9 +19,13 @@ package android.telecom;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.annotation.TestApi;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.telecom.Connection.VideoProvider;
+import android.telephony.ServiceState;
+import android.telephony.TelephonyManager;
 import android.util.ArraySet;
 
 import java.util.ArrayList;
@@ -62,6 +66,11 @@ public abstract class Conference extends Conferenceable {
         public void onStatusHintsChanged(Conference conference, StatusHints statusHints) {}
         public void onExtrasChanged(Conference c, Bundle extras) {}
         public void onExtrasRemoved(Conference c, List<String> keys) {}
+        public void onConferenceStateChanged(Conference c, boolean isConference) {}
+        public void onAddressChanged(Conference c, Uri newAddress, int presentation) {}
+        public void onConnectionEvent(Conference c, String event, Bundle extras) {}
+        public void onCallerDisplayNameChanged(
+                Conference c, String callerDisplayName, int presentation) {}
     }
 
     private final Set<Listener> mListeners = new CopyOnWriteArraySet<>();
@@ -86,6 +95,10 @@ public abstract class Conference extends Conferenceable {
     private Bundle mExtras;
     private Set<String> mPreviousExtraKeys;
     private final Object mExtrasLock = new Object();
+    private Uri mAddress;
+    private int mAddressPresentation;
+    private String mCallerDisplayName;
+    private int mCallerDisplayNamePresentation;
 
     private final Connection.Listener mConnectionDeathListener = new Connection.Listener() {
         @Override
@@ -564,12 +577,27 @@ public abstract class Conference extends Conferenceable {
      * @return The primary connection.
      * @hide
      */
+    @TestApi
     @SystemApi
     public Connection getPrimaryConnection() {
         if (mUnmodifiableChildConnections == null || mUnmodifiableChildConnections.isEmpty()) {
             return null;
         }
         return mUnmodifiableChildConnections.get(0);
+    }
+
+    /**
+     * Updates RIL voice radio technology used for current conference after its creation.
+     *
+     * @hide
+     */
+    public void updateCallRadioTechAfterCreation() {
+        final Connection primaryConnection = getPrimaryConnection();
+        if (primaryConnection != null) {
+            setCallRadioTech(primaryConnection.getCallRadioTech());
+        } else {
+            Log.w(this, "No primary connection found while updateCallRadioTechAfterCreation");
+        }
     }
 
     /**
@@ -649,6 +677,37 @@ public abstract class Conference extends Conferenceable {
      */
     public final long getConnectionStartElapsedRealTime() {
         return mConnectionStartElapsedRealTime;
+    }
+
+    /**
+     * Sets RIL voice radio technology used for current conference.
+     *
+     * @param vrat the RIL voice radio technology used for current conference,
+     *             see {@code RIL_RADIO_TECHNOLOGY_*} in {@link android.telephony.ServiceState}.
+     *
+     * @hide
+     */
+    public final void setCallRadioTech(@ServiceState.RilRadioTechnology int vrat) {
+        putExtra(TelecomManager.EXTRA_CALL_NETWORK_TYPE,
+                ServiceState.rilRadioTechnologyToNetworkType(vrat));
+    }
+
+    /**
+     * Returns RIL voice radio technology used for current conference.
+     *
+     * @return the RIL voice radio technology used for current conference,
+     *         see {@code RIL_RADIO_TECHNOLOGY_*} in {@link android.telephony.ServiceState}.
+     *
+     * @hide
+     */
+    public final @ServiceState.RilRadioTechnology int getCallRadioTech() {
+        int voiceNetworkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
+        Bundle extras = getExtras();
+        if (extras != null) {
+            voiceNetworkType = extras.getInt(TelecomManager.EXTRA_CALL_NETWORK_TYPE,
+                    TelephonyManager.NETWORK_TYPE_UNKNOWN);
+        }
+        return ServiceState.networkTypeToRilRadioTechnology(voiceNetworkType);
     }
 
     /**
@@ -899,6 +958,119 @@ public abstract class Conference extends Conferenceable {
     public void onExtrasChanged(Bundle extras) {}
 
     /**
+     * Set whether Telecom should treat this {@link Conference} as a conference call or if it
+     * should treat it as a single-party call.
+     * This method is used as part of a workaround regarding IMS conference calls and user
+     * expectation.  In IMS, once a conference is formed, the UE is connected to an IMS conference
+     * server.  If all participants of the conference drop out of the conference except for one, the
+     * UE is still connected to the IMS conference server.  At this point, the user logically
+     * assumes they're no longer in a conference, yet the underlying network actually is.
+     * To help provide a better user experiece, IMS conference calls can pretend to actually be a
+     * single-party call when the participant count drops to 1.  Although the dialer/phone app
+     * could perform this trickery, it makes sense to do this in Telephony since a fix there will
+     * ensure that bluetooth head units, auto and wearable apps all behave consistently.
+     *
+     * @param isConference {@code true} if this {@link Conference} should be treated like a
+     *      conference call, {@code false} if it should be treated like a single-party call.
+     * @hide
+     */
+    public void setConferenceState(boolean isConference) {
+        for (Listener l : mListeners) {
+            l.onConferenceStateChanged(this, isConference);
+        }
+    }
+
+    /**
+     * Sets the address of this {@link Conference}.  Used when {@link #setConferenceState(boolean)}
+     * is called to mark a conference temporarily as NOT a conference.
+     *
+     * @param address The new address.
+     * @param presentation The presentation requirements for the address.
+     *        See {@link TelecomManager} for valid values.
+     * @hide
+     */
+    public final void setAddress(Uri address, int presentation) {
+        Log.d(this, "setAddress %s", address);
+        mAddress = address;
+        mAddressPresentation = presentation;
+        for (Listener l : mListeners) {
+            l.onAddressChanged(this, address, presentation);
+        }
+    }
+
+    /**
+     * Returns the "address" associated with the conference.  This is applicable in two cases:
+     * <ol>
+     *     <li>When {@link #setConferenceState(boolean)} is used to mark a conference as
+     *     temporarily "not a conference"; we need to present the correct address in the in-call
+     *     UI.</li>
+     *     <li>When the conference is not hosted on the current device, we need to know the address
+     *     information for the purpose of showing the original address to the user, as well as for
+     *     logging to the call log.</li>
+     * </ol>
+     * @return The address of the conference, or {@code null} if not applicable.
+     * @hide
+     */
+    public final Uri getAddress() {
+        return mAddress;
+    }
+
+    /**
+     * Returns the address presentation associated with the conference.
+     * <p>
+     * This is applicable in two cases:
+     * <ol>
+     *     <li>When {@link #setConferenceState(boolean)} is used to mark a conference as
+     *     temporarily "not a conference"; we need to present the correct address in the in-call
+     *     UI.</li>
+     *     <li>When the conference is not hosted on the current device, we need to know the address
+     *     information for the purpose of showing the original address to the user, as well as for
+     *     logging to the call log.</li>
+     * </ol>
+     * @return The address of the conference, or {@code null} if not applicable.
+     * @hide
+     */
+    public final int getAddressPresentation() {
+        return mAddressPresentation;
+    }
+
+    /**
+     * @return The caller display name (CNAP).
+     * @hide
+     */
+    public final String getCallerDisplayName() {
+        return mCallerDisplayName;
+    }
+
+    /**
+     * @return The presentation requirements for the handle.
+     *         See {@link TelecomManager} for valid values.
+     * @hide
+     */
+    public final int getCallerDisplayNamePresentation() {
+        return mCallerDisplayNamePresentation;
+    }
+
+    /**
+     * Sets the caller display name (CNAP) of this {@link Conference}.  Used when
+     * {@link #setConferenceState(boolean)} is called to mark a conference temporarily as NOT a
+     * conference.
+     *
+     * @param callerDisplayName The new display name.
+     * @param presentation The presentation requirements for the handle.
+     *        See {@link TelecomManager} for valid values.
+     * @hide
+     */
+    public final void setCallerDisplayName(String callerDisplayName, int presentation) {
+        Log.d(this, "setCallerDisplayName %s", callerDisplayName);
+        mCallerDisplayName = callerDisplayName;
+        mCallerDisplayNamePresentation = presentation;
+        for (Listener l : mListeners) {
+            l.onCallerDisplayNameChanged(this, callerDisplayName, presentation);
+        }
+    }
+
+    /**
      * Handles a change to extras received from Telecom.
      *
      * @param extras The new extras.
@@ -913,5 +1085,15 @@ public abstract class Conference extends Conferenceable {
             }
         }
         onExtrasChanged(b);
+    }
+
+    /**
+     * See {@link Connection#sendConnectionEvent(String, Bundle)}
+     * @hide
+     */
+    public void sendConnectionEvent(String event, Bundle extras) {
+        for (Listener l : mListeners) {
+            l.onConnectionEvent(this, event, extras);
+        }
     }
 }

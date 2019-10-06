@@ -133,10 +133,4 @@ final class NativeBN {
     public static native long getNativeFinalizer();
     // &BN_free
 
-    /** Returns the expected size of the native allocation for a BIGNUM.
-     */
-    public static long size() {
-        // 36 bytes is an empirically determined approximation.
-        return 36;
-    }
 }

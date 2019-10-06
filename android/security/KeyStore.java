@@ -16,19 +16,22 @@
 
 package android.security;
 
-import android.app.ActivityManager;
+import android.annotation.UnsupportedAppUsage;
 import android.app.ActivityThread;
 import android.app.Application;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.hardware.face.FaceManager;
 import android.hardware.fingerprint.FingerprintManager;
 import android.os.Binder;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.UserHandle;
+import android.security.KeyStoreException;
 import android.security.keymaster.ExportResult;
 import android.security.keymaster.KeyCharacteristics;
 import android.security.keymaster.KeymasterArguments;
@@ -36,17 +39,31 @@ import android.security.keymaster.KeymasterBlob;
 import android.security.keymaster.KeymasterCertificateChain;
 import android.security.keymaster.KeymasterDefs;
 import android.security.keymaster.OperationResult;
+import android.security.keystore.IKeystoreService;
 import android.security.keystore.KeyExpiredException;
 import android.security.keystore.KeyNotYetValidException;
 import android.security.keystore.KeyPermanentlyInvalidatedException;
-import android.security.keystore.StrongBoxUnavailableException;
+import android.security.keystore.KeyProperties;
+import android.security.keystore.KeystoreResponse;
 import android.security.keystore.UserNotAuthenticatedException;
 import android.util.Log;
 
+import com.android.org.bouncycastle.asn1.ASN1InputStream;
+import com.android.org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.math.BigInteger;
 import java.security.InvalidKeyException;
+import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+
+import sun.security.util.ObjectIdentifier;
+import sun.security.x509.AlgorithmId;
 
 /**
  * @hide This should not be made public in its present form because it
@@ -57,6 +74,7 @@ public class KeyStore {
     private static final String TAG = "KeyStore";
 
     // ResponseCodes - see system/security/keystore/include/keystore/keystore.h
+    @UnsupportedAppUsage
     public static final int NO_ERROR = 1;
     public static final int LOCKED = 2;
     public static final int UNINITIALIZED = 3;
@@ -67,6 +85,7 @@ public class KeyStore {
     public static final int VALUE_CORRUPTED = 8;
     public static final int UNDEFINED_ACTION = 9;
     public static final int WRONG_PASSWORD = 10;
+    public static final int KEY_ALREADY_EXISTS = 16;
     public static final int CANNOT_ATTEST_IDS = -66;
     public static final int HARDWARE_TYPE_UNAVAILABLE = -68;
 
@@ -77,6 +96,9 @@ public class KeyStore {
      * {@link #finish}.
      */
     public static final int OP_AUTH_NEEDED = 15;
+
+    // Used when a user changes their pin, invalidating old auth bound keys.
+    public static final int KEY_PERMANENTLY_INVALIDATED = 17;
 
     // Used for UID field to indicate the calling UID.
     public static final int UID_SELF = -1;
@@ -128,7 +150,13 @@ public class KeyStore {
     public static final int FLAG_STRONGBOX = 1 << 4;
 
     // States
-    public enum State { UNLOCKED, LOCKED, UNINITIALIZED };
+    public enum State {
+        @UnsupportedAppUsage
+        UNLOCKED,
+        @UnsupportedAppUsage
+        LOCKED,
+        UNINITIALIZED
+    };
 
     private int mError = NO_ERROR;
 
@@ -142,6 +170,7 @@ public class KeyStore {
         mContext = getApplicationContext();
     }
 
+    @UnsupportedAppUsage
     public static Context getApplicationContext() {
         Application application = ActivityThread.currentApplication();
         if (application == null) {
@@ -151,6 +180,7 @@ public class KeyStore {
         return application;
     }
 
+    @UnsupportedAppUsage
     public static KeyStore getInstance() {
         IKeystoreService keystore = IKeystoreService.Stub.asInterface(ServiceManager
                 .getService("android.security.keystore"));
@@ -164,6 +194,7 @@ public class KeyStore {
         return mToken;
     }
 
+    @UnsupportedAppUsage
     public State state(int userId) {
         final int ret;
         try {
@@ -181,6 +212,7 @@ public class KeyStore {
         }
     }
 
+    @UnsupportedAppUsage
     public State state() {
         return state(UserHandle.myUserId());
     }
@@ -190,21 +222,33 @@ public class KeyStore {
     }
 
     public byte[] get(String key, int uid) {
+        return get(key, uid, false);
+    }
+
+    @UnsupportedAppUsage
+    public byte[] get(String key) {
+        return get(key, UID_SELF);
+    }
+
+    public byte[] get(String key, int uid, boolean suppressKeyNotFoundWarning) {
         try {
             key = key != null ? key : "";
             return mBinder.get(key, uid);
         } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
+             Log.w(TAG, "Cannot connect to keystore", e);
             return null;
         } catch (android.os.ServiceSpecificException e) {
-            Log.w(TAG, "KeyStore exception", e);
+            if (!suppressKeyNotFoundWarning || e.errorCode != KEY_NOT_FOUND) {
+                Log.w(TAG, "KeyStore exception", e);
+            }
             return null;
         }
     }
 
-    public byte[] get(String key) {
-        return get(key, UID_SELF);
+    public byte[] get(String key, boolean suppressKeyNotFoundWarning) {
+        return get(key, UID_SELF, suppressKeyNotFoundWarning);
     }
+
 
     public boolean put(String key, byte[] value, int uid, int flags) {
         return insert(key, value, uid, flags) == NO_ERROR;
@@ -215,7 +259,21 @@ public class KeyStore {
             if (value == null) {
                 value = new byte[0];
             }
-            return mBinder.insert(key, value, uid, flags);
+            int error = mBinder.insert(key, value, uid, flags);
+            if (error == KEY_ALREADY_EXISTS) {
+                mBinder.del(key, uid);
+                error = mBinder.insert(key, value, uid, flags);
+            }
+            return error;
+        } catch (RemoteException e) {
+            Log.w(TAG, "Cannot connect to keystore", e);
+            return SYSTEM_ERROR;
+        }
+    }
+
+    int delete2(String key, int uid) {
+        try {
+            return mBinder.del(key, uid);
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return SYSTEM_ERROR;
@@ -223,15 +281,11 @@ public class KeyStore {
     }
 
     public boolean delete(String key, int uid) {
-        try {
-            int ret = mBinder.del(key, uid);
-            return (ret == NO_ERROR || ret == KEY_NOT_FOUND);
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-            return false;
-        }
+        int ret = delete2(key, uid);
+        return ret == NO_ERROR || ret == KEY_NOT_FOUND;
     }
 
+    @UnsupportedAppUsage
     public boolean delete(String key) {
         return delete(key, UID_SELF);
     }
@@ -264,10 +318,37 @@ public class KeyStore {
         }
     }
 
+    /**
+     * List uids of all keys that are auth bound to the current user.
+     * Only system is allowed to call this method.
+     */
+    @UnsupportedAppUsage
+    public int[] listUidsOfAuthBoundKeys() {
+        // uids are returned as a list of strings because list of integers
+        // as an output parameter is not supported by aidl-cpp.
+        List<String> uidsOut = new ArrayList<>();
+        try {
+            int rc = mBinder.listUidsOfAuthBoundKeys(uidsOut);
+            if (rc != NO_ERROR) {
+                Log.w(TAG, String.format("listUidsOfAuthBoundKeys failed with error code %d", rc));
+                return null;
+            }
+        } catch (RemoteException e) {
+            Log.w(TAG, "Cannot connect to keystore", e);
+            return null;
+        } catch (android.os.ServiceSpecificException e) {
+            Log.w(TAG, "KeyStore exception", e);
+            return null;
+        }
+        // Turn list of strings into an array of uid integers.
+        return uidsOut.stream().mapToInt(Integer::parseInt).toArray();
+   }
+
     public String[] list(String prefix) {
         return list(prefix, UID_SELF);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public boolean reset() {
         try {
             return mBinder.reset() == NO_ERROR;
@@ -318,6 +399,7 @@ public class KeyStore {
         }
     }
 
+    @UnsupportedAppUsage
     public boolean unlock(String password) {
         return unlock(UserHandle.getUserId(Process.myUid()), password);
     }
@@ -334,55 +416,9 @@ public class KeyStore {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public boolean isEmpty() {
         return isEmpty(UserHandle.myUserId());
-    }
-
-    public boolean generate(String key, int uid, int keyType, int keySize, int flags,
-            byte[][] args) {
-        try {
-            return mBinder.generate(key, uid, keyType, keySize, flags,
-                    new KeystoreArguments(args)) == NO_ERROR;
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-            return false;
-        }
-    }
-
-    public boolean importKey(String keyName, byte[] key, int uid, int flags) {
-        try {
-            return mBinder.import_key(keyName, key, uid, flags) == NO_ERROR;
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-            return false;
-        }
-    }
-
-    public byte[] sign(String key, byte[] data) {
-        try {
-            return mBinder.sign(key, data);
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-            return null;
-        } catch (android.os.ServiceSpecificException e) {
-            Log.w(TAG, "KeyStore exception", e);
-            return null;
-        }
-
-    }
-
-    public boolean verify(String key, byte[] data, byte[] signature) {
-        try {
-            signature = signature != null ? signature : new byte[0];
-            return mBinder.verify(key, data, signature) == NO_ERROR;
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-            return false;
-        } catch (android.os.ServiceSpecificException e) {
-            Log.w(TAG, "KeyStore exception", e);
-            return false;
-        }
-
     }
 
     public String grant(String key, int uid) {
@@ -455,12 +491,104 @@ public class KeyStore {
     }
 
     public boolean addRngEntropy(byte[] data, int flags) {
+        KeystoreResultPromise promise = new KeystoreResultPromise();
         try {
-            return mBinder.addRngEntropy(data, flags) == NO_ERROR;
+            mBinder.asBinder().linkToDeath(promise, 0);
+            int errorCode = mBinder.addRngEntropy(promise, data, flags);
+            if (errorCode == NO_ERROR) {
+                return promise.getFuture().get().getErrorCode() == NO_ERROR;
+            } else {
+                return false;
+            }
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return false;
+        } catch (ExecutionException | InterruptedException e) {
+            Log.e(TAG, "AddRngEntropy completed with exception", e);
+            return false;
+        } finally {
+            mBinder.asBinder().unlinkToDeath(promise, 0);
         }
+    }
+
+    private class KeyCharacteristicsCallbackResult {
+        private KeystoreResponse keystoreResponse;
+        private KeyCharacteristics keyCharacteristics;
+
+        public KeyCharacteristicsCallbackResult(KeystoreResponse keystoreResponse,
+                                                KeyCharacteristics keyCharacteristics) {
+            this.keystoreResponse = keystoreResponse;
+            this.keyCharacteristics = keyCharacteristics;
+        }
+
+        public KeystoreResponse getKeystoreResponse() {
+            return keystoreResponse;
+        }
+
+        public void setKeystoreResponse(KeystoreResponse keystoreResponse) {
+            this.keystoreResponse = keystoreResponse;
+        }
+
+        public KeyCharacteristics getKeyCharacteristics() {
+            return keyCharacteristics;
+        }
+
+        public void setKeyCharacteristics(KeyCharacteristics keyCharacteristics) {
+            this.keyCharacteristics = keyCharacteristics;
+        }
+    }
+
+    private class KeyCharacteristicsPromise
+            extends android.security.keystore.IKeystoreKeyCharacteristicsCallback.Stub
+            implements IBinder.DeathRecipient {
+        final private CompletableFuture<KeyCharacteristicsCallbackResult> future =
+                new CompletableFuture<KeyCharacteristicsCallbackResult>();
+        @Override
+        public void onFinished(KeystoreResponse keystoreResponse,
+                               KeyCharacteristics keyCharacteristics)
+                                       throws android.os.RemoteException {
+            future.complete(
+                    new KeyCharacteristicsCallbackResult(keystoreResponse, keyCharacteristics));
+        }
+        public final CompletableFuture<KeyCharacteristicsCallbackResult> getFuture() {
+            return future;
+        }
+        @Override
+        public void binderDied() {
+            future.completeExceptionally(new RemoteException("Keystore died"));
+        }
+    };
+
+    private int generateKeyInternal(String alias, KeymasterArguments args, byte[] entropy, int uid,
+            int flags, KeyCharacteristics outCharacteristics)
+                    throws RemoteException, ExecutionException, InterruptedException {
+        KeyCharacteristicsPromise promise = new KeyCharacteristicsPromise();
+        int error = NO_ERROR;
+        KeyCharacteristicsCallbackResult result = null;
+        try {
+            mBinder.asBinder().linkToDeath(promise, 0);
+            error = mBinder.generateKey(promise, alias, args, entropy, uid, flags);
+            if (error != NO_ERROR) {
+                Log.e(TAG, "generateKeyInternal failed on request " + error);
+                return error;
+            }
+            result = promise.getFuture().get();
+        } finally {
+            mBinder.asBinder().unlinkToDeath(promise, 0);
+        }
+
+        error = result.getKeystoreResponse().getErrorCode();
+        if (error != NO_ERROR) {
+            Log.e(TAG, "generateKeyInternal failed on response " + error);
+            return error;
+        }
+        KeyCharacteristics characteristics = result.getKeyCharacteristics();
+        if (characteristics == null) {
+            Log.e(TAG, "generateKeyInternal got empty key cheractariestics " + error);
+            return SYSTEM_ERROR;
+        }
+        outCharacteristics.shallowCopyFrom(characteristics);
+        return NO_ERROR;
     }
 
     public int generateKey(String alias, KeymasterArguments args, byte[] entropy, int uid,
@@ -468,9 +596,17 @@ public class KeyStore {
         try {
             entropy = entropy != null ? entropy : new byte[0];
             args = args != null ? args : new KeymasterArguments();
-            return mBinder.generateKey(alias, args, entropy, uid, flags, outCharacteristics);
+            int error = generateKeyInternal(alias, args, entropy, uid, flags, outCharacteristics);
+            if (error == KEY_ALREADY_EXISTS) {
+                mBinder.del(alias, uid);
+                error = generateKeyInternal(alias, args, entropy, uid, flags, outCharacteristics);
+            }
+            return error;
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
+            return SYSTEM_ERROR;
+        } catch (ExecutionException | InterruptedException e) {
+            Log.e(TAG, "generateKey completed with exception", e);
             return SYSTEM_ERROR;
         }
     }
@@ -482,13 +618,31 @@ public class KeyStore {
 
     public int getKeyCharacteristics(String alias, KeymasterBlob clientId, KeymasterBlob appId,
             int uid, KeyCharacteristics outCharacteristics) {
+        KeyCharacteristicsPromise promise = new KeyCharacteristicsPromise();
         try {
+            mBinder.asBinder().linkToDeath(promise, 0);
             clientId = clientId != null ? clientId : new KeymasterBlob(new byte[0]);
             appId = appId != null ? appId : new KeymasterBlob(new byte[0]);
-            return mBinder.getKeyCharacteristics(alias, clientId, appId, uid, outCharacteristics);
+
+            int error = mBinder.getKeyCharacteristics(promise, alias, clientId, appId, uid);
+            if (error != NO_ERROR) return error;
+
+            KeyCharacteristicsCallbackResult result = promise.getFuture().get();
+            error = result.getKeystoreResponse().getErrorCode();
+            if (error != NO_ERROR) return error;
+
+            KeyCharacteristics characteristics = result.getKeyCharacteristics();
+            if (characteristics == null) return SYSTEM_ERROR;
+            outCharacteristics.shallowCopyFrom(characteristics);
+            return NO_ERROR;
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return SYSTEM_ERROR;
+        } catch (ExecutionException | InterruptedException e) {
+            Log.e(TAG, "GetKeyCharacteristics completed with exception", e);
+            return SYSTEM_ERROR;
+        } finally {
+            mBinder.asBinder().unlinkToDeath(promise, 0);
         }
     }
 
@@ -497,13 +651,45 @@ public class KeyStore {
         return getKeyCharacteristics(alias, clientId, appId, UID_SELF, outCharacteristics);
     }
 
+    private int importKeyInternal(String alias, KeymasterArguments args, int format, byte[] keyData,
+            int uid, int flags, KeyCharacteristics outCharacteristics)
+                    throws RemoteException, ExecutionException, InterruptedException {
+        KeyCharacteristicsPromise promise = new KeyCharacteristicsPromise();
+        mBinder.asBinder().linkToDeath(promise, 0);
+        try {
+            int error = mBinder.importKey(promise, alias, args, format, keyData, uid, flags);
+            if (error != NO_ERROR) return error;
+
+            KeyCharacteristicsCallbackResult result = promise.getFuture().get();
+
+            error = result.getKeystoreResponse().getErrorCode();
+            if (error != NO_ERROR) return error;
+
+            KeyCharacteristics characteristics = result.getKeyCharacteristics();
+            if (characteristics == null) return SYSTEM_ERROR;
+            outCharacteristics.shallowCopyFrom(characteristics);
+            return NO_ERROR;
+        } finally {
+            mBinder.asBinder().unlinkToDeath(promise, 0);
+        }
+    }
+
     public int importKey(String alias, KeymasterArguments args, int format, byte[] keyData,
             int uid, int flags, KeyCharacteristics outCharacteristics) {
         try {
-            return mBinder.importKey(alias, args, format, keyData, uid, flags,
+            int error = importKeyInternal(alias, args, format, keyData, uid, flags,
                     outCharacteristics);
+            if (error == KEY_ALREADY_EXISTS) {
+                mBinder.del(alias, uid);
+                error = importKeyInternal(alias, args, format, keyData, uid, flags,
+                        outCharacteristics);
+            }
+            return error;
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
+            return SYSTEM_ERROR;
+        } catch (ExecutionException | InterruptedException e) {
+            Log.e(TAG, "ImportKey completed with exception", e);
             return SYSTEM_ERROR;
         }
     }
@@ -513,28 +699,150 @@ public class KeyStore {
         return importKey(alias, args, format, keyData, UID_SELF, flags, outCharacteristics);
     }
 
+    private String getAlgorithmFromPKCS8(byte[] keyData) {
+        try {
+            final ASN1InputStream bIn = new ASN1InputStream(new ByteArrayInputStream(keyData));
+            final PrivateKeyInfo pki = PrivateKeyInfo.getInstance(bIn.readObject());
+            final String algOid = pki.getPrivateKeyAlgorithm().getAlgorithm().getId();
+            return new AlgorithmId(new ObjectIdentifier(algOid)).getName();
+        } catch (IOException e) {
+            Log.e(TAG, "getAlgorithmFromPKCS8 Failed to parse key data");
+            Log.e(TAG, Log.getStackTraceString(e));
+            return null;
+        }
+    }
+
+    private KeymasterArguments makeLegacyArguments(String algorithm) {
+        KeymasterArguments args = new KeymasterArguments();
+        args.addEnum(KeymasterDefs.KM_TAG_ALGORITHM,
+                KeyProperties.KeyAlgorithm.toKeymasterAsymmetricKeyAlgorithm(algorithm));
+        args.addEnum(KeymasterDefs.KM_TAG_PURPOSE, KeymasterDefs.KM_PURPOSE_SIGN);
+        args.addEnum(KeymasterDefs.KM_TAG_PURPOSE, KeymasterDefs.KM_PURPOSE_VERIFY);
+        args.addEnum(KeymasterDefs.KM_TAG_PURPOSE, KeymasterDefs.KM_PURPOSE_ENCRYPT);
+        args.addEnum(KeymasterDefs.KM_TAG_PURPOSE, KeymasterDefs.KM_PURPOSE_DECRYPT);
+        args.addEnum(KeymasterDefs.KM_TAG_PADDING, KeymasterDefs.KM_PAD_NONE);
+        if (algorithm.equalsIgnoreCase(KeyProperties.KEY_ALGORITHM_RSA)) {
+            args.addEnum(KeymasterDefs.KM_TAG_PADDING, KeymasterDefs.KM_PAD_RSA_OAEP);
+            args.addEnum(KeymasterDefs.KM_TAG_PADDING, KeymasterDefs.KM_PAD_RSA_PKCS1_1_5_ENCRYPT);
+            args.addEnum(KeymasterDefs.KM_TAG_PADDING, KeymasterDefs.KM_PAD_RSA_PKCS1_1_5_SIGN);
+            args.addEnum(KeymasterDefs.KM_TAG_PADDING, KeymasterDefs.KM_PAD_RSA_PSS);
+        }
+        args.addEnum(KeymasterDefs.KM_TAG_DIGEST, KeymasterDefs.KM_DIGEST_NONE);
+        args.addEnum(KeymasterDefs.KM_TAG_DIGEST, KeymasterDefs.KM_DIGEST_MD5);
+        args.addEnum(KeymasterDefs.KM_TAG_DIGEST, KeymasterDefs.KM_DIGEST_SHA1);
+        args.addEnum(KeymasterDefs.KM_TAG_DIGEST, KeymasterDefs.KM_DIGEST_SHA_2_224);
+        args.addEnum(KeymasterDefs.KM_TAG_DIGEST, KeymasterDefs.KM_DIGEST_SHA_2_256);
+        args.addEnum(KeymasterDefs.KM_TAG_DIGEST, KeymasterDefs.KM_DIGEST_SHA_2_384);
+        args.addEnum(KeymasterDefs.KM_TAG_DIGEST, KeymasterDefs.KM_DIGEST_SHA_2_512);
+        args.addBoolean(KeymasterDefs.KM_TAG_NO_AUTH_REQUIRED);
+        args.addDate(KeymasterDefs.KM_TAG_ORIGINATION_EXPIRE_DATETIME, new Date(Long.MAX_VALUE));
+        args.addDate(KeymasterDefs.KM_TAG_USAGE_EXPIRE_DATETIME, new Date(Long.MAX_VALUE));
+        args.addDate(KeymasterDefs.KM_TAG_ACTIVE_DATETIME, new Date(0));
+        return args;
+    }
+
+    public boolean importKey(String alias, byte[] keyData, int uid, int flags) {
+        String algorithm = getAlgorithmFromPKCS8(keyData);
+        if (algorithm == null) return false;
+        KeymasterArguments args = makeLegacyArguments(algorithm);
+        KeyCharacteristics out = new KeyCharacteristics();
+        int result =  importKey(alias, args, KeymasterDefs.KM_KEY_FORMAT_PKCS8, keyData, uid,
+                                flags, out);
+        if (result != NO_ERROR) {
+            Log.e(TAG, Log.getStackTraceString(
+                    new KeyStoreException(result, "legacy key import failed")));
+            return false;
+        }
+        return true;
+    }
+
+    private int importWrappedKeyInternal(String wrappedKeyAlias, byte[] wrappedKey,
+            String wrappingKeyAlias,
+            byte[] maskingKey, KeymasterArguments args, long rootSid, long fingerprintSid,
+            KeyCharacteristics outCharacteristics)
+                    throws RemoteException, ExecutionException, InterruptedException {
+        KeyCharacteristicsPromise promise = new KeyCharacteristicsPromise();
+        mBinder.asBinder().linkToDeath(promise, 0);
+        try {
+            int error = mBinder.importWrappedKey(promise, wrappedKeyAlias, wrappedKey,
+                    wrappingKeyAlias, maskingKey, args, rootSid, fingerprintSid);
+            if (error != NO_ERROR) return error;
+
+            KeyCharacteristicsCallbackResult result = promise.getFuture().get();
+
+            error = result.getKeystoreResponse().getErrorCode();
+            if (error != NO_ERROR) return error;
+
+            KeyCharacteristics characteristics = result.getKeyCharacteristics();
+            if (characteristics == null) return SYSTEM_ERROR;
+            outCharacteristics.shallowCopyFrom(characteristics);
+            return NO_ERROR;
+        } finally {
+            mBinder.asBinder().unlinkToDeath(promise, 0);
+        }
+    }
+
     public int importWrappedKey(String wrappedKeyAlias, byte[] wrappedKey,
             String wrappingKeyAlias,
             byte[] maskingKey, KeymasterArguments args, long rootSid, long fingerprintSid, int uid,
             KeyCharacteristics outCharacteristics) {
+        // TODO b/119217337 uid parameter gets silently ignored.
         try {
-            return mBinder.importWrappedKey(wrappedKeyAlias, wrappedKey, wrappingKeyAlias,
+            int error = importWrappedKeyInternal(wrappedKeyAlias, wrappedKey, wrappingKeyAlias,
                     maskingKey, args, rootSid, fingerprintSid, outCharacteristics);
+            if (error == KEY_ALREADY_EXISTS) {
+                mBinder.del(wrappedKeyAlias, UID_SELF);
+                error = importWrappedKeyInternal(wrappedKeyAlias, wrappedKey, wrappingKeyAlias,
+                        maskingKey, args, rootSid, fingerprintSid, outCharacteristics);
+            }
+            return error;
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
+            return SYSTEM_ERROR;
+        } catch (ExecutionException | InterruptedException e) {
+            Log.e(TAG, "ImportWrappedKey completed with exception", e);
             return SYSTEM_ERROR;
         }
     }
 
+    private class ExportKeyPromise
+            extends android.security.keystore.IKeystoreExportKeyCallback.Stub
+            implements IBinder.DeathRecipient {
+        final private CompletableFuture<ExportResult> future = new CompletableFuture<ExportResult>();
+        @Override
+        public void onFinished(ExportResult exportKeyResult) throws android.os.RemoteException {
+            future.complete(exportKeyResult);
+        }
+        public final CompletableFuture<ExportResult> getFuture() {
+            return future;
+        }
+        @Override
+        public void binderDied() {
+            future.completeExceptionally(new RemoteException("Keystore died"));
+        }
+    };
+
     public ExportResult exportKey(String alias, int format, KeymasterBlob clientId,
             KeymasterBlob appId, int uid) {
+        ExportKeyPromise promise = new ExportKeyPromise();
         try {
+            mBinder.asBinder().linkToDeath(promise, 0);
             clientId = clientId != null ? clientId : new KeymasterBlob(new byte[0]);
             appId = appId != null ? appId : new KeymasterBlob(new byte[0]);
-            return mBinder.exportKey(alias, format, clientId, appId, uid);
+            int error = mBinder.exportKey(promise, alias, format, clientId, appId, uid);
+            if (error == NO_ERROR) {
+                return promise.getFuture().get();
+            } else {
+                return new ExportResult(error);
+            }
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return null;
+        } catch (ExecutionException | InterruptedException e) {
+            Log.e(TAG, "ExportKey completed with exception", e);
+            return null;
+        } finally {
+            mBinder.asBinder().unlinkToDeath(promise, 0);
         }
     }
     public ExportResult exportKey(String alias, int format, KeymasterBlob clientId,
@@ -542,15 +850,45 @@ public class KeyStore {
         return exportKey(alias, format, clientId, appId, UID_SELF);
     }
 
+    private class OperationPromise
+            extends android.security.keystore.IKeystoreOperationResultCallback.Stub
+            implements IBinder.DeathRecipient {
+        final private CompletableFuture<OperationResult> future = new CompletableFuture<OperationResult>();
+        @Override
+        public void onFinished(OperationResult operationResult) throws android.os.RemoteException {
+            future.complete(operationResult);
+        }
+        public final CompletableFuture<OperationResult> getFuture() {
+            return future;
+        }
+        @Override
+        public void binderDied() {
+            future.completeExceptionally(new RemoteException("Keystore died"));
+        }
+    };
+
     public OperationResult begin(String alias, int purpose, boolean pruneable,
             KeymasterArguments args, byte[] entropy, int uid) {
+        OperationPromise promise = new OperationPromise();
         try {
+            mBinder.asBinder().linkToDeath(promise, 0);
             args = args != null ? args : new KeymasterArguments();
             entropy = entropy != null ? entropy : new byte[0];
-            return mBinder.begin(getToken(), alias, purpose, pruneable, args, entropy, uid);
+            int errorCode =  mBinder.begin(promise, getToken(), alias, purpose, pruneable, args,
+                                           entropy, uid);
+            if (errorCode == NO_ERROR) {
+                return promise.getFuture().get();
+            } else {
+                return new OperationResult(errorCode);
+            }
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return null;
+        } catch (ExecutionException | InterruptedException e) {
+            Log.e(TAG, "Begin completed with exception", e);
+            return null;
+        } finally {
+            mBinder.asBinder().unlinkToDeath(promise, 0);
         }
     }
 
@@ -562,26 +900,50 @@ public class KeyStore {
     }
 
     public OperationResult update(IBinder token, KeymasterArguments arguments, byte[] input) {
+        OperationPromise promise = new OperationPromise();
         try {
+            mBinder.asBinder().linkToDeath(promise, 0);
             arguments = arguments != null ? arguments : new KeymasterArguments();
             input = input != null ? input : new byte[0];
-            return mBinder.update(token, arguments, input);
+            int errorCode =  mBinder.update(promise, token, arguments, input);
+            if (errorCode == NO_ERROR) {
+                return promise.getFuture().get();
+            } else {
+                return new OperationResult(errorCode);
+            }
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return null;
+        } catch (ExecutionException | InterruptedException e) {
+            Log.e(TAG, "Update completed with exception", e);
+            return null;
+        } finally {
+            mBinder.asBinder().unlinkToDeath(promise, 0);
         }
     }
 
     public OperationResult finish(IBinder token, KeymasterArguments arguments, byte[] signature,
             byte[] entropy) {
+        OperationPromise promise = new OperationPromise();
         try {
+            mBinder.asBinder().linkToDeath(promise, 0);
             arguments = arguments != null ? arguments : new KeymasterArguments();
             entropy = entropy != null ? entropy : new byte[0];
             signature = signature != null ? signature : new byte[0];
-            return mBinder.finish(token, arguments, signature, entropy);
+            int errorCode = mBinder.finish(promise, token, arguments, signature, entropy);
+            if (errorCode == NO_ERROR) {
+                return promise.getFuture().get();
+            } else {
+                return new OperationResult(errorCode);
+            }
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return null;
+        } catch (ExecutionException | InterruptedException e) {
+            Log.e(TAG, "Finish completed with exception", e);
+            return null;
+        } finally {
+            mBinder.asBinder().unlinkToDeath(promise, 0);
         }
     }
 
@@ -589,27 +951,41 @@ public class KeyStore {
         return finish(token, arguments, signature, null);
     }
 
+    private class KeystoreResultPromise
+            extends android.security.keystore.IKeystoreResponseCallback.Stub
+            implements IBinder.DeathRecipient {
+        final private CompletableFuture<KeystoreResponse> future = new CompletableFuture<KeystoreResponse>();
+        @Override
+        public void onFinished(KeystoreResponse keystoreResponse) throws android.os.RemoteException {
+            future.complete(keystoreResponse);
+        }
+        public final CompletableFuture<KeystoreResponse> getFuture() {
+            return future;
+        }
+        @Override
+        public void binderDied() {
+            future.completeExceptionally(new RemoteException("Keystore died"));
+        }
+    };
+
     public int abort(IBinder token) {
+        KeystoreResultPromise promise = new KeystoreResultPromise();
         try {
-            return mBinder.abort(token);
+            mBinder.asBinder().linkToDeath(promise, 0);
+            int errorCode = mBinder.abort(promise, token);
+            if (errorCode == NO_ERROR) {
+                return promise.getFuture().get().getErrorCode();
+            } else {
+                return errorCode;
+            }
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return SYSTEM_ERROR;
-        }
-    }
-
-    /**
-     * Check if the operation referenced by {@code token} is currently authorized.
-     *
-     * @param token An operation token returned by a call to
-     * {@link #begin(String, int, boolean, KeymasterArguments, byte[], KeymasterArguments) begin}.
-     */
-    public boolean isOperationAuthorized(IBinder token) {
-        try {
-            return mBinder.isOperationAuthorized(token);
-        } catch (RemoteException e) {
-            Log.w(TAG, "Cannot connect to keystore", e);
-            return false;
+        } catch (ExecutionException | InterruptedException e) {
+            Log.e(TAG, "Abort completed with exception", e);
+            return SYSTEM_ERROR;
+        } finally {
+            mBinder.asBinder().unlinkToDeath(promise, 0);
         }
     }
 
@@ -691,34 +1067,108 @@ public class KeyStore {
         return onUserPasswordChanged(UserHandle.getUserId(Process.myUid()), newPassword);
     }
 
+    private class KeyAttestationCallbackResult {
+        private KeystoreResponse keystoreResponse;
+        private KeymasterCertificateChain certificateChain;
+
+        public KeyAttestationCallbackResult(KeystoreResponse keystoreResponse,
+                KeymasterCertificateChain certificateChain) {
+            this.keystoreResponse = keystoreResponse;
+            this.certificateChain = certificateChain;
+        }
+
+        public KeystoreResponse getKeystoreResponse() {
+            return keystoreResponse;
+        }
+
+        public void setKeystoreResponse(KeystoreResponse keystoreResponse) {
+            this.keystoreResponse = keystoreResponse;
+        }
+
+        public KeymasterCertificateChain getCertificateChain() {
+            return certificateChain;
+        }
+
+        public void setCertificateChain(KeymasterCertificateChain certificateChain) {
+            this.certificateChain = certificateChain;
+        }
+    }
+
+    private class CertificateChainPromise
+            extends android.security.keystore.IKeystoreCertificateChainCallback.Stub
+            implements IBinder.DeathRecipient {
+        final private CompletableFuture<KeyAttestationCallbackResult> future = new CompletableFuture<KeyAttestationCallbackResult>();
+        @Override
+        public void onFinished(KeystoreResponse keystoreResponse,
+                KeymasterCertificateChain certificateChain) throws android.os.RemoteException {
+            future.complete(new KeyAttestationCallbackResult(keystoreResponse, certificateChain));
+        }
+        public final CompletableFuture<KeyAttestationCallbackResult> getFuture() {
+            return future;
+        }
+        @Override
+        public void binderDied() {
+            future.completeExceptionally(new RemoteException("Keystore died"));
+        }
+    };
+
+
     public int attestKey(
             String alias, KeymasterArguments params, KeymasterCertificateChain outChain) {
+        CertificateChainPromise promise = new CertificateChainPromise();
         try {
+            mBinder.asBinder().linkToDeath(promise, 0);
             if (params == null) {
                 params = new KeymasterArguments();
             }
             if (outChain == null) {
                 outChain = new KeymasterCertificateChain();
             }
-            return mBinder.attestKey(alias, params, outChain);
+            int error = mBinder.attestKey(promise, alias, params);
+            if (error != NO_ERROR) return error;
+            KeyAttestationCallbackResult result = promise.getFuture().get();
+            error = result.getKeystoreResponse().getErrorCode();
+            if (error == NO_ERROR) {
+                outChain.shallowCopyFrom(result.getCertificateChain());
+            }
+            return error;
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return SYSTEM_ERROR;
+        } catch (ExecutionException | InterruptedException e) {
+            Log.e(TAG, "AttestKey completed with exception", e);
+            return SYSTEM_ERROR;
+        } finally {
+            mBinder.asBinder().unlinkToDeath(promise, 0);
         }
     }
 
     public int attestDeviceIds(KeymasterArguments params, KeymasterCertificateChain outChain) {
+        CertificateChainPromise promise = new CertificateChainPromise();
         try {
+            mBinder.asBinder().linkToDeath(promise, 0);
             if (params == null) {
                 params = new KeymasterArguments();
             }
             if (outChain == null) {
                 outChain = new KeymasterCertificateChain();
             }
-            return mBinder.attestDeviceIds(params, outChain);
+            int error = mBinder.attestDeviceIds(promise, params);
+            if (error != NO_ERROR) return error;
+            KeyAttestationCallbackResult result = promise.getFuture().get();
+            error = result.getKeystoreResponse().getErrorCode();
+            if (error == NO_ERROR) {
+                outChain.shallowCopyFrom(result.getCertificateChain());
+            }
+            return error;
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot connect to keystore", e);
             return SYSTEM_ERROR;
+        } catch (ExecutionException | InterruptedException e) {
+            Log.e(TAG, "AttestDevicdeIds completed with exception", e);
+            return SYSTEM_ERROR;
+        } finally {
+            mBinder.asBinder().unlinkToDeath(promise, 0);
         }
     }
 
@@ -803,6 +1253,7 @@ public class KeyStore {
      * Returns a {@link KeyStoreException} corresponding to the provided keystore/keymaster error
      * code.
      */
+    @UnsupportedAppUsage
     public static KeyStoreException getKeyStoreException(int errorCode) {
         if (errorCode > 0) {
             // KeyStore layer error
@@ -823,6 +1274,8 @@ public class KeyStore {
                     return new KeyStoreException(errorCode, "Key blob corrupted");
                 case OP_AUTH_NEEDED:
                     return new KeyStoreException(errorCode, "Operation requires authorization");
+                case KEY_PERMANENTLY_INVALIDATED:
+                    return new KeyStoreException(errorCode, "Key permanently invalidated");
                 default:
                     return new KeyStoreException(errorCode, String.valueOf(errorCode));
             }
@@ -884,10 +1337,18 @@ public class KeyStore {
                     return new UserNotAuthenticatedException();
                 }
 
-                long fingerprintOnlySid = getFingerprintOnlySid();
+                final long fingerprintOnlySid = getFingerprintOnlySid();
                 if ((fingerprintOnlySid != 0)
                         && (keySids.contains(KeymasterArguments.toUint64(fingerprintOnlySid)))) {
                     // One of the key's SIDs is the current fingerprint SID -- user can be
+                    // authenticated against that SID.
+                    return new UserNotAuthenticatedException();
+                }
+
+                final long faceOnlySid = getFaceOnlySid();
+                if ((faceOnlySid != 0)
+                        && (keySids.contains(KeymasterArguments.toUint64(faceOnlySid)))) {
+                    // One of the key's SIDs is the current face SID -- user can be
                     // authenticated against that SID.
                     return new UserNotAuthenticatedException();
                 }
@@ -900,6 +1361,21 @@ public class KeyStore {
             default:
                 return new InvalidKeyException("Keystore operation failed", e);
         }
+    }
+
+    private long getFaceOnlySid() {
+        final PackageManager packageManager = mContext.getPackageManager();
+        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_FACE)) {
+            return 0;
+        }
+        FaceManager faceManager = mContext.getSystemService(FaceManager.class);
+        if (faceManager == null) {
+            return 0;
+        }
+
+        // TODO: Restore USE_BIOMETRIC or USE_BIOMETRIC_INTERNAL permission check in
+        // FaceManager.getAuthenticatorId once the ID is no longer needed here.
+        return faceManager.getAuthenticatorId();
     }
 
     private long getFingerprintOnlySid() {

@@ -44,6 +44,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Scanner;
 import java.util.Set;
+import java.util.logging.Logger;
+
+import libcore.util.NativeAllocationRegistry_Delegate;
+import sun.font.FontUtilities;
 
 import static android.graphics.Typeface.RESOLVE_BY_FONT_TABLE;
 import static android.graphics.Typeface_Delegate.SYSTEM_FONTS;
@@ -92,11 +96,11 @@ public class FontFamily_Delegate {
     /**
      * A class associating {@link Font} with its metadata.
      */
-    private static final class FontInfo {
+    public static final class FontInfo {
         @Nullable
-        Font mFont;
-        int mWeight;
-        boolean mIsItalic;
+        public Font mFont;
+        public int mWeight;
+        public boolean mIsItalic;
 
         @Override
         public boolean equals(Object o) {
@@ -124,6 +128,7 @@ public class FontFamily_Delegate {
     // ---- delegate manager ----
     private static final DelegateManager<FontFamily_Delegate> sManager =
             new DelegateManager<FontFamily_Delegate>(FontFamily_Delegate.class);
+    private static long sFamilyFinalizer = -1;
 
     // ---- delegate helper data ----
     private static String sFontLocation;
@@ -218,17 +223,16 @@ public class FontFamily_Delegate {
         } else {
             int bestMatch = Integer.MAX_VALUE;
 
-            //noinspection ForLoopReplaceableByForEach (avoid iterator instantiation)
             for (FontInfo font : mFonts.keySet()) {
                 int match = computeMatch(font, desiredStyle);
                 if (match < bestMatch) {
                     bestMatch = match;
                     bestFont = font;
+                    if (bestMatch == 0) {
+                        break;
+                    }
                 }
             }
-
-            // This would mean that we already had the font so it should be in the set
-            assert bestMatch != 0;
         }
 
         if (bestFont == null) {
@@ -284,7 +288,7 @@ public class FontFamily_Delegate {
     }
 
     @Nullable
-    /*package*/ static String getFontLocation() {
+    public static String getFontLocation() {
         return sFontLocation;
     }
 
@@ -323,10 +327,14 @@ public class FontFamily_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nUnrefFamily(long nativePtr) {
-        // Removing the java reference for the object doesn't mean that it's freed for garbage
-        // collection. Typeface_Delegate may still hold a reference for it.
-        sManager.removeJavaReferenceFor(nativePtr);
+    /*package*/ static long nGetFamilyReleaseFunc() {
+        synchronized (FontFamily_Delegate.class) {
+            if (sFamilyFinalizer == -1) {
+                sFamilyFinalizer = NativeAllocationRegistry_Delegate.createFinalizer(
+                        sManager::removeJavaReferenceFor);
+            }
+        }
+        return sFamilyFinalizer;
     }
 
     @LayoutlibDelegate
@@ -406,12 +414,16 @@ public class FontFamily_Delegate {
                 fontInfo = new FontInfo();
                 fontInfo.mFont = font;
                 if (weight == RESOLVE_BY_FONT_TABLE) {
-                    fontInfo.mWeight = font.isBold() ? BOLD_FONT_WEIGHT : DEFAULT_FONT_WEIGHT;
+                    fontInfo.mWeight = FontUtilities.getFont2D(font).getWeight();
                 } else {
                     fontInfo.mWeight = weight;
                 }
-                fontInfo.mIsItalic = isItalic == RESOLVE_BY_FONT_TABLE ? font.isItalic() :
-                        isItalic == 1;
+                if (isItalic == RESOLVE_BY_FONT_TABLE) {
+                    fontInfo.mIsItalic =
+                            (FontUtilities.getFont2D(font).getStyle() & Font.ITALIC) != 0;
+                } else {
+                    fontInfo.mIsItalic = isItalic == 1;
+                }
                 ffd.addFont(fontInfo);
                 return true;
             } catch (IOException e) {
@@ -447,8 +459,10 @@ public class FontFamily_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nAbort(long builderPtr) {
-        sManager.removeJavaReferenceFor(builderPtr);
+    /*package*/ static long nGetBuilderReleaseFunc() {
+        // Layoutlib uses the same reference for the builder and the font family,
+        // so it should not release that reference at the builder stage.
+        return -1;
     }
 
     // ---- private helper methods ----
@@ -476,6 +490,7 @@ public class FontFamily_Delegate {
     private boolean addFont(@NonNull String path, int weight, int italic) {
         if (path.startsWith(SYSTEM_FONTS) &&
                 !SDK_FONTS.contains(path.substring(SYSTEM_FONTS.length()))) {
+            Logger.getLogger(FontFamily_Delegate.class.getSimpleName()).warning("Unable to load font " + path);
             return mValid = false;
         }
         // Set valid to true, even if the font fails to load.
@@ -499,10 +514,10 @@ public class FontFamily_Delegate {
     /**
      * Compute matching metric between two styles - 0 is an exact match.
      */
-    private static int computeMatch(@NonNull FontInfo font1, @NonNull FontInfo font2) {
-        int score = Math.abs(font1.mWeight - font2.mWeight);
+    public static int computeMatch(@NonNull FontInfo font1, @NonNull FontInfo font2) {
+        int score = Math.abs(font1.mWeight / 100 - font2.mWeight / 100);
         if (font1.mIsItalic != font2.mIsItalic) {
-            score += 200;
+            score += 2;
         }
         return score;
     }
@@ -514,9 +529,8 @@ public class FontFamily_Delegate {
      * @param srcFont the source font
      * @param outFont contains the desired font style. Updated to contain the derived font and
      *                its style
-     * @return outFont
      */
-    private void deriveFont(@NonNull FontInfo srcFont, @NonNull FontInfo outFont) {
+    public static void deriveFont(@NonNull FontInfo srcFont, @NonNull FontInfo outFont) {
         int desiredWeight = outFont.mWeight;
         int srcWeight = srcFont.mWeight;
         assert srcFont.mFont != null;

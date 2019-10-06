@@ -18,7 +18,7 @@ package android.os;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.os.LooperProto;
+import android.annotation.UnsupportedAppUsage;
 import android.util.Log;
 import android.util.Printer;
 import android.util.Slog;
@@ -68,12 +68,17 @@ public final class Looper {
     private static final String TAG = "Looper";
 
     // sThreadLocal.get() will return null unless you've called prepare().
+    @UnsupportedAppUsage
     static final ThreadLocal<Looper> sThreadLocal = new ThreadLocal<Looper>();
+    @UnsupportedAppUsage
     private static Looper sMainLooper;  // guarded by Looper.class
+    private static Observer sObserver;
 
+    @UnsupportedAppUsage
     final MessageQueue mQueue;
     final Thread mThread;
 
+    @UnsupportedAppUsage
     private Printer mLogging;
     private long mTraceTag;
 
@@ -99,7 +104,7 @@ public final class Looper {
     }
 
     private static void prepare(boolean quitAllowed) {
-        if (sThreadLocal.get() != null) {// 确保每个线程中只有一个Looper
+        if (sThreadLocal.get() != null) {
             throw new RuntimeException("Only one Looper may be created per thread");
         }
         sThreadLocal.set(new Looper(quitAllowed));
@@ -110,9 +115,6 @@ public final class Looper {
      * application's main looper. The main looper for your application
      * is created by the Android environment, so you should never need
      * to call this function yourself.  See also: {@link #prepare()}
-     *
-     * 主线程Looper，不需要自己调用，系统创建主线程时会自动调用该方法初始化一个Looper
-     * 调用该方法有两个地方，一个是系统启动创建Looper（系统主线程），另一个是App启动创建Looper（App主线程）
      */
     public static void prepareMainLooper() {
         prepare(false);
@@ -131,6 +133,15 @@ public final class Looper {
         synchronized (Looper.class) {
             return sMainLooper;
         }
+    }
+
+    /**
+     * Set the transaction observer for all Loopers in this process.
+     *
+     * @hide
+     */
+    public static void setObserver(@Nullable Observer observer) {
+        sObserver = observer;
     }
 
     /**
@@ -159,8 +170,7 @@ public final class Looper {
 
         boolean slowDeliveryDetected = false;
 
-        for (;;) {// 死循环
-            // 获取消息
+        for (;;) {
             Message msg = queue.next(); // might block
             if (msg == null) {
                 // No message indicates that the message queue is quitting.
@@ -173,6 +183,8 @@ public final class Looper {
                 logging.println(">>>>> Dispatching to " + msg.target + " " +
                         msg.callback + ": " + msg.what);
             }
+            // Make sure the observer won't change while processing a transaction.
+            final Observer observer = sObserver;
 
             final long traceTag = me.mTraceTag;
             long slowDispatchThresholdMs = me.mSlowDispatchThresholdMs;
@@ -193,11 +205,24 @@ public final class Looper {
 
             final long dispatchStart = needStartTime ? SystemClock.uptimeMillis() : 0;
             final long dispatchEnd;
+            Object token = null;
+            if (observer != null) {
+                token = observer.messageDispatchStarting();
+            }
+            long origWorkSource = ThreadLocalWorkSource.setUid(msg.workSourceUid);
             try {
-                // 处理消息
                 msg.target.dispatchMessage(msg);
+                if (observer != null) {
+                    observer.messageDispatched(token, msg);
+                }
                 dispatchEnd = needEndTime ? SystemClock.uptimeMillis() : 0;
+            } catch (Exception exception) {
+                if (observer != null) {
+                    observer.dispatchingThrewException(token, msg, exception);
+                }
+                throw exception;
             } finally {
+                ThreadLocalWorkSource.restore(origWorkSource);
                 if (traceTag != 0) {
                     Trace.traceEnd(traceTag);
                 }
@@ -235,7 +260,6 @@ public final class Looper {
                         + msg.callback + " what=" + msg.what);
             }
 
-            // 回收消息
             msg.recycleUnchecked();
         }
     }
@@ -296,6 +320,7 @@ public final class Looper {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public void setTraceTag(long traceTag) {
         mTraceTag = traceTag;
     }
@@ -392,7 +417,9 @@ public final class Looper {
         final long looperToken = proto.start(fieldId);
         proto.write(LooperProto.THREAD_NAME, mThread.getName());
         proto.write(LooperProto.THREAD_ID, mThread.getId());
-        mQueue.writeToProto(proto, LooperProto.QUEUE);
+        if (mQueue != null) {
+            mQueue.writeToProto(proto, LooperProto.QUEUE);
+        }
         proto.end(looperToken);
     }
 
@@ -400,5 +427,40 @@ public final class Looper {
     public String toString() {
         return "Looper (" + mThread.getName() + ", tid " + mThread.getId()
                 + ") {" + Integer.toHexString(System.identityHashCode(this)) + "}";
+    }
+
+    /** {@hide} */
+    public interface Observer {
+        /**
+         * Called right before a message is dispatched.
+         *
+         * <p> The token type is not specified to allow the implementation to specify its own type.
+         *
+         * @return a token used for collecting telemetry when dispatching a single message.
+         *         The token token must be passed back exactly once to either
+         *         {@link Observer#messageDispatched} or {@link Observer#dispatchingThrewException}
+         *         and must not be reused again.
+         *
+         */
+        Object messageDispatchStarting();
+
+        /**
+         * Called when a message was processed by a Handler.
+         *
+         * @param token Token obtained by previously calling
+         *              {@link Observer#messageDispatchStarting} on the same Observer instance.
+         * @param msg The message that was dispatched.
+         */
+        void messageDispatched(Object token, Message msg);
+
+        /**
+         * Called when an exception was thrown while processing a message.
+         *
+         * @param token Token obtained by previously calling
+         *              {@link Observer#messageDispatchStarting} on the same Observer instance.
+         * @param msg The message that was dispatched and caused an exception.
+         * @param exception The exception that was thrown.
+         */
+        void dispatchingThrewException(Object token, Message msg, Exception exception);
     }
 }

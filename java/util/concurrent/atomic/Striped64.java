@@ -119,7 +119,8 @@ abstract class Striped64 extends Number {
      * JVM intrinsics note: It would be possible to use a release-only
      * form of CAS here, if it were provided.
      */
-    // @jdk.internal.vm.annotation.Contended // Android-removed
+    // Android-removed: @Contended, this hint is not used by the Android runtime.
+    // @jdk.internal.vm.annotation.Contended
     static final class Cell {
         volatile long value;
         Cell(long x) { value = x; }

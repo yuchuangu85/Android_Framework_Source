@@ -39,8 +39,11 @@ import android.net.wifi.aware.PublishConfig;
 import android.net.wifi.aware.SubscribeConfig;
 import android.os.RemoteException;
 import android.os.ShellCommand;
+import android.text.TextUtils;
 import android.util.Log;
 import android.util.SparseIntArray;
+
+import com.android.internal.annotations.VisibleForTesting;
 
 import libcore.util.HexEncoding;
 
@@ -61,7 +64,8 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
     private static final boolean VDBG = false; // STOPSHIP if true
     /* package */ boolean mDbg = false;
 
-    private static final String SERVICE_NAME_FOR_OOB_DATA_PATH = "Wi-Fi Aware Data Path";
+    @VisibleForTesting
+    static final String SERVICE_NAME_FOR_OOB_DATA_PATH = "Wi-Fi Aware Data Path";
 
     private final WifiAwareNativeManager mHal;
     private SparseIntArray mTransactionIds; // VDBG only!
@@ -107,12 +111,12 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
     /* package */ static final String POWER_PARAM_IDLE_KEY = "idle";
 
     /* package */ static final String PARAM_DW_24GHZ = "dw_24ghz";
-    private static final int PARAM_DW_24GHZ_DEFAULT = -1; // Firmware default
+    private static final int PARAM_DW_24GHZ_DEFAULT = 1; // 1 -> DW=1, latency=512ms
     private static final int PARAM_DW_24GHZ_INACTIVE = 4; // 4 -> DW=8, latency=4s
     private static final int PARAM_DW_24GHZ_IDLE = 4; // == inactive
 
     /* package */ static final String PARAM_DW_5GHZ = "dw_5ghz";
-    private static final int PARAM_DW_5GHZ_DEFAULT = -1; // Firmware default
+    private static final int PARAM_DW_5GHZ_DEFAULT = 1; // 1 -> DW=1, latency=512ms
     private static final int PARAM_DW_5GHZ_INACTIVE = 0; // 0 = disabled
     private static final int PARAM_DW_5GHZ_IDLE = 0; // == inactive
 
@@ -883,16 +887,22 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
      * @param interfaceName      The interface on which to create the data connection.
      * @param pmk Pairwise master key (PMK - see IEEE 802.11i) for the data-path.
      * @param passphrase  Passphrase for the data-path.
+     * @param isOutOfBand Is the data-path out-of-band (i.e. without a corresponding Aware discovery
+     *                    session).
+     * @param appInfo Arbitrary binary blob transmitted to the peer.
      * @param capabilities The capabilities of the firmware.
      */
     public boolean initiateDataPath(short transactionId, int peerId, int channelRequestType,
             int channel, byte[] peer, String interfaceName, byte[] pmk, String passphrase,
-            boolean isOutOfBand, Capabilities capabilities) {
+            boolean isOutOfBand, byte[] appInfo, Capabilities capabilities) {
         if (mDbg) {
             Log.v(TAG, "initiateDataPath: transactionId=" + transactionId + ", peerId=" + peerId
                     + ", channelRequestType=" + channelRequestType + ", channel=" + channel
                     + ", peer=" + String.valueOf(HexEncoding.encode(peer)) + ", interfaceName="
-                    + interfaceName);
+                    + interfaceName + ", pmk=" + ((pmk == null) ? "<null>" : "<*>")
+                    + ", passphrase=" + (TextUtils.isEmpty(passphrase) ? "<empty>" : "<*>")
+                    + ", isOutOfBand=" + isOutOfBand + ", appInfo.length="
+                    + ((appInfo == null) ? 0 : appInfo.length) + ", capabilities=" + capabilities);
         }
         recordTransactionId(transactionId);
 
@@ -932,6 +942,7 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
                     SERVICE_NAME_FOR_OOB_DATA_PATH.getBytes(StandardCharsets.UTF_8),
                     req.serviceNameOutOfBand);
         }
+        convertNativeByteArrayToArrayList(appInfo, req.appInfo);
 
         try {
             WifiStatus status = iface.initiateDataPathRequest(transactionId, req);
@@ -959,16 +970,18 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
      *                      request callback.
      * @param pmk Pairwise master key (PMK - see IEEE 802.11i) for the data-path.
      * @param passphrase  Passphrase for the data-path.
+     * @param appInfo Arbitrary binary blob transmitted to the peer.
      * @param isOutOfBand Is the data-path out-of-band (i.e. without a corresponding Aware discovery
      *                    session).
      * @param capabilities The capabilities of the firmware.
      */
     public boolean respondToDataPathRequest(short transactionId, boolean accept, int ndpId,
-            String interfaceName, byte[] pmk, String passphrase, boolean isOutOfBand,
-            Capabilities capabilities) {
+            String interfaceName, byte[] pmk, String passphrase, byte[] appInfo,
+            boolean isOutOfBand, Capabilities capabilities) {
         if (mDbg) {
             Log.v(TAG, "respondToDataPathRequest: transactionId=" + transactionId + ", accept="
-                    + accept + ", int ndpId=" + ndpId + ", interfaceName=" + interfaceName);
+                    + accept + ", int ndpId=" + ndpId + ", interfaceName=" + interfaceName
+                    + ", appInfo.length=" + ((appInfo == null) ? 0 : appInfo.length));
         }
         recordTransactionId(transactionId);
 
@@ -1006,6 +1019,7 @@ public class WifiAwareNativeApi implements WifiAwareShellCommand.DelegatedShellC
                     SERVICE_NAME_FOR_OOB_DATA_PATH.getBytes(StandardCharsets.UTF_8),
                     req.serviceNameOutOfBand);
         }
+        convertNativeByteArrayToArrayList(appInfo, req.appInfo);
 
         try {
             WifiStatus status = iface.respondToDataPathIndicationRequest(transactionId, req);

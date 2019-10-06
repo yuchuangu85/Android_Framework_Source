@@ -17,6 +17,7 @@
 package android.database;
 
 import android.annotation.BytesLong;
+import android.annotation.UnsupportedAppUsage;
 import android.content.res.Resources;
 import android.database.sqlite.SQLiteClosable;
 import android.database.sqlite.SQLiteException;
@@ -45,12 +46,14 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
     private static final String STATS_TAG = "CursorWindowStats";
 
     // This static member will be evaluated when first used.
+    @UnsupportedAppUsage
     private static int sCursorWindowSize = -1;
 
     /**
      * The native CursorWindow object pointer.  (FOR INTERNAL USE ONLY)
      * @hide
      */
+    @UnsupportedAppUsage
     public long mWindowPtr;
 
     private int mStartPos;
@@ -58,7 +61,10 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
 
     private final CloseGuard mCloseGuard = CloseGuard.get();
 
+    // May throw CursorWindowAllocationException
     private static native long nativeCreate(String name, int cursorWindowSize);
+
+    // May throw CursorWindowAllocationException
     private static native long nativeCreateFromParcel(Parcel parcel);
     private static native void nativeDispose(long windowPtr);
     private static native void nativeWriteToParcel(long windowPtr, Parcel parcel);
@@ -132,8 +138,7 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
         mName = name != null && name.length() != 0 ? name : "<unnamed>";
         mWindowPtr = nativeCreate(mName, (int) windowSizeBytes);
         if (mWindowPtr == 0) {
-            throw new CursorWindowAllocationException("Cursor window allocation of " +
-                    windowSizeBytes + " bytes failed. " + printStats());
+            throw new AssertionError(); // Not possible, the native code won't return it.
         }
         mCloseGuard.open("close");
         recordNewWindow(Binder.getCallingPid(), mWindowPtr);
@@ -161,8 +166,7 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
         mStartPos = source.readInt();
         mWindowPtr = nativeCreateFromParcel(source);
         if (mWindowPtr == 0) {
-            throw new CursorWindowAllocationException("Cursor window could not be "
-                    + "created from binder.");
+            throw new AssertionError(); // Not possible, the native code won't return it.
         }
         mName = nativeGetName(mWindowPtr);
         mCloseGuard.open("close");
@@ -706,7 +710,7 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<CursorWindow> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<CursorWindow> CREATOR
             = new Parcelable.Creator<CursorWindow>() {
         public CursorWindow createFromParcel(Parcel source) {
             return new CursorWindow(source);
@@ -744,6 +748,7 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
         dispose();
     }
 
+    @UnsupportedAppUsage
     private static final LongSparseArray<Integer> sWindowToPidMap = new LongSparseArray<Integer>();
 
     private void recordNewWindow(int pid, long window) {
@@ -765,6 +770,7 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
         }
     }
 
+    @UnsupportedAppUsage
     private String printStats() {
         StringBuilder buff = new StringBuilder();
         int myPid = Process.myPid();

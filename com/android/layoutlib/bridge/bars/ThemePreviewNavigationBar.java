@@ -45,7 +45,7 @@ public class ThemePreviewNavigationBar extends NavigationBar {
                 ((BridgeContext) context).getConfiguration().getLayoutDirection() ==
                         View.LAYOUT_DIRECTION_RTL,
                 (context.getApplicationInfo().flags & ApplicationInfo.FLAG_SUPPORTS_RTL) != 0,
-                0, LAYOUT_XML);
+                0, LAYOUT_XML, false);
     }
 
     @Override

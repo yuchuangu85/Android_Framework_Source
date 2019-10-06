@@ -102,7 +102,6 @@ import java.time.temporal.TemporalQuery;
 import java.time.temporal.ValueRange;
 import java.time.temporal.WeekFields;
 import java.time.zone.ZoneRulesProvider;
-import java.util.AbstractMap;
 import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -212,6 +211,10 @@ public final class DateTimeFormatterBuilder {
         }
 
         // Android-changed: get format string from ICU.
+        // LocaleResources lr = LocaleProviderAdapter.getResourceBundleBased()
+        //         .getLocaleResources(locale);
+        // String pattern = lr.getJavaTimeDateTimePattern(
+        //         convertStyle(timeStyle), convertStyle(dateStyle), chrono.getCalendarType());
         String pattern = Calendar.getDateTimeFormatString(
                 ULocale.forLocale(locale), chrono.getCalendarType(),
                 convertStyle(dateStyle), convertStyle(timeStyle));
@@ -3675,8 +3678,22 @@ public final class DateTimeFormatterBuilder {
             SoftReference<Map<Locale, String[]>> ref = cache.get(id);
             Map<Locale, String[]> perLocale = null;
             if (ref == null || (perLocale = ref.get()) == null ||
-                    (names = perLocale.get(locale)) == null) {
+                (names = perLocale.get(locale)) == null) {
                 // BEGIN Android-changed: use ICU TimeZoneNames instead of TimeZoneNameUtility.
+                /*
+                names = TimeZoneNameUtility.retrieveDisplayNames(id, locale);
+                if (names == null) {
+                    return null;
+                }
+                names = Arrays.copyOfRange(names, 0, 7);
+                names[5] =
+                    TimeZoneNameUtility.retrieveGenericDisplayName(id, TimeZone.LONG, locale);
+                if (names[5] == null) {
+                    names[5] = names[0]; // use the id
+                }
+                names[6] =
+                    TimeZoneNameUtility.retrieveGenericDisplayName(id, TimeZone.SHORT, locale);
+                */
                 TimeZoneNames timeZoneNames = TimeZoneNames.getInstance(locale);
                 names = new String[TYPES.length + 1];
                 // Zeroth index used for id, other indexes based on NameType constant + 1.
@@ -3764,13 +3781,43 @@ public final class DateTimeFormatterBuilder {
             Map<Locale, Entry<Integer, SoftReference<PrefixTree>>> cached =
                 isCaseSensitive ? cachedTree : cachedTreeCI;
 
-            Entry<Integer, SoftReference<PrefixTree>> entry;
-            // BEGIN Android-changed: use ICU TimeZoneNames to get Zone names.
-            PrefixTree tree;
+            Entry<Integer, SoftReference<PrefixTree>> entry = null;
+            PrefixTree tree = null;
+            String[][] zoneStrings = null;
             if ((entry = cached.get(locale)) == null ||
                 (entry.getKey() != regionIdsSize ||
                 (tree = entry.getValue().get()) == null)) {
                 tree = PrefixTree.newTree(context);
+                // BEGIN Android-changed: use ICU TimeZoneNames to get Zone names.
+                /*
+                zoneStrings = TimeZoneNameUtility.getZoneStrings(locale);
+                for (String[] names : zoneStrings) {
+                    String zid = names[0];
+                    if (!regionIds.contains(zid)) {
+                        continue;
+                    }
+                    tree.add(zid, zid);    // don't convert zid -> metazone
+                    zid = ZoneName.toZid(zid, locale);
+                    int i = textStyle == TextStyle.FULL ? 1 : 2;
+                    for (; i < names.length; i += 2) {
+                        tree.add(names[i], zid);
+                    }
+                }
+                // if we have a set of preferred zones, need a copy and
+                // add the preferred zones again to overwrite
+                if (preferredZones != null) {
+                    for (String[] names : zoneStrings) {
+                        String zid = names[0];
+                        if (!preferredZones.contains(zid) || !regionIds.contains(zid)) {
+                            continue;
+                        }
+                        int i = textStyle == TextStyle.FULL ? 1 : 2;
+                        for (; i < names.length; i += 2) {
+                            tree.add(names[i], zid);
+                       }
+                    }
+                }
+                */
                 TimeZoneNames timeZoneNames = TimeZoneNames.getInstance(locale);
                 long now = System.currentTimeMillis();
                 TimeZoneNames.NameType[] types =
@@ -3800,9 +3847,9 @@ public final class DateTimeFormatterBuilder {
                                 tree.add(names[i], zid);
                             }
                         }
-                        // END Android-changed: use ICU TimeZoneNames to get Zone names.
                     }
                 }
+                // END Android-changed: use ICU TimeZoneNames to get Zone names.
                 cached.put(locale, new SimpleImmutableEntry<>(regionIdsSize, new SoftReference<>(tree)));
             }
             return tree;
@@ -4369,7 +4416,9 @@ public final class DateTimeFormatterBuilder {
          * @throws NullPointerException if chrono or locale is null
          */
         private String getChronologyName(Chronology chrono, Locale locale) {
-            // Android-changed: Use ICU LocaleDisplayNames.
+            // Android-changed: Use ICU LocaleDisplayNames. http://b/28832222
+            // String key = "calendarname." + chrono.getCalendarType();
+            // String name = DateTimeTextProvider.getLocalizedResource(key, locale);
             LocaleDisplayNames displayNames = LocaleDisplayNames.getInstance(ULocale.forLocale(locale));
             String name = displayNames.keyValueDisplayName("calendar", chrono.getCalendarType());
             return name != null ? name : chrono.getId();

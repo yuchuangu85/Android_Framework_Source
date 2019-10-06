@@ -16,9 +16,11 @@
 
 package android.view;
 
+import com.android.SdkConstants;
 import com.android.ide.common.rendering.api.LayoutLog;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
 import com.android.ide.common.rendering.api.MergeCookie;
+import com.android.ide.common.rendering.api.ResourceNamespace;
 import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.layoutlib.bridge.Bridge;
@@ -26,6 +28,7 @@ import com.android.layoutlib.bridge.BridgeConstants;
 import com.android.layoutlib.bridge.MockView;
 import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.layoutlib.bridge.android.BridgeXmlBlockParser;
+import com.android.layoutlib.bridge.android.UnresolvedResourceValue;
 import com.android.layoutlib.bridge.android.support.DrawerLayoutUtil;
 import com.android.layoutlib.bridge.android.support.RecyclerViewUtil;
 import com.android.layoutlib.bridge.impl.ParserFactory;
@@ -33,7 +36,6 @@ import com.android.layoutlib.bridge.util.ReflectionUtils;
 import com.android.resources.ResourceType;
 import com.android.tools.layoutlib.annotations.NotNull;
 import com.android.tools.layoutlib.annotations.Nullable;
-import com.android.util.Pair;
 
 import org.xmlpull.v1.XmlPullParser;
 
@@ -43,10 +45,11 @@ import android.content.res.TypedArray;
 import android.graphics.drawable.Animatable;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
+import android.util.ResolvingAttributeSet;
+import android.view.View.OnAttachStateChangeListener;
 import android.widget.ImageView;
 import android.widget.NumberPicker;
 
-import java.io.File;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -60,7 +63,17 @@ import static com.android.layoutlib.bridge.android.BridgeContext.getBaseContext;
  * Custom implementation of {@link LayoutInflater} to handle custom views.
  */
 public final class BridgeInflater extends LayoutInflater {
-
+    private static final String INFLATER_CLASS_ATTR_NAME = "viewInflaterClass";
+    private static final ResourceReference RES_AUTO_INFLATER_CLASS_ATTR =
+            ResourceReference.attr(ResourceNamespace.RES_AUTO, INFLATER_CLASS_ATTR_NAME);
+    private static final ResourceReference LEGACY_APPCOMPAT_INFLATER_CLASS_ATTR =
+            ResourceReference.attr(ResourceNamespace.APPCOMPAT_LEGACY, INFLATER_CLASS_ATTR_NAME);
+    private static final ResourceReference ANDROIDX_APPCOMPAT_INFLATER_CLASS_ATTR =
+            ResourceReference.attr(ResourceNamespace.APPCOMPAT, INFLATER_CLASS_ATTR_NAME);
+    private static final String LEGACY_DEFAULT_APPCOMPAT_INFLATER_NAME =
+            "android.support.v7.app.AppCompatViewInflater";
+    private static final String ANDROIDX_DEFAULT_APPCOMPAT_INFLATER_NAME =
+            "androidx.appcompat.app.AppCompatViewInflater";
     private final LayoutlibCallback mLayoutlibCallback;
 
     private boolean mIsInMerge = false;
@@ -186,7 +199,19 @@ public final class BridgeInflater extends LayoutInflater {
     @Nullable
     private static Class<?> findCustomInflater(@NotNull BridgeContext bc,
             @NotNull LayoutlibCallback layoutlibCallback) {
-        ResourceValue value = bc.getRenderResources().findItemInTheme("viewInflaterClass", false);
+        ResourceReference attrRef;
+        if (layoutlibCallback.isResourceNamespacingRequired()) {
+            if (layoutlibCallback.hasLegacyAppCompat()) {
+                attrRef = LEGACY_APPCOMPAT_INFLATER_CLASS_ATTR;
+            } else if (layoutlibCallback.hasAndroidXAppCompat()) {
+                attrRef = ANDROIDX_APPCOMPAT_INFLATER_CLASS_ATTR;
+            } else {
+                return null;
+            }
+        } else {
+            attrRef = RES_AUTO_INFLATER_CLASS_ATTR;
+        }
+        ResourceValue value = bc.getRenderResources().findItemInTheme(attrRef);
         String inflaterName = value != null ? value.getValue() : null;
 
         if (inflaterName != null) {
@@ -195,12 +220,16 @@ public final class BridgeInflater extends LayoutInflater {
             } catch (ClassNotFoundException ignore) {
             }
 
-            // viewInflaterClass was defined but we couldn't find the class
+            // viewInflaterClass was defined but we couldn't find the class.
         } else if (bc.isAppCompatTheme()) {
             // Older versions of AppCompat do not define the viewInflaterClass so try to get it
-            // manually
+            // manually.
             try {
-                return layoutlibCallback.findClass("android.support.v7.app.AppCompatViewInflater");
+                if (layoutlibCallback.hasLegacyAppCompat()) {
+                    return layoutlibCallback.findClass(LEGACY_DEFAULT_APPCOMPAT_INFLATER_NAME);
+                } else if (layoutlibCallback.hasAndroidXAppCompat()) {
+                    return layoutlibCallback.findClass(ANDROIDX_DEFAULT_APPCOMPAT_INFLATER_NAME);
+                }
             } catch (ClassNotFoundException ignore) {
             }
         }
@@ -332,36 +361,32 @@ public final class BridgeInflater extends LayoutInflater {
 
             ResourceValue value = null;
 
-            @SuppressWarnings("deprecation")
-            Pair<ResourceType, String> layoutInfo = Bridge.resolveResourceId(resource);
-            if (layoutInfo != null) {
-                value = bridgeContext.getRenderResources().getFrameworkResource(
-                        ResourceType.LAYOUT, layoutInfo.getSecond());
-            } else {
+            ResourceReference layoutInfo = Bridge.resolveResourceId(resource);
+            if (layoutInfo == null) {
                 layoutInfo = mLayoutlibCallback.resolveResourceId(resource);
 
-                if (layoutInfo != null) {
-                    value = bridgeContext.getRenderResources().getProjectResource(
-                            ResourceType.LAYOUT, layoutInfo.getSecond());
-                }
+            }
+            if (layoutInfo != null) {
+                value = bridgeContext.getRenderResources().getResolvedResource(layoutInfo);
             }
 
             if (value != null) {
-                File f = new File(value.getValue());
-                if (f.isFile()) {
-                    try {
-                        XmlPullParser parser = ParserFactory.create(f, true);
-
-                        BridgeXmlBlockParser bridgeParser = new BridgeXmlBlockParser(
-                                parser, bridgeContext, value.isFramework());
-
-                        return inflate(bridgeParser, root);
-                    } catch (Exception e) {
-                        Bridge.getLog().error(LayoutLog.TAG_RESOURCES_READ,
-                                "Failed to parse file " + f.getAbsolutePath(), e, null);
-
+                String path = value.getValue();
+                try {
+                    XmlPullParser parser = ParserFactory.create(path, true);
+                    if (parser == null) {
                         return null;
                     }
+
+                    BridgeXmlBlockParser bridgeParser = new BridgeXmlBlockParser(
+                            parser, bridgeContext, value.getNamespace());
+
+                    return inflate(bridgeParser, root);
+                } catch (Exception e) {
+                    Bridge.getLog().error(LayoutLog.TAG_RESOURCES_READ,
+                            "Failed to parse file " + path, e, null);
+
+                    return null;
                 }
             }
         }
@@ -407,72 +432,90 @@ public final class BridgeInflater extends LayoutInflater {
     private void setupViewInContext(View view, AttributeSet attrs) {
         Context context = getContext();
         context = getBaseContext(context);
-        if (context instanceof BridgeContext) {
-            BridgeContext bc = (BridgeContext) context;
-            // get the view key
-            Object viewKey = getViewKeyFromParser(attrs, bc, mResourceReference, mIsInMerge);
-            if (viewKey != null) {
-                bc.addViewKey(view, viewKey);
-            }
-            String scrollPosX = attrs.getAttributeValue(BridgeConstants.NS_RESOURCES, "scrollX");
-            if (scrollPosX != null && scrollPosX.endsWith("px")) {
-                int value = Integer.parseInt(scrollPosX.substring(0, scrollPosX.length() - 2));
-                bc.setScrollXPos(view, value);
-            }
-            String scrollPosY = attrs.getAttributeValue(BridgeConstants.NS_RESOURCES, "scrollY");
-            if (scrollPosY != null && scrollPosY.endsWith("px")) {
-                int value = Integer.parseInt(scrollPosY.substring(0, scrollPosY.length() - 2));
-                bc.setScrollYPos(view, value);
-            }
-            if (ReflectionUtils.isInstanceOf(view, RecyclerViewUtil.CN_RECYCLER_VIEW)) {
-                Integer resourceId = null;
-                String attrListItemValue = attrs.getAttributeValue(BridgeConstants.NS_TOOLS_URI,
-                        BridgeConstants.ATTR_LIST_ITEM);
-                int attrItemCountValue = attrs.getAttributeIntValue(BridgeConstants.NS_TOOLS_URI,
-                        BridgeConstants.ATTR_ITEM_COUNT, -1);
-                if (attrListItemValue != null && !attrListItemValue.isEmpty()) {
-                    ResourceValue resValue = bc.getRenderResources().findResValue(attrListItemValue, false);
-                    if (resValue.isFramework()) {
-                        resourceId = Bridge.getResourceId(resValue.getResourceType(),
-                                resValue.getName());
-                    } else {
-                        resourceId = mLayoutlibCallback.getResourceId(resValue.getResourceType(),
-                                resValue.getName());
-                    }
-                }
-                if (resourceId == null) {
-                    resourceId = 0;
-                }
-                RecyclerViewUtil.setAdapter(view, bc, mLayoutlibCallback, resourceId, attrItemCountValue);
-            } else if (ReflectionUtils.isInstanceOf(view, DrawerLayoutUtil.CN_DRAWER_LAYOUT)) {
-                String attrVal = attrs.getAttributeValue(BridgeConstants.NS_TOOLS_URI,
-                        BridgeConstants.ATTR_OPEN_DRAWER);
-                if (attrVal != null) {
-                    getDrawerLayoutMap().put(view, attrVal);
-                }
-            }
-            else if (view instanceof NumberPicker) {
-                NumberPicker numberPicker = (NumberPicker) view;
-                String minValue = attrs.getAttributeValue(BridgeConstants.NS_TOOLS_URI, "minValue");
-                if (minValue != null) {
-                    numberPicker.setMinValue(Integer.parseInt(minValue));
-                }
-                String maxValue = attrs.getAttributeValue(BridgeConstants.NS_TOOLS_URI, "maxValue");
-                if (maxValue != null) {
-                    numberPicker.setMaxValue(Integer.parseInt(maxValue));
-                }
-            }
-            else if (view instanceof ImageView) {
-                ImageView img = (ImageView) view;
-                Drawable drawable = img.getDrawable();
-                if (drawable instanceof Animatable) {
-                    if (!((Animatable) drawable).isRunning()) {
-                        ((Animatable) drawable).start();
-                    }
-                }
-            }
-
+        if (!(context instanceof BridgeContext)) {
+            return;
         }
+
+        BridgeContext bc = (BridgeContext) context;
+        // get the view key
+        Object viewKey = getViewKeyFromParser(attrs, bc, mResourceReference, mIsInMerge);
+        if (viewKey != null) {
+            bc.addViewKey(view, viewKey);
+        }
+        String scrollPosX = attrs.getAttributeValue(BridgeConstants.NS_RESOURCES, "scrollX");
+        if (scrollPosX != null && scrollPosX.endsWith("px")) {
+            int value = Integer.parseInt(scrollPosX.substring(0, scrollPosX.length() - 2));
+            bc.setScrollXPos(view, value);
+        }
+        String scrollPosY = attrs.getAttributeValue(BridgeConstants.NS_RESOURCES, "scrollY");
+        if (scrollPosY != null && scrollPosY.endsWith("px")) {
+            int value = Integer.parseInt(scrollPosY.substring(0, scrollPosY.length() - 2));
+            bc.setScrollYPos(view, value);
+        }
+        if (ReflectionUtils.isInstanceOf(view, RecyclerViewUtil.CN_RECYCLER_VIEW)) {
+            int resourceId = 0;
+            int attrItemCountValue = attrs.getAttributeIntValue(BridgeConstants.NS_TOOLS_URI,
+                    BridgeConstants.ATTR_ITEM_COUNT, -1);
+            if (attrs instanceof ResolvingAttributeSet) {
+                ResourceValue attrListItemValue =
+                        ((ResolvingAttributeSet) attrs).getResolvedAttributeValue(
+                                BridgeConstants.NS_TOOLS_URI, BridgeConstants.ATTR_LIST_ITEM);
+                if (attrListItemValue != null) {
+                    resourceId = bc.getResourceId(attrListItemValue.asReference(), 0);
+                }
+            }
+            RecyclerViewUtil.setAdapter(view, bc, mLayoutlibCallback, resourceId, attrItemCountValue);
+        } else if (ReflectionUtils.isInstanceOf(view, DrawerLayoutUtil.CN_DRAWER_LAYOUT)) {
+            String attrVal = attrs.getAttributeValue(BridgeConstants.NS_TOOLS_URI,
+                    BridgeConstants.ATTR_OPEN_DRAWER);
+            if (attrVal != null) {
+                getDrawerLayoutMap().put(view, attrVal);
+            }
+        }
+        else if (view instanceof NumberPicker) {
+            NumberPicker numberPicker = (NumberPicker) view;
+            String minValue = attrs.getAttributeValue(BridgeConstants.NS_TOOLS_URI, "minValue");
+            if (minValue != null) {
+                numberPicker.setMinValue(Integer.parseInt(minValue));
+            }
+            String maxValue = attrs.getAttributeValue(BridgeConstants.NS_TOOLS_URI, "maxValue");
+            if (maxValue != null) {
+                numberPicker.setMaxValue(Integer.parseInt(maxValue));
+            }
+        }
+        else if (view instanceof ImageView) {
+            ImageView img = (ImageView) view;
+            Drawable drawable = img.getDrawable();
+            if (drawable instanceof Animatable) {
+                if (!((Animatable) drawable).isRunning()) {
+                    ((Animatable) drawable).start();
+                }
+            }
+        }
+        else if (view instanceof ViewStub) {
+            // By default, ViewStub will be set to GONE and won't be inflate. If the XML has the
+            // tools:visibility attribute we'll workaround that behavior.
+            String visibility = attrs.getAttributeValue(BridgeConstants.NS_TOOLS_URI,
+                    SdkConstants.ATTR_VISIBILITY);
+
+            boolean isVisible = "visible".equals(visibility);
+            if (isVisible || "invisible".equals(visibility)) {
+                // We can not inflate the view until is attached to its parent so we need to delay
+                // the setVisible call until after that happens.
+                final int visibilityValue = isVisible ? View.VISIBLE : View.INVISIBLE;
+                view.addOnAttachStateChangeListener(new OnAttachStateChangeListener() {
+                    @Override
+                    public void onViewAttachedToWindow(View v) {
+                        v.removeOnAttachStateChangeListener(this);
+                        view.setVisibility(visibilityValue);
+                    }
+
+                    @Override
+                    public void onViewDetachedFromWindow(View v) {}
+                });
+            }
+        }
+
     }
 
     public void setIsInMerge(boolean isInMerge) {
@@ -541,7 +584,7 @@ public final class BridgeInflater extends LayoutInflater {
     @NonNull
     private Map<View, String> getDrawerLayoutMap() {
         if (mOpenDrawerLayouts == null) {
-            mOpenDrawerLayouts = new HashMap<View, String>(4);
+            mOpenDrawerLayouts = new HashMap<>(4);
         }
         return mOpenDrawerLayouts;
     }

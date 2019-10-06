@@ -16,8 +16,9 @@
 
 package android.net;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
-import android.net.ConnectivityManager.PacketKeepalive;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -56,6 +57,7 @@ public abstract class NetworkAgent extends Handler {
     private static final long BW_REFRESH_MIN_WIN_MS = 500;
     private boolean mPollLceScheduled = false;
     private AtomicBoolean mPollLcePending = new AtomicBoolean(false);
+    public final int mFactorySerialNumber;
 
     private static final int BASE = Protocol.BASE_NETWORK_AGENT;
 
@@ -152,7 +154,7 @@ public abstract class NetworkAgent extends Handler {
      *
      * Also used internally by ConnectivityService / KeepaliveTracker, with different semantics.
      */
-    public static final int CMD_START_PACKET_KEEPALIVE = BASE + 11;
+    public static final int CMD_START_SOCKET_KEEPALIVE = BASE + 11;
 
     /**
      * Requests that the specified keepalive packet be stopped.
@@ -161,20 +163,40 @@ public abstract class NetworkAgent extends Handler {
      *
      * Also used internally by ConnectivityService / KeepaliveTracker, with different semantics.
      */
-    public static final int CMD_STOP_PACKET_KEEPALIVE = BASE + 12;
+    public static final int CMD_STOP_SOCKET_KEEPALIVE = BASE + 12;
 
     /**
-     * Sent by the NetworkAgent to ConnectivityService to provide status on a packet keepalive
-     * request. This may either be the reply to a CMD_START_PACKET_KEEPALIVE, or an asynchronous
+     * Sent by the NetworkAgent to ConnectivityService to provide status on a socket keepalive
+     * request. This may either be the reply to a CMD_START_SOCKET_KEEPALIVE, or an asynchronous
      * error notification.
      *
-     * This is also sent by KeepaliveTracker to the app's ConnectivityManager.PacketKeepalive to
-     * so that the app's PacketKeepaliveCallback methods can be called.
+     * This is also sent by KeepaliveTracker to the app's {@link SocketKeepalive},
+     * so that the app's {@link SocketKeepalive.Callback} methods can be called.
      *
      * arg1 = slot number of the keepalive
      * arg2 = error code
      */
-    public static final int EVENT_PACKET_KEEPALIVE = BASE + 13;
+    public static final int EVENT_SOCKET_KEEPALIVE = BASE + 13;
+
+    // TODO: move the above 2 constants down so they are in order once merge conflicts are resolved
+    /**
+     * Sent by the KeepaliveTracker to NetworkAgent to add a packet filter.
+     *
+     * For TCP keepalive offloads, keepalive packets are sent by the firmware. However, because the
+     * remote site will send ACK packets in response to the keepalive packets, the firmware also
+     * needs to be configured to properly filter the ACKs to prevent the system from waking up.
+     * This does not happen with UDP, so this message is TCP-specific.
+     * arg1 = slot number of the keepalive to filter for.
+     * obj = the keepalive packet to send repeatedly.
+     */
+    public static final int CMD_ADD_KEEPALIVE_PACKET_FILTER = BASE + 16;
+
+    /**
+     * Sent by the KeepaliveTracker to NetworkAgent to remove a packet filter. See
+     * {@link #CMD_ADD_KEEPALIVE_PACKET_FILTER}.
+     * arg1 = slot number of the keepalive packet filter to remove.
+     */
+    public static final int CMD_REMOVE_KEEPALIVE_PACKET_FILTER = BASE + 17;
 
     /**
      * Sent by ConnectivityService to inform this network transport of signal strength thresholds
@@ -191,16 +213,31 @@ public abstract class NetworkAgent extends Handler {
      */
     public static final int CMD_PREVENT_AUTOMATIC_RECONNECT = BASE + 15;
 
+    // TODO : remove these two constructors. They are a stopgap measure to help sheperding a number
+    // of dependent changes that would conflict throughout the automerger graph. Having these
+    // temporarily helps with the process of going through with all these dependent changes across
+    // the entire tree.
     public NetworkAgent(Looper looper, Context context, String logTag, NetworkInfo ni,
             NetworkCapabilities nc, LinkProperties lp, int score) {
-        this(looper, context, logTag, ni, nc, lp, score, null);
+        this(looper, context, logTag, ni, nc, lp, score, null, NetworkFactory.SerialNumber.NONE);
+    }
+    public NetworkAgent(Looper looper, Context context, String logTag, NetworkInfo ni,
+            NetworkCapabilities nc, LinkProperties lp, int score, NetworkMisc misc) {
+        this(looper, context, logTag, ni, nc, lp, score, misc, NetworkFactory.SerialNumber.NONE);
     }
 
     public NetworkAgent(Looper looper, Context context, String logTag, NetworkInfo ni,
-            NetworkCapabilities nc, LinkProperties lp, int score, NetworkMisc misc) {
+            NetworkCapabilities nc, LinkProperties lp, int score, int factorySerialNumber) {
+        this(looper, context, logTag, ni, nc, lp, score, null, factorySerialNumber);
+    }
+
+    public NetworkAgent(Looper looper, Context context, String logTag, NetworkInfo ni,
+            NetworkCapabilities nc, LinkProperties lp, int score, NetworkMisc misc,
+            int factorySerialNumber) {
         super(looper);
         LOG_TAG = logTag;
         mContext = context;
+        mFactorySerialNumber = factorySerialNumber;
         if (ni == null || nc == null || lp == null) {
             throw new IllegalArgumentException();
         }
@@ -209,7 +246,8 @@ public abstract class NetworkAgent extends Handler {
         ConnectivityManager cm = (ConnectivityManager)mContext.getSystemService(
                 Context.CONNECTIVITY_SERVICE);
         netId = cm.registerNetworkAgent(new Messenger(this), new NetworkInfo(ni),
-                new LinkProperties(lp), new NetworkCapabilities(nc), score, misc);
+                new LinkProperties(lp), new NetworkCapabilities(nc), score, misc,
+                factorySerialNumber);
     }
 
     @Override
@@ -286,12 +324,12 @@ public abstract class NetworkAgent extends Handler {
                 saveAcceptUnvalidated(msg.arg1 != 0);
                 break;
             }
-            case CMD_START_PACKET_KEEPALIVE: {
-                startPacketKeepalive(msg);
+            case CMD_START_SOCKET_KEEPALIVE: {
+                startSocketKeepalive(msg);
                 break;
             }
-            case CMD_STOP_PACKET_KEEPALIVE: {
-                stopPacketKeepalive(msg);
+            case CMD_STOP_SOCKET_KEEPALIVE: {
+                stopSocketKeepalive(msg);
                 break;
             }
 
@@ -309,6 +347,14 @@ public abstract class NetworkAgent extends Handler {
             }
             case CMD_PREVENT_AUTOMATIC_RECONNECT: {
                 preventAutomaticReconnect();
+                break;
+            }
+            case CMD_ADD_KEEPALIVE_PACKET_FILTER: {
+                addKeepalivePacketFilter(msg);
+                break;
+            }
+            case CMD_REMOVE_KEEPALIVE_PACKET_FILTER: {
+                removeKeepalivePacketFilter(msg);
                 break;
             }
         }
@@ -351,6 +397,7 @@ public abstract class NetworkAgent extends Handler {
     /**
      * Called by the bearer code when it has new NetworkInfo data.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void sendNetworkInfo(NetworkInfo networkInfo) {
         queueOrSendMessage(EVENT_NETWORK_INFO_CHANGED, new NetworkInfo(networkInfo));
     }
@@ -372,7 +419,7 @@ public abstract class NetworkAgent extends Handler {
         if (score < 0) {
             throw new IllegalArgumentException("Score must be >= 0");
         }
-        queueOrSendMessage(EVENT_NETWORK_SCORE_CHANGED, new Integer(score));
+        queueOrSendMessage(EVENT_NETWORK_SCORE_CHANGED,  score, 0);
     }
 
     /**
@@ -387,7 +434,24 @@ public abstract class NetworkAgent extends Handler {
      * {@link #saveAcceptUnvalidated} to respect the user's choice.
      */
     public void explicitlySelected(boolean acceptUnvalidated) {
-        queueOrSendMessage(EVENT_SET_EXPLICITLY_SELECTED, acceptUnvalidated);
+        explicitlySelected(true /* explicitlySelected */, acceptUnvalidated);
+    }
+
+    /**
+     * Called by the bearer to indicate this network was manually selected by the user.
+     * This should be called before the NetworkInfo is marked CONNECTED so that this
+     * Network can be given special treatment at that time. If {@code acceptUnvalidated} is
+     * {@code true}, then the system will switch to this network. If it is {@code false} and the
+     * network cannot be validated, the system will ask the user whether to switch to this network.
+     * If the user confirms and selects "don't ask again", then the system will call
+     * {@link #saveAcceptUnvalidated} to persist the user's choice. Thus, if the transport ever
+     * calls this method with {@code acceptUnvalidated} set to {@code false}, it must also implement
+     * {@link #saveAcceptUnvalidated} to respect the user's choice.
+     */
+    public void explicitlySelected(boolean explicitlySelected, boolean acceptUnvalidated) {
+        queueOrSendMessage(EVENT_SET_EXPLICITLY_SELECTED,
+                explicitlySelected ? 1 : 0,
+                acceptUnvalidated ? 1 : 0);
     }
 
     /**
@@ -440,22 +504,38 @@ public abstract class NetworkAgent extends Handler {
     /**
      * Requests that the network hardware send the specified packet at the specified interval.
      */
-    protected void startPacketKeepalive(Message msg) {
-        onPacketKeepaliveEvent(msg.arg1, PacketKeepalive.ERROR_HARDWARE_UNSUPPORTED);
+    protected void startSocketKeepalive(Message msg) {
+        onSocketKeepaliveEvent(msg.arg1, SocketKeepalive.ERROR_UNSUPPORTED);
     }
 
     /**
      * Requests that the network hardware send the specified packet at the specified interval.
      */
-    protected void stopPacketKeepalive(Message msg) {
-        onPacketKeepaliveEvent(msg.arg1, PacketKeepalive.ERROR_HARDWARE_UNSUPPORTED);
+    protected void stopSocketKeepalive(Message msg) {
+        onSocketKeepaliveEvent(msg.arg1, SocketKeepalive.ERROR_UNSUPPORTED);
     }
 
     /**
-     * Called by the network when a packet keepalive event occurs.
+     * Called by the network when a socket keepalive event occurs.
      */
-    public void onPacketKeepaliveEvent(int slot, int reason) {
-        queueOrSendMessage(EVENT_PACKET_KEEPALIVE, slot, reason);
+    public void onSocketKeepaliveEvent(int slot, int reason) {
+        queueOrSendMessage(EVENT_SOCKET_KEEPALIVE, slot, reason);
+    }
+
+    /**
+     * Called by ConnectivityService to add specific packet filter to network hardware to block
+     * ACKs matching the sent keepalive packets. Implementations that support this feature must
+     * override this method.
+     */
+    protected void addKeepalivePacketFilter(Message msg) {
+    }
+
+    /**
+     * Called by ConnectivityService to remove a packet filter installed with
+     * {@link #addKeepalivePacketFilter(Message)}. Implementations that support this feature
+     * must override this method.
+     */
+    protected void removeKeepalivePacketFilter(Message msg) {
     }
 
     /**

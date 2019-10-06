@@ -18,6 +18,7 @@ package android.os;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -156,6 +157,7 @@ public final class SharedMemory implements Parcelable, Closeable {
      *
      * @hide Exposed for native ASharedMemory_dupFromJava()
      */
+    @UnsupportedAppUsage
     public int getFd() {
         return mFileDescriptor.getInt$();
     }
@@ -270,7 +272,7 @@ public final class SharedMemory implements Parcelable, Closeable {
         dest.writeFileDescriptor(mFileDescriptor);
     }
 
-    public static final Parcelable.Creator<SharedMemory> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<SharedMemory> CREATOR =
             new Parcelable.Creator<SharedMemory>() {
         @Override
         public SharedMemory createFromParcel(Parcel source) {

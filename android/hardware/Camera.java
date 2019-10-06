@@ -21,6 +21,7 @@ import static android.system.OsConstants.*;
 import android.annotation.Nullable;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.UnsupportedAppUsage;
 import android.app.ActivityThread;
 import android.app.AppOpsManager;
 import android.content.Context;
@@ -30,6 +31,7 @@ import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.media.AudioAttributes;
 import android.media.IAudioService;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -164,6 +166,7 @@ public class Camera {
     private static final int CAMERA_MSG_PREVIEW_METADATA = 0x400;
     private static final int CAMERA_MSG_FOCUS_MOVE       = 0x800;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private long mNativeContext; // accessed by native methods
     private EventHandler mEventHandler;
     private ShutterCallback mShutterCallback;
@@ -236,6 +239,7 @@ public class Camera {
      * Camera HAL device API version 1.0
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int CAMERA_HAL_API_VERSION_1_0 = 0x100;
 
     /**
@@ -267,7 +271,7 @@ public class Camera {
      * If there is a
      * {@link android.hardware.camera2.CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA
      * logical multi-camera} in the system, to maintain app backward compatibility, this method will
-     * only expose one camera for every logical camera and underlying physical cameras group.
+     * only expose one camera per facing for all logical camera and physical camera groups.
      * Use camera2 API to see all cameras.
      *
      * @return total number of accessible camera devices, or 0 if there are no
@@ -451,6 +455,7 @@ public class Camera {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static Camera openLegacy(int cameraId, int halVersion) {
         if (halVersion < CAMERA_HAL_API_VERSION_1_0) {
             throw new IllegalArgumentException("Invalid HAL version " + halVersion);
@@ -571,9 +576,7 @@ public class Camera {
     /**
      * An empty Camera for testing purpose.
      */
-    Camera() {
-        initAppOps();
-    }
+    Camera() {}
 
     private void initAppOps() {
         IBinder b = ServiceManager.getService(Context.APP_OPS_SERVICE);
@@ -606,6 +609,7 @@ public class Camera {
         release();
     }
 
+    @UnsupportedAppUsage
     private native final int native_setup(Object camera_this, int cameraId, int halVersion,
                                            String packageName);
 
@@ -718,6 +722,7 @@ public class Camera {
     /**
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public native final void setPreviewSurface(Surface surface) throws IOException;
 
     /**
@@ -807,7 +812,10 @@ public class Camera {
      *
      * @throws RuntimeException if starting preview fails; usually this would be
      *    because of a hardware or other low-level error, or because release()
-     *    has been called on this Camera instance.
+     *    has been called on this Camera instance. The QCIF (176x144) exception
+     *    mentioned in {@link Parameters#setPreviewSize setPreviewSize} and
+     *    {@link Parameters#setPictureSize setPictureSize} can also cause this
+     *    exception be thrown.
      */
     public native final void startPreview();
 
@@ -841,6 +849,7 @@ public class Camera {
      * FIXME: Unhide before release
      * @hide
      */
+    @UnsupportedAppUsage
     public native final boolean previewEnabled();
 
     /**
@@ -1014,11 +1023,13 @@ public class Camera {
      *
      * {@hide}
      */
+    @UnsupportedAppUsage
     public final void addRawImageCallbackBuffer(byte[] callbackBuffer)
     {
         addCallbackBuffer(callbackBuffer, CAMERA_MSG_RAW_IMAGE);
     }
 
+    @UnsupportedAppUsage
     private final void addCallbackBuffer(byte[] callbackBuffer, int msgType)
     {
         // CAMERA_MSG_VIDEO_FRAME may be allowed in the future.
@@ -1166,6 +1177,7 @@ public class Camera {
     {
         private final Camera mCamera;
 
+        @UnsupportedAppUsage
         public EventHandler(Camera c, Looper looper) {
             super(looper);
             mCamera = c;
@@ -1265,6 +1277,7 @@ public class Camera {
         }
     }
 
+    @UnsupportedAppUsage
     private static void postEventFromNative(Object camera_ref,
                                             int what, int arg1, int arg2, Object obj)
     {
@@ -2077,7 +2090,9 @@ public class Camera {
         mDetailedErrorCallback = cb;
     }
 
+    @UnsupportedAppUsage
     private native final void native_setParameters(String params);
+    @UnsupportedAppUsage
     private native final String native_getParameters();
 
     /**
@@ -2126,6 +2141,7 @@ public class Camera {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static Parameters getEmptyParameters() {
         Camera camera = new Camera();
         return camera.new Parameters();
@@ -2660,6 +2676,7 @@ public class Camera {
          *
          * @hide
          */
+        @UnsupportedAppUsage
         public void copyFrom(Parameters other) {
             if (other == null) {
                 throw new NullPointerException("other must not be null");
@@ -2691,6 +2708,7 @@ public class Camera {
          * @deprecated
          */
         @Deprecated
+        @UnsupportedAppUsage
         public void dump() {
             Log.e(TAG, "dump: size=" + mMap.size());
             for (String k : mMap.keySet()) {
@@ -2848,6 +2866,16 @@ public class Camera {
          * orientation should also be considered while setting picture size and
          * thumbnail size.
          *
+         * Exception on 176x144 (QCIF) resolution:
+         * Camera devices usually have a fixed capability for downscaling from
+         * larger resolution to smaller, and the QCIF resolution sometimes
+         * is not fully supported due to this limitation on devices with
+         * high-resolution image sensors. Therefore, trying to configure a QCIF
+         * preview size with any picture or video size larger than 1920x1080
+         * (either width or height) might not be supported, and
+         * {@link #setParameters(Camera.Parameters)} might throw a
+         * RuntimeException if it is not.
+         *
          * @param width  the width of the pictures, in pixels
          * @param height the height of the pictures, in pixels
          * @see #setDisplayOrientation(int)
@@ -2892,6 +2920,16 @@ public class Camera {
          * camera is used as the video source. In this case, the size of the
          * preview can be different from the resolution of the recorded video
          * during video recording.</p>
+         *
+         * <p>Exception on 176x144 (QCIF) resolution:
+         * Camera devices usually have a fixed capability for downscaling from
+         * larger resolution to smaller, and the QCIF resolution sometimes
+         * is not fully supported due to this limitation on devices with
+         * high-resolution image sensors. Therefore, trying to configure a QCIF
+         * video resolution with any preview or picture size larger than
+         * 1920x1080  (either width or height) might not be supported, and
+         * {@link #setParameters(Camera.Parameters)} will throw a
+         * RuntimeException if it is not.</p>
          *
          * @return a list of Size object if camera has separate preview and
          *         video output; otherwise, null is returned.
@@ -3186,6 +3224,16 @@ public class Camera {
          *
          * <p>Applications need to consider the display orientation. See {@link
          * #setPreviewSize(int,int)} for reference.</p>
+         *
+         * <p>Exception on 176x144 (QCIF) resolution:
+         * Camera devices usually have a fixed capability for downscaling from
+         * larger resolution to smaller, and the QCIF resolution sometimes
+         * is not fully supported due to this limitation on devices with
+         * high-resolution image sensors. Therefore, trying to configure a QCIF
+         * picture size with any preview or video size larger than 1920x1080
+         * (either width or height) might not be supported, and
+         * {@link #setParameters(Camera.Parameters)} might throw a
+         * RuntimeException if it is not.</p>
          *
          * @param width  the width for pictures, in pixels
          * @param height the height for pictures, in pixels
@@ -4409,6 +4457,7 @@ public class Camera {
         // Splits a comma delimited string to an ArrayList of Area objects.
         // Example string: "(-10,-10,0,0,300),(0,0,10,10,700)". Return null if
         // the passing string is null or the size is 0 or (0,0,0,0,0).
+        @UnsupportedAppUsage
         private ArrayList<Area> splitArea(String str) {
             if (str == null || str.charAt(0) != '('
                     || str.charAt(str.length() - 1) != ')') {

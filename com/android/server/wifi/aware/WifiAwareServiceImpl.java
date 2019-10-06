@@ -43,6 +43,7 @@ import android.util.Log;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
 
+import com.android.server.wifi.Clock;
 import com.android.server.wifi.FrameworkFacade;
 import com.android.server.wifi.WifiInjector;
 import com.android.server.wifi.util.WifiPermissionsUtil;
@@ -104,7 +105,7 @@ public class WifiAwareServiceImpl extends IWifiAwareManager.Stub {
         mStateManager = awareStateManager;
         mShellCommand = awareShellCommand;
         mStateManager.start(mContext, handlerThread.getLooper(), awareMetrics, wifiPermissionsUtil,
-                permissionsWrapper);
+                permissionsWrapper, new Clock());
 
         frameworkFacade.registerContentObserver(mContext,
                 Settings.Global.getUriFor(Settings.Global.WIFI_VERBOSE_LOGGING_ENABLED), true,

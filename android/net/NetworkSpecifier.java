@@ -17,13 +17,12 @@
 package android.net;
 
 /**
- * Describes specific properties of a network for use in a {@link NetworkRequest}.
+ * Describes specific properties of a requested network for use in a {@link NetworkRequest}.
  *
  * Applications cannot instantiate this class by themselves, but can obtain instances of
  * subclasses of this class via other APIs.
  */
 public abstract class NetworkSpecifier {
-    /** @hide */
     public NetworkSpecifier() {}
 
     /**
@@ -35,7 +34,7 @@ public abstract class NetworkSpecifier {
     public abstract boolean satisfiedBy(NetworkSpecifier other);
 
     /**
-     * Optional method which can be overriden by concrete implementations of NetworkSpecifier to
+     * Optional method which can be overridden by concrete implementations of NetworkSpecifier to
      * check a self-reported UID. A concrete implementation may contain a UID which would be self-
      * reported by the caller (since NetworkSpecifier implementations should be non-mutable). This
      * function is called by ConnectivityService and is passed the actual UID of the caller -
@@ -48,5 +47,30 @@ public abstract class NetworkSpecifier {
      */
     public void assertValidFromUid(int requestorUid) {
         // empty
+    }
+
+    /**
+     * Optional method which can be overridden by concrete implementations of NetworkSpecifier to
+     * perform any redaction of information from the NetworkSpecifier, e.g. if it contains
+     * sensitive information. The default implementation simply returns the object itself - i.e.
+     * no information is redacted. A concrete implementation may return a modified (copy) of the
+     * NetworkSpecifier, or even return a null to fully remove all information.
+     * <p>
+     * This method is relevant to NetworkSpecifier objects used by agents - those are shared with
+     * apps by default. Some agents may store sensitive matching information in the specifier,
+     * e.g. a Wi-Fi SSID (which should not be shared since it may leak location). Those classes
+     * can redact to a null. Other agents use the Network Specifier to share public information
+     * with apps - those should not be redacted.
+     * <p>
+     * The default implementation redacts no information.
+     *
+     * @return A NetworkSpecifier object to be passed along to the requesting app.
+     *
+     * @hide
+     */
+    public NetworkSpecifier redact() {
+        // TODO (b/122160111): convert default to null once all platform NetworkSpecifiers
+        // implement this method.
+        return this;
     }
 }

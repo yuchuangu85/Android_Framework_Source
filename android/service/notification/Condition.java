@@ -17,7 +17,6 @@
 package android.service.notification;
 
 import android.annotation.IntDef;
-import android.annotation.SystemApi;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Parcel;
@@ -30,12 +29,11 @@ import java.util.Objects;
 
 /**
  * The current condition of an {@link android.app.AutomaticZenRule}, provided by the
- * {@link ConditionProviderService} that owns the rule. Used to tell the system to enter Do Not
+ * app that owns the rule. Used to tell the system to enter Do Not
  * Disturb mode and request that the system exit Do Not Disturb mode.
  */
 public final class Condition implements Parcelable {
 
-    @SystemApi
     public static final String SCHEME = "condition";
 
     /** @hide */
@@ -50,8 +48,8 @@ public final class Condition implements Parcelable {
 
     /**
      * Indicates that Do Not Disturb should be turned off. Note that all Conditions from all
-     * {@link ConditionProviderService} providers must be off for Do Not Disturb to be turned off on
-     * the device.
+     * {@link android.app.AutomaticZenRule} providers must be off for Do Not Disturb to be turned
+     * off on the device.
      */
     public static final int STATE_FALSE = 0;
     /**
@@ -59,14 +57,10 @@ public final class Condition implements Parcelable {
      */
     public static final int STATE_TRUE = 1;
 
-    @SystemApi
     public static final int STATE_UNKNOWN = 2;
-    @SystemApi
     public static final int STATE_ERROR = 3;
 
-    @SystemApi
     public static final int FLAG_RELEVANT_NOW = 1 << 0;
-    @SystemApi
     public static final int FLAG_RELEVANT_ALWAYS = 1 << 1;
 
     /**
@@ -81,9 +75,7 @@ public final class Condition implements Parcelable {
      */
     public final String summary;
 
-    @SystemApi
     public final String line1;
-    @SystemApi
     public final String line2;
 
     /**
@@ -94,9 +86,7 @@ public final class Condition implements Parcelable {
     @State
     public final int state;
 
-    @SystemApi
     public final int flags;
-    @SystemApi
     public final int icon;
 
     /**
@@ -108,7 +98,6 @@ public final class Condition implements Parcelable {
         this(id, summary, "", "", -1, state, FLAG_RELEVANT_ALWAYS);
     }
 
-    @SystemApi
     public Condition(Uri id, String summary, String line1, String line2, int icon,
             int state, int flags) {
         if (id == null) throw new IllegalArgumentException("id is required");
@@ -151,21 +140,21 @@ public final class Condition implements Parcelable {
     @Override
     public String toString() {
         return new StringBuilder(Condition.class.getSimpleName()).append('[')
-            .append("id=").append(id)
-            .append(",summary=").append(summary)
-            .append(",line1=").append(line1)
-            .append(",line2=").append(line2)
-            .append(",icon=").append(icon)
-            .append(",state=").append(stateToString(state))
-            .append(",flags=").append(flags)
-            .append(']').toString();
+                .append("state=").append(stateToString(state))
+                .append(",id=").append(id)
+                .append(",summary=").append(summary)
+                .append(",line1=").append(line1)
+                .append(",line2=").append(line2)
+                .append(",icon=").append(icon)
+                .append(",flags=").append(flags)
+                .append(']').toString();
     }
 
     /** @hide */
     public void writeToProto(ProtoOutputStream proto, long fieldId) {
         final long token = proto.start(fieldId);
 
-        // id is guarantreed not to be null.
+        // id is guaranteed not to be null.
         proto.write(ConditionProto.ID, id.toString());
         proto.write(ConditionProto.SUMMARY, summary);
         proto.write(ConditionProto.LINE_1, line1);
@@ -177,7 +166,6 @@ public final class Condition implements Parcelable {
         proto.end(token);
     }
 
-    @SystemApi
     public static String stateToString(int state) {
         if (state == STATE_FALSE) return "STATE_FALSE";
         if (state == STATE_TRUE) return "STATE_TRUE";
@@ -186,7 +174,6 @@ public final class Condition implements Parcelable {
         throw new IllegalArgumentException("state is invalid: " + state);
     }
 
-    @SystemApi
     public static String relevanceToString(int flags) {
         final boolean now = (flags & FLAG_RELEVANT_NOW) != 0;
         final boolean always = (flags & FLAG_RELEVANT_ALWAYS) != 0;
@@ -219,7 +206,6 @@ public final class Condition implements Parcelable {
         return 0;
     }
 
-    @SystemApi
     public Condition copy() {
         final Parcel parcel = Parcel.obtain();
         try {
@@ -231,19 +217,17 @@ public final class Condition implements Parcelable {
         }
     }
 
-    @SystemApi
     public static Uri.Builder newId(Context context) {
         return new Uri.Builder()
                 .scheme(Condition.SCHEME)
                 .authority(context.getPackageName());
     }
 
-    @SystemApi
     public static boolean isValidId(Uri id, String pkg) {
         return id != null && SCHEME.equals(id.getScheme()) && pkg.equals(id.getAuthority());
     }
 
-    public static final Parcelable.Creator<Condition> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<Condition> CREATOR
             = new Parcelable.Creator<Condition>() {
         @Override
         public Condition createFromParcel(Parcel source) {

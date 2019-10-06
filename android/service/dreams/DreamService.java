@@ -21,11 +21,13 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.UnsupportedAppUsage;
 import android.app.AlarmManager;
 import android.app.Service;
 import android.content.Intent;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.ColorDrawable;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.IRemoteCallback;
@@ -601,6 +603,7 @@ public class DreamService extends Service implements Window.Callback {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void setWindowless(boolean windowless) {
         mWindowless = windowless;
     }
@@ -624,6 +627,7 @@ public class DreamService extends Service implements Window.Callback {
      * @see #startDozing
      * @hide For use by system UI components only.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public boolean canDoze() {
         return mCanDoze;
     }
@@ -657,6 +661,7 @@ public class DreamService extends Service implements Window.Callback {
      * @see #stopDozing
      * @hide For use by system UI components only.
      */
+    @UnsupportedAppUsage
     public void startDozing() {
         if (mCanDoze && !mDozing) {
             mDozing = true;
@@ -690,6 +695,7 @@ public class DreamService extends Service implements Window.Callback {
      * @see #startDozing
      * @hide For use by system UI components only.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void stopDozing() {
         if (mDozing) {
             mDozing = false;
@@ -711,6 +717,7 @@ public class DreamService extends Service implements Window.Callback {
      * @see #setDozing(boolean)
      * @hide For use by system UI components only.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public boolean isDozing() {
         return mDozing;
     }
@@ -767,6 +774,7 @@ public class DreamService extends Service implements Window.Callback {
      *
      * @hide For use by system UI components only.
      */
+    @UnsupportedAppUsage
     public void setDozeScreenState(int state) {
         if (mDozeScreenState != state) {
             mDozeScreenState = state;
@@ -785,6 +793,7 @@ public class DreamService extends Service implements Window.Callback {
      * @see #setDozeScreenBrightness
      * @hide For use by system UI components only.
      */
+    @UnsupportedAppUsage
     public int getDozeScreenBrightness() {
         return mDozeScreenBrightness;
     }
@@ -816,6 +825,7 @@ public class DreamService extends Service implements Window.Callback {
      *
      * @hide For use by system UI components only.
      */
+    @UnsupportedAppUsage
     public void setDozeScreenBrightness(int brightness) {
         if (brightness != PowerManager.BRIGHTNESS_DEFAULT) {
             brightness = clampAbsoluteBrightness(brightness);

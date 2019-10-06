@@ -71,7 +71,7 @@ public class WifiBackupRestore {
      * MajorVersion will be incremented for modifications of the XML schema, excluding additive
      * modifications in <WifiConfiguration> and/or <IpConfiguration> tags.
      * Should the major version be bumped up, a new {@link WifiBackupDataParser} parser needs to
-     * be added and returned from {@link getWifiBackupDataParser()}.
+     * be added and returned from {@link #getWifiBackupDataParser(int)} ()}.
      * Note that bumping up the major version will result in inability to restore the backup
      * set to those lower versions of SDK_INT that don't support the version.
      *
@@ -81,7 +81,7 @@ public class WifiBackupRestore {
      * Note that bumping up only the minor version will still allow restoring the backup set to
      * lower versions of SDK_INT.
      */
-    private static final float CURRENT_BACKUP_DATA_VERSION = 1.0f;
+    private static final float CURRENT_BACKUP_DATA_VERSION = 1.1f;
 
     /** This list of older versions will be used to restore data from older backups. */
     /**

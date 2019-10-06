@@ -26,7 +26,6 @@ import android.os.Build.VERSION_CODES;
 import android.util.AttributeSet;
 import android.view.WindowInsets;
 import android.widget.FrameLayout;
-
 import com.android.setupwizardlib.R;
 
 /**
@@ -40,74 +39,75 @@ import com.android.setupwizardlib.R;
  */
 public class StatusBarBackgroundLayout extends FrameLayout {
 
-    private Drawable mStatusBarBackground;
-    private Object mLastInsets;  // Use generic Object type for compatibility
+  private Drawable statusBarBackground;
+  private Object lastInsets; // Use generic Object type for compatibility
 
-    public StatusBarBackgroundLayout(Context context) {
-        super(context);
-        init(context, null, 0);
+  public StatusBarBackgroundLayout(Context context) {
+    super(context);
+    init(context, null, 0);
+  }
+
+  public StatusBarBackgroundLayout(Context context, AttributeSet attrs) {
+    super(context, attrs);
+    init(context, attrs, 0);
+  }
+
+  @TargetApi(VERSION_CODES.HONEYCOMB)
+  public StatusBarBackgroundLayout(Context context, AttributeSet attrs, int defStyleAttr) {
+    super(context, attrs, defStyleAttr);
+    init(context, attrs, defStyleAttr);
+  }
+
+  private void init(Context context, AttributeSet attrs, int defStyleAttr) {
+    final TypedArray a =
+        context.obtainStyledAttributes(
+            attrs, R.styleable.SuwStatusBarBackgroundLayout, defStyleAttr, 0);
+    final Drawable statusBarBackground =
+        a.getDrawable(R.styleable.SuwStatusBarBackgroundLayout_suwStatusBarBackground);
+    setStatusBarBackground(statusBarBackground);
+    a.recycle();
+  }
+
+  @Override
+  protected void onAttachedToWindow() {
+    super.onAttachedToWindow();
+    if (Build.VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
+      if (lastInsets == null) {
+        requestApplyInsets();
+      }
     }
+  }
 
-    public StatusBarBackgroundLayout(Context context, AttributeSet attrs) {
-        super(context, attrs);
-        init(context, attrs, 0);
-    }
-
-    @TargetApi(VERSION_CODES.HONEYCOMB)
-    public StatusBarBackgroundLayout(Context context, AttributeSet attrs, int defStyleAttr) {
-        super(context, attrs, defStyleAttr);
-        init(context, attrs, defStyleAttr);
-    }
-
-    private void init(Context context, AttributeSet attrs, int defStyleAttr) {
-        final TypedArray a = context.obtainStyledAttributes(attrs,
-                R.styleable.SuwStatusBarBackgroundLayout, defStyleAttr, 0);
-        final Drawable statusBarBackground =
-                a.getDrawable(R.styleable.SuwStatusBarBackgroundLayout_suwStatusBarBackground);
-        setStatusBarBackground(statusBarBackground);
-        a.recycle();
-    }
-
-    @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        if (Build.VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            if (mLastInsets == null) {
-                requestApplyInsets();
-            }
+  @Override
+  protected void onDraw(Canvas canvas) {
+    super.onDraw(canvas);
+    if (Build.VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
+      if (lastInsets != null) {
+        final int insetTop = ((WindowInsets) lastInsets).getSystemWindowInsetTop();
+        if (insetTop > 0) {
+          statusBarBackground.setBounds(0, 0, getWidth(), insetTop);
+          statusBarBackground.draw(canvas);
         }
+      }
     }
+  }
 
-    @Override
-    protected void onDraw(Canvas canvas) {
-        super.onDraw(canvas);
-        if (Build.VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            if (mLastInsets != null) {
-                final int insetTop = ((WindowInsets) mLastInsets).getSystemWindowInsetTop();
-                if (insetTop > 0) {
-                    mStatusBarBackground.setBounds(0, 0, getWidth(), insetTop);
-                    mStatusBarBackground.draw(canvas);
-                }
-            }
-        }
+  public void setStatusBarBackground(Drawable background) {
+    statusBarBackground = background;
+    if (Build.VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
+      setWillNotDraw(background == null);
+      setFitsSystemWindows(background != null);
+      invalidate();
     }
+  }
 
-    public void setStatusBarBackground(Drawable background) {
-        mStatusBarBackground = background;
-        if (Build.VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-            setWillNotDraw(background == null);
-            setFitsSystemWindows(background != null);
-            invalidate();
-        }
-    }
+  public Drawable getStatusBarBackground() {
+    return statusBarBackground;
+  }
 
-    public Drawable getStatusBarBackground() {
-        return mStatusBarBackground;
-    }
-
-    @Override
-    public WindowInsets onApplyWindowInsets(WindowInsets insets) {
-        mLastInsets = insets;
-        return super.onApplyWindowInsets(insets);
-    }
+  @Override
+  public WindowInsets onApplyWindowInsets(WindowInsets insets) {
+    lastInsets = insets;
+    return super.onApplyWindowInsets(insets);
+  }
 }

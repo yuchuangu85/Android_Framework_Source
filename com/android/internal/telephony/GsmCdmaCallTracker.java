@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -28,6 +29,7 @@ import android.os.PersistableBundle;
 import android.os.Registrant;
 import android.os.RegistrantList;
 import android.os.SystemProperties;
+import android.telecom.TelecomManager;
 import android.telephony.CarrierConfigManager;
 import android.telephony.CellLocation;
 import android.telephony.DisconnectCause;
@@ -78,18 +80,24 @@ public class GsmCdmaCallTracker extends CallTracker {
     private ArrayList<GsmCdmaConnection> mDroppedDuringPoll =
             new ArrayList<GsmCdmaConnection>(MAX_CONNECTIONS_GSM);
 
+    @UnsupportedAppUsage
     public GsmCdmaCall mRingingCall = new GsmCdmaCall(this);
     // A call that is ringing or (call) waiting
+    @UnsupportedAppUsage
     public GsmCdmaCall mForegroundCall = new GsmCdmaCall(this);
+    @UnsupportedAppUsage
     public GsmCdmaCall mBackgroundCall = new GsmCdmaCall(this);
 
+    @UnsupportedAppUsage
     private GsmCdmaConnection mPendingMO;
     private boolean mHangupPendingMO;
 
+    @UnsupportedAppUsage
     private GsmCdmaPhone mPhone;
 
     private boolean mDesiredMute = false;    // false = mute off
 
+    @UnsupportedAppUsage
     public PhoneConstants.State mState = PhoneConstants.State.IDLE;
 
     private TelephonyMetrics mMetrics = TelephonyMetrics.getInstance();
@@ -173,7 +181,7 @@ public class GsmCdmaCallTracker extends CallTracker {
             // Prior to phone switch to GSM, if CDMA has any emergency call
             // data will be in disabled state, after switching to GSM enable data.
             if (mIsInEmergencyCall) {
-                mPhone.mDcTracker.setInternalDataEnabled(true);
+                mPhone.getDataEnabledSettings().setInternalDataEnabled(true);
             }
         } else {
             mConnections = new GsmCdmaConnection[MAX_CONNECTIONS_CDMA];
@@ -197,6 +205,8 @@ public class GsmCdmaCallTracker extends CallTracker {
         }
 
         if (mPendingMO != null) {
+            // Send the notification that the pending call was disconnected to the higher layers.
+            mPendingMO.onDisconnect(DisconnectCause.ERROR_UNSPECIFIED);
             mPendingMO.dispose();
         }
 
@@ -248,6 +258,7 @@ public class GsmCdmaCallTracker extends CallTracker {
         mCallWaitingRegistrants.remove(h);
     }
 
+    @UnsupportedAppUsage
     private void fakeHoldForegroundBeforeDial() {
         List<Connection> connCopy;
 
@@ -266,15 +277,16 @@ public class GsmCdmaCallTracker extends CallTracker {
     /**
      * clirMode is one of the CLIR_ constants
      */
-    public synchronized Connection dial(String dialString, int clirMode, UUSInfo uusInfo,
+    public synchronized Connection dialGsm(String dialString, int clirMode, UUSInfo uusInfo,
                                         Bundle intentExtras)
             throws CallStateException {
         // note that this triggers call state changed notif
         clearDisconnected();
 
-        if (!canDial()) {
-            throw new CallStateException("cannot dial in current state");
-        }
+        // Check for issues which would preclude dialing and throw a CallStateException.
+        boolean isEmergencyCall = PhoneNumberUtils.isLocalEmergencyNumber(mPhone.getContext(),
+                dialString);
+        checkForDialIssues(isEmergencyCall);
 
         String origNumber = dialString;
         dialString = convertNumberIfNecessary(mPhone, dialString);
@@ -308,10 +320,15 @@ public class GsmCdmaCallTracker extends CallTracker {
             //we should have failed in !canDial() above before we get here
             throw new CallStateException("cannot dial in current state");
         }
-        boolean isEmergencyCall = PhoneNumberUtils.isLocalEmergencyNumber(mPhone.getContext(),
-                dialString);
+
         mPendingMO = new GsmCdmaConnection(mPhone, checkForTestEmergencyNumber(dialString),
                 this, mForegroundCall, isEmergencyCall);
+        if (intentExtras != null) {
+            Rlog.d(LOG_TAG, "dialGsm - emergency dialer: " + intentExtras.getBoolean(
+                    TelecomManager.EXTRA_IS_USER_INTENT_EMERGENCY_CALL));
+            mPendingMO.setHasKnownUserIntentEmergency(intentExtras.getBoolean(
+                    TelecomManager.EXTRA_IS_USER_INTENT_EMERGENCY_CALL));
+        }
         mHangupPendingMO = false;
         mMetrics.writeRilDial(mPhone.getPhoneId(), mPendingMO, clirMode, uusInfo);
 
@@ -328,7 +345,9 @@ public class GsmCdmaCallTracker extends CallTracker {
             // Always unmute when initiating a new call
             setMute(false);
 
-            mCi.dial(mPendingMO.getAddress(), clirMode, uusInfo, obtainCompleteMessage());
+            mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
+                    mPendingMO.getEmergencyNumberInfo(), mPendingMO.hasKnownUserIntentEmergency(),
+                    clirMode, uusInfo, obtainCompleteMessage());
         }
 
         if (mNumberConverted) {
@@ -346,6 +365,7 @@ public class GsmCdmaCallTracker extends CallTracker {
     /**
      * Handle Ecm timer to be canceled or re-started
      */
+    @UnsupportedAppUsage
     private void handleEcmTimer(int action) {
         mPhone.handleTimerInEmergencyCallbackMode(action);
         switch(action) {
@@ -360,6 +380,7 @@ public class GsmCdmaCallTracker extends CallTracker {
     /**
      * Disable data call when emergency call is connected
      */
+    @UnsupportedAppUsage
     private void disableDataCallInEmergencyCall(String dialString) {
         if (PhoneNumberUtils.isLocalEmergencyNumber(mPhone.getContext(), dialString)) {
             if (Phone.DEBUG_PHONE) log("disableDataCallInEmergencyCall");
@@ -370,7 +391,7 @@ public class GsmCdmaCallTracker extends CallTracker {
     //CDMA
     public void setIsInEmergencyCall() {
         mIsInEmergencyCall = true;
-        mPhone.mDcTracker.setInternalDataEnabled(false);
+        mPhone.getDataEnabledSettings().setInternalDataEnabled(false);
         mPhone.notifyEmergencyCallRegistrants(true);
         mPhone.sendEmergencyCallStateChange(true);
     }
@@ -379,13 +400,16 @@ public class GsmCdmaCallTracker extends CallTracker {
     /**
      * clirMode is one of the CLIR_ constants
      */
-    private Connection dial(String dialString, int clirMode) throws CallStateException {
+    private Connection dialCdma(String dialString, int clirMode, Bundle intentExtras)
+            throws CallStateException {
         // note that this triggers call state changed notif
         clearDisconnected();
 
-        if (!canDial()) {
-            throw new CallStateException("cannot dial in current state");
-        }
+        boolean isEmergencyCall =
+                PhoneNumberUtils.isLocalEmergencyNumber(mPhone.getContext(), dialString);
+
+        // Check for issues which would preclude dialing and throw a CallStateException.
+        checkForDialIssues(isEmergencyCall);
 
         TelephonyManager tm =
                 (TelephonyManager) mPhone.getContext().getSystemService(Context.TELEPHONY_SERVICE);
@@ -407,8 +431,6 @@ public class GsmCdmaCallTracker extends CallTracker {
         }
 
         boolean isPhoneInEcmMode = mPhone.isInEcm();
-        boolean isEmergencyCall =
-                PhoneNumberUtils.isLocalEmergencyNumber(mPhone.getContext(), dialString);
 
         // Cancel Ecm timer if a second emergency call is originating in Ecm mode
         if (isPhoneInEcmMode && isEmergencyCall) {
@@ -419,11 +441,17 @@ public class GsmCdmaCallTracker extends CallTracker {
         // That call must be idle, so place anything that's
         // there on hold
         if (mForegroundCall.getState() == GsmCdmaCall.State.ACTIVE) {
-            return dialThreeWay(dialString);
+            return dialThreeWay(dialString, intentExtras);
         }
 
         mPendingMO = new GsmCdmaConnection(mPhone, checkForTestEmergencyNumber(dialString),
                 this, mForegroundCall, isEmergencyCall);
+        if (intentExtras != null) {
+            Rlog.d(LOG_TAG, "dialGsm - emergency dialer: " + intentExtras.getBoolean(
+                    TelecomManager.EXTRA_IS_USER_INTENT_EMERGENCY_CALL));
+            mPendingMO.setHasKnownUserIntentEmergency(intentExtras.getBoolean(
+                    TelecomManager.EXTRA_IS_USER_INTENT_EMERGENCY_CALL));
+        }
         mHangupPendingMO = false;
 
         if ( mPendingMO.getAddress() == null || mPendingMO.getAddress().length() == 0
@@ -443,7 +471,10 @@ public class GsmCdmaCallTracker extends CallTracker {
 
             // In Ecm mode, if another emergency call is dialed, Ecm mode will not exit.
             if(!isPhoneInEcmMode || (isPhoneInEcmMode && isEmergencyCall)) {
-                mCi.dial(mPendingMO.getAddress(), clirMode, obtainCompleteMessage());
+                mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
+                        mPendingMO.getEmergencyNumberInfo(),
+                        mPendingMO.hasKnownUserIntentEmergency(),
+                        clirMode, obtainCompleteMessage());
             } else {
                 mPhone.exitEmergencyCallbackMode();
                 mPhone.setOnEcbModeExitResponse(this,EVENT_EXIT_ECM_RESPONSE_CDMA, null);
@@ -464,7 +495,7 @@ public class GsmCdmaCallTracker extends CallTracker {
     }
 
     //CDMA
-    private Connection dialThreeWay(String dialString) {
+    private Connection dialThreeWay(String dialString, Bundle intentExtras) {
         if (!mForegroundCall.isIdle()) {
             // Check data call and possibly set mIsInEmergencyCall
             disableDataCallInEmergencyCall(dialString);
@@ -473,10 +504,16 @@ public class GsmCdmaCallTracker extends CallTracker {
             mPendingMO = new GsmCdmaConnection(mPhone,
                     checkForTestEmergencyNumber(dialString), this, mForegroundCall,
                     mIsInEmergencyCall);
+            if (intentExtras != null) {
+                Rlog.d(LOG_TAG, "dialThreeWay - emergency dialer " + intentExtras.getBoolean(
+                        TelecomManager.EXTRA_IS_USER_INTENT_EMERGENCY_CALL));
+                mPendingMO.setHasKnownUserIntentEmergency(intentExtras.getBoolean(
+                        TelecomManager.EXTRA_IS_USER_INTENT_EMERGENCY_CALL));
+            }
             // Some networks need an empty flash before sending the normal one
             CarrierConfigManager configManager = (CarrierConfigManager)
                     mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
-            PersistableBundle bundle = configManager.getConfig();
+            PersistableBundle bundle = configManager.getConfigForSubId(mPhone.getSubId());
             if (bundle != null) {
                 m3WayCallFlashDelay =
                         bundle.getInt(CarrierConfigManager.KEY_CDMA_3WAYCALL_FLASH_DELAY_INT);
@@ -495,24 +532,24 @@ public class GsmCdmaCallTracker extends CallTracker {
         return null;
     }
 
-    public Connection dial(String dialString) throws CallStateException {
+    public Connection dial(String dialString, Bundle intentExtras) throws CallStateException {
         if (isPhoneTypeGsm()) {
-            return dial(dialString, CommandsInterface.CLIR_DEFAULT, null);
+            return dialGsm(dialString, CommandsInterface.CLIR_DEFAULT, intentExtras);
         } else {
-            return dial(dialString, CommandsInterface.CLIR_DEFAULT);
+            return dialCdma(dialString, CommandsInterface.CLIR_DEFAULT, intentExtras);
         }
     }
 
     //GSM
-    public Connection dial(String dialString, UUSInfo uusInfo, Bundle intentExtras)
+    public Connection dialGsm(String dialString, UUSInfo uusInfo, Bundle intentExtras)
             throws CallStateException {
-        return dial(dialString, CommandsInterface.CLIR_DEFAULT, uusInfo, intentExtras);
+        return dialGsm(dialString, CommandsInterface.CLIR_DEFAULT, uusInfo, intentExtras);
     }
 
     //GSM
-    private Connection dial(String dialString, int clirMode, Bundle intentExtras)
+    private Connection dialGsm(String dialString, int clirMode, Bundle intentExtras)
             throws CallStateException {
-        return dial(dialString, clirMode, null, intentExtras);
+        return dialGsm(dialString, clirMode, null, intentExtras);
     }
 
     public void acceptCall() throws CallStateException {
@@ -562,6 +599,7 @@ public class GsmCdmaCallTracker extends CallTracker {
         mPhone.notifyPreciseCallStateChanged();
     }
 
+    @UnsupportedAppUsage
     public void switchWaitingOrHoldingAndActive() throws CallStateException {
         // Should we bother with this check?
         if (mRingingCall.getState() == GsmCdmaCall.State.INCOMING) {
@@ -597,6 +635,7 @@ public class GsmCdmaCallTracker extends CallTracker {
         mCi.explicitCallTransfer(obtainCompleteMessage(EVENT_ECT_RESULT));
     }
 
+    @UnsupportedAppUsage
     public void clearDisconnected() {
         internalClearDisconnected();
 
@@ -611,41 +650,50 @@ public class GsmCdmaCallTracker extends CallTracker {
                 && !mForegroundCall.isFull();
     }
 
-    private boolean canDial() {
-        boolean ret;
-        int serviceState = mPhone.getServiceState().getState();
+    /**
+     * Determines if there are issues which would preclude dialing an outgoing call.  Throws a
+     * {@link CallStateException} if there is an issue.
+     * @throws CallStateException
+     */
+    public void checkForDialIssues(boolean isEmergencyCall) throws CallStateException {
         String disableCall = SystemProperties.get(
                 TelephonyProperties.PROPERTY_DISABLE_CALL, "false");
 
-        ret = (serviceState != ServiceState.STATE_POWER_OFF)
-                && mPendingMO == null
-                && !mRingingCall.isRinging()
-                && !disableCall.equals("true")
-                && (!mForegroundCall.getState().isAlive()
-                    || !mBackgroundCall.getState().isAlive()
-                    || (!isPhoneTypeGsm()
-                        && mForegroundCall.getState() == GsmCdmaCall.State.ACTIVE));
-
-        if (!ret) {
-            log(String.format("canDial is false\n" +
-                            "((serviceState=%d) != ServiceState.STATE_POWER_OFF)::=%s\n" +
-                            "&& pendingMO == null::=%s\n" +
-                            "&& !ringingCall.isRinging()::=%s\n" +
-                            "&& !disableCall.equals(\"true\")::=%s\n" +
-                            "&& (!foregroundCall.getState().isAlive()::=%s\n" +
-                            "   || foregroundCall.getState() == GsmCdmaCall.State.ACTIVE::=%s\n" +
-                            "   ||!backgroundCall.getState().isAlive())::=%s)",
-                    serviceState,
-                    serviceState != ServiceState.STATE_POWER_OFF,
-                    mPendingMO == null,
-                    !mRingingCall.isRinging(),
-                    !disableCall.equals("true"),
-                    !mForegroundCall.getState().isAlive(),
-                    mForegroundCall.getState() == GsmCdmaCall.State.ACTIVE,
-                    !mBackgroundCall.getState().isAlive()));
+        if (mCi.getRadioState() != TelephonyManager.RADIO_POWER_ON) {
+            throw new CallStateException(CallStateException.ERROR_POWER_OFF,
+                    "Modem not powered");
         }
+        if (disableCall.equals("true")) {
+            throw new CallStateException(CallStateException.ERROR_CALLING_DISABLED,
+                    "Calling disabled via ro.telephony.disable-call property");
+        }
+        if (mPendingMO != null) {
+            throw new CallStateException(CallStateException.ERROR_ALREADY_DIALING,
+                    "A call is already dialing.");
+        }
+        if (mRingingCall.isRinging()) {
+            throw new CallStateException(CallStateException.ERROR_CALL_RINGING,
+                    "Can't call while a call is ringing.");
+        }
+        if (isPhoneTypeGsm()
+                && mForegroundCall.getState().isAlive() && mBackgroundCall.getState().isAlive()) {
+            throw new CallStateException(CallStateException.ERROR_TOO_MANY_CALLS,
+                    "There is already a foreground and background call.");
+        }
+        if (!isPhoneTypeGsm()
+                // Essentially foreground call state is one of:
+                // HOLDING, DIALING, ALERTING, INCOMING, WAITING
+                && mForegroundCall.getState().isAlive()
+                && mForegroundCall.getState() != GsmCdmaCall.State.ACTIVE
 
-        return ret;
+                && mBackgroundCall.getState().isAlive()) {
+            throw new CallStateException(CallStateException.ERROR_TOO_MANY_CALLS,
+                    "There is already a foreground and background call.");
+        }
+        if (!isEmergencyCall && isInOtaspCall()) {
+            throw new CallStateException(CallStateException.ERROR_OTASP_PROVISIONING_IN_PROCESS,
+                    "OTASP provisioning is in process.");
+        }
     }
 
     public boolean canTransfer() {
@@ -672,6 +720,7 @@ public class GsmCdmaCallTracker extends CallTracker {
      * Obtain a message to use for signalling "invoke getCurrentCalls() when
      * this operation and all other pending operations are complete
      */
+    @UnsupportedAppUsage
     private Message obtainCompleteMessage() {
         return obtainCompleteMessage(EVENT_OPERATION_COMPLETE);
     }
@@ -680,6 +729,7 @@ public class GsmCdmaCallTracker extends CallTracker {
      * Obtain a message to use for signalling "invoke getCurrentCalls() when
      * this operation and all other pending operations are complete
      */
+    @UnsupportedAppUsage
     private Message obtainCompleteMessage(int what) {
         mPendingOperations++;
         mLastRelevantPoll = null;
@@ -707,6 +757,7 @@ public class GsmCdmaCallTracker extends CallTracker {
         }
     }
 
+    @UnsupportedAppUsage
     private void updatePhoneState() {
         PhoneConstants.State oldState = mState;
         if (mRingingCall.isRinging()) {
@@ -845,6 +896,8 @@ public class GsmCdmaCallTracker extends CallTracker {
                                 hoConnection.mPreHandoverState != GsmCdmaCall.State.HOLDING &&
                                 dc.state == DriverCall.State.ACTIVE) {
                             mConnections[i].onConnectedInOrOut();
+                        } else {
+                            mConnections[i].onConnectedConnectionMigrated();
                         }
 
                         mHandoverConnections.remove(hoConnection);
@@ -1038,8 +1091,10 @@ public class GsmCdmaCallTracker extends CallTracker {
                 newUnknownConnectionCdma = null;
             }
         }
+
         if (locallyDisconnectedConnections.size() > 0) {
-            mMetrics.writeRilCallList(mPhone.getPhoneId(), locallyDisconnectedConnections);
+            mMetrics.writeRilCallList(mPhone.getPhoneId(), locallyDisconnectedConnections,
+                    getNetworkCountryIso());
         }
 
         /* Disconnect any pending Handover connections */
@@ -1110,7 +1165,7 @@ public class GsmCdmaCallTracker extends CallTracker {
         for (GsmCdmaConnection conn : connections) {
             if (conn != null) activeConnections.add(conn);
         }
-        mMetrics.writeRilCallList(mPhone.getPhoneId(), activeConnections);
+        mMetrics.writeRilCallList(mPhone.getPhoneId(), activeConnections, getNetworkCountryIso());
     }
 
     private void handleRadioNotAvailable() {
@@ -1183,7 +1238,8 @@ public class GsmCdmaCallTracker extends CallTracker {
             return;
         } else {
             try {
-                mMetrics.writeRilHangup(mPhone.getPhoneId(), conn, conn.getGsmCdmaIndex());
+                mMetrics.writeRilHangup(mPhone.getPhoneId(), conn, conn.getGsmCdmaIndex(),
+                        getNetworkCountryIso());
                 mCi.hangupConnection (conn.getGsmCdmaIndex(), obtainCompleteMessage());
             } catch (CallStateException ex) {
                 // Ignore "connection not found"
@@ -1213,6 +1269,7 @@ public class GsmCdmaCallTracker extends CallTracker {
 
     //***** Called from GsmCdmaPhone
 
+    @UnsupportedAppUsage
     public void setMute(boolean mute) {
         mDesiredMute = mute;
         mCi.setMute(mDesiredMute, null);
@@ -1277,7 +1334,7 @@ public class GsmCdmaCallTracker extends CallTracker {
             } catch (CallStateException ex) {
                 call_index = -1;
             }
-            mMetrics.writeRilHangup(mPhone.getPhoneId(), cn, call_index);
+            mMetrics.writeRilHangup(mPhone.getPhoneId(), cn, call_index, getNetworkCountryIso());
         }
         if (VDBG) Rlog.v(LOG_TAG, "logHangupEvent logged " + count + " Connections ");
     }
@@ -1299,7 +1356,8 @@ public class GsmCdmaCallTracker extends CallTracker {
         for (int i = 0; i < count; i++) {
             GsmCdmaConnection cn = (GsmCdmaConnection)call.mConnections.get(i);
             if (!cn.mDisconnected && cn.getGsmCdmaIndex() == index) {
-                mMetrics.writeRilHangup(mPhone.getPhoneId(), cn, cn.getGsmCdmaIndex());
+                mMetrics.writeRilHangup(mPhone.getPhoneId(), cn, cn.getGsmCdmaIndex(),
+                        getNetworkCountryIso());
                 mCi.hangupConnection(index, obtainCompleteMessage());
                 return;
             }
@@ -1314,7 +1372,8 @@ public class GsmCdmaCallTracker extends CallTracker {
             for (int i = 0; i < count; i++) {
                 GsmCdmaConnection cn = (GsmCdmaConnection)call.mConnections.get(i);
                 if (!cn.mDisconnected) {
-                    mMetrics.writeRilHangup(mPhone.getPhoneId(), cn, cn.getGsmCdmaIndex());
+                    mMetrics.writeRilHangup(mPhone.getPhoneId(), cn, cn.getGsmCdmaIndex(),
+                            getNetworkCountryIso());
                     mCi.hangupConnection(cn.getGsmCdmaIndex(), obtainCompleteMessage());
                 }
             }
@@ -1431,11 +1490,36 @@ public class GsmCdmaCallTracker extends CallTracker {
                 operationComplete();
 
                 if (ar.exception != null) {
-                    // An exception occurred...just treat the disconnect
-                    // cause as "normal"
-                    causeCode = CallFailCause.NORMAL_CLEARING;
-                    Rlog.i(LOG_TAG,
-                            "Exception during getLastCallFailCause, assuming normal disconnect");
+                    if (ar.exception instanceof CommandException) {
+                        // If we get a CommandException, there are some modem-reported command
+                        // errors which are truly exceptional.  We shouldn't treat these as
+                        // NORMAL_CLEARING, so we'll re-map to ERROR_UNSPECIFIED.
+                        CommandException commandException = (CommandException) ar.exception;
+                        switch (commandException.getCommandError()) {
+                            case RADIO_NOT_AVAILABLE:
+                                // Intentional fall-through.
+                            case NO_MEMORY:
+                                // Intentional fall-through.
+                            case INTERNAL_ERR:
+                                // Intentional fall-through.
+                            case NO_RESOURCES:
+                                causeCode = CallFailCause.ERROR_UNSPECIFIED;
+
+                                // Report the actual internal command error as the vendor cause;
+                                // this will ensure it gets bubbled up into the Telecom logs.
+                                vendorCause = commandException.getCommandError().toString();
+                                break;
+                            default:
+                                causeCode = CallFailCause.NORMAL_CLEARING;
+                        }
+                    } else {
+                        // An exception occurred...just treat the disconnect
+                        // cause as "normal"
+                        causeCode = CallFailCause.NORMAL_CLEARING;
+                        Rlog.i(LOG_TAG,
+                                "Exception during getLastCallFailCause, assuming normal "
+                                        + "disconnect");
+                    }
                 } else {
                     LastCallFailCause failCause = (LastCallFailCause)ar.result;
                     causeCode = failCause.causeCode;
@@ -1453,9 +1537,9 @@ public class GsmCdmaCallTracker extends CallTracker {
                     CellLocation loc = mPhone.getCellLocation();
                     int cid = -1;
                     if (loc != null) {
-                        if (isPhoneTypeGsm()) {
+                        if (loc instanceof GsmCellLocation) {
                             cid = ((GsmCellLocation)loc).getCid();
-                        } else {
+                        } else if (loc instanceof CdmaCellLocation) {
                             cid = ((CdmaCellLocation)loc).getBaseStationId();
                         }
                     }
@@ -1472,7 +1556,8 @@ public class GsmCdmaCallTracker extends CallTracker {
                 updatePhoneState();
 
                 mPhone.notifyPreciseCallStateChanged();
-                mMetrics.writeRilCallList(mPhone.getPhoneId(), mDroppedDuringPoll);
+                mMetrics.writeRilCallList(mPhone.getPhoneId(), mDroppedDuringPoll,
+                        getNetworkCountryIso());
                 mDroppedDuringPoll.clear();
             break;
 
@@ -1493,7 +1578,10 @@ public class GsmCdmaCallTracker extends CallTracker {
                 if (!isPhoneTypeGsm()) {
                     // no matter the result, we still do the same here
                     if (mPendingCallInEcm) {
-                        mCi.dial(mPendingMO.getAddress(), mPendingCallClirMode, obtainCompleteMessage());
+                        mCi.dial(mPendingMO.getAddress(), mPendingMO.isEmergencyCall(),
+                                mPendingMO.getEmergencyNumberInfo(),
+                                mPendingMO.hasKnownUserIntentEmergency(),
+                                mPendingCallClirMode, obtainCompleteMessage());
                         mPendingCallInEcm = false;
                     }
                     mPhone.unsetOnEcbModeExitResponse(this);
@@ -1560,6 +1648,24 @@ public class GsmCdmaCallTracker extends CallTracker {
         }
     }
 
+    /**
+     * Dispatches the CS call radio technology to all exist connections.
+     *
+     * @param vrat the RIL voice radio technology for CS calls,
+     *             see {@code RIL_RADIO_TECHNOLOGY_*} in {@link android.telephony.ServiceState}.
+     */
+    public void dispatchCsCallRadioTech(@ServiceState.RilRadioTechnology int vrat) {
+        if (mConnections == null) {
+            log("dispatchCsCallRadioTech: mConnections is null");
+            return;
+        }
+        for (GsmCdmaConnection gsmCdmaConnection : mConnections) {
+            if (gsmCdmaConnection != null) {
+                gsmCdmaConnection.setCallRadioTech(vrat);
+            }
+        }
+    }
+
     //CDMA
     /**
      * Check and enable data call after an emergency call is dropped if it's
@@ -1574,7 +1680,7 @@ public class GsmCdmaCallTracker extends CallTracker {
             }
             if (!inEcm) {
                 // Re-initiate data connection
-                mPhone.mDcTracker.setInternalDataEnabled(true);
+                mPhone.getDataEnabledSettings().setInternalDataEnabled(true);
                 mPhone.notifyEmergencyCallRegistrants(false);
             }
             mPhone.sendEmergencyCallStateChange(false);
@@ -1624,14 +1730,30 @@ public class GsmCdmaCallTracker extends CallTracker {
         return mIsInEmergencyCall;
     }
 
+    /**
+     * @return {@code true} if the pending outgoing call or active call is an OTASP call,
+     * {@code false} otherwise.
+     */
+    public boolean isInOtaspCall() {
+        return mPendingMO != null && mPendingMO.isOtaspCall()
+                || (mForegroundCall.getConnections().stream()
+                .filter(connection -> ((connection instanceof GsmCdmaConnection)
+                        && (((GsmCdmaConnection) connection).isOtaspCall())))
+                .count() > 0);
+    }
+
+    @UnsupportedAppUsage
     private boolean isPhoneTypeGsm() {
         return mPhone.getPhoneType() == PhoneConstants.PHONE_TYPE_GSM;
     }
 
+    @UnsupportedAppUsage
+    @Override
     public GsmCdmaPhone getPhone() {
         return mPhone;
     }
 
+    @UnsupportedAppUsage
     @Override
     protected void log(String msg) {
         Rlog.d(LOG_TAG, "[" + mPhone.getPhoneId() + "] " + msg);
@@ -1680,6 +1802,20 @@ public class GsmCdmaCallTracker extends CallTracker {
         return mPhone.isPhoneTypeGsm() ?
                 MAX_CONNECTIONS_PER_CALL_GSM :
                 MAX_CONNECTIONS_PER_CALL_CDMA;
+    }
+
+    private String getNetworkCountryIso() {
+        String countryIso = "";
+        if (mPhone != null) {
+            ServiceStateTracker sst = mPhone.getServiceStateTracker();
+            if (sst != null) {
+                LocaleTracker lt = sst.getLocaleTracker();
+                if (lt != null) {
+                    countryIso = lt.getCurrentCountry();
+                }
+            }
+        }
+        return countryIso;
     }
 
     /**

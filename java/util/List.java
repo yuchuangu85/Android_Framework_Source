@@ -88,7 +88,7 @@ import java.util.function.UnaryOperator;
  * interface.
  *
  * <p>This interface is a member of the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
+ * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/collections/index.html">
  * Java Collections Framework</a>.
  *
  * @param <E> the type of elements in this list
@@ -414,9 +414,10 @@ public interface List<E> extends Collection<E> {
         }
     }
 
-    // Android-changed: Warn about Collections.sort() being built on top
-    // of List.sort() rather than the other way round when targeting an
-    // API version > 25.
+    // Android-added: List.sort() vs. Collections.sort() app compat.
+    // Added a warning in the documentation.
+    // Collections.sort() calls List.sort() for apps targeting API version >= 26
+    // (Android Oreo) but the other way around for app targeting <= 25 (Nougat).
     /**
      * Sorts this list according to the order induced by the specified
      * {@link Comparator}.

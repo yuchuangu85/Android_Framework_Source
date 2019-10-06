@@ -16,11 +16,7 @@
 
 package android.view.inputmethod;
 
-import com.android.internal.view.IInputMethodManager;
-import com.android.layoutlib.bridge.util.ReflectionUtils;
 import com.android.tools.layoutlib.annotations.LayoutlibDelegate;
-
-import android.os.Looper;
 
 
 /**
@@ -35,15 +31,7 @@ public class InputMethodManager_Delegate {
     // ---- Overridden methods ----
 
     @LayoutlibDelegate
-    /*package*/ static InputMethodManager getInstance() {
-        synchronized (InputMethodManager.class) {
-            InputMethodManager imm = InputMethodManager.peekInstance();
-            if (imm == null) {
-                imm = new InputMethodManager(ReflectionUtils.createProxy(IInputMethodManager.class),
-                        Looper.getMainLooper());
-                InputMethodManager.sInstance = imm;
-            }
-            return imm;
-        }
+    /*package*/ static boolean isInEditMode() {
+        return true;
     }
 }

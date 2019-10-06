@@ -60,8 +60,8 @@ import java.util.stream.Collectors;
  * {@hide}
  */
 public class SupplicantP2pIfaceHal {
-    private static final boolean DBG = true;
     private static final String TAG = "SupplicantP2pIfaceHal";
+    private static boolean sVerboseLoggingEnabled = true;
     private static final int RESULT_NOT_VALID = -1;
     private static final int DEFAULT_GROUP_OWNER_INTENT = 6;
     private static final int DEFAULT_OPERATING_CLASS = 81;
@@ -83,7 +83,7 @@ public class SupplicantP2pIfaceHal {
             new IServiceNotification.Stub() {
         public void onRegistration(String fqName, String name, boolean preexisting) {
             synchronized (mLock) {
-                if (DBG) {
+                if (sVerboseLoggingEnabled) {
                     Log.i(TAG, "IServiceNotification.onRegistration for: " + fqName
                             + ", " + name + " preexisting=" + preexisting);
                 }
@@ -136,12 +136,20 @@ public class SupplicantP2pIfaceHal {
     }
 
     /**
+     * Enable verbose logging for all sub modules.
+     */
+    public static void enableVerboseLogging(int verbose) {
+        sVerboseLoggingEnabled = verbose > 0;
+        SupplicantP2pIfaceCallback.enableVerboseLogging(verbose);
+    }
+
+    /**
      * Registers a service notification for the ISupplicant service, which triggers intialization of
      * the ISupplicantP2pIface
      * @return true if the service notification was successfully registered
      */
     public boolean initialize() {
-        if (DBG) Log.i(TAG, "Registering ISupplicant service ready callback.");
+        if (sVerboseLoggingEnabled) Log.i(TAG, "Registering ISupplicant service ready callback.");
         synchronized (mLock) {
             if (mIServiceManager != null) {
                 Log.i(TAG, "Supplicant HAL already initialized.");
@@ -450,6 +458,13 @@ public class SupplicantP2pIfaceHal {
         return ISupplicantP2pIface.asInterface(iface.asBinder());
     }
 
+    protected android.hardware.wifi.supplicant.V1_2.ISupplicantP2pIface
+            getP2pIfaceMockableV1_2() {
+        if (mISupplicantP2pIface == null) return null;
+        return android.hardware.wifi.supplicant.V1_2.ISupplicantP2pIface.castFrom(
+                mISupplicantP2pIface);
+    }
+
     protected ISupplicantP2pNetwork getP2pNetworkMockable(ISupplicantNetwork network) {
         return ISupplicantP2pNetwork.asInterface(network.asBinder());
     }
@@ -471,7 +486,7 @@ public class SupplicantP2pIfaceHal {
     }
 
     protected static void logd(String s) {
-        if (DBG) Log.d(TAG, s);
+        if (sVerboseLoggingEnabled) Log.d(TAG, s);
     }
 
     protected static void logCompletion(String operation, SupplicantStatus status) {
@@ -490,6 +505,17 @@ public class SupplicantP2pIfaceHal {
      */
     private boolean checkSupplicantP2pIfaceAndLogFailure(String method) {
         if (mISupplicantP2pIface == null) {
+            Log.e(TAG, "Can't call " + method + ": ISupplicantP2pIface is null");
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Returns false if SupplicantP2pIface is null, and logs failure to call methodStr
+     */
+    private boolean checkSupplicantP2pIfaceAndLogFailureV1_2(String method) {
+        if (getP2pIfaceMockableV1_2() == null) {
             Log.e(TAG, "Can't call " + method + ": ISupplicantP2pIface is null");
             return false;
         }
@@ -1144,6 +1170,51 @@ public class SupplicantP2pIfaceHal {
                     new SupplicantResult("groupAdd(" + networkId + ", " + isPersistent + ")");
             try {
                 result.setResult(mISupplicantP2pIface.addGroup(isPersistent, networkId));
+            } catch (RemoteException e) {
+                Log.e(TAG, "ISupplicantP2pIface exception: " + e);
+                supplicantServiceDiedHandler();
+            }
+            return result.isSuccess();
+        }
+    }
+
+    /**
+     * Set up a P2P group as Group Owner or join a group with a configuration.
+     *
+     * @param networkName SSID of the group to be formed
+     * @param passphrase passphrase of the group to be formed
+     * @param isPersistent Used to request a persistent group to be formed.
+     * @param freq prefered frequencty or band of the group to be formed
+     * @param peerAddress peerAddress Group Owner MAC address, only applied for Group Client.
+     *        If the MAC is "00:00:00:00:00:00", the device will try to find a peer
+     *        whose SSID matches ssid.
+     * @param join join a group or create a group
+     *
+     * @return true, if operation was successful.
+     */
+    public boolean groupAdd(String networkName, String passphrase,
+            boolean isPersistent, int freq, String peerAddress, boolean join) {
+        synchronized (mLock) {
+            if (!checkSupplicantP2pIfaceAndLogFailureV1_2("groupAdd_1_2")) return false;
+            java.util.ArrayList<Byte> ssid = NativeUtil.decodeSsid("\"" + networkName + "\"");
+            byte[] macAddress = null;
+            try {
+                macAddress = NativeUtil.macAddressToByteArray(peerAddress);
+            } catch (Exception e) {
+                Log.e(TAG, "Could not parse mac address.", e);
+                return false;
+            }
+
+            android.hardware.wifi.supplicant.V1_2.ISupplicantP2pIface ifaceV12 =
+                    getP2pIfaceMockableV1_2();
+            SupplicantResult<Void> result =
+                    new SupplicantResult("groupAdd(" + networkName + ", "
+                        + (TextUtils.isEmpty(passphrase) ? "<Empty>" : "<Non-Empty>")
+                        + ", " + isPersistent + ", " + freq
+                        + ", " + peerAddress + ", " + join + ")");
+            try {
+                result.setResult(ifaceV12.addGroup_1_2(
+                        ssid, passphrase, isPersistent, freq, macAddress, join));
             } catch (RemoteException e) {
                 Log.e(TAG, "ISupplicantP2pIface exception: " + e);
                 supplicantServiceDiedHandler();
@@ -2288,6 +2359,33 @@ public class SupplicantP2pIfaceHal {
             return result.isSuccess();
         }
     }
+
+
+    /**
+     * Enable/Disable P2P MAC randomization.
+     *
+     * @param enable true to enable, false to disable.
+     * @return true, if operation was successful.
+     */
+    public boolean setMacRandomization(boolean enable) {
+        synchronized (mLock) {
+            if (!checkSupplicantP2pIfaceAndLogFailureV1_2("setMacRandomization")) return false;
+
+            android.hardware.wifi.supplicant.V1_2.ISupplicantP2pIface ifaceV12 =
+                    getP2pIfaceMockableV1_2();
+            SupplicantResult<Void> result = new SupplicantResult(
+                    "setMacRandomization(" + enable + ")");
+            try {
+                result.setResult(ifaceV12.setMacRandomization(enable));
+            } catch (RemoteException e) {
+                Log.e(TAG, "ISupplicantP2pIface exception: " + e);
+                supplicantServiceDiedHandler();
+            }
+
+            return result.isSuccess();
+        }
+    }
+
 
     /**
      * Converts the Wps config method string to the equivalent enum value.

@@ -19,8 +19,8 @@ package com.android.ex.photo.adapters;
 
 import android.content.Context;
 import android.database.Cursor;
-import android.support.v4.app.Fragment;
-import android.support.v4.app.FragmentManager;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
 import android.util.Log;
 import android.util.SparseIntArray;
 import android.view.View;

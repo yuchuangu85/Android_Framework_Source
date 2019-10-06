@@ -26,20 +26,18 @@ import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.os.Build;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
-import android.support.v7.widget.RecyclerView;
-import android.support.v7.widget.RecyclerView.Adapter;
-import android.support.v7.widget.RecyclerView.ViewHolder;
+import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.RecyclerView.Adapter;
+import androidx.recyclerview.widget.RecyclerView.ViewHolder;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.View.MeasureSpec;
 import android.view.ViewGroup;
-
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import com.android.setupwizardlib.SetupWizardRecyclerLayout;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -48,133 +46,129 @@ import org.junit.runner.RunWith;
 @SmallTest
 public class SetupWizardRecyclerLayoutTest {
 
-    private Context mContext;
+  private Context mContext;
 
-    @Before
-    public void setUp() throws Exception {
-        mContext = new ContextThemeWrapper(InstrumentationRegistry.getContext(),
-                R.style.SuwThemeMaterial_Light);
+  @Before
+  public void setUp() throws Exception {
+    mContext =
+        new ContextThemeWrapper(
+            InstrumentationRegistry.getContext(), R.style.SuwThemeMaterial_Light);
+  }
+
+  @Test
+  public void testDefaultTemplate() {
+    SetupWizardRecyclerLayout layout = new SetupWizardRecyclerLayout(mContext);
+    assertRecyclerTemplateInflated(layout);
+  }
+
+  @Test
+  public void testInflateFromXml() {
+    LayoutInflater inflater = LayoutInflater.from(mContext);
+    SetupWizardRecyclerLayout layout =
+        (SetupWizardRecyclerLayout) inflater.inflate(R.layout.test_recycler_layout, null);
+    assertRecyclerTemplateInflated(layout);
+  }
+
+  @Test
+  public void testGetRecyclerView() {
+    SetupWizardRecyclerLayout layout = new SetupWizardRecyclerLayout(mContext);
+    assertRecyclerTemplateInflated(layout);
+    assertNotNull("getRecyclerView should not be null", layout.getRecyclerView());
+  }
+
+  @Test
+  public void testAdapter() {
+    SetupWizardRecyclerLayout layout = new SetupWizardRecyclerLayout(mContext);
+    assertRecyclerTemplateInflated(layout);
+
+    final Adapter adapter = createTestAdapter(1);
+    layout.setAdapter(adapter);
+
+    final Adapter gotAdapter = layout.getAdapter();
+    // Note: The wrapped adapter should be returned, not the HeaderAdapter.
+    assertSame("Adapter got from SetupWizardLayout should be same as set", adapter, gotAdapter);
+  }
+
+  @Test
+  public void testLayout() {
+    SetupWizardRecyclerLayout layout = new SetupWizardRecyclerLayout(mContext);
+    assertRecyclerTemplateInflated(layout);
+
+    layout.setAdapter(createTestAdapter(3));
+
+    layout.measure(
+        MeasureSpec.makeMeasureSpec(500, MeasureSpec.EXACTLY),
+        MeasureSpec.makeMeasureSpec(500, MeasureSpec.EXACTLY));
+    layout.layout(0, 0, 500, 500);
+    // Test that the layout code doesn't crash.
+  }
+
+  @Test
+  public void testDividerInsetLegacy() {
+    SetupWizardRecyclerLayout layout = new SetupWizardRecyclerLayout(mContext);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
     }
+    assertRecyclerTemplateInflated(layout);
 
-    @Test
-    public void testDefaultTemplate() {
-        SetupWizardRecyclerLayout layout = new SetupWizardRecyclerLayout(mContext);
-        assertRecyclerTemplateInflated(layout);
+    layout.setDividerInset(10);
+    assertEquals("Divider inset should be 10", 10, layout.getDividerInset());
+
+    final Drawable divider = layout.getDivider();
+    assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
+  }
+
+  @Test
+  public void testDividerInsets() {
+    SetupWizardRecyclerLayout layout = new SetupWizardRecyclerLayout(mContext);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
     }
+    assertRecyclerTemplateInflated(layout);
 
-    @Test
-    public void testInflateFromXml() {
-        LayoutInflater inflater = LayoutInflater.from(mContext);
-        SetupWizardRecyclerLayout layout = (SetupWizardRecyclerLayout)
-                inflater.inflate(R.layout.test_recycler_layout, null);
-        assertRecyclerTemplateInflated(layout);
+    layout.setDividerInsets(10, 15);
+    assertEquals("Divider inset start should be 10", 10, layout.getDividerInsetStart());
+    assertEquals("Divider inset end should be 15", 15, layout.getDividerInsetEnd());
+
+    final Drawable divider = layout.getDivider();
+    assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
+  }
+
+  @Test
+  public void testTemplateWithNoRecyclerView() {
+    try {
+      new SetupWizardRecyclerLayout(mContext, R.layout.suw_glif_template, R.id.suw_recycler_view);
+      fail("Creating SetupWizardRecyclerLayout with no recycler view should throw exception");
+    } catch (Exception e) {
+      // pass
     }
+  }
 
-    @Test
-    public void testGetRecyclerView() {
-        SetupWizardRecyclerLayout layout = new SetupWizardRecyclerLayout(mContext);
-        assertRecyclerTemplateInflated(layout);
-        assertNotNull("getRecyclerView should not be null", layout.getRecyclerView());
-    }
+  private void assertRecyclerTemplateInflated(SetupWizardRecyclerLayout layout) {
+    View recyclerView = layout.findViewById(R.id.suw_recycler_view);
+    assertTrue(
+        "@id/suw_recycler_view should be a RecyclerView", recyclerView instanceof RecyclerView);
 
-    @Test
-    public void testAdapter() {
-        SetupWizardRecyclerLayout layout = new SetupWizardRecyclerLayout(mContext);
-        assertRecyclerTemplateInflated(layout);
+    assertNotNull(
+        "Header text view should not be null", layout.findManagedViewById(R.id.suw_layout_title));
+    assertNotNull(
+        "Decoration view should not be null", layout.findManagedViewById(R.id.suw_layout_decor));
+  }
 
-        final Adapter adapter = createTestAdapter(1);
-        layout.setAdapter(adapter);
+  private Adapter createTestAdapter(final int itemCount) {
+    return new Adapter() {
+      @Override
+      public ViewHolder onCreateViewHolder(ViewGroup parent, int position) {
+        return new ViewHolder(new View(parent.getContext())) {};
+      }
 
-        final Adapter gotAdapter = layout.getAdapter();
-        // Note: The wrapped adapter should be returned, not the HeaderAdapter.
-        assertSame("Adapter got from SetupWizardLayout should be same as set",
-                adapter, gotAdapter);
-    }
+      @Override
+      public void onBindViewHolder(ViewHolder viewHolder, int position) {}
 
-    @Test
-    public void testLayout() {
-        SetupWizardRecyclerLayout layout = new SetupWizardRecyclerLayout(mContext);
-        assertRecyclerTemplateInflated(layout);
-
-        layout.setAdapter(createTestAdapter(3));
-
-        layout.measure(
-                MeasureSpec.makeMeasureSpec(500, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(500, MeasureSpec.EXACTLY));
-        layout.layout(0, 0, 500, 500);
-        // Test that the layout code doesn't crash.
-    }
-
-    @Test
-    public void testDividerInsetLegacy() {
-        SetupWizardRecyclerLayout layout = new SetupWizardRecyclerLayout(mContext);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
-        }
-        assertRecyclerTemplateInflated(layout);
-
-        layout.setDividerInset(10);
-        assertEquals("Divider inset should be 10", 10, layout.getDividerInset());
-
-        final Drawable divider = layout.getDivider();
-        assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
-    }
-
-    @Test
-    public void testDividerInsets() {
-        SetupWizardRecyclerLayout layout = new SetupWizardRecyclerLayout(mContext);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
-        }
-        assertRecyclerTemplateInflated(layout);
-
-        layout.setDividerInsets(10, 15);
-        assertEquals("Divider inset start should be 10", 10, layout.getDividerInsetStart());
-        assertEquals("Divider inset end should be 15", 15, layout.getDividerInsetEnd());
-
-        final Drawable divider = layout.getDivider();
-        assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
-    }
-
-    @Test
-    public void testTemplateWithNoRecyclerView() {
-        try {
-            new SetupWizardRecyclerLayout(
-                    mContext,
-                    R.layout.suw_glif_template,
-                    R.id.suw_recycler_view);
-            fail("Creating SetupWizardRecyclerLayout with no recycler view should throw exception");
-        } catch (Exception e) {
-            // pass
-        }
-    }
-
-    private void assertRecyclerTemplateInflated(SetupWizardRecyclerLayout layout) {
-        View recyclerView = layout.findViewById(R.id.suw_recycler_view);
-        assertTrue("@id/suw_recycler_view should be a RecyclerView",
-                recyclerView instanceof RecyclerView);
-
-        assertNotNull("Header text view should not be null",
-                layout.findManagedViewById(R.id.suw_layout_title));
-        assertNotNull("Decoration view should not be null",
-                layout.findManagedViewById(R.id.suw_layout_decor));
-    }
-
-    private Adapter createTestAdapter(final int itemCount) {
-        return new Adapter() {
-            @Override
-            public ViewHolder onCreateViewHolder(ViewGroup parent, int position) {
-                return new ViewHolder(new View(parent.getContext())) {};
-            }
-
-            @Override
-            public void onBindViewHolder(ViewHolder viewHolder, int position) {
-            }
-
-            @Override
-            public int getItemCount() {
-                return itemCount;
-            }
-        };
-    }
+      @Override
+      public int getItemCount() {
+        return itemCount;
+      }
+    };
+  }
 }

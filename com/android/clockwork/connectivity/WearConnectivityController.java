@@ -18,7 +18,6 @@ import com.android.internal.util.IndentingPrintWriter;
 import com.android.clockwork.bluetooth.WearBluetoothMediator;
 import com.android.clockwork.cellular.WearCellularMediator;
 import com.android.clockwork.common.ActivityModeTracker;
-import com.android.clockwork.power.PowerTracker;
 import com.android.clockwork.wifi.WearWifiMediator;
 
 import java.util.concurrent.TimeUnit;
@@ -59,7 +58,6 @@ public class WearConnectivityController implements
     private final WearWifiMediator mWifiMediator;
     private final WearProxyNetworkAgent mProxyNetworkAgent;
     private final ActivityModeTracker mActivityModeTracker;
-    private final PowerTracker mPowerTracker;
 
     // params
     private long mBtStateChangeDelayMs;
@@ -88,8 +86,7 @@ public class WearConnectivityController implements
             WearWifiMediator wifiMediator,
             WearCellularMediator cellMediator,
             WearProxyNetworkAgent proxyNetworkAgent,
-            ActivityModeTracker activityModeTracker,
-            PowerTracker powerTracker) {
+            ActivityModeTracker activityModeTracker) {
         mContext = context;
         mAlarmManager = alarmManager;
         mBtMediator = btMediator;
@@ -97,7 +94,6 @@ public class WearConnectivityController implements
         mCellMediator = cellMediator;
         mProxyNetworkAgent = proxyNetworkAgent;
         mProxyNetworkAgent.addListener(this);
-        mPowerTracker = powerTracker;
         mActivityModeTracker = activityModeTracker;
         mActivityModeTracker.addListener(this);
 
@@ -199,7 +195,6 @@ public class WearConnectivityController implements
         ipw.println("================ WearConnectivityService ================");
         ipw.println("Proxy NetworkAgent connection status:" +
                 (mProxyNetworkAgent.isProxyConnected() ? "connected" : "disconnected"));
-        mPowerTracker.dump(ipw);
         mActivityModeTracker.dump(ipw);
         ipw.println();
         ipw.printPair("mNumHighBandwidthRequests", mNumHighBandwidthRequests);

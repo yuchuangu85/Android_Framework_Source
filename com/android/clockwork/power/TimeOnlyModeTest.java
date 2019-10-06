@@ -10,7 +10,6 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
-import org.robolectric.annotation.Config;
 
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
@@ -18,13 +17,12 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 26)
 public class TimeOnlyModeTest {
-    ContentResolver cr;
+    private ContentResolver cr;
 
-    @Mock PowerTracker mockPowerTracker;
-    @Mock TimeOnlyMode.Listener mockListener;
-    TimeOnlyMode timeOnlyMode;
+    private @Mock PowerTracker mockPowerTracker;
+    private @Mock TimeOnlyMode.Listener mockListener;
+    private TimeOnlyMode timeOnlyMode;
 
     @Before
     public void setUp() {
@@ -96,13 +94,10 @@ public class TimeOnlyModeTest {
      */
     private String timeOnlyModeSettingsString(
             boolean timeOnlyEnabled, boolean disableTiltToWake, boolean disableTouchToWake) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(TimeOnlyMode.KEY_ENABLED).append("=").append(timeOnlyEnabled);
-        sb.append(",");
-        sb.append(TimeOnlyMode.KEY_DISABLE_TILT_TO_WAKE).append("=").append(disableTiltToWake);
-        sb.append(",");
-        sb.append(TimeOnlyMode.KEY_DISABLE_TOUCH_TO_WAKE).append("=").append(disableTouchToWake);
-        return sb.toString();
+        return TimeOnlyMode.KEY_ENABLED + "=" + timeOnlyEnabled
+            + ","
+            + TimeOnlyMode.KEY_DISABLE_TILT_TO_WAKE + "=" + disableTiltToWake
+            + ","
+            + TimeOnlyMode.KEY_DISABLE_TOUCH_TO_WAKE + "=" + disableTouchToWake;
     }
-
 }

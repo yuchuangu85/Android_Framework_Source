@@ -16,6 +16,7 @@
 
 package android.content;
 
+import android.annotation.UnsupportedAppUsage;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.CancellationSignal;
@@ -35,7 +36,7 @@ import java.util.Arrays;
  * perform, either through the
  * {@link #CursorLoader(Context, Uri, String[], String, String[], String)} or
  * creating an empty instance with {@link #CursorLoader(Context)} and filling
- * in the desired paramters with {@link #setUri(Uri)}, {@link #setSelection(String)},
+ * in the desired parameters with {@link #setUri(Uri)}, {@link #setSelection(String)},
  * {@link #setSelectionArgs(String[])}, {@link #setSortOrder(String)},
  * and {@link #setProjection(String[])}.
  *
@@ -44,6 +45,7 @@ import java.util.Arrays;
  */
 @Deprecated
 public class CursorLoader extends AsyncTaskLoader<Cursor> {
+    @UnsupportedAppUsage
     final ForceLoadContentObserver mObserver;
 
     Uri mUri;
@@ -53,6 +55,7 @@ public class CursorLoader extends AsyncTaskLoader<Cursor> {
     String mSortOrder;
 
     Cursor mCursor;
+    @UnsupportedAppUsage
     CancellationSignal mCancellationSignal;
 
     /* Runs on a worker thread */

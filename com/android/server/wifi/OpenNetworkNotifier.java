@@ -21,11 +21,12 @@ import android.os.Looper;
 import android.provider.Settings;
 
 import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
+import com.android.server.wifi.nano.WifiMetricsProto;
 
 /**
  * This class handles the "open wi-fi network available" notification
  *
- * NOTE: These API's are not thread safe and should only be used from WifiStateMachine thread.
+ * NOTE: These API's are not thread safe and should only be used from ClientModeImpl thread.
  */
 public class OpenNetworkNotifier extends AvailableNetworkNotifier {
     public static final String TAG = "WifiOpenNetworkNotifier";
@@ -41,11 +42,13 @@ public class OpenNetworkNotifier extends AvailableNetworkNotifier {
             WifiMetrics wifiMetrics,
             WifiConfigManager wifiConfigManager,
             WifiConfigStore wifiConfigStore,
-            WifiStateMachine wifiStateMachine,
+            ClientModeImpl clientModeImpl,
             ConnectToNetworkNotificationBuilder connectToNetworkNotificationBuilder) {
         super(TAG, STORE_DATA_IDENTIFIER, TOGGLE_SETTINGS_NAME,
-                SystemMessage.NOTE_NETWORK_AVAILABLE, context, looper, framework, clock,
-                wifiMetrics, wifiConfigManager, wifiConfigStore, wifiStateMachine,
+                SystemMessage.NOTE_NETWORK_AVAILABLE,
+                WifiMetricsProto.ConnectionEvent.NOMINATOR_OPEN_NETWORK_AVAILABLE,
+                context, looper, framework, clock,
+                wifiMetrics, wifiConfigManager, wifiConfigStore, clientModeImpl,
                 connectToNetworkNotificationBuilder);
     }
 }

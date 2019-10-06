@@ -16,13 +16,19 @@
 
 package android.system;
 
+import dalvik.annotation.compat.UnsupportedAppUsage;
+
 /**
  * @hide
  * A signed 32bit integer reference suitable for passing to lower-level system calls.
  */
+@libcore.api.CorePlatformApi
 public class Int32Ref {
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
     public int value;
 
+    @libcore.api.CorePlatformApi
     public Int32Ref(int value) {
         this.value = value;
     }

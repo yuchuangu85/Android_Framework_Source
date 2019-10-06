@@ -54,6 +54,15 @@ public final class FileDescriptor {
     // fetching the descriptor value.
     private int descriptor;
 
+    // Android-added: Track fd owner to guard against accidental closure. http://b/110100358
+    // The owner on the libc side is an pointer-sized value that can be set to an arbitrary
+    // value (with 0 meaning 'unowned'). libcore chooses to use System.identityHashCode.
+    private long ownerId = NO_OWNER;
+
+    // Android-added: value of ownerId indicating that a FileDescriptor is unowned.
+    /** @hide */
+    public static final long NO_OWNER = 0L;
+
     /**
      * Constructs an (invalid) FileDescriptor
      * object.
@@ -140,25 +149,62 @@ public final class FileDescriptor {
     /* This routine initializes JNI field offsets for the class */
     //private static native void initIDs();
 
+    // Android-added: Needed for framework to access descriptor value
     /**
      * Returns the int descriptor. It's highly unlikely you should be calling this. Please discuss
      * your needs with a libcore maintainer before using this method.
      * @hide internal use only
      */
-    // Android-added: Needed for framework to access descriptor value
     public final int getInt$() {
         return descriptor;
     }
 
+    // Android-added: Needed for framework to access descriptor value
     /**
      * Sets the int descriptor. It's highly unlikely you should be calling this. Please discuss
      * your needs with a libcore maintainer before using this method.
      * @hide internal use only
      */
-    // Android-added: Needed for framework to access descriptor value
     public final void setInt$(int fd) {
         this.descriptor = fd;
     }
+
+    // BEGIN Android-added: Methods to enable ownership enforcement of Unix file descriptors.
+    /**
+     * Returns the owner ID of this FileDescriptor. It's highly unlikely you should be calling this.
+     * Please discuss your needs with a libcore maintainer before using this method.
+     * @hide internal use only
+     */
+    public long getOwnerId$() {
+        return this.ownerId;
+    }
+
+    /**
+     * Sets the owner ID of this FileDescriptor. The owner ID does not need to be unique, but it is
+     * assumed that clashes are rare. See bionic/include/android/fdsan.h for more details.
+     *
+     * It's highly unlikely you should be calling this.
+     * Please discuss your needs with a libcore maintainer before using this method.
+     * @param owner the owner ID of the Object that is responsible for closing this FileDescriptor
+     * @hide internal use only
+     */
+    public void setOwnerId$(long newOwnerId) {
+        this.ownerId = newOwnerId;
+    }
+
+    /**
+     * Returns a copy of this FileDescriptor, and sets this to an invalid state.
+     * @hide internal use only
+     */
+    public FileDescriptor release$() {
+      FileDescriptor result = new FileDescriptor();
+      result.descriptor = this.descriptor;
+      result.ownerId = this.ownerId;
+      this.descriptor = -1;
+      this.ownerId = FileDescriptor.NO_OWNER;
+      return result;
+    }
+    // END Android-added: Methods to enable ownership enforcement of Unix file descriptors.
 
     /**
      * @hide internal use only

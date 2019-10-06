@@ -16,6 +16,8 @@
 
 package android.bluetooth;
 
+import android.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Handler;
 import android.os.ParcelUuid;
 import android.os.RemoteException;
@@ -41,16 +43,24 @@ public final class BluetoothGatt implements BluetoothProfile {
     private static final boolean DBG = true;
     private static final boolean VDBG = false;
 
+    @UnsupportedAppUsage
     private IBluetoothGatt mService;
+    @UnsupportedAppUsage
     private volatile BluetoothGattCallback mCallback;
     private Handler mHandler;
+    @UnsupportedAppUsage
     private int mClientIf;
     private BluetoothDevice mDevice;
+    @UnsupportedAppUsage
     private boolean mAutoConnect;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int mAuthRetryState;
     private int mConnState;
     private final Object mStateLock = new Object();
+    private final Object mDeviceBusyLock = new Object();
+    @UnsupportedAppUsage
     private Boolean mDeviceBusy = false;
+    @UnsupportedAppUsage
     private int mTransport;
     private int mPhy;
     private boolean mOpportunistic;
@@ -273,7 +283,7 @@ public final class BluetoothGatt implements BluetoothProfile {
                         }
                     }
 
-                    synchronized (mDeviceBusy) {
+                    synchronized (mDeviceBusyLock) {
                         mDeviceBusy = false;
                     }
                 }
@@ -348,7 +358,7 @@ public final class BluetoothGatt implements BluetoothProfile {
                         return;
                     }
 
-                    synchronized (mDeviceBusy) {
+                    synchronized (mDeviceBusyLock) {
                         mDeviceBusy = false;
                     }
 
@@ -404,7 +414,7 @@ public final class BluetoothGatt implements BluetoothProfile {
                         return;
                     }
 
-                    synchronized (mDeviceBusy) {
+                    synchronized (mDeviceBusyLock) {
                         mDeviceBusy = false;
                     }
 
@@ -487,7 +497,7 @@ public final class BluetoothGatt implements BluetoothProfile {
                         return;
                     }
 
-                    synchronized (mDeviceBusy) {
+                    synchronized (mDeviceBusyLock) {
                         mDeviceBusy = false;
                     }
 
@@ -538,7 +548,7 @@ public final class BluetoothGatt implements BluetoothProfile {
                         return;
                     }
 
-                    synchronized (mDeviceBusy) {
+                    synchronized (mDeviceBusyLock) {
                         mDeviceBusy = false;
                     }
 
@@ -587,7 +597,7 @@ public final class BluetoothGatt implements BluetoothProfile {
                         return;
                     }
 
-                    synchronized (mDeviceBusy) {
+                    synchronized (mDeviceBusyLock) {
                         mDeviceBusy = false;
                     }
 
@@ -810,6 +820,7 @@ public final class BluetoothGatt implements BluetoothProfile {
     /**
      * Unregister the current application and callbacks.
      */
+    @UnsupportedAppUsage
     private void unregisterApp() {
         if (DBG) Log.d(TAG, "unregisterApp() - mClientIf=" + mClientIf);
         if (mService == null || mClientIf == 0) return;
@@ -845,6 +856,7 @@ public final class BluetoothGatt implements BluetoothProfile {
      * automatically connect as soon as the remote device becomes available (true).
      * @return true, if the connection attempt was initiated successfully
      */
+    @UnsupportedAppUsage
     /*package*/ boolean connect(Boolean autoConnect, BluetoothGattCallback callback,
             Handler handler) {
         if (DBG) {
@@ -1087,7 +1099,7 @@ public final class BluetoothGatt implements BluetoothProfile {
         BluetoothDevice device = service.getDevice();
         if (device == null) return false;
 
-        synchronized (mDeviceBusy) {
+        synchronized (mDeviceBusyLock) {
             if (mDeviceBusy) return false;
             mDeviceBusy = true;
         }
@@ -1121,7 +1133,7 @@ public final class BluetoothGatt implements BluetoothProfile {
         if (VDBG) Log.d(TAG, "readUsingCharacteristicUuid() - uuid: " + uuid);
         if (mService == null || mClientIf == 0) return false;
 
-        synchronized (mDeviceBusy) {
+        synchronized (mDeviceBusyLock) {
             if (mDeviceBusy) return false;
             mDeviceBusy = true;
         }
@@ -1167,7 +1179,7 @@ public final class BluetoothGatt implements BluetoothProfile {
         BluetoothDevice device = service.getDevice();
         if (device == null) return false;
 
-        synchronized (mDeviceBusy) {
+        synchronized (mDeviceBusyLock) {
             if (mDeviceBusy) return false;
             mDeviceBusy = true;
         }
@@ -1210,7 +1222,7 @@ public final class BluetoothGatt implements BluetoothProfile {
         BluetoothDevice device = service.getDevice();
         if (device == null) return false;
 
-        synchronized (mDeviceBusy) {
+        synchronized (mDeviceBusyLock) {
             if (mDeviceBusy) return false;
             mDeviceBusy = true;
         }
@@ -1251,7 +1263,7 @@ public final class BluetoothGatt implements BluetoothProfile {
         BluetoothDevice device = service.getDevice();
         if (device == null) return false;
 
-        synchronized (mDeviceBusy) {
+        synchronized (mDeviceBusyLock) {
             if (mDeviceBusy) return false;
             mDeviceBusy = true;
         }
@@ -1281,7 +1293,7 @@ public final class BluetoothGatt implements BluetoothProfile {
      * <p>After all characteristics have been queued up and verified,
      * {@link #executeReliableWrite} will execute all writes. If a characteristic
      * was not written correctly, calling {@link #abortReliableWrite} will
-     * cancel the current transaction without commiting any values on the
+     * cancel the current transaction without committing any values on the
      * remote device.
      *
      * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission.
@@ -1319,7 +1331,7 @@ public final class BluetoothGatt implements BluetoothProfile {
         if (VDBG) Log.d(TAG, "executeReliableWrite() - device: " + mDevice.getAddress());
         if (mService == null || mClientIf == 0) return false;
 
-        synchronized (mDeviceBusy) {
+        synchronized (mDeviceBusyLock) {
             if (mDeviceBusy) return false;
             mDeviceBusy = true;
         }
@@ -1407,6 +1419,7 @@ public final class BluetoothGatt implements BluetoothProfile {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean refresh() {
         if (DBG) Log.d(TAG, "refresh() - device: " + mDevice.getAddress());
         if (mService == null || mClientIf == 0) return false;

@@ -24,8 +24,8 @@ import android.graphics.RectF;
 import android.util.Property;
 import android.view.View;
 
-import com.android.systemui.shared.recents.utilities.AnimationProps;
-import com.android.systemui.shared.recents.utilities.Utilities;
+import com.android.systemui.recents.utilities.AnimationProps;
+import com.android.systemui.recents.utilities.Utilities;
 
 import java.util.ArrayList;
 

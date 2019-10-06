@@ -20,11 +20,15 @@ import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
+import android.util.LocalLog;
 import android.util.Log;
 import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -34,7 +38,7 @@ import java.util.Map;
  * This Class is a Work-In-Progress, intended behavior is as follows:
  * Essentially this class automates a user toggling 'Airplane Mode' when WiFi "won't work".
  * IF each available saved network has failed connecting more times than the FAILURE_THRESHOLD
- * THEN Watchdog will restart Supplicant, wifi driver and return WifiStateMachine to InitialState.
+ * THEN Watchdog will restart Supplicant, wifi driver and return ClientModeImpl to InitialState.
  */
 public class WifiLastResortWatchdog {
     private static final String TAG = "WifiLastResortWatchdog";
@@ -65,7 +69,11 @@ public class WifiLastResortWatchdog {
      */
     public static final int FAILURE_THRESHOLD = 7;
     public static final String BUGREPORT_TITLE = "Wifi watchdog triggered";
-    public static final double PROB_TAKE_BUGREPORT_DEFAULT = 0.08;
+    public static final double PROB_TAKE_BUGREPORT_DEFAULT = 1;
+
+    // Number of milliseconds to wait before re-enable Watchdog triger
+    @VisibleForTesting
+    public static final long LAST_TRIGGER_TIMEOUT_MILLIS = 2 * 3600 * 1000; // 2 hours
 
     /**
      * Cached WifiConfigurations of available networks seen within MAX_BSSID_AGE scan results
@@ -80,30 +88,36 @@ public class WifiLastResortWatchdog {
     private Map<String, Pair<AvailableNetworkFailureCount, Integer>> mSsidFailureCount =
             new HashMap<>();
 
-    // Tracks: if WifiStateMachine is in ConnectedState
+    // Tracks: if ClientModeImpl is in ConnectedState
     private boolean mWifiIsConnected = false;
     // Is Watchdog allowed to trigger now? Set to false after triggering. Set to true after
     // successfully connecting or a new network (SSID) becomes available to connect to.
     private boolean mWatchdogAllowedToTrigger = true;
-    private long mTimeLastTrigger;
+    private long mTimeLastTrigger = 0;
+    private String mSsidLastTrigger = null;
 
-    private SelfRecovery mSelfRecovery;
+    private WifiInjector mWifiInjector;
     private WifiMetrics mWifiMetrics;
-    private WifiStateMachine mWifiStateMachine;
-    private Looper mWifiStateMachineLooper;
+    private ClientModeImpl mClientModeImpl;
+    private Looper mClientModeImplLooper;
     private double mBugReportProbability = PROB_TAKE_BUGREPORT_DEFAULT;
     private Clock mClock;
     // If any connection failure happened after watchdog triggering restart then assume watchdog
     // did not fix the problem
     private boolean mWatchdogFixedWifi = true;
 
-    WifiLastResortWatchdog(SelfRecovery selfRecovery, Clock clock, WifiMetrics wifiMetrics,
-            WifiStateMachine wsm, Looper wifiStateMachineLooper) {
-        mSelfRecovery = selfRecovery;
+    /**
+     * Local log used for debugging any WifiLastResortWatchdog issues.
+     */
+    private final LocalLog mLocalLog = new LocalLog(100);
+
+    WifiLastResortWatchdog(WifiInjector wifiInjector, Clock clock, WifiMetrics wifiMetrics,
+            ClientModeImpl clientModeImpl, Looper clientModeImplLooper) {
+        mWifiInjector = wifiInjector;
         mClock = clock;
         mWifiMetrics = wifiMetrics;
-        mWifiStateMachine = wsm;
-        mWifiStateMachineLooper = wifiStateMachineLooper;
+        mClientModeImpl = clientModeImpl;
+        mClientModeImplLooper = clientModeImplLooper;
     }
 
     /**
@@ -145,7 +159,14 @@ public class WifiLastResortWatchdog {
                         // This is a new SSID, create new FailureCount for it and set AP count to 1
                         ssidFailsAndApCount = Pair.create(new AvailableNetworkFailureCount(config),
                                 1);
-                        setWatchdogTriggerEnabled(true);
+                        // Do not re-enable Watchdog in LAST_TRIGGER_TIMEOUT_MILLIS
+                        // after last time Watchdog be triggered
+                        if (mTimeLastTrigger == 0
+                                || (mClock.getElapsedSinceBootMillis() - mTimeLastTrigger)
+                                    >= LAST_TRIGGER_TIMEOUT_MILLIS) {
+                            localLog("updateAvailableNetworks: setWatchdogTriggerEnabled to true");
+                            setWatchdogTriggerEnabled(true);
+                        }
                     } else {
                         final Integer numberOfAps = ssidFailsAndApCount.second;
                         // This is not a new SSID, increment the AP count for it
@@ -197,7 +218,7 @@ public class WifiLastResortWatchdog {
      * Increments the failure reason count for the given bssid. Performs a check to see if we have
      * exceeded a failure threshold for all available networks, and executes the last resort restart
      * @param bssid of the network that has failed connection, can be "any"
-     * @param reason Message id from WifiStateMachine for this failure
+     * @param reason Message id from ClientModeImpl for this failure
      * @return true if watchdog triggers, returned for test visibility
      */
     public boolean noteConnectionFailureAndTriggerIfNeeded(String ssid, String bssid, int reason) {
@@ -221,12 +242,14 @@ public class WifiLastResortWatchdog {
         }
         if (isRestartNeeded) {
             // Stop the watchdog from triggering until re-enabled
+            localLog("noteConnectionFailureAndTriggerIfNeeded: setWatchdogTriggerEnabled to false");
             setWatchdogTriggerEnabled(false);
             mWatchdogFixedWifi = true;
-            Log.e(TAG, "Watchdog triggering recovery");
+            loge("Watchdog triggering recovery");
+            mSsidLastTrigger = ssid;
             mTimeLastTrigger = mClock.getElapsedSinceBootMillis();
-            mSelfRecovery.trigger(SelfRecovery.REASON_LAST_RESORT_WATCHDOG);
-            // increment various watchdog trigger count stats
+            localLog(toString());
+            mWifiInjector.getSelfRecovery().trigger(SelfRecovery.REASON_LAST_RESORT_WATCHDOG);
             incrementWifiMetricsTriggerCounts();
             clearAllFailureCounts();
         }
@@ -234,20 +257,20 @@ public class WifiLastResortWatchdog {
     }
 
     /**
-     * Handles transitions entering and exiting WifiStateMachine ConnectedState
+     * Handles transitions entering and exiting ClientModeImpl ConnectedState
      * Used to track wifistate, and perform watchdog count resetting
      * @param isEntering true if called from ConnectedState.enter(), false for exit()
      */
     public void connectedStateTransition(boolean isEntering) {
-        if (mVerboseLoggingEnabled) {
-            Log.v(TAG, "connectedStateTransition: isEntering = " + isEntering);
-        }
+        logv("connectedStateTransition: isEntering = " + isEntering);
+
         mWifiIsConnected = isEntering;
         if (!isEntering) {
             return;
         }
         if (!mWatchdogAllowedToTrigger && mWatchdogFixedWifi
-                && checkIfAtleastOneNetworkHasEverConnected()) {
+                && checkIfAtleastOneNetworkHasEverConnected()
+                && checkIfConnectedBackToSameSsid()) {
             takeBugReportWithCurrentProbability("Wifi fixed after restart");
             // WiFi has connected after a Watchdog trigger, without any new networks becoming
             // available, log a Watchdog success in wifi metrics
@@ -259,7 +282,20 @@ public class WifiLastResortWatchdog {
         clearAllFailureCounts();
         // If the watchdog trigger was disabled (it triggered), connecting means we did
         // something right, re-enable it so it can fire again.
+        localLog("connectedStateTransition: setWatchdogTriggerEnabled to true");
         setWatchdogTriggerEnabled(true);
+    }
+
+    /**
+     * Helper function to check if device connect back to same
+     * SSID after watchdog trigger
+     */
+    private boolean checkIfConnectedBackToSameSsid() {
+        if (TextUtils.equals(mSsidLastTrigger, mClientModeImpl.getWifiInfo().getSSID())) {
+            return true;
+        }
+        localLog("checkIfConnectedBackToSameSsid: different SSID be connected");
+        return false;
     }
 
     /**
@@ -270,8 +306,8 @@ public class WifiLastResortWatchdog {
         if (mBugReportProbability <= Math.random()) {
             return;
         }
-        (new Handler(mWifiStateMachineLooper)).post(() -> {
-            mWifiStateMachine.takeBugReport(BUGREPORT_TITLE, bugDetail);
+        (new Handler(mClientModeImplLooper)).post(() -> {
+            mClientModeImpl.takeBugReport(BUGREPORT_TITLE, bugDetail);
         });
     }
 
@@ -282,13 +318,11 @@ public class WifiLastResortWatchdog {
      * An unused set of counts is also kept which is bssid specific, in 'mRecentAvailableNetworks'
      * @param ssid of the network that has failed connection
      * @param bssid of the network that has failed connection, can be "any"
-     * @param reason Message id from WifiStateMachine for this failure
+     * @param reason Message id from ClientModeImpl for this failure
      */
     private void updateFailureCountForNetwork(String ssid, String bssid, int reason) {
-        if (mVerboseLoggingEnabled) {
-            Log.v(TAG, "updateFailureCountForNetwork: [" + ssid + ", " + bssid + ", "
-                    + reason + "]");
-        }
+        logv("updateFailureCountForNetwork: [" + ssid + ", " + bssid + ", "
+                + reason + "]");
         if (BSSID_ANY.equals(bssid)) {
             incrementSsidFailureCount(ssid, reason);
         } else {
@@ -343,6 +377,59 @@ public class WifiLastResortWatchdog {
     }
 
     /**
+     * Helper function to check if we should ignore BSSID update.
+     * @param bssid BSSID of the access point
+     * @return true if we should ignore BSSID update
+     */
+    public boolean shouldIgnoreBssidUpdate(String bssid) {
+        return mWatchdogAllowedToTrigger
+                && isBssidOnlyApOfSsid(bssid)
+                && isSingleSsidRecorded()
+                && checkIfAtleastOneNetworkHasEverConnected();
+    }
+
+    /**
+     * Helper function to check if we should ignore SSID update.
+     * @return true if should ignore SSID update
+     */
+    public boolean shouldIgnoreSsidUpdate() {
+        return mWatchdogAllowedToTrigger
+                && isSingleSsidRecorded()
+                && checkIfAtleastOneNetworkHasEverConnected();
+    }
+
+    /**
+     * Check the specified BSSID is the only BSSID for its corresponding SSID.
+     * @param bssid BSSID of the access point
+     * @return true if only BSSID for its corresponding SSID be observed
+     */
+    private boolean isBssidOnlyApOfSsid(String bssid) {
+        AvailableNetworkFailureCount availableNetworkFailureCount =
+                mRecentAvailableNetworks.get(bssid);
+        if (availableNetworkFailureCount == null) {
+            return false;
+        }
+        String ssid = availableNetworkFailureCount.ssid;
+        Pair<AvailableNetworkFailureCount, Integer> ssidFails = mSsidFailureCount.get(ssid);
+        if (ssidFails == null) {
+            Log.d(TAG, "isOnlyBssidAvailable: Could not find SSID count for " + ssid);
+            return false;
+        }
+        if (ssidFails.second != 1) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Check there is only single SSID be observed.
+     * @return true if only single SSID be observed.
+     */
+    private boolean isSingleSsidRecorded() {
+        return (mSsidFailureCount.size() == 1);
+    }
+
+    /**
      * Check trigger condition: For all available networks, have we met a failure threshold for each
      * of them, and have previously connected to at-least one of the available networks
      * @return is the trigger condition true
@@ -366,9 +453,7 @@ public class WifiLastResortWatchdog {
         // We have met the failure count for every available network.
         // Trigger restart if there exists at-least one network that we have previously connected.
         boolean atleastOneNetworkHasEverConnected = checkIfAtleastOneNetworkHasEverConnected();
-        if (mVerboseLoggingEnabled) {
-            Log.v(TAG, "checkTriggerCondition: return = " + atleastOneNetworkHasEverConnected);
-        }
+        logv("checkTriggerCondition: return = " + atleastOneNetworkHasEverConnected);
         return checkIfAtleastOneNetworkHasEverConnected();
     }
 
@@ -395,11 +480,18 @@ public class WifiLastResortWatchdog {
         int badAuth = 0;
         int badAssoc = 0;
         int badDhcp = 0;
+        int badSum = 0;
         for (Map.Entry<String, Pair<AvailableNetworkFailureCount, Integer>> entry
                 : mSsidFailureCount.entrySet()) {
-            badAuth += (entry.getValue().first.authenticationFailure >= FAILURE_THRESHOLD) ? 1 : 0;
-            badAssoc += (entry.getValue().first.associationRejection >= FAILURE_THRESHOLD) ? 1 : 0;
-            badDhcp += (entry.getValue().first.dhcpFailure >= FAILURE_THRESHOLD) ? 1 : 0;
+            badSum = entry.getValue().first.associationRejection
+                    + entry.getValue().first.authenticationFailure
+                    + entry.getValue().first.dhcpFailure;
+            // count as contributor if over half of badSum.
+            if (badSum >= FAILURE_THRESHOLD) {
+                badAssoc += (entry.getValue().first.associationRejection >= badSum / 2) ? 1 : 0;
+                badAuth += (entry.getValue().first.authenticationFailure >= badSum / 2) ? 1 : 0;
+                badDhcp += (entry.getValue().first.dhcpFailure >= badSum / 2) ? 1 : 0;
+            }
         }
         if (badAuth > 0) {
             mWifiMetrics.addCountToNumLastResortWatchdogBadAuthenticationNetworksTotal(badAuth);
@@ -473,15 +565,12 @@ public class WifiLastResortWatchdog {
 
     /**
      * @param bssid bssid to check the failures for
-     * @return true if any failure count is over FAILURE_THRESHOLD
+     * @return true if sum of failure count is over FAILURE_THRESHOLD
      */
     public boolean isOverFailureThreshold(String bssid) {
-        if ((getFailureCount(bssid, FAILURE_CODE_ASSOCIATION) >= FAILURE_THRESHOLD)
-                || (getFailureCount(bssid, FAILURE_CODE_AUTHENTICATION) >= FAILURE_THRESHOLD)
-                || (getFailureCount(bssid, FAILURE_CODE_DHCP) >= FAILURE_THRESHOLD)) {
-            return true;
-        }
-        return false;
+        return (getFailureCount(bssid, FAILURE_CODE_ASSOCIATION)
+                + getFailureCount(bssid, FAILURE_CODE_AUTHENTICATION)
+                + getFailureCount(bssid, FAILURE_CODE_DHCP)) >= FAILURE_THRESHOLD;
     }
 
     /**
@@ -597,5 +686,34 @@ public class WifiLastResortWatchdog {
                     + ", Dhcp: " + dhcpFailure
                     + "}";
         }
+    }
+
+    /**
+     * Helper function for logging into local log buffer.
+     */
+    private void localLog(String s) {
+        mLocalLog.log(s);
+    }
+
+    private void logv(String s) {
+        mLocalLog.log(s);
+        if (mVerboseLoggingEnabled) {
+            Log.v(TAG, s);
+        }
+    }
+
+    private void loge(String s) {
+        mLocalLog.log(s);
+        Log.e(TAG, s);
+    }
+
+    /**
+     * Dump the local log buffer and other internal state of WifiLastResortWatchdog.
+     */
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        pw.println("Dump of WifiLastResortWatchdog");
+        pw.println("WifiLastResortWatchdog - Log Begin ----");
+        mLocalLog.dump(fd, pw, args);
+        pw.println("WifiLastResortWatchdog - Log End ----");
     }
 }

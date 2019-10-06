@@ -39,7 +39,7 @@ import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
-import com.android.systemui.recents.Recents;
+import com.android.systemui.recents.LegacyRecentsImpl;
 import com.android.systemui.recents.RecentsActivity;
 import com.android.systemui.recents.RecentsConfiguration;
 import com.android.systemui.recents.events.EventBus;
@@ -51,11 +51,10 @@ import com.android.systemui.recents.events.ui.dragndrop.DragEndEvent;
 import com.android.systemui.recents.events.ui.dragndrop.DragStartEvent;
 import com.android.systemui.recents.misc.ReferenceCountedTrigger;
 import com.android.systemui.recents.misc.SystemServicesProxy;
-import com.android.systemui.shared.recents.utilities.AnimationProps;
-import com.android.systemui.shared.recents.utilities.Utilities;
+import com.android.systemui.recents.utilities.AnimationProps;
+import com.android.systemui.recents.utilities.Utilities;
 import com.android.systemui.shared.recents.model.Task;
 import com.android.systemui.shared.recents.model.ThumbnailData;
-import com.android.systemui.shared.recents.view.AnimateableViewBounds;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -175,7 +174,7 @@ public class TaskView extends FixedSizeFrameLayout implements Task.TaskCallbacks
 
     public TaskView(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
-        RecentsConfiguration config = Recents.getConfiguration();
+        RecentsConfiguration config = LegacyRecentsImpl.getConfiguration();
         Resources res = context.getResources();
         mViewBounds = createOutlineProvider();
         if (config.fakeShadows) {
@@ -283,7 +282,7 @@ public class TaskView extends FixedSizeFrameLayout implements Task.TaskCallbacks
 
     void updateViewPropertiesToTaskTransform(TaskViewTransform toTransform,
             AnimationProps toAnimation, ValueAnimator.AnimatorUpdateListener updateCallback) {
-        RecentsConfiguration config = Recents.getConfiguration();
+        RecentsConfiguration config = LegacyRecentsImpl.getConfiguration();
         cancelTransformAnimation();
 
         // Compose the animations for the transform
@@ -412,7 +411,7 @@ public class TaskView extends FixedSizeFrameLayout implements Task.TaskCallbacks
      * view.
      */
     boolean shouldClipViewInStack() {
-        if (getVisibility() != View.VISIBLE || Recents.getConfiguration().isLowRamDevice) {
+        if (getVisibility() != View.VISIBLE || LegacyRecentsImpl.getConfiguration().isLowRamDevice) {
             return false;
         }
         return mClipViewInStack;
@@ -601,7 +600,7 @@ public class TaskView extends FixedSizeFrameLayout implements Task.TaskCallbacks
 
     public void onTaskBound(Task t, boolean touchExplorationEnabled, int displayOrientation,
             Rect displayRect) {
-        SystemServicesProxy ssp = Recents.getSystemServices();
+        SystemServicesProxy ssp = LegacyRecentsImpl.getSystemServices();
         mTouchExplorationEnabled = touchExplorationEnabled;
         mTask = t;
         mTaskBound = true;
@@ -679,10 +678,10 @@ public class TaskView extends FixedSizeFrameLayout implements Task.TaskCallbacks
 
     @Override
     public boolean onLongClick(View v) {
-        if (!Recents.getConfiguration().dragToSplitEnabled) {
+        if (!LegacyRecentsImpl.getConfiguration().dragToSplitEnabled) {
             return false;
         }
-        SystemServicesProxy ssp = Recents.getSystemServices();
+        SystemServicesProxy ssp = LegacyRecentsImpl.getSystemServices();
         boolean inBounds = false;
         Rect clipBounds = new Rect(mViewBounds.getClipBounds());
         if (!clipBounds.isEmpty()) {

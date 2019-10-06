@@ -19,6 +19,7 @@ package com.android.server;
 import android.Manifest;
 import android.app.ActivityManager;
 import android.app.AppGlobals;
+import android.app.AppOpsManager;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothProfile;
 import android.bluetooth.BluetoothProtoEnums;
@@ -53,12 +54,16 @@ import android.os.Process;
 import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.os.UserManagerInternal;
 import android.os.UserManagerInternal.UserRestrictionsListener;
 import android.provider.Settings;
 import android.provider.Settings.SettingNotFoundException;
+import android.text.TextUtils;
+import android.util.FeatureFlagUtils;
+import android.util.Log;
 import android.util.Slog;
 import android.util.StatsLog;
 
@@ -72,6 +77,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Locale;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -203,11 +209,15 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
     private int mErrorRecoveryRetryCounter;
     private final int mSystemUiUid;
 
+    private boolean mIsHearingAidProfileSupported;
+
+    private AppOpsManager mAppOps;
+
     // Save a ProfileServiceConnections object for each of the bound
     // bluetooth profile services
     private final Map<Integer, ProfileServiceConnections> mProfileServices = new HashMap<>();
 
-    private final boolean mPermissionReviewRequired;
+    private final boolean mWirelessConsentRequired;
 
     private final IBluetoothCallback mBluetoothCallback = new IBluetoothCallback.Stub() {
         @Override
@@ -274,7 +284,7 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
 
                 Slog.d(TAG,
                         "Airplane Mode change - current state:  " + BluetoothAdapter.nameForState(
-                                st));
+                                st) + ", isAirplaneModeOn()=" + isAirplaneModeOn());
 
                 if (isAirplaneModeOn()) {
                     // Clear registered LE apps to force shut-off
@@ -364,8 +374,8 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
 
         mContext = context;
 
-        mPermissionReviewRequired = context.getResources()
-                .getBoolean(com.android.internal.R.bool.config_permissionReviewRequired);
+        mWirelessConsentRequired = context.getResources()
+                .getBoolean(com.android.internal.R.bool.config_wirelessConsentRequired);
 
         mCrashes = 0;
         mBluetooth = null;
@@ -385,6 +395,21 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
         registerForBleScanModeChange();
         mCallbacks = new RemoteCallbackList<IBluetoothManagerCallback>();
         mStateChangeCallbacks = new RemoteCallbackList<IBluetoothStateChangeCallback>();
+
+        mIsHearingAidProfileSupported = context.getResources()
+                .getBoolean(com.android.internal.R.bool.config_hearing_aid_profile_supported);
+
+        // TODO: We need a more generic way to initialize the persist keys of FeatureFlagUtils
+        String value = SystemProperties.get(FeatureFlagUtils.PERSIST_PREFIX + FeatureFlagUtils.HEARING_AID_SETTINGS);
+        if (!TextUtils.isEmpty(value)) {
+            boolean isHearingAidEnabled = Boolean.parseBoolean(value);
+            Log.v(TAG, "set feature flag HEARING_AID_SETTINGS to " + isHearingAidEnabled);
+            FeatureFlagUtils.setEnabled(context, FeatureFlagUtils.HEARING_AID_SETTINGS, isHearingAidEnabled);
+            if (isHearingAidEnabled && !mIsHearingAidProfileSupported) {
+                // Overwrite to enable support by FeatureFlag
+                mIsHearingAidProfileSupported = true;
+            }
+        }
 
         IntentFilter filter = new IntentFilter();
         filter.addAction(BluetoothAdapter.ACTION_LOCAL_NAME_CHANGED);
@@ -665,6 +690,11 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
         return false;
     }
 
+    @Override
+    public boolean isHearingAidProfileSupported() {
+        return mIsHearingAidProfileSupported;
+    }
+
     // Monitor change of BLE scan only mode settings.
     private void registerForBleScanModeChange() {
         ContentObserver contentObserver = new ContentObserver(null) {
@@ -715,6 +745,12 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
     }
 
     public int updateBleAppCount(IBinder token, boolean enable, String packageName) {
+        // Check if packageName belongs to callingUid
+        final int callingUid = Binder.getCallingUid();
+        final boolean isCallerSystem = UserHandle.getAppId(callingUid) == Process.SYSTEM_UID;
+        if (!isCallerSystem) {
+            checkPackage(callingUid, packageName);
+        }
         ClientDeathRecipient r = mBleApps.get(token);
         if (r == null && enable) {
             ClientDeathRecipient deathRec = new ClientDeathRecipient(packageName);
@@ -830,6 +866,13 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
             return false;
         }
 
+        // Check if packageName belongs to callingUid
+        final int callingUid = Binder.getCallingUid();
+        final boolean isCallerSystem = UserHandle.getAppId(callingUid) == Process.SYSTEM_UID;
+        if (!isCallerSystem) {
+            checkPackage(callingUid, packageName);
+        }
+
         mContext.enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM,
                 "Need BLUETOOTH ADMIN permission");
 
@@ -837,7 +880,7 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
             Slog.d(TAG, "enableNoAutoConnect():  mBluetooth =" + mBluetooth + " mBinding = "
                     + mBinding);
         }
-        int callingAppId = UserHandle.getAppId(Binder.getCallingUid());
+        int callingAppId = UserHandle.getAppId(callingUid);
 
         if (callingAppId != Process.NFC_UID) {
             throw new SecurityException("no permission to enable Bluetooth quietly");
@@ -864,6 +907,9 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
         }
 
         if (!callerSystem) {
+            // Check if packageName belongs to callingUid
+            checkPackage(callingUid, packageName);
+
             if (!checkIfCallerIsForegroundUser()) {
                 Slog.w(TAG, "enable(): not allowed for non-active and non system user");
                 return false;
@@ -872,7 +918,7 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
             mContext.enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM,
                     "Need BLUETOOTH ADMIN permission");
 
-            if (!isEnabled() && mPermissionReviewRequired && startConsentUiIfNeeded(packageName,
+            if (!isEnabled() && mWirelessConsentRequired && startConsentUiIfNeeded(packageName,
                     callingUid, BluetoothAdapter.ACTION_REQUEST_ENABLE)) {
                 return false;
             }
@@ -901,6 +947,9 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
         final boolean callerSystem = UserHandle.getAppId(callingUid) == Process.SYSTEM_UID;
 
         if (!callerSystem) {
+            // Check if packageName belongs to callingUid
+            checkPackage(callingUid, packageName);
+
             if (!checkIfCallerIsForegroundUser()) {
                 Slog.w(TAG, "disable(): not allowed for non-active and non system user");
                 return false;
@@ -909,7 +958,7 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
             mContext.enforceCallingOrSelfPermission(BLUETOOTH_ADMIN_PERM,
                     "Need BLUETOOTH ADMIN permission");
 
-            if (isEnabled() && mPermissionReviewRequired && startConsentUiIfNeeded(packageName,
+            if (isEnabled() && mWirelessConsentRequired && startConsentUiIfNeeded(packageName,
                     callingUid, BluetoothAdapter.ACTION_REQUEST_DISABLE)) {
                 return false;
             }
@@ -932,7 +981,7 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
 
     private boolean startConsentUiIfNeeded(String packageName,
             int callingUid, String intentAction) throws RemoteException {
-        if (checkBluetoothPermissionWhenPermissionReviewRequired()) {
+        if (checkBluetoothPermissionWhenWirelessConsentRequired()) {
             return false;
         }
         try {
@@ -964,22 +1013,42 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
     }
 
     /**
+     * Check if AppOpsManager is available and the packageName belongs to uid
+     *
+     * A null package belongs to any uid
+     */
+    private void checkPackage(int uid, String packageName) {
+        if (mAppOps == null) {
+            Slog.w(TAG, "checkPackage(): called before system boot up, uid "
+                    + uid + ", packageName " + packageName);
+            throw new IllegalStateException("System has not boot yet");
+        }
+        if (packageName == null) {
+            Slog.w(TAG, "checkPackage(): called with null packageName from " + uid);
+            return;
+        }
+        try {
+            mAppOps.checkPackage(uid, packageName);
+        } catch (SecurityException e) {
+            Slog.w(TAG, "checkPackage(): " + packageName + " does not belong to uid " + uid);
+            throw new SecurityException(e.getMessage());
+        }
+    }
+
+    /**
      * Check if the caller must still pass permission check or if the caller is exempted
-     * from the consent UI via the MANAGE_BLUETOOTH_WHEN_PERMISSION_REVIEW_REQUIRED check.
+     * from the consent UI via the MANAGE_BLUETOOTH_WHEN_WIRELESS_CONSENT_REQUIRED check.
      *
      * Commands from some callers may be exempted from triggering the consent UI when
      * enabling bluetooth. This exemption is checked via the
-     * MANAGE_BLUETOOTH_WHEN_PERMISSION_REVIEW_REQUIRED and allows calls to skip
+     * MANAGE_BLUETOOTH_WHEN_WIRELESS_CONSENT_REQUIRED and allows calls to skip
      * the consent UI where it may otherwise be required.
      *
      * @hide
      */
-    private boolean checkBluetoothPermissionWhenPermissionReviewRequired() {
-        if (!mPermissionReviewRequired) {
-            return false;
-        }
+    private boolean checkBluetoothPermissionWhenWirelessConsentRequired() {
         int result = mContext.checkCallingPermission(
-                android.Manifest.permission.MANAGE_BLUETOOTH_WHEN_PERMISSION_REVIEW_REQUIRED);
+                android.Manifest.permission.MANAGE_BLUETOOTH_WHEN_WIRELESS_CONSENT_REQUIRED);
         return result == PackageManager.PERMISSION_GRANTED;
     }
 
@@ -1067,11 +1136,21 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
     public void unbindBluetoothProfileService(int bluetoothProfile,
             IBluetoothProfileServiceConnection proxy) {
         synchronized (mProfileServices) {
-            ProfileServiceConnections psc = mProfileServices.get(new Integer(bluetoothProfile));
+            Integer profile = new Integer(bluetoothProfile);
+            ProfileServiceConnections psc = mProfileServices.get(profile);
             if (psc == null) {
                 return;
             }
             psc.removeProxy(proxy);
+            if (psc.isEmpty()) {
+                // All prxoies are disconnected, unbind with the service.
+                try {
+                    mContext.unbindService(psc);
+                } catch (IllegalArgumentException e) {
+                    Slog.e(TAG, "Unable to unbind service with intent: " + psc.mIntent, e);
+                }
+                mProfileServices.remove(profile);
+            }
         }
     }
 
@@ -1098,6 +1177,7 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
         if (DBG) {
             Slog.d(TAG, "Bluetooth boot completed");
         }
+        mAppOps = mContext.getSystemService(AppOpsManager.class);
         UserManagerInternal userManagerInternal =
                 LocalServices.getService(UserManagerInternal.class);
         userManagerInternal.addUserRestrictionsListener(mUserRestrictionsListener);
@@ -1161,6 +1241,26 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
         }
 
         private boolean bindService() {
+            int state = BluetoothAdapter.STATE_OFF;
+            try {
+                mBluetoothLock.readLock().lock();
+                if (mBluetooth != null) {
+                    state = mBluetooth.getState();
+                }
+            } catch (RemoteException e) {
+                Slog.e(TAG, "Unable to call getState", e);
+                return false;
+            } finally {
+                mBluetoothLock.readLock().unlock();
+            }
+
+            if (!mEnable || state != BluetoothAdapter.STATE_ON) {
+                if (DBG) {
+                    Slog.d(TAG, "Unable to bindService while Bluetooth is disabled");
+                }
+                return false;
+            }
+
             if (mIntent != null && mService == null && doBind(mIntent, this, 0,
                     UserHandle.CURRENT_OR_SELF)) {
                 Message msg = mHandler.obtainMessage(MESSAGE_BIND_PROFILE_SERVICE);
@@ -1208,6 +1308,10 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
             mProxies.kill();
         }
 
+        private boolean isEmpty() {
+            return mProxies.getRegisteredCallbackCount() == 0;
+        }
+
         @Override
         public void onServiceConnected(ComponentName className, IBinder service) {
             // remove timeout message
@@ -1246,7 +1350,11 @@ class BluetoothManagerService extends IBluetoothManager.Stub {
             if (mService == null) {
                 return;
             }
-            mService.unlinkToDeath(this, 0);
+            try {
+                mService.unlinkToDeath(this, 0);
+            } catch (NoSuchElementException e) {
+                Log.e(TAG, "error unlinking to death", e);
+            }
             mService = null;
             mClassName = null;
 

@@ -19,14 +19,16 @@ package android.media;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.app.ActivityThread;
 import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
+import android.graphics.SurfaceTexture;
+import android.media.SubtitleController.Anchor;
+import android.media.SubtitleTrack.RenderingWidget;
 import android.net.Uri;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
@@ -35,30 +37,19 @@ import android.os.Message;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.PersistableBundle;
-import android.os.Process;
 import android.os.PowerManager;
+import android.os.Process;
 import android.os.SystemProperties;
 import android.provider.Settings;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
+import android.util.ArrayMap;
 import android.util.Log;
 import android.util.Pair;
-import android.util.ArrayMap;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.widget.VideoView;
-import android.graphics.SurfaceTexture;
-import android.media.AudioManager;
-import android.media.MediaDrm;
-import android.media.MediaFormat;
-import android.media.MediaTimeProvider;
-import android.media.PlaybackParams;
-import android.media.SubtitleController;
-import android.media.SubtitleController.Anchor;
-import android.media.SubtitleData;
-import android.media.SubtitleTrack.RenderingWidget;
-import android.media.SyncParams;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.Preconditions;
@@ -72,7 +63,6 @@ import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.Runnable;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.ref.WeakReference;
@@ -226,7 +216,7 @@ import java.util.Vector;
  *         transfers the object to the <em>Prepared</em> state once the method call
  *         returns, or a call to {@link #prepareAsync()} (asynchronous) which
  *         first transfers the object to the <em>Preparing</em> state after the
- *         call returns (which occurs almost right way) while the internal
+ *         call returns (which occurs almost right away) while the internal
  *         player engine continues working on the rest of preparation work
  *         until the preparation work completes. When the preparation completes or when {@link #prepare()} call returns,
  *         the internal player engine then calls a user supplied callback method,
@@ -335,7 +325,7 @@ import java.util.Vector;
  *
  * <table border="0" cellspacing="0" cellpadding="0">
  * <tr><td>Method Name </p></td>
- *     <td>Valid Sates </p></td>
+ *     <td>Valid States </p></td>
  *     <td>Invalid States </p></td>
  *     <td>Comments </p></td></tr>
  * <tr><td>attachAuxEffect </p></td>
@@ -597,6 +587,7 @@ public class MediaPlayer extends PlayerBase
        // FIXME: add link to getMetadata(boolean, boolean)
        {@hide}
      */
+    @UnsupportedAppUsage
     public static final boolean METADATA_ALL = false;
 
     /**
@@ -613,6 +604,7 @@ public class MediaPlayer extends PlayerBase
        // FIXME: add link to getMetadata(boolean, boolean)
        {@hide}
      */
+    @UnsupportedAppUsage
     public static final boolean BYPASS_METADATA_FILTER = false;
 
     static {
@@ -630,13 +622,13 @@ public class MediaPlayer extends PlayerBase
     private long mNativeSurfaceTexture;  // accessed by native methods
     private int mListenerContext; // accessed by native methods
     private SurfaceHolder mSurfaceHolder;
+    @UnsupportedAppUsage
     private EventHandler mEventHandler;
     private PowerManager.WakeLock mWakeLock = null;
     private boolean mScreenOnWhilePlaying;
     private boolean mStayAwake;
     private int mStreamType = AudioManager.USE_DEFAULT_STREAM_TYPE;
     private int mUsage = -1;
-    private boolean mBypassInterruptionPolicy;
 
     // Modular DRM
     private UUID mDrmUUID;
@@ -710,6 +702,7 @@ public class MediaPlayer extends PlayerBase
      * player.
      * {@hide}
      */
+    @UnsupportedAppUsage
     public Parcel newRequest() {
         Parcel parcel = Parcel.obtain();
         parcel.writeInterfaceToken(IMEDIA_PLAYER);
@@ -730,6 +723,7 @@ public class MediaPlayer extends PlayerBase
      * native player.
      * {@hide}
      */
+    @UnsupportedAppUsage
     public void invoke(Parcel request, Parcel reply) {
         int retcode = native_invoke(request, reply);
         reply.setDataPosition(0);
@@ -1108,7 +1102,7 @@ public class MediaPlayer extends PlayerBase
             setDataSource(afd);
             return true;
         } catch (NullPointerException | SecurityException | IOException ex) {
-            Log.w(TAG, "Couldn't open " + uri + ": " + ex);
+            Log.w(TAG, "Couldn't open " + (uri == null ? "null uri" : uri.toSafeString()), ex);
             return false;
         }
     }
@@ -1139,11 +1133,13 @@ public class MediaPlayer extends PlayerBase
      * @throws IllegalStateException if it is called in an invalid state
      * @hide pending API council
      */
+    @UnsupportedAppUsage
     public void setDataSource(String path, Map<String, String> headers)
             throws IOException, IllegalArgumentException, SecurityException, IllegalStateException {
         setDataSource(path, headers, null);
     }
 
+    @UnsupportedAppUsage
     private void setDataSource(String path, Map<String, String> headers, List<HttpCookie> cookies)
             throws IOException, IllegalArgumentException, SecurityException, IllegalStateException
     {
@@ -1164,6 +1160,7 @@ public class MediaPlayer extends PlayerBase
         setDataSource(path, keys, values, cookies);
     }
 
+    @UnsupportedAppUsage
     private void setDataSource(String path, String[] keys, String[] values,
             List<HttpCookie> cookies)
             throws IOException, IllegalArgumentException, SecurityException, IllegalStateException {
@@ -1182,13 +1179,8 @@ public class MediaPlayer extends PlayerBase
         }
 
         final File file = new File(path);
-        if (file.exists()) {
-            FileInputStream is = new FileInputStream(file);
-            FileDescriptor fd = is.getFD();
-            setDataSource(fd);
-            is.close();
-        } else {
-            throw new IOException("setDataSource failed.");
+        try (FileInputStream is = new FileInputStream(file)) {
+            setDataSource(is.getFD());
         }
     }
 
@@ -1671,37 +1663,6 @@ public class MediaPlayer extends PlayerBase
     public native boolean isPlaying();
 
     /**
-     * Gets the current buffering management params used by the source component.
-     * Calling it only after {@code setDataSource} has been called.
-     * Each type of data source might have different set of default params.
-     *
-     * @return the current buffering management params used by the source component.
-     * @throws IllegalStateException if the internal player engine has not been
-     * initialized, or {@code setDataSource} has not been called.
-     * @hide
-     */
-    @NonNull
-    @TestApi
-    public native BufferingParams getBufferingParams();
-
-    /**
-     * Sets buffering management params.
-     * The object sets its internal BufferingParams to the input, except that the input is
-     * invalid or not supported.
-     * Call it only after {@code setDataSource} has been called.
-     * The input is a hint to MediaPlayer.
-     *
-     * @param params the buffering management params.
-     *
-     * @throws IllegalStateException if the internal player engine has not been
-     * initialized or has been released, or {@code setDataSource} has not been called.
-     * @throws IllegalArgumentException if params is invalid or not supported.
-     * @hide
-     */
-    @TestApi
-    public native void setBufferingParams(@NonNull BufferingParams params);
-
-    /**
      * Change playback speed of audio by resampling the audio.
      * <p>
      * Specifies resampling as audio mode for variable rate playback, i.e.,
@@ -2010,6 +1971,7 @@ public class MediaPlayer extends PlayerBase
      // FIXME: unhide.
      * {@hide}
      */
+    @UnsupportedAppUsage
     public Metadata getMetadata(final boolean update_only,
                                 final boolean apply_filter) {
         Parcel reply = Parcel.obtain();
@@ -2127,9 +2089,11 @@ public class MediaPlayer extends PlayerBase
         mOnInfoListener = null;
         mOnVideoSizeChangedListener = null;
         mOnTimedTextListener = null;
-        if (mTimeProvider != null) {
-            mTimeProvider.close();
-            mTimeProvider = null;
+        synchronized (mTimeProviderLock) {
+            if (mTimeProvider != null) {
+                mTimeProvider.close();
+                mTimeProvider = null;
+            }
         }
         synchronized(this) {
             mSubtitleDataListenerDisabled = false;
@@ -2169,9 +2133,11 @@ public class MediaPlayer extends PlayerBase
         if (mSubtitleController != null) {
             mSubtitleController.reset();
         }
-        if (mTimeProvider != null) {
-            mTimeProvider.close();
-            mTimeProvider = null;
+        synchronized (mTimeProviderLock) {
+            if (mTimeProvider != null) {
+                mTimeProvider.close();
+                mTimeProvider = null;
+            }
         }
 
         stayAwake(false);
@@ -2234,6 +2200,7 @@ public class MediaPlayer extends PlayerBase
      * @return true if the parameter is set successfully, false otherwise
      * {@hide}
      */
+    @UnsupportedAppUsage
     private native boolean setParameter(int key, Parcel value);
 
     /**
@@ -2250,8 +2217,6 @@ public class MediaPlayer extends PlayerBase
         }
         baseUpdateAudioAttributes(attributes);
         mUsage = attributes.getUsage();
-        mBypassInterruptionPolicy = (attributes.getAllFlags()
-                & AudioAttributes.FLAG_BYPASS_INTERRUPTION_POLICY) != 0;
         Parcel pattributes = Parcel.obtain();
         attributes.writeToParcel(pattributes, AudioAttributes.FLATTEN_TAGS);
         setParameter(KEY_PARAMETER_AUDIO_ATTRIBUTES, pattributes);
@@ -2510,10 +2475,10 @@ public class MediaPlayer extends PlayerBase
         @Override
         public void writeToParcel(Parcel dest, int flags) {
             dest.writeInt(mTrackType);
+            dest.writeString(mFormat.getString(MediaFormat.KEY_MIME));
             dest.writeString(getLanguage());
 
             if (mTrackType == MEDIA_TRACK_TYPE_SUBTITLE) {
-                dest.writeString(mFormat.getString(MediaFormat.KEY_MIME));
                 dest.writeInt(mFormat.getInteger(MediaFormat.KEY_IS_AUTOSELECT));
                 dest.writeInt(mFormat.getInteger(MediaFormat.KEY_IS_DEFAULT));
                 dest.writeInt(mFormat.getInteger(MediaFormat.KEY_IS_FORCED_SUBTITLE));
@@ -2550,7 +2515,8 @@ public class MediaPlayer extends PlayerBase
         /**
          * Used to read a TrackInfo from a Parcel.
          */
-        static final Parcelable.Creator<TrackInfo> CREATOR
+        @UnsupportedAppUsage
+        static final @android.annotation.NonNull Parcelable.Creator<TrackInfo> CREATOR
                 = new Parcelable.Creator<TrackInfo>() {
                     @Override
                     public TrackInfo createFromParcel(Parcel in) {
@@ -2660,6 +2626,7 @@ public class MediaPlayer extends PlayerBase
     private SubtitleController mSubtitleController;
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setSubtitleAnchor(
             SubtitleController controller,
             SubtitleController.Anchor anchor) {
@@ -2675,6 +2642,7 @@ public class MediaPlayer extends PlayerBase
      */
     private synchronized void setSubtitleAnchor() {
         if ((mSubtitleController == null) && (ActivityThread.currentApplication() != null)) {
+            final TimeProvider timeProvider = (TimeProvider) getMediaTimeProvider();
             final HandlerThread thread = new HandlerThread("SetSubtitleAnchorThread");
             thread.start();
             Handler handler = new Handler(thread.getLooper());
@@ -2682,7 +2650,8 @@ public class MediaPlayer extends PlayerBase
                 @Override
                 public void run() {
                     Context context = ActivityThread.currentApplication();
-                    mSubtitleController = new SubtitleController(context, mTimeProvider, MediaPlayer.this);
+                    mSubtitleController =
+                            new SubtitleController(context, timeProvider, MediaPlayer.this);
                     mSubtitleController.setAnchor(new Anchor() {
                         @Override
                         public void setSubtitleWidget(RenderingWidget subtitleWidget) {
@@ -2690,7 +2659,7 @@ public class MediaPlayer extends PlayerBase
 
                         @Override
                         public Looper getSubtitleLooper() {
-                            return Looper.getMainLooper();
+                            return timeProvider.mEventHandler.getLooper();
                         }
                     });
                     thread.getLooper().quitSafely();
@@ -2764,6 +2733,7 @@ public class MediaPlayer extends PlayerBase
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void addSubtitleSource(InputStream is, MediaFormat format)
             throws IllegalStateException
     {
@@ -2808,12 +2778,17 @@ public class MediaPlayer extends PlayerBase
                 synchronized (mIndexTrackPairs) {
                     mIndexTrackPairs.add(Pair.<Integer, SubtitleTrack>create(null, track));
                 }
-                Handler h = mTimeProvider.mEventHandler;
-                int what = TimeProvider.NOTIFY;
-                int arg1 = TimeProvider.NOTIFY_TRACK_DATA;
-                Pair<SubtitleTrack, byte[]> trackData = Pair.create(track, contents.getBytes());
-                Message m = h.obtainMessage(what, arg1, 0, trackData);
-                h.sendMessage(m);
+                synchronized (mTimeProviderLock) {
+                    if (mTimeProvider != null) {
+                        Handler h = mTimeProvider.mEventHandler;
+                        int what = TimeProvider.NOTIFY;
+                        int arg1 = TimeProvider.NOTIFY_TRACK_DATA;
+                        Pair<SubtitleTrack, byte[]> trackData =
+                                Pair.create(track, contents.getBytes());
+                        Message m = h.obtainMessage(what, arg1, 0, trackData);
+                        h.sendMessage(m);
+                    }
+                }
                 return MEDIA_INFO_EXTERNAL_METADATA_UPDATE;
             }
 
@@ -2887,15 +2862,9 @@ public class MediaPlayer extends PlayerBase
             throw new IllegalArgumentException(msg);
         }
 
-        File file = new File(path);
-        if (file.exists()) {
-            FileInputStream is = new FileInputStream(file);
-            FileDescriptor fd = is.getFD();
-            addTimedTextSource(fd, mimeType);
-            is.close();
-        } else {
-            // We do not support the case where the path is not a file.
-            throw new IOException(path);
+        final File file = new File(path);
+        try (FileInputStream is = new FileInputStream(file)) {
+            addTimedTextSource(is.getFD(), mimeType);
         }
     }
 
@@ -3038,12 +3007,17 @@ public class MediaPlayer extends PlayerBase
                             total += bytes;
                         }
                     }
-                    Handler h = mTimeProvider.mEventHandler;
-                    int what = TimeProvider.NOTIFY;
-                    int arg1 = TimeProvider.NOTIFY_TRACK_DATA;
-                    Pair<SubtitleTrack, byte[]> trackData = Pair.create(track, bos.toByteArray());
-                    Message m = h.obtainMessage(what, arg1, 0, trackData);
-                    h.sendMessage(m);
+                    synchronized (mTimeProviderLock) {
+                        if (mTimeProvider != null) {
+                            Handler h = mTimeProvider.mEventHandler;
+                            int what = TimeProvider.NOTIFY;
+                            int arg1 = TimeProvider.NOTIFY_TRACK_DATA;
+                            Pair<SubtitleTrack, byte[]> trackData =
+                                    Pair.create(track, bos.toByteArray());
+                            Message m = h.obtainMessage(what, arg1, 0, trackData);
+                            h.sendMessage(m);
+                        }
+                    }
                     return MEDIA_INFO_EXTERNAL_METADATA_UPDATE;
                 } catch (Exception e) {
                     Log.e(TAG, e.getMessage(), e);
@@ -3276,6 +3250,7 @@ public class MediaPlayer extends PlayerBase
      *
      * {@hide} pending API council
      */
+    @UnsupportedAppUsage
     public void setRetransmitEndpoint(InetSocketAddress endpoint)
             throws IllegalStateException, IllegalArgumentException
     {
@@ -3325,13 +3300,17 @@ public class MediaPlayer extends PlayerBase
     private static final int MEDIA_AUDIO_ROUTING_CHANGED = 10000;
 
     private TimeProvider mTimeProvider;
+    private final Object mTimeProviderLock = new Object();
 
     /** @hide */
+    @UnsupportedAppUsage
     public MediaTimeProvider getMediaTimeProvider() {
-        if (mTimeProvider == null) {
-            mTimeProvider = new TimeProvider(this);
+        synchronized (mTimeProviderLock) {
+            if (mTimeProvider == null) {
+                mTimeProvider = new TimeProvider(this);
+            }
+            return mTimeProvider;
         }
-        return mTimeProvider;
     }
 
     private class EventHandler extends Handler
@@ -3723,6 +3702,7 @@ public class MediaPlayer extends PlayerBase
         mOnPreparedListener = listener;
     }
 
+    @UnsupportedAppUsage
     private OnPreparedListener mOnPreparedListener;
 
     /**
@@ -3750,6 +3730,7 @@ public class MediaPlayer extends PlayerBase
         mOnCompletionListener = listener;
     }
 
+    @UnsupportedAppUsage
     private OnCompletionListener mOnCompletionListener;
 
     /**
@@ -3822,6 +3803,7 @@ public class MediaPlayer extends PlayerBase
         mOnSeekCompleteListener = listener;
     }
 
+    @UnsupportedAppUsage
     private OnSeekCompleteListener mOnSeekCompleteListener;
 
     /**
@@ -3883,6 +3865,7 @@ public class MediaPlayer extends PlayerBase
         mOnTimedTextListener = listener;
     }
 
+    @UnsupportedAppUsage
     private OnTimedTextListener mOnTimedTextListener;
 
     /**
@@ -4162,6 +4145,7 @@ public class MediaPlayer extends PlayerBase
         mOnErrorListener = listener;
     }
 
+    @UnsupportedAppUsage
     private OnErrorListener mOnErrorListener;
 
 
@@ -4231,6 +4215,7 @@ public class MediaPlayer extends PlayerBase
      *  JAVA framework to avoid triggering track scanning.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int MEDIA_INFO_EXTERNAL_METADATA_UPDATE = 803;
 
     /** Informs that audio is not playing. Note that playback of the video
@@ -4250,6 +4235,7 @@ public class MediaPlayer extends PlayerBase
      *
      * {@hide}
      */
+    @UnsupportedAppUsage
     public static final int MEDIA_INFO_TIMED_TEXT_ERROR = 900;
 
     /** Subtitle track was not supported by the media framework.
@@ -4306,6 +4292,7 @@ public class MediaPlayer extends PlayerBase
         mOnInfoListener = listener;
     }
 
+    @UnsupportedAppUsage
     private OnInfoListener mOnInfoListener;
 
     // Modular DRM begin

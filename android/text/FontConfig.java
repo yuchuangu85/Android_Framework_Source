@@ -21,6 +21,7 @@ import static java.lang.annotation.RetentionPolicy.SOURCE;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.graphics.fonts.FontVariationAxis;
 import android.net.Uri;
 
@@ -43,6 +44,7 @@ public final class FontConfig {
     /**
      * Returns the ordered list of families included in the system fonts.
      */
+    @UnsupportedAppUsage
     public @NonNull Family[] getFamilies() {
         return mFamilies;
     }
@@ -89,6 +91,7 @@ public final class FontConfig {
         /**
          * Returns the index to be used to access this font when accessing a TTC file.
          */
+        @UnsupportedAppUsage
         public int getTtcIndex() {
             return mTtcIndex;
         }
@@ -96,6 +99,7 @@ public final class FontConfig {
         /**
          * Returns the list of axes associated to this font.
          */
+        @UnsupportedAppUsage
         public @NonNull FontVariationAxis[] getAxes() {
             return mAxes;
         }
@@ -103,6 +107,7 @@ public final class FontConfig {
         /**
          * Returns the weight value for this font.
          */
+        @UnsupportedAppUsage
         public int getWeight() {
             return mWeight;
         }
@@ -110,6 +115,7 @@ public final class FontConfig {
         /**
          * Returns whether this font is italic.
          */
+        @UnsupportedAppUsage
         public boolean isItalic() {
             return mIsItalic;
         }
@@ -175,7 +181,8 @@ public final class FontConfig {
     public static final class Family {
         private final @NonNull String mName;
         private final @NonNull Font[] mFonts;
-        private final @NonNull String[] mLanguages;
+        // Comma separated BCP47 complient locale strings
+        private final @NonNull String mLanguages;
 
         /** @hide */
         @Retention(SOURCE)
@@ -213,7 +220,7 @@ public final class FontConfig {
         // See frameworks/minikin/include/minikin/FontFamily.h
         private final @Variant int mVariant;
 
-        public Family(@NonNull String name, @NonNull Font[] fonts, @NonNull String[] languages,
+        public Family(@NonNull String name, @NonNull Font[] fonts, @NonNull String languages,
                 @Variant int variant) {
             mName = name;
             mFonts = fonts;
@@ -224,6 +231,7 @@ public final class FontConfig {
         /**
          * Returns the name given by the system to this font family.
          */
+        @UnsupportedAppUsage
         public @Nullable String getName() {
             return mName;
         }
@@ -231,20 +239,22 @@ public final class FontConfig {
         /**
          * Returns the list of fonts included in this family.
          */
+        @UnsupportedAppUsage
         public @Nullable Font[] getFonts() {
             return mFonts;
         }
 
         /**
-         * Returns the languages for this family. May be null.
+         * Returns the comma separated BCP47 complient languages for this family. May be null.
          */
-        public @Nullable String[] getLanguages() {
+        public @NonNull String getLanguages() {
             return mLanguages;
         }
 
         /**
          * Returns the font variant for this family, e.g. "elegant" or "compact". May be null.
          */
+        @UnsupportedAppUsage
         public @Variant int getVariant() {
             return mVariant;
         }

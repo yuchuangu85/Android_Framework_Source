@@ -43,7 +43,8 @@ import java.lang.annotation.Native;
  * When a security manager is installed, a {@link NetworkPermission}
  * is required to set or get this option.
  */
-//@jdk.Exported
+// Android-removed: @jdk.Exported, not present on Android.
+// @jdk.Exported
 public class SocketFlow {
 
     private static final int UNSET = -1;
@@ -64,7 +65,8 @@ public class SocketFlow {
      * one of these statuses, which reflect the state of socket's
      * flow.
      */
-//    @jdk.Exported
+    // Android-removed: @jdk.Exported, not present on Android.
+    // @jdk.Exported
     public enum Status {
         /**
          * Set or get socket option has not been called yet. Status

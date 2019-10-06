@@ -16,6 +16,7 @@ package android.graphics.drawable;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo.Config;
 import android.content.res.ColorStateList;
 import android.content.res.ComplexColor;
@@ -23,11 +24,13 @@ import android.content.res.GradientColor;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
+import android.graphics.BlendMode;
+import android.graphics.BlendModeColorFilter;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Insets;
 import android.graphics.PixelFormat;
-import android.graphics.PorterDuff.Mode;
+import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
 import android.graphics.Shader;
@@ -46,6 +49,9 @@ import android.util.Xml;
 import com.android.internal.R;
 import com.android.internal.util.VirtualRefBasePtr;
 
+import dalvik.annotation.optimization.FastNative;
+import dalvik.system.VMRuntime;
+
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
@@ -55,9 +61,6 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Stack;
-
-import dalvik.annotation.optimization.FastNative;
-import dalvik.system.VMRuntime;
 
 /**
  * This lets you create a drawable based on an XML vector graphic.
@@ -321,7 +324,10 @@ public class VectorDrawable extends Drawable {
 
     private VectorDrawableState mVectorState;
 
+    @UnsupportedAppUsage
     private PorterDuffColorFilter mTintFilter;
+
+    private BlendModeColorFilter mBlendModeColorFilter;
     private ColorFilter mColorFilter;
 
     private boolean mMutated;
@@ -369,7 +375,7 @@ public class VectorDrawable extends Drawable {
             mDpiScaledDirty = true;
         }
 
-        mTintFilter = updateTintFilter(mTintFilter, mVectorState.mTint, mVectorState.mTintMode);
+        updateColorFilters(mVectorState.mBlendMode, mVectorState.mTint);
     }
 
     @Override
@@ -389,6 +395,7 @@ public class VectorDrawable extends Drawable {
         mMutated = false;
     }
 
+    @UnsupportedAppUsage
     Object getTargetByName(String name) {
         return mVectorState.mVGTargetsMap.get(name);
     }
@@ -410,7 +417,8 @@ public class VectorDrawable extends Drawable {
         }
 
         // Color filters always override tint filters.
-        final ColorFilter colorFilter = (mColorFilter == null ? mTintFilter : mColorFilter);
+        final ColorFilter colorFilter = (mColorFilter == null ? mBlendModeColorFilter :
+                mColorFilter);
         final long colorFilterNativeInstance = colorFilter == null ? 0 :
                 colorFilter.getNativeInstance();
         boolean canReuseCache = mVectorState.canReuseCache();
@@ -472,17 +480,19 @@ public class VectorDrawable extends Drawable {
         final VectorDrawableState state = mVectorState;
         if (state.mTint != tint) {
             state.mTint = tint;
-            mTintFilter = updateTintFilter(mTintFilter, tint, state.mTintMode);
+
+            updateColorFilters(mVectorState.mBlendMode, tint);
             invalidateSelf();
         }
     }
 
     @Override
-    public void setTintMode(Mode tintMode) {
+    public void setTintBlendMode(@NonNull BlendMode blendMode) {
         final VectorDrawableState state = mVectorState;
-        if (state.mTintMode != tintMode) {
-            state.mTintMode = tintMode;
-            mTintFilter = updateTintFilter(mTintFilter, state.mTint, tintMode);
+        if (state.mBlendMode != blendMode) {
+            state.mBlendMode = blendMode;
+
+            updateColorFilters(state.mBlendMode, state.mTint);
             invalidateSelf();
         }
     }
@@ -512,12 +522,20 @@ public class VectorDrawable extends Drawable {
             changed = true;
             state.mCacheDirty = true;
         }
-        if (state.mTint != null && state.mTintMode != null) {
-            mTintFilter = updateTintFilter(mTintFilter, state.mTint, state.mTintMode);
+        if (state.mTint != null && state.mBlendMode != null) {
+            BlendMode blendMode = state.mBlendMode;
+            ColorStateList tint = state.mTint;
+            updateColorFilters(blendMode, tint);
             changed = true;
         }
 
         return changed;
+    }
+
+    private void updateColorFilters(@Nullable BlendMode blendMode, ColorStateList tint) {
+        PorterDuff.Mode mode = BlendMode.blendModeToPorterDuffMode(blendMode);
+        mTintFilter = updateTintFilter(mTintFilter, tint, mode);
+        mBlendModeColorFilter = updateBlendModeFilter(mBlendModeColorFilter, tint, blendMode);
     }
 
     @Override
@@ -543,7 +561,6 @@ public class VectorDrawable extends Drawable {
         return mDpiScaledHeight;
     }
 
-    /** @hide */
     @Override
     public Insets getOpticalInsets() {
         if (mDpiScaledDirty) {
@@ -735,7 +752,7 @@ public class VectorDrawable extends Drawable {
 
         final int tintMode = a.getInt(R.styleable.VectorDrawable_tintMode, -1);
         if (tintMode != -1) {
-            state.mTintMode = Drawable.parseTintMode(tintMode, Mode.SRC_IN);
+            state.mBlendMode = Drawable.parseBlendMode(tintMode, BlendMode.SRC_IN);
         }
 
         final ColorStateList tint = a.getColorStateList(R.styleable.VectorDrawable_tint);
@@ -868,6 +885,7 @@ public class VectorDrawable extends Drawable {
         return super.getChangingConfigurations() | mVectorState.getChangingConfigurations();
     }
 
+    @UnsupportedAppUsage
     void setAllowCaching(boolean allowCaching) {
         nSetAllowCaching(mVectorState.getNativeRenderer(), allowCaching);
     }
@@ -908,7 +926,7 @@ public class VectorDrawable extends Drawable {
         int[] mThemeAttrs;
         @Config int mChangingConfigurations;
         ColorStateList mTint = null;
-        Mode mTintMode = DEFAULT_TINT_MODE;
+        BlendMode mBlendMode = DEFAULT_BLEND_MODE;
         boolean mAutoMirrored;
 
         int mBaseWidth = 0;
@@ -926,7 +944,7 @@ public class VectorDrawable extends Drawable {
         // Fields for cache
         int[] mCachedThemeAttrs;
         ColorStateList mCachedTint;
-        Mode mCachedTintMode;
+        BlendMode mCachedBlendMode;
         boolean mCachedAutoMirrored;
         boolean mCacheDirty;
 
@@ -967,7 +985,7 @@ public class VectorDrawable extends Drawable {
                 mThemeAttrs = copy.mThemeAttrs;
                 mChangingConfigurations = copy.mChangingConfigurations;
                 mTint = copy.mTint;
-                mTintMode = copy.mTintMode;
+                mBlendMode = copy.mBlendMode;
                 mAutoMirrored = copy.mAutoMirrored;
                 mRootGroup = new VGroup(copy.mRootGroup, mVGTargetsMap);
                 createNativeTreeFromCopy(copy, mRootGroup);
@@ -1023,7 +1041,7 @@ public class VectorDrawable extends Drawable {
             if (!mCacheDirty
                     && mCachedThemeAttrs == mThemeAttrs
                     && mCachedTint == mTint
-                    && mCachedTintMode == mTintMode
+                    && mCachedBlendMode == mBlendMode
                     && mCachedAutoMirrored == mAutoMirrored) {
                 return true;
             }
@@ -1036,7 +1054,7 @@ public class VectorDrawable extends Drawable {
             // likely hit cache miss more, but practically not much difference.
             mCachedThemeAttrs = mThemeAttrs;
             mCachedTint = mTint;
-            mCachedTintMode = mTintMode;
+            mCachedBlendMode = mBlendMode;
             mCachedAutoMirrored = mAutoMirrored;
             mCacheDirty = false;
         }
@@ -1499,6 +1517,7 @@ public class VectorDrawable extends Drawable {
         }
 
         @SuppressWarnings("unused")
+        @UnsupportedAppUsage
         public void setRotation(float rotation) {
             if (isTreeValid()) {
                 nSetRotation(mNativePtr, rotation);
@@ -1511,6 +1530,7 @@ public class VectorDrawable extends Drawable {
         }
 
         @SuppressWarnings("unused")
+        @UnsupportedAppUsage
         public void setPivotX(float pivotX) {
             if (isTreeValid()) {
                 nSetPivotX(mNativePtr, pivotX);
@@ -1523,6 +1543,7 @@ public class VectorDrawable extends Drawable {
         }
 
         @SuppressWarnings("unused")
+        @UnsupportedAppUsage
         public void setPivotY(float pivotY) {
             if (isTreeValid()) {
                 nSetPivotY(mNativePtr, pivotY);
@@ -1559,6 +1580,7 @@ public class VectorDrawable extends Drawable {
         }
 
         @SuppressWarnings("unused")
+        @UnsupportedAppUsage
         public void setTranslateX(float translateX) {
             if (isTreeValid()) {
                 nSetTranslateX(mNativePtr, translateX);
@@ -1571,6 +1593,7 @@ public class VectorDrawable extends Drawable {
         }
 
         @SuppressWarnings("unused")
+        @UnsupportedAppUsage
         public void setTranslateY(float translateY) {
             if (isTreeValid()) {
                 nSetTranslateY(mNativePtr, translateY);
@@ -2025,7 +2048,7 @@ public class VectorDrawable extends Drawable {
                 if (fillColors instanceof  GradientColor) {
                     mFillColors = fillColors;
                     fillGradient = ((GradientColor) fillColors).getShader();
-                } else if (fillColors.isStateful()) {
+                } else if (fillColors.isStateful() || fillColors.canApplyTheme()) {
                     mFillColors = fillColors;
                 } else {
                     mFillColors = null;
@@ -2041,7 +2064,7 @@ public class VectorDrawable extends Drawable {
                 if (strokeColors instanceof GradientColor) {
                     mStrokeColors = strokeColors;
                     strokeGradient = ((GradientColor) strokeColors).getShader();
-                } else if (strokeColors.isStateful()) {
+                } else if (strokeColors.isStateful() || strokeColors.canApplyTheme()) {
                     mStrokeColors = strokeColors;
                 } else {
                     mStrokeColors = null;

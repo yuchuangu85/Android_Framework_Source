@@ -19,159 +19,143 @@ package com.android.setupwizardlib.test;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.verify;
 
+import androidx.recyclerview.widget.RecyclerView;
+import android.view.View;
+import android.view.ViewGroup;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
-import android.support.v7.widget.RecyclerView;
-import android.view.View;
-import android.view.ViewGroup;
-
 import com.android.setupwizardlib.view.HeaderRecyclerView.HeaderAdapter;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
-/**
- * Test for {@link com.android.setupwizardlib.view.HeaderRecyclerView}
- */
+/** Test for {@link com.android.setupwizardlib.view.HeaderRecyclerView} */
 @RunWith(AndroidJUnit4.class)
 @SmallTest
 public class HeaderRecyclerViewTest {
 
-    private TestAdapter mWrappedAdapter;
-    private HeaderAdapter mHeaderAdapter;
+  private TestAdapter mWrappedAdapter;
+  private HeaderAdapter mHeaderAdapter;
 
-    @Mock
-    private RecyclerView.AdapterDataObserver mObserver;
+  @Mock private RecyclerView.AdapterDataObserver mObserver;
 
-    @Before
-    public void setUp() {
-        MockitoAnnotations.initMocks(this);
+  @Before
+  public void setUp() {
+    MockitoAnnotations.initMocks(this);
 
-        mWrappedAdapter = new TestAdapter();
+    mWrappedAdapter = new TestAdapter();
 
-        mHeaderAdapter = new HeaderAdapter(mWrappedAdapter);
-        mHeaderAdapter.registerAdapterDataObserver(mObserver);
+    mHeaderAdapter = new HeaderAdapter(mWrappedAdapter);
+    mHeaderAdapter.registerAdapterDataObserver(mObserver);
+  }
+
+  /** Test that notifyDataSetChanged gets propagated by HeaderRecyclerView's adapter. */
+  @Test
+  public void testNotifyChanged() {
+    mWrappedAdapter.notifyDataSetChanged();
+
+    verify(mObserver).onChanged();
+  }
+
+  /** Test that notifyItemChanged gets propagated by HeaderRecyclerView's adapter. */
+  @Test
+  public void testNotifyItemChangedNoHeader() {
+    mWrappedAdapter.notifyItemChanged(12);
+
+    verify(mObserver).onItemRangeChanged(eq(12), eq(1), eq(null));
+  }
+
+  /**
+   * Test that notifyItemChanged gets propagated by HeaderRecyclerView's adapter and adds 1 to the
+   * position for the extra header items.
+   */
+  @Test
+  public void testNotifyItemChangedWithHeader() {
+    mHeaderAdapter.setHeader(new View(InstrumentationRegistry.getTargetContext()));
+    mWrappedAdapter.notifyItemChanged(12);
+
+    verify(mObserver).onItemRangeChanged(eq(13), eq(1), eq(null));
+  }
+
+  /** Test that notifyItemInserted gets propagated by HeaderRecyclerView's adapter. */
+  @Test
+  public void testNotifyItemInsertedNoHeader() {
+    mWrappedAdapter.notifyItemInserted(12);
+
+    verify(mObserver).onItemRangeInserted(eq(12), eq(1));
+  }
+
+  /**
+   * Test that notifyItemInserted gets propagated by HeaderRecyclerView's adapter and adds 1 to the
+   * position for the extra header item.
+   */
+  @Test
+  public void testNotifyItemInsertedWithHeader() {
+    mHeaderAdapter.setHeader(new View(InstrumentationRegistry.getTargetContext()));
+    mWrappedAdapter.notifyItemInserted(12);
+
+    verify(mObserver).onItemRangeInserted(eq(13), eq(1));
+  }
+
+  /** Test that notifyItemRemoved gets propagated by HeaderRecyclerView's adapter. */
+  @Test
+  public void testNotifyItemRemovedNoHeader() {
+    mWrappedAdapter.notifyItemRemoved(12);
+
+    verify(mObserver).onItemRangeRemoved(eq(12), eq(1));
+  }
+
+  /**
+   * Test that notifyItemRemoved gets propagated by HeaderRecyclerView's adapter and adds 1 to the
+   * position for the extra header item.
+   */
+  @Test
+  public void testNotifyItemRemovedWithHeader() {
+    mHeaderAdapter.setHeader(new View(InstrumentationRegistry.getTargetContext()));
+    mWrappedAdapter.notifyItemRemoved(12);
+
+    verify(mObserver).onItemRangeRemoved(eq(13), eq(1));
+  }
+
+  /** Test that notifyItemMoved gets propagated by HeaderRecyclerView's adapter. */
+  @Test
+  public void testNotifyItemMovedNoHeader() {
+    mWrappedAdapter.notifyItemMoved(12, 18);
+
+    verify(mObserver).onItemRangeMoved(eq(12), eq(18), eq(1));
+  }
+
+  /**
+   * Test that notifyItemMoved gets propagated by HeaderRecyclerView's adapter and adds 1 to the
+   * position for the extra header item.
+   */
+  @Test
+  public void testNotifyItemMovedWithHeader() {
+    mHeaderAdapter.setHeader(new View(InstrumentationRegistry.getTargetContext()));
+    mWrappedAdapter.notifyItemMoved(12, 18);
+
+    verify(mObserver).onItemRangeMoved(eq(13), eq(19), eq(1));
+  }
+
+  /**
+   * Test adapter to be wrapped inside {@link HeaderAdapter} to to send item change notifications.
+   */
+  public static class TestAdapter extends RecyclerView.Adapter {
+
+    @Override
+    public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup viewGroup, int i) {
+      return null;
     }
 
-    /**
-     * Test that notifyDataSetChanged gets propagated by HeaderRecyclerView's adapter.
-     */
-    @Test
-    public void testNotifyChanged() {
-        mWrappedAdapter.notifyDataSetChanged();
+    @Override
+    public void onBindViewHolder(RecyclerView.ViewHolder viewHolder, int i) {}
 
-        verify(mObserver).onChanged();
+    @Override
+    public int getItemCount() {
+      return 0;
     }
-
-    /**
-     * Test that notifyItemChanged gets propagated by HeaderRecyclerView's adapter.
-     */
-    @Test
-    public void testNotifyItemChangedNoHeader() {
-        mWrappedAdapter.notifyItemChanged(12);
-
-        verify(mObserver).onItemRangeChanged(eq(12), eq(1), eq(null));
-    }
-
-    /**
-     * Test that notifyItemChanged gets propagated by HeaderRecyclerView's adapter and adds 1 to the
-     * position for the extra header items.
-     */
-    @Test
-    public void testNotifyItemChangedWithHeader() {
-        mHeaderAdapter.setHeader(new View(InstrumentationRegistry.getTargetContext()));
-        mWrappedAdapter.notifyItemChanged(12);
-
-        verify(mObserver).onItemRangeChanged(eq(13), eq(1), eq(null));
-    }
-
-    /**
-     * Test that notifyItemInserted gets propagated by HeaderRecyclerView's adapter.
-     */
-    @Test
-    public void testNotifyItemInsertedNoHeader() {
-        mWrappedAdapter.notifyItemInserted(12);
-
-        verify(mObserver).onItemRangeInserted(eq(12), eq(1));
-    }
-
-    /**
-     * Test that notifyItemInserted gets propagated by HeaderRecyclerView's adapter and adds 1 to
-     * the position for the extra header item.
-     */
-    @Test
-    public void testNotifyItemInsertedWithHeader() {
-        mHeaderAdapter.setHeader(new View(InstrumentationRegistry.getTargetContext()));
-        mWrappedAdapter.notifyItemInserted(12);
-
-        verify(mObserver).onItemRangeInserted(eq(13), eq(1));
-    }
-
-    /**
-     * Test that notifyItemRemoved gets propagated by HeaderRecyclerView's adapter.
-     */
-    @Test
-    public void testNotifyItemRemovedNoHeader() {
-        mWrappedAdapter.notifyItemRemoved(12);
-
-        verify(mObserver).onItemRangeRemoved(eq(12), eq(1));
-    }
-
-    /**
-     * Test that notifyItemRemoved gets propagated by HeaderRecyclerView's adapter and adds 1 to
-     * the position for the extra header item.
-     */
-    @Test
-    public void testNotifyItemRemovedWithHeader() {
-        mHeaderAdapter.setHeader(new View(InstrumentationRegistry.getTargetContext()));
-        mWrappedAdapter.notifyItemRemoved(12);
-
-        verify(mObserver).onItemRangeRemoved(eq(13), eq(1));
-    }
-
-    /**
-     * Test that notifyItemMoved gets propagated by HeaderRecyclerView's adapter.
-     */
-    @Test
-    public void testNotifyItemMovedNoHeader() {
-        mWrappedAdapter.notifyItemMoved(12, 18);
-
-        verify(mObserver).onItemRangeMoved(eq(12), eq(18), eq(1));
-    }
-
-    /**
-     * Test that notifyItemMoved gets propagated by HeaderRecyclerView's adapter and adds 1 to
-     * the position for the extra header item.
-     */
-    @Test
-    public void testNotifyItemMovedWithHeader() {
-        mHeaderAdapter.setHeader(new View(InstrumentationRegistry.getTargetContext()));
-        mWrappedAdapter.notifyItemMoved(12, 18);
-
-        verify(mObserver).onItemRangeMoved(eq(13), eq(19), eq(1));
-    }
-
-    /**
-     * Test adapter to be wrapped inside {@link HeaderAdapter} to to send item change notifications.
-     */
-    public static class TestAdapter extends RecyclerView.Adapter {
-
-        @Override
-        public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup viewGroup, int i) {
-            return null;
-        }
-
-        @Override
-        public void onBindViewHolder(RecyclerView.ViewHolder viewHolder, int i) {
-        }
-
-        @Override
-        public int getItemCount() {
-            return 0;
-        }
-    }
+  }
 }

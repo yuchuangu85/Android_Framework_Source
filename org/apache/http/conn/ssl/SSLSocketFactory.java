@@ -36,6 +36,8 @@ import org.apache.http.conn.scheme.LayeredSocketFactory;
 import org.apache.http.params.HttpConnectionParams;
 import org.apache.http.params.HttpParams;
 
+import android.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
@@ -174,9 +176,13 @@ public class SSLSocketFactory implements LayeredSocketFactory {
         return NoPreloadHolder.DEFAULT_FACTORY;
     }
 
+    @UnsupportedAppUsage
     private final SSLContext sslcontext;
+    @UnsupportedAppUsage
     private final javax.net.ssl.SSLSocketFactory socketfactory;
+    @UnsupportedAppUsage
     private final HostNameResolver nameResolver;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private X509HostnameVerifier hostnameVerifier = BROWSER_COMPATIBLE_HOSTNAME_VERIFIER;
 
     public SSLSocketFactory(
@@ -233,6 +239,7 @@ public class SSLSocketFactory implements LayeredSocketFactory {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public SSLSocketFactory(javax.net.ssl.SSLSocketFactory socketfactory) {
         super();
         this.sslcontext = null;
@@ -245,6 +252,7 @@ public class SSLSocketFactory implements LayeredSocketFactory {
      * This constructor is used exclusively to instantiate the factory for
      * {@link #getSocketFactory getSocketFactory}.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private SSLSocketFactory() {
         super();
         this.sslcontext = null;
@@ -252,6 +260,7 @@ public class SSLSocketFactory implements LayeredSocketFactory {
         this.nameResolver = null;
     }
 
+    @UnsupportedAppUsage
     private static KeyManager[] createKeyManagers(final KeyStore keystore, final String password)
         throws KeyStoreException, NoSuchAlgorithmException, UnrecoverableKeyException {
         if (keystore == null) {
@@ -263,6 +272,7 @@ public class SSLSocketFactory implements LayeredSocketFactory {
         return kmfactory.getKeyManagers(); 
     }
 
+    @UnsupportedAppUsage
     private static TrustManager[] createTrustManagers(final KeyStore keystore)
         throws KeyStoreException, NoSuchAlgorithmException { 
         if (keystore == null) {

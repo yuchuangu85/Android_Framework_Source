@@ -89,6 +89,8 @@ public interface TypeVariable<D extends GenericDeclaration> extends Type/*, Anno
      */
     String getName();
 
+    // Android-removed: getAnnotatedBounds(), no support for runtime type annotations on Android.
+    /*
     /**
      * Returns an array of AnnotatedType objects that represent the use of
      * types to denote the upper bounds of the type parameter represented by
@@ -99,7 +101,7 @@ public interface TypeVariable<D extends GenericDeclaration> extends Type/*, Anno
      *
      * @return an array of objects representing the upper bounds of the type variable
      * @since 1.8
-     */
-    // Android-removed: getAnnotatedBounds(), no support for runtime type annotations on Android.
-    // AnnotatedType[] getAnnotatedBounds();
+     *
+     AnnotatedType[] getAnnotatedBounds();
+    */
 }

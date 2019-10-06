@@ -16,6 +16,7 @@
 
 package android.view.textservice;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -26,7 +27,6 @@ import android.util.Log;
 
 import com.android.internal.textservice.ISpellCheckerSession;
 import com.android.internal.textservice.ISpellCheckerSessionListener;
-import com.android.internal.textservice.ITextServicesManager;
 import com.android.internal.textservice.ITextServicesSessionListener;
 
 import dalvik.system.CloseGuard;
@@ -95,8 +95,9 @@ public class SpellCheckerSession {
     private static final int MSG_ON_GET_SUGGESTION_MULTIPLE_FOR_SENTENCE = 2;
 
     private final InternalListener mInternalListener;
-    private final ITextServicesManager mTextServicesManager;
+    private final TextServicesManager mTextServicesManager;
     private final SpellCheckerInfo mSpellCheckerInfo;
+    @UnsupportedAppUsage
     private final SpellCheckerSessionListener mSpellCheckerSessionListener;
     private final SpellCheckerSessionListenerImpl mSpellCheckerSessionListenerImpl;
 
@@ -122,7 +123,7 @@ public class SpellCheckerSession {
      * @hide
      */
     public SpellCheckerSession(
-            SpellCheckerInfo info, ITextServicesManager tsm, SpellCheckerSessionListener listener) {
+            SpellCheckerInfo info, TextServicesManager tsm, SpellCheckerSessionListener listener) {
         if (info == null || listener == null || tsm == null) {
             throw new NullPointerException();
         }
@@ -164,12 +165,8 @@ public class SpellCheckerSession {
      */
     public void close() {
         mGuard.close();
-        try {
-            mSpellCheckerSessionListenerImpl.close();
-            mTextServicesManager.finishSpellCheckerService(mSpellCheckerSessionListenerImpl);
-        } catch (RemoteException e) {
-            // do nothing
-        }
+        mSpellCheckerSessionListenerImpl.close();
+        mTextServicesManager.finishSpellCheckerService(mSpellCheckerSessionListenerImpl);
     }
 
     /**

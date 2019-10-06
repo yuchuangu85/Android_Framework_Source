@@ -100,7 +100,7 @@ import sun.security.jca.GetInstance.Instance;
  * </table>
  *
  * These algorithms are described in the <a href=
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyFactory">
+ * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#KeyFactory">
  * KeyFactory section</a> of the
  * Java Cryptography Architecture Standard Algorithm Name Documentation.
  *
@@ -178,7 +178,7 @@ public class KeyFactory {
      *
      * @param algorithm the name of the requested key algorithm.
      * See the KeyFactory section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyFactory">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#KeyFactory">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
@@ -209,7 +209,7 @@ public class KeyFactory {
      *
      * @param algorithm the name of the requested key algorithm.
      * See the KeyFactory section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyFactory">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#KeyFactory">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
@@ -250,7 +250,7 @@ public class KeyFactory {
      *
      * @param algorithm the name of the requested key algorithm.
      * See the KeyFactory section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyFactory">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html#KeyFactory">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *

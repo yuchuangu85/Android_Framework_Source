@@ -16,9 +16,11 @@
 
 package android.hardware.soundtrigger;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+
 import java.lang.ref.WeakReference;
 
 /**
@@ -28,8 +30,10 @@ import java.lang.ref.WeakReference;
  * @hide
  */
 public class SoundTriggerModule {
+    @UnsupportedAppUsage
     private long mNativeContext;
 
+    @UnsupportedAppUsage
     private int mId;
     private NativeEventHandlerDelegate mEventHandlerDelegate;
 
@@ -42,9 +46,10 @@ public class SoundTriggerModule {
     SoundTriggerModule(int moduleId, SoundTrigger.StatusListener listener, Handler handler) {
         mId = moduleId;
         mEventHandlerDelegate = new NativeEventHandlerDelegate(listener, handler);
-        native_setup(new WeakReference<SoundTriggerModule>(this));
+        native_setup(SoundTrigger.getCurrentOpPackageName(),
+                new WeakReference<SoundTriggerModule>(this));
     }
-    private native void native_setup(Object module_this);
+    private native void native_setup(String opPackageName, Object moduleThis);
 
     @Override
     protected void finalize() {
@@ -56,6 +61,7 @@ public class SoundTriggerModule {
      * Detach from this module. The {@link SoundTrigger.StatusListener} callback will not be called
      * anymore and associated resources will be released.
      * */
+    @UnsupportedAppUsage
     public native void detach();
 
     /**
@@ -73,6 +79,7 @@ public class SoundTriggerModule {
      *         service fails
      *         - {@link SoundTrigger#STATUS_INVALID_OPERATION} if the call is out of sequence
      */
+    @UnsupportedAppUsage
     public native int loadSoundModel(SoundTrigger.SoundModel model, int[] soundModelHandle);
 
     /**
@@ -87,6 +94,7 @@ public class SoundTriggerModule {
      *         - {@link SoundTrigger#STATUS_DEAD_OBJECT} if the binder transaction to the native
      *         service fails
      */
+    @UnsupportedAppUsage
     public native int unloadSoundModel(int soundModelHandle);
 
     /**
@@ -106,6 +114,7 @@ public class SoundTriggerModule {
      *         service fails
      *         - {@link SoundTrigger#STATUS_INVALID_OPERATION} if the call is out of sequence
      */
+    @UnsupportedAppUsage
     public native int startRecognition(int soundModelHandle, SoundTrigger.RecognitionConfig config);
 
     /**
@@ -121,7 +130,25 @@ public class SoundTriggerModule {
      *         service fails
      *         - {@link SoundTrigger#STATUS_INVALID_OPERATION} if the call is out of sequence
      */
+    @UnsupportedAppUsage
     public native int stopRecognition(int soundModelHandle);
+
+    /**
+     * Get the current state of a {@link SoundTrigger.SoundModel}.
+     * The state will be returned asynchronously as a {@link SoundTrigger#RecognitionEvent}
+     * in the callback registered in the {@link SoundTrigger.startRecognition} method.
+     * @param soundModelHandle The sound model handle indicating which model's state to return
+     * @return - {@link SoundTrigger#STATUS_OK} in case of success
+     *         - {@link SoundTrigger#STATUS_ERROR} in case of unspecified error
+     *         - {@link SoundTrigger#STATUS_PERMISSION_DENIED} if the caller does not have
+     *         system permission
+     *         - {@link SoundTrigger#STATUS_NO_INIT} if the native service cannot be reached
+     *         - {@link SoundTrigger#STATUS_BAD_VALUE} if the sound model handle is invalid
+     *         - {@link SoundTrigger#STATUS_DEAD_OBJECT} if the binder transaction to the native
+     *         service fails
+     *         - {@link SoundTrigger#STATUS_INVALID_OPERATION} if the call is out of sequence
+     */
+    public native int getModelState(int soundModelHandle);
 
     private class NativeEventHandlerDelegate {
         private final Handler mHandler;
@@ -181,6 +208,7 @@ public class SoundTriggerModule {
     }
 
     @SuppressWarnings("unused")
+    @UnsupportedAppUsage
     private static void postEventFromNative(Object module_ref,
                                             int what, int arg1, int arg2, Object obj) {
         SoundTriggerModule module = (SoundTriggerModule)((WeakReference)module_ref).get();
@@ -198,4 +226,3 @@ public class SoundTriggerModule {
         }
     }
 }
-

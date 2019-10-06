@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -58,6 +59,7 @@ public class SmsStorageMonitor extends Handler {
     /** it is use to put in to extra value for SIM_FULL_ACTION and SMS_REJECTED_ACTION */
     Phone mPhone;
 
+    @UnsupportedAppUsage
     final CommandsInterface mCi;                            // accessed from inner class
     boolean mStorageAvailable = true;                       // accessed from inner class
 

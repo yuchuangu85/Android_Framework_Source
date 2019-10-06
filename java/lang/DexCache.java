@@ -32,6 +32,7 @@
 
 package java.lang;
 
+import dalvik.annotation.compat.UnsupportedAppUsage;
 import dalvik.annotation.optimization.FastNative;
 
 /**
@@ -42,7 +43,13 @@ final class DexCache {
     private String location;
 
     /** Holds C pointer to dexFile. */
+    @UnsupportedAppUsage
     private long dexFile;
+
+    /**
+     * References to pre resolved strings.
+     */
+    private long preResolvedStrings;
 
     /**
      * References to CallSite (C array pointer) as they become resolved following
@@ -79,6 +86,11 @@ final class DexCache {
      * interpreter semantics. All strings are interned.
      */
     private long strings;
+
+    /**
+     * The number of elements in the native pre resolved strings array.
+     */
+    private int numPreResolvedStrings;
 
     /**
      * The number of elements in the native call sites array.

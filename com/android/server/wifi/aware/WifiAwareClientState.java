@@ -16,15 +16,15 @@
 
 package com.android.server.wifi.aware;
 
-import android.Manifest;
 import android.app.AppOpsManager;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.net.wifi.aware.ConfigRequest;
 import android.net.wifi.aware.IWifiAwareEventCallback;
 import android.os.RemoteException;
 import android.util.Log;
 import android.util.SparseArray;
+
+import com.android.server.wifi.util.WifiPermissionsUtil;
 
 import libcore.util.HexEncoding;
 
@@ -59,6 +59,7 @@ public class WifiAwareClientState {
     private final int mPid;
     private final String mCallingPackage;
     private final boolean mNotifyIdentityChange;
+    private final WifiPermissionsUtil mWifiPermissionsUtil;
 
     private final AppOpsManager mAppOps;
     private final long mCreationTime;
@@ -68,7 +69,8 @@ public class WifiAwareClientState {
 
     public WifiAwareClientState(Context context, int clientId, int uid, int pid,
             String callingPackage, IWifiAwareEventCallback callback, ConfigRequest configRequest,
-            boolean notifyIdentityChange, long creationTime) {
+            boolean notifyIdentityChange, long creationTime,
+            WifiPermissionsUtil wifiPermissionsUtil) {
         mContext = context;
         mClientId = clientId;
         mUid = uid;
@@ -80,6 +82,7 @@ public class WifiAwareClientState {
 
         mAppOps = (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
         mCreationTime = creationTime;
+        mWifiPermissionsUtil = wifiPermissionsUtil;
     }
 
     /**
@@ -219,7 +222,8 @@ public class WifiAwareClientState {
         }
         if (mNotifyIdentityChange && !Arrays.equals(mac, mLastDiscoveryInterfaceMac)) {
             try {
-                boolean hasPermission = hasLocationingPermission();
+                boolean hasPermission = mWifiPermissionsUtil.checkCallersLocationPermission(
+                        mCallingPackage, mUid, /* coarseForTargetSdkLessThanQ */ true);
                 if (VDBG) Log.v(TAG, "hasPermission=" + hasPermission);
                 mCallback.onIdentityChanged(hasPermission ? mac : ALL_ZERO_MAC);
             } catch (RemoteException e) {
@@ -253,7 +257,8 @@ public class WifiAwareClientState {
         if (mNotifyIdentityChange && !Arrays.equals(currentDiscoveryInterfaceMac,
                 mLastDiscoveryInterfaceMac)) {
             try {
-                boolean hasPermission = hasLocationingPermission();
+                boolean hasPermission = mWifiPermissionsUtil.checkCallersLocationPermission(
+                        mCallingPackage, mUid, /* coarseForTargetSdkLessThanQ */ true);
                 if (VDBG) Log.v(TAG, "hasPermission=" + hasPermission);
                 mCallback.onIdentityChanged(
                         hasPermission ? currentDiscoveryInterfaceMac : ALL_ZERO_MAC);
@@ -263,14 +268,6 @@ public class WifiAwareClientState {
         }
 
         mLastDiscoveryInterfaceMac = currentDiscoveryInterfaceMac;
-    }
-
-    private boolean hasLocationingPermission() {
-        // FINE provides COARSE, so only have to check for the latter
-        return mContext.checkPermission(Manifest.permission.ACCESS_COARSE_LOCATION, mPid, mUid)
-                == PackageManager.PERMISSION_GRANTED && mAppOps.noteOp(
-                AppOpsManager.OP_COARSE_LOCATION, mUid, mCallingPackage)
-                == AppOpsManager.MODE_ALLOWED;
     }
 
     /**

@@ -19,6 +19,7 @@ package android.graphics;
 import android.annotation.FloatRange;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.graphics.drawable.Drawable;
 
 import java.lang.annotation.Retention;
@@ -66,6 +67,7 @@ public final class Outline {
     public Path mPath;
 
     /** @hide */
+    @UnsupportedAppUsage
     public final Rect mRect = new Rect();
     /** @hide */
     public float mRadius = RADIUS_UNDEFINED;
@@ -271,17 +273,17 @@ public final class Outline {
     }
 
     /**
-     * Sets the Constructs an Outline from a
+     * Sets the Outline to a
      * {@link android.graphics.Path#isConvex() convex path}.
+     *
+     * @param convexPath used to construct the Outline. As of
+     * {@link android.os.Build.VERSION_CODES#Q}, it is no longer required to be
+     * convex.
      */
     public void setConvexPath(@NonNull Path convexPath) {
         if (convexPath.isEmpty()) {
             setEmpty();
             return;
-        }
-
-        if (!convexPath.isConvex()) {
-            throw new IllegalArgumentException("path must be convex");
         }
 
         if (mPath == null) {

@@ -16,6 +16,8 @@
 
 package android.util;
 
+import android.annotation.UnsupportedAppUsage;
+
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.time.LocalDateTime;
@@ -31,11 +33,13 @@ public final class LocalLog {
     private final Deque<String> mLog;
     private final int mMaxLines;
 
+    @UnsupportedAppUsage
     public LocalLog(int maxLines) {
         mMaxLines = Math.max(0, maxLines);
         mLog = new ArrayDeque<>(mMaxLines);
     }
 
+    @UnsupportedAppUsage
     public void log(String msg) {
         if (mMaxLines <= 0) {
             return;
@@ -50,7 +54,12 @@ public final class LocalLog {
         mLog.add(logLine);
     }
 
+    @UnsupportedAppUsage
     public synchronized void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        dump(pw);
+    }
+
+    public synchronized void dump(PrintWriter pw) {
         Iterator<String> itr = mLog.iterator();
         while (itr.hasNext()) {
             pw.println(itr.next());
@@ -58,6 +67,10 @@ public final class LocalLog {
     }
 
     public synchronized void reverseDump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        reverseDump(pw);
+    }
+
+    public synchronized void reverseDump(PrintWriter pw) {
         Iterator<String> itr = mLog.descendingIterator();
         while (itr.hasNext()) {
             pw.println(itr.next());
@@ -69,14 +82,22 @@ public final class LocalLog {
         ReadOnlyLocalLog(LocalLog log) {
             mLog = log;
         }
+        @UnsupportedAppUsage
         public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-            mLog.dump(fd, pw, args);
+            mLog.dump(pw);
+        }
+        public void dump(PrintWriter pw) {
+            mLog.dump(pw);
         }
         public void reverseDump(FileDescriptor fd, PrintWriter pw, String[] args) {
-            mLog.reverseDump(fd, pw, args);
+            mLog.reverseDump(pw);
+        }
+        public void reverseDump(PrintWriter pw) {
+            mLog.reverseDump(pw);
         }
     }
 
+    @UnsupportedAppUsage
     public ReadOnlyLocalLog readOnlyLocalLog() {
         return new ReadOnlyLocalLog(this);
     }

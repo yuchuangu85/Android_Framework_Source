@@ -19,6 +19,7 @@ package android.webkit;
 import android.annotation.IntDef;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 
 import java.lang.annotation.ElementType;
@@ -92,6 +93,7 @@ public abstract class WebSettings {
         TextSize(int size) {
             value = size;
         }
+        @UnsupportedAppUsage
         int value;
     }
 
@@ -221,6 +223,43 @@ public abstract class WebSettings {
      * are recommended to use {@link #MIXED_CONTENT_NEVER_ALLOW}.
      */
     public static final int MIXED_CONTENT_COMPATIBILITY_MODE = 2;
+
+    /** @hide */
+    @IntDef(prefix = { "FORCE_DARK_" }, value = {
+            FORCE_DARK_OFF,
+            FORCE_DARK_AUTO,
+            FORCE_DARK_ON
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface ForceDark {}
+
+    /**
+     * Used with {@link #setForceDark}
+     *
+     * Disable force dark, irrespective of the force dark mode of the WebView parent. In this mode,
+     * WebView content will always be rendered as-is, regardless of whether native views are being
+     * automatically darkened.
+     */
+    public static final int FORCE_DARK_OFF = 0;
+
+    /**
+     * Used with {@link #setForceDark}
+     *
+     * Enable force dark dependent on the state of the WebView parent view. If the WebView parent
+     * view is being automatically force darkened
+     * (see: {@link android.view.View#setForceDarkAllowed}), then WebView content will be rendered
+     * so as to emulate a dark theme. WebViews that are not attached to the view hierarchy will not
+     * be inverted.
+     */
+    public static final int FORCE_DARK_AUTO = 1;
+
+    /**
+     * Used with {@link #setForceDark}
+     *
+     * Unconditionally enable force dark. In this mode WebView content will always be rendered so
+     * as to emulate a dark theme.
+     */
+    public static final int FORCE_DARK_ON = 2;
 
     /**
      * Enables dumping the pages navigation cache to a text file. The default
@@ -579,6 +618,7 @@ public abstract class WebSettings {
      * @hide Since API level {@link android.os.Build.VERSION_CODES#JELLY_BEAN_MR1}
      */
     @Deprecated
+    @UnsupportedAppUsage
     public void setUseDoubleTree(boolean use) {
         // Specified to do nothing, so no need for derived classes to override.
     }
@@ -591,6 +631,7 @@ public abstract class WebSettings {
      * @hide Since API level {@link android.os.Build.VERSION_CODES#JELLY_BEAN_MR1}
      */
     @Deprecated
+    @UnsupportedAppUsage
     public boolean getUseDoubleTree() {
         // Returns false unconditionally, so no need for derived classes to override.
         return false;
@@ -987,7 +1028,9 @@ public abstract class WebSettings {
      * {@link PluginState#OFF}.
      *
      * @param state a PluginState value
-     * @deprecated Plugins will not be supported in future, and should not be used.
+     * @deprecated Plugins are not supported in API level
+     *             {@link android.os.Build.VERSION_CODES#KITKAT} or later;
+     *             enabling plugins is a no-op.
      */
     @Deprecated
     public abstract void setPluginState(PluginState state);
@@ -1002,6 +1045,7 @@ public abstract class WebSettings {
      * @hide Since API level {@link android.os.Build.VERSION_CODES#JELLY_BEAN_MR2}
      */
     @Deprecated
+    @UnsupportedAppUsage
     public void setPluginsPath(String pluginsPath) {
         // Specified to do nothing, so no need for derived classes to override.
     }
@@ -1182,7 +1226,9 @@ public abstract class WebSettings {
      *
      * @return the plugin state as a {@link PluginState} value
      * @see #setPluginState
-     * @deprecated Plugins will not be supported in future, and should not be used.
+     * @deprecated Plugins are not supported in API level
+     *             {@link android.os.Build.VERSION_CODES#KITKAT} or later;
+     *             enabling plugins is a no-op.
      */
     @Deprecated
     public abstract PluginState getPluginState();
@@ -1197,6 +1243,7 @@ public abstract class WebSettings {
      * @hide Since API level {@link android.os.Build.VERSION_CODES#JELLY_BEAN_MR2}
      */
     @Deprecated
+    @UnsupportedAppUsage
     public String getPluginsPath() {
         // Unconditionally returns empty string, so no need for derived classes to override.
         return "";
@@ -1417,6 +1464,27 @@ public abstract class WebSettings {
      */
     public abstract boolean getSafeBrowsingEnabled();
 
+
+    /**
+     * Set the force dark mode for this WebView.
+     *
+     * @param forceDark the force dark mode to set.
+     */
+    public void setForceDark(@ForceDark int forceDark) {
+        // Stub implementation to satisfy Roboelectrc shadows that don't override this yet.
+    }
+
+    /**
+     * Get the force dark mode for this WebView.
+     *
+     * The default force dark mode is {@link #FORCE_DARK_AUTO}
+     *
+     * @return the currently set force dark mode.
+     */
+    public @ForceDark int getForceDark() {
+        // Stub implementation to satisfy Roboelectrc shadows that don't override this yet.
+        return FORCE_DARK_AUTO;
+    }
 
     /**
      * @hide

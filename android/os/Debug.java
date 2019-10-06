@@ -18,6 +18,7 @@ package android.os;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.app.AppGlobals;
 import android.content.Context;
 import android.util.Log;
@@ -87,6 +88,7 @@ public final class Debug
     // set/cleared by waitForDebugger()
     private static volatile boolean mWaiting = false;
 
+    @UnsupportedAppUsage
     private Debug() {}
 
     /*
@@ -115,8 +117,10 @@ public final class Debug
         public int dalvikPss;
         /** The proportional set size that is swappable for dalvik heap. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int dalvikSwappablePss;
         /** @hide The resident set size for dalvik heap.  (Without other Dalvik overhead.) */
+        @UnsupportedAppUsage
         public int dalvikRss;
         /** The private dirty pages used by dalvik heap. */
         public int dalvikPrivateDirty;
@@ -124,23 +128,29 @@ public final class Debug
         public int dalvikSharedDirty;
         /** The private clean pages used by dalvik heap. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int dalvikPrivateClean;
         /** The shared clean pages used by dalvik heap. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int dalvikSharedClean;
         /** The dirty dalvik pages that have been swapped out. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int dalvikSwappedOut;
         /** The dirty dalvik pages that have been swapped out, proportional. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int dalvikSwappedOutPss;
 
         /** The proportional set size for the native heap. */
         public int nativePss;
         /** The proportional set size that is swappable for the native heap. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int nativeSwappablePss;
         /** @hide The resident set size for the native heap. */
+        @UnsupportedAppUsage
         public int nativeRss;
         /** The private dirty pages used by the native heap. */
         public int nativePrivateDirty;
@@ -148,23 +158,29 @@ public final class Debug
         public int nativeSharedDirty;
         /** The private clean pages used by the native heap. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int nativePrivateClean;
         /** The shared clean pages used by the native heap. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int nativeSharedClean;
         /** The dirty native pages that have been swapped out. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int nativeSwappedOut;
         /** The dirty native pages that have been swapped out, proportional. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int nativeSwappedOutPss;
 
         /** The proportional set size for everything else. */
         public int otherPss;
         /** The proportional set size that is swappable for everything else. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int otherSwappablePss;
         /** @hide The resident set size for everything else. */
+        @UnsupportedAppUsage
         public int otherRss;
         /** The private dirty pages used by everything else. */
         public int otherPrivateDirty;
@@ -172,19 +188,24 @@ public final class Debug
         public int otherSharedDirty;
         /** The private clean pages used by everything else. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int otherPrivateClean;
         /** The shared clean pages used by everything else. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int otherSharedClean;
         /** The dirty pages used by anyting else that have been swapped out. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int otherSwappedOut;
         /** The dirty pages used by anyting else that have been swapped out, proportional. */
         /** @hide We may want to expose this, eventually. */
+        @UnsupportedAppUsage
         public int otherSwappedOutPss;
 
         /** Whether the kernel reports proportional swap usage */
         /** @hide */
+        @UnsupportedAppUsage
         public boolean hasSwappedOutPss;
 
         /** @hide */
@@ -231,6 +252,7 @@ public final class Debug
 
         // Needs to be declared here for the DVK_STAT ranges below.
         /** @hide */
+        @UnsupportedAppUsage
         public static final int NUM_OTHER_STATS = 17;
 
         // Dalvik subsections.
@@ -291,6 +313,7 @@ public final class Debug
         public static final int OTHER_DVK_STAT_ART_END = OTHER_ART_BOOT - NUM_OTHER_STATS;
 
         /** @hide */
+        @UnsupportedAppUsage
         public static final int NUM_DVK_STATS = 14;
 
         /** @hide */
@@ -315,9 +338,49 @@ public final class Debug
         /** @hide */
         public static final int OFFSET_SWAPPED_OUT_PSS = 8;
 
+        @UnsupportedAppUsage
         private int[] otherStats = new int[(NUM_OTHER_STATS+NUM_DVK_STATS)*NUM_CATEGORIES];
 
         public MemoryInfo() {
+        }
+
+        /**
+         * @hide Copy contents from another object.
+         */
+        public void set(MemoryInfo other) {
+            dalvikPss = other.dalvikPss;
+            dalvikSwappablePss = other.dalvikSwappablePss;
+            dalvikRss = other.dalvikRss;
+            dalvikPrivateDirty = other.dalvikPrivateDirty;
+            dalvikSharedDirty = other.dalvikSharedDirty;
+            dalvikPrivateClean = other.dalvikPrivateClean;
+            dalvikSharedClean = other.dalvikSharedClean;
+            dalvikSwappedOut = other.dalvikSwappedOut;
+            dalvikSwappedOutPss = other.dalvikSwappedOutPss;
+
+            nativePss = other.nativePss;
+            nativeSwappablePss = other.nativeSwappablePss;
+            nativeRss = other.nativeRss;
+            nativePrivateDirty = other.nativePrivateDirty;
+            nativeSharedDirty = other.nativeSharedDirty;
+            nativePrivateClean = other.nativePrivateClean;
+            nativeSharedClean = other.nativeSharedClean;
+            nativeSwappedOut = other.nativeSwappedOut;
+            nativeSwappedOutPss = other.nativeSwappedOutPss;
+
+            otherPss = other.otherPss;
+            otherSwappablePss = other.otherSwappablePss;
+            otherRss = other.otherRss;
+            otherPrivateDirty = other.otherPrivateDirty;
+            otherSharedDirty = other.otherSharedDirty;
+            otherPrivateClean = other.otherPrivateClean;
+            otherSharedClean = other.otherSharedClean;
+            otherSwappedOut = other.otherSwappedOut;
+            otherSwappedOutPss = other.otherSwappedOutPss;
+
+            hasSwappedOutPss = other.hasSwappedOutPss;
+
+            System.arraycopy(other.otherStats, 0, otherStats, 0, otherStats.length);
         }
 
         /**
@@ -330,6 +393,7 @@ public final class Debug
         /**
          * @hide Return total PSS memory usage in kB.
          */
+        @UnsupportedAppUsage
         public int getTotalUss() {
             return dalvikPrivateClean + dalvikPrivateDirty
                     + nativePrivateClean + nativePrivateDirty
@@ -396,6 +460,7 @@ public final class Debug
         }
 
         /** @hide */
+        @UnsupportedAppUsage
         public int getOtherPss(int which) {
             return otherStats[which * NUM_CATEGORIES + OFFSET_PSS];
         }
@@ -411,11 +476,13 @@ public final class Debug
         }
 
         /** @hide */
+        @UnsupportedAppUsage
         public int getOtherPrivateDirty(int which) {
             return otherStats[which * NUM_CATEGORIES + OFFSET_PRIVATE_DIRTY];
         }
 
         /** @hide */
+        @UnsupportedAppUsage
         public int getOtherSharedDirty(int which) {
             return otherStats[which * NUM_CATEGORIES + OFFSET_SHARED_DIRTY];
         }
@@ -426,6 +493,7 @@ public final class Debug
         }
 
         /** @hide */
+        @UnsupportedAppUsage
         public int getOtherPrivate(int which) {
           return getOtherPrivateClean(which) + getOtherPrivateDirty(which);
         }
@@ -446,6 +514,7 @@ public final class Debug
         }
 
         /** @hide */
+        @UnsupportedAppUsage
         public static String getOtherLabel(int which) {
             switch (which) {
                 case OTHER_DALVIK_OTHER: return "Dalvik Other";
@@ -623,6 +692,7 @@ public final class Debug
          *    such thing as private clean for the Java Heap.
          * @hide
          */
+        @UnsupportedAppUsage
         public int getSummaryJavaHeap() {
             return dalvikPrivateDirty + getOtherPrivate(OTHER_ART);
         }
@@ -635,6 +705,7 @@ public final class Debug
          *    such thing as private clean for the Native Heap.
          * @hide
          */
+        @UnsupportedAppUsage
         public int getSummaryNativeHeap() {
             return nativePrivateDirty;
         }
@@ -644,6 +715,7 @@ public final class Debug
          * the application.
          * @hide
          */
+        @UnsupportedAppUsage
         public int getSummaryCode() {
             return getOtherPrivate(OTHER_SO)
               + getOtherPrivate(OTHER_JAR)
@@ -662,6 +734,7 @@ public final class Debug
          *    such thing as private clean for the stack.
          * @hide
          */
+        @UnsupportedAppUsage
         public int getSummaryStack() {
             return getOtherPrivateDirty(OTHER_STACK);
         }
@@ -677,6 +750,7 @@ public final class Debug
          *    memory into the System category.
          * @hide
          */
+        @UnsupportedAppUsage
         public int getSummaryGraphics() {
             return getOtherPrivate(OTHER_GL_DEV)
               + getOtherPrivate(OTHER_GRAPHICS)
@@ -688,6 +762,7 @@ public final class Debug
          * accounted for.
          * @hide
          */
+        @UnsupportedAppUsage
         public int getSummaryPrivateOther() {
             return getTotalPrivateClean()
               + getTotalPrivateDirty()
@@ -704,6 +779,7 @@ public final class Debug
          *  * Includes all shared memory.
          * @hide
          */
+        @UnsupportedAppUsage
         public int getSummarySystem() {
             return getTotalPss()
               - getTotalPrivateClean()
@@ -820,7 +896,7 @@ public final class Debug
             otherStats = source.createIntArray();
         }
 
-        public static final Creator<MemoryInfo> CREATOR = new Creator<MemoryInfo>() {
+        public static final @android.annotation.NonNull Creator<MemoryInfo> CREATOR = new Creator<MemoryInfo>() {
             public MemoryInfo createFromParcel(Parcel source) {
                 return new MemoryInfo(source);
             }
@@ -1743,6 +1819,7 @@ public final class Debug
      * as the caller.
      * @hide
      */
+    @UnsupportedAppUsage
     public static native void getMemoryInfo(int pid, MemoryInfo memoryInfo);
 
     /**
@@ -1752,13 +1829,13 @@ public final class Debug
     public static native long getPss();
 
     /**
-     * Retrieves the PSS memory used by the process as given by the
-     * smaps.  Optionally supply a long array of 2 entries to also
-     * receive the Uss and SwapPss of the process, and another array to also
-     * retrieve the separate memtrack size.
+     * Retrieves the PSS memory used by the process as given by the smaps. Optionally supply a long
+     * array of up to 3 entries to also receive (up to 3 values in order): the Uss and SwapPss and
+     * Rss (only filled in as of {@link android.os.Build.VERSION_CODES#P}) of the process, and
+     * another array to also retrieve the separate memtrack size.
      * @hide
      */
-    public static native long getPss(int pid, long[] outUssSwapPss, long[] outMemtrack);
+    public static native long getPss(int pid, long[] outUssSwapPssRss, long[] outMemtrack);
 
     /** @hide */
     public static final int MEMINFO_TOTAL = 0;
@@ -1798,6 +1875,7 @@ public final class Debug
      * as defined by MEMINFO_* offsets.
      * @hide
      */
+    @UnsupportedAppUsage
     public static native void getMemInfo(long[] outSizes);
 
     /**
@@ -1886,6 +1964,7 @@ public final class Debug
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static native void dumpNativeHeap(FileDescriptor fd);
 
     /**
@@ -1900,6 +1979,7 @@ public final class Debug
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static long countInstancesOfClass(Class cls) {
         return VMDebug.countInstancesOfClass(cls, true);
     }
@@ -1959,6 +2039,7 @@ public final class Debug
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static final void dumpReferenceTables() {
         VMDebug.dumpReferenceTables();
     }
@@ -2325,6 +2406,7 @@ public final class Debug
      * @return a string describing the call stack.
      * {@hide}
      */
+    @UnsupportedAppUsage
     public static String getCallers(final int depth) {
         final StackTraceElement[] callStack = Thread.currentThread().getStackTrace();
         StringBuffer sb = new StringBuffer();
@@ -2371,6 +2453,7 @@ public final class Debug
      * @return a String describing the immediate caller of the calling method.
      * {@hide}
      */
+    @UnsupportedAppUsage
     public static String getCaller() {
         return getCaller(Thread.currentThread().getStackTrace(), 0);
     }
@@ -2400,4 +2483,11 @@ public final class Debug
             VMDebug.attachAgent(library + "=" + options, classLoader);
         }
     }
+
+    /**
+     * Return the current free ZRAM usage in kilobytes.
+     *
+     * @hide
+     */
+    public static native long getZramFreeKb();
 }

@@ -48,6 +48,7 @@ public class ApduSender {
 
     // Status code of APDU response
     private static final int STATUS_NO_ERROR = 0x9000;
+    private static final int SW1_NO_ERROR = 0x91;
 
     private static void logv(String msg) {
         Rlog.v(LOG_TAG, msg);
@@ -89,7 +90,7 @@ public class ApduSender {
      */
     public void send(
             RequestProvider requestProvider,
-            AsyncResultCallback<byte[]> resultCallback,
+            ApduSenderResultCallback resultCallback,
             Handler handler) {
         synchronized (mChannelLock) {
             if (mChannelOpened) {
@@ -146,7 +147,7 @@ public class ApduSender {
     private void sendCommand(
             List<ApduCommand> commands,
             int index,
-            AsyncResultCallback<byte[]> resultCallback,
+            ApduSenderResultCallback resultCallback,
             Handler handler) {
         ApduCommand command = commands.get(index);
         mTransmitApdu.invoke(command, new AsyncResultCallback<IccIoResult>() {
@@ -159,23 +160,25 @@ public class ApduSender {
                             @Override
                             public void onResult(IccIoResult fullResponse) {
                                 logv("Full APDU response: " + fullResponse);
-
                                 int status = (fullResponse.sw1 << 8) | fullResponse.sw2;
-                                if (status != STATUS_NO_ERROR) {
+                                if (status != STATUS_NO_ERROR && fullResponse.sw1 != SW1_NO_ERROR) {
                                     closeAndReturn(command.channel, null /* response */,
                                             new ApduException(status), resultCallback, handler);
                                     return;
                                 }
 
-                                // Last command
-                                if (index == commands.size() - 1) {
+                                boolean continueSendCommand = index < commands.size() - 1
+                                        // Checks intermediate APDU result except the last one
+                                        && resultCallback.shouldContinueOnIntermediateResult(
+                                                fullResponse);
+                                if (continueSendCommand) {
+                                    // Sends the next command
+                                    sendCommand(commands, index + 1, resultCallback, handler);
+                                } else {
+                                    // Returns the result of the last command
                                     closeAndReturn(command.channel, fullResponse.payload,
                                             null /* exception */, resultCallback, handler);
-                                    return;
                                 }
-
-                                // Sends the next command
-                                sendCommand(commands, index + 1, resultCallback, handler);
                             }
                         }, handler);
             }
@@ -235,7 +238,7 @@ public class ApduSender {
             int channel,
             @Nullable byte[] response,
             @Nullable Throwable exception,
-            AsyncResultCallback<byte[]> resultCallback,
+            ApduSenderResultCallback resultCallback,
             Handler handler) {
         mCloseChannel.invoke(channel, new AsyncResultCallback<Boolean>() {
             @Override

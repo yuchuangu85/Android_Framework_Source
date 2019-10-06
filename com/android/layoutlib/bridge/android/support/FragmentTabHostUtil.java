@@ -34,12 +34,12 @@ public class FragmentTabHostUtil {
 
     public static final String[] CN_FRAGMENT_TAB_HOST = {
             "android.support.v4.app.FragmentTabHost",
-            "androidx.app.FragmentTabHost"
+            "androidx.fragment.app.FragmentTabHost"
     };
 
     private static final String[] CN_FRAGMENT_MANAGER = {
             "android.support.v4.app.FragmentManager",
-            "androidx.app.FragmentManager"
+            "androidx.fragment.app.FragmentManager"
     };
 
     /**

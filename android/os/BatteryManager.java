@@ -16,8 +16,12 @@
 
 package android.os;
 
+import android.Manifest.permission;
+import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
+import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.hardware.health.V1_0.Constants;
@@ -109,6 +113,7 @@ public class BatteryManager {
      * to the device.
      * {@hide}
      */
+    @UnsupportedAppUsage
     public static final String EXTRA_INVALID_CHARGER = "invalid_charger";
 
     /**
@@ -116,6 +121,7 @@ public class BatteryManager {
      * Int value set to the maximum charging current supported by the charger in micro amperes.
      * {@hide}
      */
+    @UnsupportedAppUsage
     public static final String EXTRA_MAX_CHARGING_CURRENT = "max_charging_current";
 
     /**
@@ -123,6 +129,7 @@ public class BatteryManager {
      * Int value set to the maximum charging voltage supported by the charger in micro volts.
      * {@hide}
      */
+    @UnsupportedAppUsage
     public static final String EXTRA_MAX_CHARGING_VOLTAGE = "max_charging_voltage";
 
     /**
@@ -130,6 +137,7 @@ public class BatteryManager {
      * integer containing the charge counter present in the battery.
      * {@hide}
      */
+     @UnsupportedAppUsage
      public static final String EXTRA_CHARGE_COUNTER = "charge_counter";
 
     /**
@@ -365,6 +373,29 @@ public class BatteryManager {
     public long computeChargeTimeRemaining() {
         try {
             return mBatteryStats.computeChargeTimeRemaining();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Sets the delay for reporting battery state as charging after device is plugged in.
+     * This allows machine-learning or heuristics to delay the reporting and the corresponding
+     * broadcast, based on battery level, charging rate, and/or other parameters.
+     *
+     * @param delayMillis the delay in milliseconds, negative value to reset.
+     *
+     * @return True if the delay was set successfully.
+     *
+     * @see ACTION_CHARGING
+     * @hide
+     */
+    @RequiresPermission(permission.POWER_SAVER)
+    @SystemApi
+    @TestApi
+    public boolean setChargingStateUpdateDelayMillis(int delayMillis) {
+        try {
+            return mBatteryStats.setChargingStateUpdateDelayMillis(delayMillis);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

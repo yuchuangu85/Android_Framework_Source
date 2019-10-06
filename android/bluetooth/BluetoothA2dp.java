@@ -21,21 +21,17 @@ import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
-import android.content.ComponentName;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
-import android.content.Intent;
-import android.content.ServiceConnection;
 import android.os.Binder;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.ParcelUuid;
 import android.os.RemoteException;
 import android.util.Log;
 
-import com.android.internal.annotations.GuardedBy;
-
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 
 /**
@@ -117,6 +113,7 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * @hide
      */
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+    @UnsupportedAppUsage
     public static final String ACTION_ACTIVE_DEVICE_CHANGED =
             "android.bluetooth.a2dp.profile.action.ACTIVE_DEVICE_CHANGED";
 
@@ -137,6 +134,7 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * @hide
      */
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+    @UnsupportedAppUsage
     public static final String ACTION_CODEC_CONFIG_CHANGED =
             "android.bluetooth.a2dp.profile.action.CODEC_CONFIG_CHANGED";
 
@@ -160,6 +158,7 @@ public final class BluetoothA2dp implements BluetoothProfile {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int OPTIONAL_CODECS_SUPPORT_UNKNOWN = -1;
 
     /**
@@ -167,6 +166,7 @@ public final class BluetoothA2dp implements BluetoothProfile {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int OPTIONAL_CODECS_NOT_SUPPORTED = 0;
 
     /**
@@ -174,6 +174,7 @@ public final class BluetoothA2dp implements BluetoothProfile {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int OPTIONAL_CODECS_SUPPORTED = 1;
 
     /**
@@ -182,6 +183,7 @@ public final class BluetoothA2dp implements BluetoothProfile {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int OPTIONAL_CODECS_PREF_UNKNOWN = -1;
 
     /**
@@ -189,6 +191,7 @@ public final class BluetoothA2dp implements BluetoothProfile {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int OPTIONAL_CODECS_PREF_DISABLED = 0;
 
     /**
@@ -196,100 +199,35 @@ public final class BluetoothA2dp implements BluetoothProfile {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int OPTIONAL_CODECS_PREF_ENABLED = 1;
 
-    private Context mContext;
-    private ServiceListener mServiceListener;
-    private final ReentrantReadWriteLock mServiceLock = new ReentrantReadWriteLock();
-    @GuardedBy("mServiceLock")
-    private IBluetoothA2dp mService;
     private BluetoothAdapter mAdapter;
-
-    private final IBluetoothStateChangeCallback mBluetoothStateChangeCallback =
-            new IBluetoothStateChangeCallback.Stub() {
-                public void onBluetoothStateChange(boolean up) {
-                    if (DBG) Log.d(TAG, "onBluetoothStateChange: up=" + up);
-                    if (!up) {
-                        if (VDBG) Log.d(TAG, "Unbinding service...");
-                        try {
-                            mServiceLock.writeLock().lock();
-                            mService = null;
-                            mContext.unbindService(mConnection);
-                        } catch (Exception re) {
-                            Log.e(TAG, "", re);
-                        } finally {
-                            mServiceLock.writeLock().unlock();
-                        }
-                    } else {
-                        try {
-                            mServiceLock.readLock().lock();
-                            if (mService == null) {
-                                if (VDBG) Log.d(TAG, "Binding service...");
-                                doBind();
-                            }
-                        } catch (Exception re) {
-                            Log.e(TAG, "", re);
-                        } finally {
-                            mServiceLock.readLock().unlock();
-                        }
-                    }
+    private final BluetoothProfileConnector<IBluetoothA2dp> mProfileConnector =
+            new BluetoothProfileConnector(this, BluetoothProfile.A2DP, "BluetoothA2dp",
+                    IBluetoothA2dp.class.getName()) {
+                @Override
+                public IBluetoothA2dp getServiceInterface(IBinder service) {
+                    return IBluetoothA2dp.Stub.asInterface(Binder.allowBlocking(service));
                 }
-            };
+    };
 
     /**
      * Create a BluetoothA2dp proxy object for interacting with the local
      * Bluetooth A2DP service.
      */
-    /*package*/ BluetoothA2dp(Context context, ServiceListener l) {
-        mContext = context;
-        mServiceListener = l;
+    /*package*/ BluetoothA2dp(Context context, ServiceListener listener) {
         mAdapter = BluetoothAdapter.getDefaultAdapter();
-        IBluetoothManager mgr = mAdapter.getBluetoothManager();
-        if (mgr != null) {
-            try {
-                mgr.registerStateChangeCallback(mBluetoothStateChangeCallback);
-            } catch (RemoteException e) {
-                Log.e(TAG, "", e);
-            }
-        }
-
-        doBind();
+        mProfileConnector.connect(context, listener);
     }
 
-    boolean doBind() {
-        Intent intent = new Intent(IBluetoothA2dp.class.getName());
-        ComponentName comp = intent.resolveSystemService(mContext.getPackageManager(), 0);
-        intent.setComponent(comp);
-        if (comp == null || !mContext.bindServiceAsUser(intent, mConnection, 0,
-                mContext.getUser())) {
-            Log.e(TAG, "Could not bind to Bluetooth A2DP Service with " + intent);
-            return false;
-        }
-        return true;
-    }
-
+    @UnsupportedAppUsage
     /*package*/ void close() {
-        mServiceListener = null;
-        IBluetoothManager mgr = mAdapter.getBluetoothManager();
-        if (mgr != null) {
-            try {
-                mgr.unregisterStateChangeCallback(mBluetoothStateChangeCallback);
-            } catch (Exception e) {
-                Log.e(TAG, "", e);
-            }
-        }
+        mProfileConnector.disconnect();
+    }
 
-        try {
-            mServiceLock.writeLock().lock();
-            if (mService != null) {
-                mService = null;
-                mContext.unbindService(mConnection);
-            }
-        } catch (Exception re) {
-            Log.e(TAG, "", re);
-        } finally {
-            mServiceLock.writeLock().unlock();
-        }
+    private IBluetoothA2dp getService() {
+        return mProfileConnector.getService();
     }
 
     @Override
@@ -315,20 +253,19 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * @return false on immediate error, true otherwise
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean connect(BluetoothDevice device) {
         if (DBG) log("connect(" + device + ")");
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled() && isValidDevice(device)) {
-                return mService.connect(device);
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled() && isValidDevice(device)) {
+                return service.connect(device);
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return false;
         } catch (RemoteException e) {
             Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
             return false;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -357,20 +294,19 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * @return false on immediate error, true otherwise
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean disconnect(BluetoothDevice device) {
         if (DBG) log("disconnect(" + device + ")");
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled() && isValidDevice(device)) {
-                return mService.disconnect(device);
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled() && isValidDevice(device)) {
+                return service.disconnect(device);
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return false;
         } catch (RemoteException e) {
             Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
             return false;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -381,17 +317,15 @@ public final class BluetoothA2dp implements BluetoothProfile {
     public List<BluetoothDevice> getConnectedDevices() {
         if (VDBG) log("getConnectedDevices()");
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()) {
-                return mService.getConnectedDevices();
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()) {
+                return service.getConnectedDevices();
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return new ArrayList<BluetoothDevice>();
         } catch (RemoteException e) {
             Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
             return new ArrayList<BluetoothDevice>();
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -402,17 +336,15 @@ public final class BluetoothA2dp implements BluetoothProfile {
     public List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states) {
         if (VDBG) log("getDevicesMatchingStates()");
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()) {
-                return mService.getDevicesMatchingConnectionStates(states);
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()) {
+                return service.getDevicesMatchingConnectionStates(states);
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return new ArrayList<BluetoothDevice>();
         } catch (RemoteException e) {
             Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
             return new ArrayList<BluetoothDevice>();
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -420,21 +352,19 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * {@inheritDoc}
      */
     @Override
-    public int getConnectionState(BluetoothDevice device) {
+    public @BtProfileState int getConnectionState(BluetoothDevice device) {
         if (VDBG) log("getState(" + device + ")");
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()
                     && isValidDevice(device)) {
-                return mService.getConnectionState(device);
+                return service.getConnectionState(device);
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return BluetoothProfile.STATE_DISCONNECTED;
         } catch (RemoteException e) {
             Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
             return BluetoothProfile.STATE_DISCONNECTED;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -460,21 +390,20 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * @return false on immediate error, true otherwise
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean setActiveDevice(@Nullable BluetoothDevice device) {
         if (DBG) log("setActiveDevice(" + device + ")");
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()
                     && ((device == null) || isValidDevice(device))) {
-                return mService.setActiveDevice(device);
+                return service.setActiveDevice(device);
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return false;
         } catch (RemoteException e) {
             Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
             return false;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -490,20 +419,19 @@ public final class BluetoothA2dp implements BluetoothProfile {
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH)
     @Nullable
+    @UnsupportedAppUsage
     public BluetoothDevice getActiveDevice() {
         if (VDBG) log("getActiveDevice()");
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()) {
-                return mService.getActiveDevice();
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()) {
+                return service.getActiveDevice();
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return null;
         } catch (RemoteException e) {
             Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
             return null;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -525,22 +453,20 @@ public final class BluetoothA2dp implements BluetoothProfile {
     public boolean setPriority(BluetoothDevice device, int priority) {
         if (DBG) log("setPriority(" + device + ", " + priority + ")");
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()
                     && isValidDevice(device)) {
                 if (priority != BluetoothProfile.PRIORITY_OFF
                         && priority != BluetoothProfile.PRIORITY_ON) {
                     return false;
                 }
-                return mService.setPriority(device, priority);
+                return service.setPriority(device, priority);
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return false;
         } catch (RemoteException e) {
             Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
             return false;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -556,21 +482,20 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * @hide
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH)
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public int getPriority(BluetoothDevice device) {
         if (VDBG) log("getPriority(" + device + ")");
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()
                     && isValidDevice(device)) {
-                return mService.getPriority(device);
+                return service.getPriority(device);
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return BluetoothProfile.PRIORITY_OFF;
         } catch (RemoteException e) {
             Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
             return BluetoothProfile.PRIORITY_OFF;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -583,17 +508,15 @@ public final class BluetoothA2dp implements BluetoothProfile {
     public boolean isAvrcpAbsoluteVolumeSupported() {
         if (DBG) Log.d(TAG, "isAvrcpAbsoluteVolumeSupported");
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()) {
-                return mService.isAvrcpAbsoluteVolumeSupported();
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()) {
+                return service.isAvrcpAbsoluteVolumeSupported();
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return false;
         } catch (RemoteException e) {
             Log.e(TAG, "Error talking to BT service in isAvrcpAbsoluteVolumeSupported()", e);
             return false;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -606,15 +529,13 @@ public final class BluetoothA2dp implements BluetoothProfile {
     public void setAvrcpAbsoluteVolume(int volume) {
         if (DBG) Log.d(TAG, "setAvrcpAbsoluteVolume");
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()) {
-                mService.setAvrcpAbsoluteVolume(volume);
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()) {
+                service.setAvrcpAbsoluteVolume(volume);
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
         } catch (RemoteException e) {
             Log.e(TAG, "Error talking to BT service in setAvrcpAbsoluteVolume()", e);
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -627,18 +548,16 @@ public final class BluetoothA2dp implements BluetoothProfile {
      */
     public boolean isA2dpPlaying(BluetoothDevice device) {
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()
                     && isValidDevice(device)) {
-                return mService.isA2dpPlaying(device);
+                return service.isA2dpPlaying(device);
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return false;
         } catch (RemoteException e) {
             Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
             return false;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -671,22 +590,21 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * @return the current codec status
      * @hide
      */
-    public BluetoothCodecStatus getCodecStatus(BluetoothDevice device) {
+    @UnsupportedAppUsage
+    public @Nullable BluetoothCodecStatus getCodecStatus(BluetoothDevice device) {
         if (DBG) Log.d(TAG, "getCodecStatus(" + device + ")");
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()) {
-                return mService.getCodecStatus(device);
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()) {
+                return service.getCodecStatus(device);
             }
-            if (mService == null) {
+            if (service == null) {
                 Log.w(TAG, "Proxy not attached to service");
             }
             return null;
         } catch (RemoteException e) {
             Log.e(TAG, "Error talking to BT service in getCodecStatus()", e);
             return null;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -698,21 +616,20 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * @param codecConfig the codec configuration preference
      * @hide
      */
+    @UnsupportedAppUsage
     public void setCodecConfigPreference(BluetoothDevice device,
                                          BluetoothCodecConfig codecConfig) {
         if (DBG) Log.d(TAG, "setCodecConfigPreference(" + device + ")");
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()) {
-                mService.setCodecConfigPreference(device, codecConfig);
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()) {
+                service.setCodecConfigPreference(device, codecConfig);
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return;
         } catch (RemoteException e) {
             Log.e(TAG, "Error talking to BT service in setCodecConfigPreference()", e);
             return;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -723,6 +640,7 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * active A2DP Bluetooth device.
      * @hide
      */
+    @UnsupportedAppUsage
     public void enableOptionalCodecs(BluetoothDevice device) {
         if (DBG) Log.d(TAG, "enableOptionalCodecs(" + device + ")");
         enableDisableOptionalCodecs(device, true);
@@ -735,6 +653,7 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * active A2DP Bluetooth device.
      * @hide
      */
+    @UnsupportedAppUsage
     public void disableOptionalCodecs(BluetoothDevice device) {
         if (DBG) Log.d(TAG, "disableOptionalCodecs(" + device + ")");
         enableDisableOptionalCodecs(device, false);
@@ -749,21 +668,19 @@ public final class BluetoothA2dp implements BluetoothProfile {
      */
     private void enableDisableOptionalCodecs(BluetoothDevice device, boolean enable) {
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()) {
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()) {
                 if (enable) {
-                    mService.enableOptionalCodecs(device);
+                    service.enableOptionalCodecs(device);
                 } else {
-                    mService.disableOptionalCodecs(device);
+                    service.disableOptionalCodecs(device);
                 }
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return;
         } catch (RemoteException e) {
             Log.e(TAG, "Error talking to BT service in enableDisableOptionalCodecs()", e);
             return;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -775,19 +692,18 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * OPTIONAL_CODECS_SUPPORTED.
      * @hide
      */
+    @UnsupportedAppUsage
     public int supportsOptionalCodecs(BluetoothDevice device) {
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled() && isValidDevice(device)) {
-                return mService.supportsOptionalCodecs(device);
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled() && isValidDevice(device)) {
+                return service.supportsOptionalCodecs(device);
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return OPTIONAL_CODECS_SUPPORT_UNKNOWN;
         } catch (RemoteException e) {
             Log.e(TAG, "Error talking to BT service in getSupportsOptionalCodecs()", e);
             return OPTIONAL_CODECS_SUPPORT_UNKNOWN;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -799,19 +715,18 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * OPTIONAL_CODECS_PREF_DISABLED.
      * @hide
      */
+    @UnsupportedAppUsage
     public int getOptionalCodecsEnabled(BluetoothDevice device) {
         try {
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled() && isValidDevice(device)) {
-                return mService.getOptionalCodecsEnabled(device);
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled() && isValidDevice(device)) {
+                return service.getOptionalCodecsEnabled(device);
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return OPTIONAL_CODECS_PREF_UNKNOWN;
         } catch (RemoteException e) {
             Log.e(TAG, "Error talking to BT service in getSupportsOptionalCodecs()", e);
             return OPTIONAL_CODECS_PREF_UNKNOWN;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -824,6 +739,7 @@ public final class BluetoothA2dp implements BluetoothProfile {
      * OPTIONAL_CODECS_PREF_DISABLED.
      * @hide
      */
+    @UnsupportedAppUsage
     public void setOptionalCodecsEnabled(BluetoothDevice device, int value) {
         try {
             if (value != BluetoothA2dp.OPTIONAL_CODECS_PREF_UNKNOWN
@@ -832,18 +748,16 @@ public final class BluetoothA2dp implements BluetoothProfile {
                 Log.e(TAG, "Invalid value passed to setOptionalCodecsEnabled: " + value);
                 return;
             }
-            mServiceLock.readLock().lock();
-            if (mService != null && isEnabled()
+            final IBluetoothA2dp service = getService();
+            if (service != null && isEnabled()
                     && isValidDevice(device)) {
-                mService.setOptionalCodecsEnabled(device, value);
+                service.setOptionalCodecsEnabled(device, value);
             }
-            if (mService == null) Log.w(TAG, "Proxy not attached to service");
+            if (service == null) Log.w(TAG, "Proxy not attached to service");
             return;
         } catch (RemoteException e) {
             Log.e(TAG, "Stack:" + Log.getStackTraceString(new Throwable()));
             return;
-        } finally {
-            mServiceLock.readLock().unlock();
         }
     }
 
@@ -854,6 +768,7 @@ public final class BluetoothA2dp implements BluetoothProfile {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public static String stateToString(int state) {
         switch (state) {
             case STATE_DISCONNECTED:
@@ -872,35 +787,6 @@ public final class BluetoothA2dp implements BluetoothProfile {
                 return "<unknown state " + state + ">";
         }
     }
-
-    private final ServiceConnection mConnection = new ServiceConnection() {
-        public void onServiceConnected(ComponentName className, IBinder service) {
-            if (DBG) Log.d(TAG, "Proxy object connected");
-            try {
-                mServiceLock.writeLock().lock();
-                mService = IBluetoothA2dp.Stub.asInterface(Binder.allowBlocking(service));
-            } finally {
-                mServiceLock.writeLock().unlock();
-            }
-
-            if (mServiceListener != null) {
-                mServiceListener.onServiceConnected(BluetoothProfile.A2DP, BluetoothA2dp.this);
-            }
-        }
-
-        public void onServiceDisconnected(ComponentName className) {
-            if (DBG) Log.d(TAG, "Proxy object disconnected");
-            try {
-                mServiceLock.writeLock().lock();
-                mService = null;
-            } finally {
-                mServiceLock.writeLock().unlock();
-            }
-            if (mServiceListener != null) {
-                mServiceListener.onServiceDisconnected(BluetoothProfile.A2DP);
-            }
-        }
-    };
 
     private boolean isEnabled() {
         if (mAdapter.getState() == BluetoothAdapter.STATE_ON) return true;

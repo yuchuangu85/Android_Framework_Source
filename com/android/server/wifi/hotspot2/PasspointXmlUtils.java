@@ -58,6 +58,7 @@ public class PasspointXmlUtils {
     // XML value tags.
     private static final String XML_TAG_FQDN = "FQDN";
     private static final String XML_TAG_FRIENDLY_NAME = "FriendlyName";
+    private static final String XML_TAG_FRIENDLY_NAME_LIST = "FriendlyNameList";
     private static final String XML_TAG_ICON_URL = "IconURL";
     private static final String XML_TAG_HOME_NETWORK_IDS = "HomeNetworkIDs";
     private static final String XML_TAG_MATCH_ALL_OIS = "MatchAllOIs";
@@ -141,6 +142,10 @@ public class PasspointXmlUtils {
         serializePolicy(out, config.getPolicy());
         serializeUpdateParameter(out, XML_TAG_SECTION_HEADER_SUBSCRIPTION_UPDATE,
                 config.getSubscriptionUpdate());
+        if (config.getServiceFriendlyNames() != null) {
+            XmlUtil.writeNextValue(out, XML_TAG_FRIENDLY_NAME_LIST,
+                    config.getServiceFriendlyNames());
+        }
     }
 
     /**
@@ -190,6 +195,9 @@ public class PasspointXmlUtils {
                         break;
                     case XML_TAG_USAGE_LIMIT_TIME_LIMIT:
                         config.setUsageLimitTimeLimitInMinutes((long) value);
+                        break;
+                    case XML_TAG_FRIENDLY_NAME_LIST:
+                        config.setServiceFriendlyNames((Map<String, String>) value);
                         break;
                     default:
                         throw new XmlPullParserException("Unknown value under "

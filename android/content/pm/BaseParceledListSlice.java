@@ -16,6 +16,7 @@
 
 package android.content.pm;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.Parcel;
@@ -127,11 +128,12 @@ abstract class BaseParceledListSlice<T> implements Parcelable {
     private static void verifySameType(final Class<?> expected, final Class<?> actual) {
         if (!actual.equals(expected)) {
             throw new IllegalArgumentException("Can't unparcel type "
-                    + actual.getName() + " in list of type "
-                    + expected.getName());
+                    + (actual == null ? null : actual.getName()) + " in list of type "
+                    + (expected == null ? null : expected.getName()));
         }
     }
 
+    @UnsupportedAppUsage
     public List<T> getList() {
         return mList;
     }
@@ -205,6 +207,7 @@ abstract class BaseParceledListSlice<T> implements Parcelable {
 
     protected abstract void writeElement(T parcelable, Parcel reply, int callFlags);
 
+    @UnsupportedAppUsage
     protected abstract void writeParcelableCreator(T parcelable, Parcel dest);
 
     protected abstract Parcelable.Creator<?> readParcelableCreator(Parcel from, ClassLoader loader);

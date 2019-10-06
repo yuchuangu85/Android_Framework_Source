@@ -169,17 +169,38 @@ public class InMemoryCookieStore implements CookieStore {
      * of this cookie store.
      */
     public List<URI> getURIs() {
+        // BEGIN Android-changed: App compat. Return URI with no cookies. http://b/65538736
+        /*
         List<URI> uris = new ArrayList<URI>();
 
+        lock.lock();
+        try {
+            Iterator<URI> it = uriIndex.keySet().iterator();
+            while (it.hasNext()) {
+                URI uri = it.next();
+                List<HttpCookie> cookies = uriIndex.get(uri);
+                if (cookies == null || cookies.size() == 0) {
+                    // no cookies list or an empty list associated with
+                    // this uri entry, delete it
+                    it.remove();
+                }
+            }
+        } finally {
+            uris.addAll(uriIndex.keySet());
+            lock.unlock();
+        }
+
+        return uris;
+         */
         lock.lock();
         try {
             List<URI> result = new ArrayList<URI>(uriIndex.keySet());
             result.remove(null);
             return Collections.unmodifiableList(result);
         } finally {
-            uris.addAll(uriIndex.keySet());
             lock.unlock();
         }
+        // END Android-changed: App compat. Return URI with no cookies. http://b/65538736
     }
 
 

@@ -21,9 +21,9 @@ import android.os.Parcelable;
 
 /**
  * A class indicating the application criteria for selecting a
- * location provider.  Providers maybe ordered according to accuracy,
- * power usage, ability to report altitude, speed,
- * and bearing, and monetary cost.
+ * location provider. Providers may be ordered according to accuracy,
+ * power usage, ability to report altitude, speed, bearing, and monetary
+ * cost.
  */
 public class Criteria implements Parcelable {
     /**
@@ -324,7 +324,7 @@ public class Criteria implements Parcelable {
         return mBearingRequired;
     }
 
-    public static final Parcelable.Creator<Criteria> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<Criteria> CREATOR =
         new Parcelable.Creator<Criteria>() {
         @Override
         public Criteria createFromParcel(Parcel in) {

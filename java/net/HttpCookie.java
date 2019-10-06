@@ -995,7 +995,7 @@ public final class HttpCookie implements Cloneable {
                                    String attrName,
                                    String attrValue) {
                     if (cookie.getMaxAge() == MAX_AGE_UNSPECIFIED) {
-                        // BEGIN Android-changed: Use HttpDate for date parsing,
+                        // BEGIN Android-changed: Use HttpDate for date parsing.
                         // it accepts broader set of date formats.
                         // cookie.setMaxAge(cookie.expiryDate2DeltaSeconds(attrValue));
                         // Android-changed: Altered max age calculation to avoid setting
@@ -1010,7 +1010,7 @@ public final class HttpCookie implements Cloneable {
                             }
                         }
                         cookie.setMaxAge(maxAgeInSeconds);
-                        // END Android-changed: Use HttpDate for date parsing
+                        // END Android-changed: Use HttpDate for date parsing.
                     }
                 }
             });

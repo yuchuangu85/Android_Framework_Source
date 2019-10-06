@@ -16,43 +16,42 @@
 
 package com.android.setupwizardlib.items;
 
-import android.support.v7.widget.RecyclerView;
+import androidx.recyclerview.widget.RecyclerView;
 import android.view.View;
-
 import com.android.setupwizardlib.DividerItemDecoration;
 
 class ItemViewHolder extends RecyclerView.ViewHolder
-            implements DividerItemDecoration.DividedViewHolder {
+    implements DividerItemDecoration.DividedViewHolder {
 
-    private boolean mIsEnabled;
-    private IItem mItem;
+  private boolean isEnabled;
+  private IItem item;
 
-    ItemViewHolder(View itemView) {
-        super(itemView);
-    }
+  ItemViewHolder(View itemView) {
+    super(itemView);
+  }
 
-    @Override
-    public boolean isDividerAllowedAbove() {
-        return mIsEnabled;
-    }
+  @Override
+  public boolean isDividerAllowedAbove() {
+    return isEnabled;
+  }
 
-    @Override
-    public boolean isDividerAllowedBelow() {
-        return mIsEnabled;
-    }
+  @Override
+  public boolean isDividerAllowedBelow() {
+    return isEnabled;
+  }
 
-    public void setEnabled(boolean isEnabled) {
-        mIsEnabled = isEnabled;
-        itemView.setClickable(isEnabled);
-        itemView.setEnabled(isEnabled);
-        itemView.setFocusable(isEnabled);
-    }
+  public void setEnabled(boolean isEnabled) {
+    this.isEnabled = isEnabled;
+    itemView.setClickable(isEnabled);
+    itemView.setEnabled(isEnabled);
+    itemView.setFocusable(isEnabled);
+  }
 
-    public void setItem(IItem item) {
-        mItem = item;
-    }
+  public void setItem(IItem item) {
+    this.item = item;
+  }
 
-    public IItem getItem() {
-        return mItem;
-    }
+  public IItem getItem() {
+    return item;
+  }
 }

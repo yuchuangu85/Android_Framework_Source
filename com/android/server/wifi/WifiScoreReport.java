@@ -39,6 +39,9 @@ public class WifiScoreReport {
     private boolean mVerboseLoggingEnabled = false;
     private static final long FIRST_REASONABLE_WALL_CLOCK = 1490000000000L; // mid-December 2016
 
+    private static final long MIN_TIME_TO_KEEP_BELOW_TRANSITION_SCORE_MILLIS = 9000;
+    private long mLastDownwardBreachTimeMillis = 0;
+
     // Cache of the last score
     private int mScore = NetworkAgent.WIFI_BASE_SCORE;
 
@@ -65,6 +68,7 @@ public class WifiScoreReport {
         mLastKnownNudCheckScore = ConnectedScore.WIFI_TRANSITION_SCORE;
         mAggressiveConnectedScore.reset();
         mVelocityBasedConnectedScore.reset();
+        mLastDownwardBreachTimeMillis = 0;
         if (mVerboseLoggingEnabled) Log.d(TAG, "reset");
     }
 
@@ -128,6 +132,19 @@ public class WifiScoreReport {
                     || wifiInfo.getRssi() >= entry) {
                 // Stay a notch above the transition score to reduce ambiguity.
                 score = ConnectedScore.WIFI_TRANSITION_SCORE + 1;
+            }
+        }
+
+        if (wifiInfo.score >= ConnectedScore.WIFI_TRANSITION_SCORE
+                 && score < ConnectedScore.WIFI_TRANSITION_SCORE) {
+            mLastDownwardBreachTimeMillis = millis;
+        } else if (wifiInfo.score < ConnectedScore.WIFI_TRANSITION_SCORE
+                 && score >= ConnectedScore.WIFI_TRANSITION_SCORE) {
+            // Staying at below transition score for a certain period of time
+            // to prevent going back to wifi network again in a short time.
+            long elapsedMillis = millis - mLastDownwardBreachTimeMillis;
+            if (elapsedMillis < MIN_TIME_TO_KEEP_BELOW_TRANSITION_SCORE_MILLIS) {
+                score = wifiInfo.score;
             }
         }
 

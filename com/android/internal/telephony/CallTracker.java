@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.AsyncResult;
 import android.os.Handler;
@@ -41,13 +42,17 @@ public abstract class CallTracker extends Handler {
 
     static final int POLL_DELAY_MSEC = 250;
 
+    @UnsupportedAppUsage
     protected int mPendingOperations;
+    @UnsupportedAppUsage
     protected boolean mNeedsPoll;
     protected Message mLastRelevantPoll;
     protected ArrayList<Connection> mHandoverConnections = new ArrayList<Connection>();
 
+    @UnsupportedAppUsage
     public CommandsInterface mCi;
 
+    @UnsupportedAppUsage
     protected boolean mNumberConverted = false;
     private final int VALID_COMPARE_LENGTH   = 3;
 
@@ -95,6 +100,8 @@ public abstract class CallTracker extends Handler {
     }
 
     protected abstract void handlePollCalls(AsyncResult ar);
+
+    protected abstract Phone getPhone();
 
     protected Connection getHoConnection(DriverCall dc) {
         for (Connection hoConn : mHandoverConnections) {
@@ -209,7 +216,7 @@ public abstract class CallTracker extends Handler {
         String[] convertMaps = null;
         CarrierConfigManager configManager = (CarrierConfigManager)
                 phone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
-        PersistableBundle bundle = configManager.getConfig();
+        PersistableBundle bundle = configManager.getConfigForSubId(phone.getSubId());
         if (bundle != null) {
             convertMaps =
                     bundle.getStringArray(CarrierConfigManager.KEY_DIAL_STRING_REPLACE_STRING_ARRAY);
@@ -291,9 +298,12 @@ public abstract class CallTracker extends Handler {
     public abstract void handleMessage (Message msg);
     public abstract void registerForVoiceCallStarted(Handler h, int what, Object obj);
     public abstract void unregisterForVoiceCallStarted(Handler h);
+    @UnsupportedAppUsage
     public abstract void registerForVoiceCallEnded(Handler h, int what, Object obj);
     public abstract void unregisterForVoiceCallEnded(Handler h);
+    @UnsupportedAppUsage
     public abstract PhoneConstants.State getState();
+    @UnsupportedAppUsage
     protected abstract void log(String msg);
 
     /**

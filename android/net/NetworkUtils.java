@@ -16,7 +16,15 @@
 
 package android.net;
 
-import android.os.Parcel;
+import static android.system.OsConstants.AF_INET;
+import static android.system.OsConstants.AF_INET6;
+
+import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
+import android.net.shared.Inet4AddressUtils;
+import android.os.Build;
+import android.system.ErrnoException;
+import android.system.Os;
 import android.util.Log;
 import android.util.Pair;
 
@@ -41,27 +49,16 @@ public class NetworkUtils {
     private static final String TAG = "NetworkUtils";
 
     /**
-     * Attaches a socket filter that accepts DHCP packets to the given socket.
+     * Attaches a socket filter that drops all of incoming packets.
+     * @param fd the socket's {@link FileDescriptor}.
      */
-    public native static void attachDhcpFilter(FileDescriptor fd) throws SocketException;
+    public static native void attachDropAllBPFFilter(FileDescriptor fd) throws SocketException;
 
     /**
-     * Attaches a socket filter that accepts ICMPv6 router advertisements to the given socket.
+     * Detaches a socket filter.
      * @param fd the socket's {@link FileDescriptor}.
-     * @param packetType the hardware address type, one of ARPHRD_*.
      */
-    public native static void attachRaFilter(FileDescriptor fd, int packetType) throws SocketException;
-
-    /**
-     * Attaches a socket filter that accepts L2-L4 signaling traffic required for IP connectivity.
-     *
-     * This includes: all ARP, ICMPv6 RS/RA/NS/NA messages, and DHCPv4 exchanges.
-     *
-     * @param fd the socket's {@link FileDescriptor}.
-     * @param packetType the hardware address type, one of ARPHRD_*.
-     */
-    public native static void attachControlPacketFilter(FileDescriptor fd, int packetType)
-            throws SocketException;
+    public static native void detachBPFFilter(FileDescriptor fd) throws SocketException;
 
     /**
      * Configures a socket for receiving ICMPv6 router solicitations and sending advertisements.
@@ -108,6 +105,7 @@ public class NetworkUtils {
      * this socket will go directly to the underlying network, so its traffic will not be
      * forwarded through the VPN.
      */
+    @UnsupportedAppUsage
     public static boolean protectFromVpn(FileDescriptor fd) {
         return protectFromVpn(fd.getInt$());
     }
@@ -126,51 +124,90 @@ public class NetworkUtils {
     public native static boolean queryUserAccess(int uid, int netId);
 
     /**
-     * Convert a IPv4 address from an integer to an InetAddress.
-     * @param hostAddress an int corresponding to the IPv4 address in network byte order
+     * DNS resolver series jni method.
+     * Issue the query {@code msg} on the network designated by {@code netId}.
+     * {@code flags} is an additional config to control actual querying behavior.
+     * @return a file descriptor to watch for read events
      */
-    public static InetAddress intToInetAddress(int hostAddress) {
-        byte[] addressBytes = { (byte)(0xff & hostAddress),
-                                (byte)(0xff & (hostAddress >> 8)),
-                                (byte)(0xff & (hostAddress >> 16)),
-                                (byte)(0xff & (hostAddress >> 24)) };
+    public static native FileDescriptor resNetworkSend(
+            int netId, byte[] msg, int msglen, int flags) throws ErrnoException;
 
-        try {
-           return InetAddress.getByAddress(addressBytes);
-        } catch (UnknownHostException e) {
-           throw new AssertionError();
-        }
+    /**
+     * DNS resolver series jni method.
+     * Look up the {@code nsClass} {@code nsType} Resource Record (RR) associated
+     * with Domain Name {@code dname} on the network designated by {@code netId}.
+     * {@code flags} is an additional config to control actual querying behavior.
+     * @return a file descriptor to watch for read events
+     */
+    public static native FileDescriptor resNetworkQuery(
+            int netId, String dname, int nsClass, int nsType, int flags) throws ErrnoException;
+
+    /**
+     * DNS resolver series jni method.
+     * Read a result for the query associated with the {@code fd}.
+     * @return DnsResponse containing blob answer and rcode
+     */
+    public static native DnsResolver.DnsResponse resNetworkResult(FileDescriptor fd)
+            throws ErrnoException;
+
+    /**
+     * DNS resolver series jni method.
+     * Attempts to cancel the in-progress query associated with the {@code fd}.
+     */
+    public static native void resNetworkCancel(FileDescriptor fd);
+
+    /**
+     * DNS resolver series jni method.
+     * Attempts to get network which resolver will use if no network is explicitly selected.
+     */
+    public static native Network getDnsNetwork() throws ErrnoException;
+
+    /**
+     * Get the tcp repair window associated with the {@code fd}.
+     *
+     * @param fd the tcp socket's {@link FileDescriptor}.
+     * @return a {@link TcpRepairWindow} object indicates tcp window size.
+     */
+    public static native TcpRepairWindow getTcpRepairWindow(FileDescriptor fd)
+            throws ErrnoException;
+
+    /**
+     * @see Inet4AddressUtils#intToInet4AddressHTL(int)
+     * @deprecated Use either {@link Inet4AddressUtils#intToInet4AddressHTH(int)}
+     *             or {@link Inet4AddressUtils#intToInet4AddressHTL(int)}
+     */
+    @Deprecated
+    @UnsupportedAppUsage
+    public static InetAddress intToInetAddress(int hostAddress) {
+        return Inet4AddressUtils.intToInet4AddressHTL(hostAddress);
     }
 
     /**
-     * Convert a IPv4 address from an InetAddress to an integer
-     * @param inetAddr is an InetAddress corresponding to the IPv4 address
-     * @return the IP address as an integer in network byte order
+     * @see Inet4AddressUtils#inet4AddressToIntHTL(Inet4Address)
+     * @deprecated Use either {@link Inet4AddressUtils#inet4AddressToIntHTH(Inet4Address)}
+     *             or {@link Inet4AddressUtils#inet4AddressToIntHTL(Inet4Address)}
      */
+    @Deprecated
     public static int inetAddressToInt(Inet4Address inetAddr)
             throws IllegalArgumentException {
-        byte [] addr = inetAddr.getAddress();
-        return ((addr[3] & 0xff) << 24) | ((addr[2] & 0xff) << 16) |
-                ((addr[1] & 0xff) << 8) | (addr[0] & 0xff);
+        return Inet4AddressUtils.inet4AddressToIntHTL(inetAddr);
     }
 
     /**
-     * Convert a network prefix length to an IPv4 netmask integer
-     * @param prefixLength
-     * @return the IPv4 netmask as an integer in network byte order
+     * @see Inet4AddressUtils#prefixLengthToV4NetmaskIntHTL(int)
+     * @deprecated Use either {@link Inet4AddressUtils#prefixLengthToV4NetmaskIntHTH(int)}
+     *             or {@link Inet4AddressUtils#prefixLengthToV4NetmaskIntHTL(int)}
      */
+    @Deprecated
+    @UnsupportedAppUsage
     public static int prefixLengthToNetmaskInt(int prefixLength)
             throws IllegalArgumentException {
-        if (prefixLength < 0 || prefixLength > 32) {
-            throw new IllegalArgumentException("Invalid prefix length (0 <= prefix <= 32)");
-        }
-        int value = 0xffffffff << (32 - prefixLength);
-        return Integer.reverseBytes(value);
+        return Inet4AddressUtils.prefixLengthToV4NetmaskIntHTL(prefixLength);
     }
 
     /**
      * Convert a IPv4 netmask integer to a prefix length
-     * @param netmask as an integer in network byte order
+     * @param netmask as an integer (0xff000000 for a /8 subnet)
      * @return the network prefix length
      */
     public static int netmaskIntToPrefixLength(int netmask) {
@@ -183,16 +220,13 @@ public class NetworkUtils {
      * @return the network prefix length
      * @throws IllegalArgumentException the specified netmask was not contiguous.
      * @hide
+     * @deprecated use {@link Inet4AddressUtils#netmaskToPrefixLength(Inet4Address)}
      */
+    @UnsupportedAppUsage
+    @Deprecated
     public static int netmaskToPrefixLength(Inet4Address netmask) {
-        // inetAddressToInt returns an int in *network* byte order.
-        int i = Integer.reverseBytes(inetAddressToInt(netmask));
-        int prefixLength = Integer.bitCount(i);
-        int trailingZeros = Integer.numberOfTrailingZeros(i);
-        if (trailingZeros != 32 - prefixLength) {
-            throw new IllegalArgumentException("Non-contiguous netmask: " + Integer.toHexString(i));
-        }
-        return prefixLength;
+        // This is only here because some apps seem to be using it (@UnsupportedAppUsage).
+        return Inet4AddressUtils.netmaskToPrefixLength(netmask);
     }
 
 
@@ -203,37 +237,14 @@ public class NetworkUtils {
      * @param addrString
      * @return the InetAddress
      * @hide
+     * @deprecated Use {@link InetAddresses#parseNumericAddress(String)}, if possible.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
+    @Deprecated
     public static InetAddress numericToInetAddress(String addrString)
             throws IllegalArgumentException {
         return InetAddress.parseNumericAddress(addrString);
     }
-
-    /**
-     * Writes an InetAddress to a parcel. The address may be null. This is likely faster than
-     * calling writeSerializable.
-     */
-    protected static void parcelInetAddress(Parcel parcel, InetAddress address, int flags) {
-        byte[] addressArray = (address != null) ? address.getAddress() : null;
-        parcel.writeByteArray(addressArray);
-    }
-
-    /**
-     * Reads an InetAddress from a parcel. Returns null if the address that was written was null
-     * or if the data is invalid.
-     */
-    protected static InetAddress unparcelInetAddress(Parcel in) {
-        byte[] addressArray = in.createByteArray();
-        if (addressArray == null) {
-            return null;
-        }
-        try {
-            return InetAddress.getByAddress(addressArray);
-        } catch (UnknownHostException e) {
-            return null;
-        }
-    }
-
 
     /**
      *  Masks a raw IP address byte array with the specified prefix length.
@@ -278,17 +289,10 @@ public class NetworkUtils {
     /**
      * Returns the implicit netmask of an IPv4 address, as was the custom before 1993.
      */
+    @UnsupportedAppUsage
     public static int getImplicitNetmask(Inet4Address address) {
-        int firstByte = address.getAddress()[0] & 0xff;  // Convert to an unsigned value.
-        if (firstByte < 128) {
-            return 8;
-        } else if (firstByte < 192) {
-            return 16;
-        } else if (firstByte < 224) {
-            return 24;
-        } else {
-            return 32;  // Will likely not end well for other reasons.
-        }
+        // Only here because it seems to be used by apps
+        return Inet4AddressUtils.getImplicitNetmask(address);
     }
 
     /**
@@ -368,6 +372,7 @@ public class NetworkUtils {
      * @param addr a string representing an ip addr
      * @return a string propertly trimmed
      */
+    @UnsupportedAppUsage
     public static String trimV4AddrZeros(String addr) {
         if (addr == null) return null;
         String[] octets = addr.split("\\.");
@@ -453,5 +458,31 @@ public class NetworkUtils {
             routedIPCount = routedIPCount.add(BigInteger.ONE.shiftLeft(rank));
         }
         return routedIPCount;
+    }
+
+    private static final int[] ADDRESS_FAMILIES = new int[] {AF_INET, AF_INET6};
+
+    /**
+     * Returns true if the hostname is weakly validated.
+     * @param hostname Name of host to validate.
+     * @return True if it's a valid-ish hostname.
+     *
+     * @hide
+     */
+    public static boolean isWeaklyValidatedHostname(@NonNull String hostname) {
+        // TODO(b/34953048): Use a validation method that permits more accurate,
+        // but still inexpensive, checking of likely valid DNS hostnames.
+        final String weakHostnameRegex = "^[a-zA-Z0-9_.-]+$";
+        if (!hostname.matches(weakHostnameRegex)) {
+            return false;
+        }
+
+        for (int address_family : ADDRESS_FAMILIES) {
+            if (Os.inet_pton(address_family, hostname) != null) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

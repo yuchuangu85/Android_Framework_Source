@@ -25,6 +25,8 @@
 
 package java.io;
 
+// Android-changed: Removed @see tag (target does not exist on Android):
+// @see     java.awt.FileDialog#setFilenameFilter(java.io.FilenameFilter)
 /**
  * Instances of classes that implement this interface are used to
  * filter filenames. These instances are used to filter directory
@@ -34,7 +36,6 @@ package java.io;
  *
  * @author  Arthur van Hoff
  * @author  Jonathan Payne
- * @see     java.awt.FileDialog#setFilenameFilter(java.io.FilenameFilter)
  * @see     java.io.File
  * @see     java.io.File#list(java.io.FilenameFilter)
  * @since   JDK1.0

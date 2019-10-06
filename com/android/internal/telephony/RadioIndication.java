@@ -25,6 +25,7 @@ import static com.android.internal.telephony.RILConstants.RIL_UNSOL_CDMA_RUIM_SM
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_CDMA_SUBSCRIPTION_SOURCE_CHANGED;
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_CELL_INFO_LIST;
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_DATA_CALL_LIST_CHANGED;
+import static com.android.internal.telephony.RILConstants.RIL_UNSOL_EMERGENCY_NUMBER_LIST;
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_ENTER_EMERGENCY_CALLBACK_MODE;
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_EXIT_EMERGENCY_CALLBACK_MODE;
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_HARDWARE_CONFIG_CHANGED;
@@ -77,20 +78,24 @@ import android.hardware.radio.V1_0.CdmaT53AudioControlInfoRecord;
 import android.hardware.radio.V1_0.CfData;
 import android.hardware.radio.V1_0.LceDataInfo;
 import android.hardware.radio.V1_0.PcoDataInfo;
-import android.hardware.radio.V1_0.SetupDataCallResult;
 import android.hardware.radio.V1_0.SimRefreshResult;
 import android.hardware.radio.V1_0.SsInfoData;
 import android.hardware.radio.V1_0.StkCcUnsolSsResult;
 import android.hardware.radio.V1_0.SuppSvcNotification;
 import android.hardware.radio.V1_2.CellConnectionStatus;
-import android.hardware.radio.V1_2.IRadioIndication;
+import android.hardware.radio.V1_4.IRadioIndication;
+import android.hardware.radio.V1_4.RadioFrequencyInfo.hidl_discriminator;
 import android.os.AsyncResult;
 import android.os.SystemProperties;
 import android.telephony.CellInfo;
 import android.telephony.PcoData;
 import android.telephony.PhysicalChannelConfig;
+import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
 import android.telephony.SmsMessage;
+import android.telephony.TelephonyManager;
+import android.telephony.data.DataCallResponse;
+import android.telephony.emergency.EmergencyNumber;
 
 import com.android.internal.telephony.cdma.CdmaCallWaitingNotification;
 import com.android.internal.telephony.cdma.CdmaInformationRecords;
@@ -98,7 +103,6 @@ import com.android.internal.telephony.cdma.SmsMessageConverter;
 import com.android.internal.telephony.dataconnection.KeepaliveStatus;
 import com.android.internal.telephony.gsm.SsData;
 import com.android.internal.telephony.gsm.SuppServiceNotification;
-import com.android.internal.telephony.nano.TelephonyProto.SmsSession;
 import com.android.internal.telephony.uicc.IccRefreshResponse;
 import com.android.internal.telephony.uicc.IccUtils;
 
@@ -120,13 +124,13 @@ public class RadioIndication extends IRadioIndication.Stub {
     public void radioStateChanged(int indicationType, int radioState) {
         mRil.processIndication(indicationType);
 
-        CommandsInterface.RadioState newState = getRadioStateFromInt(radioState);
+        int state = getRadioStateFromInt(radioState);
         if (RIL.RILJ_LOGD) {
             mRil.unsljLogMore(RIL_UNSOL_RESPONSE_RADIO_STATE_CHANGED, "radioStateChanged: " +
-                    newState);
+                    state);
         }
 
-        mRil.setRadioState(newState);
+        mRil.setRadioState(state, false /* forceNotifyRegistrants */);
     }
 
     public void callStateChanged(int indicationType) {
@@ -154,9 +158,6 @@ public class RadioIndication extends IRadioIndication.Stub {
 
         byte[] pduArray = RIL.arrayListToPrimitiveArray(pdu);
         if (RIL.RILJ_LOGD) mRil.unsljLog(RIL_UNSOL_RESPONSE_NEW_SMS);
-
-        mRil.writeMetricsNewSms(SmsSession.Event.Tech.SMS_GSM,
-                SmsSession.Event.Format.SMS_FORMAT_3GPP);
 
         SmsMessage sms = SmsMessage.newFromCMT(pduArray);
         if (mRil.mGsmSmsRegistrant != null) {
@@ -228,7 +229,7 @@ public class RadioIndication extends IRadioIndication.Stub {
                                       android.hardware.radio.V1_0.SignalStrength signalStrength) {
         mRil.processIndication(indicationType);
 
-        SignalStrength ss = RIL.convertHalSignalStrength(signalStrength);
+        SignalStrength ss = new SignalStrength(signalStrength);
         // Note this is set to "verbose" because it happens frequently
         if (RIL.RILJ_LOGV) mRil.unsljLogvRet(RIL_UNSOL_SIGNAL_STRENGTH, ss);
 
@@ -260,8 +261,25 @@ public class RadioIndication extends IRadioIndication.Stub {
                                       android.hardware.radio.V1_2.SignalStrength signalStrength) {
         mRil.processIndication(indicationType);
 
-        SignalStrength ss = RIL.convertHalSignalStrength_1_2(signalStrength);
+        SignalStrength ss = new SignalStrength(signalStrength);
         // Note this is set to "verbose" because it happens frequently
+        if (RIL.RILJ_LOGV) mRil.unsljLogvRet(RIL_UNSOL_SIGNAL_STRENGTH, ss);
+
+        if (mRil.mSignalStrengthRegistrant != null) {
+            mRil.mSignalStrengthRegistrant.notifyRegistrant(new AsyncResult(null, ss, null));
+        }
+    }
+
+    /**
+     * Indicates the current signal strength of the camped or primary serving cell.
+     */
+    public void currentSignalStrength_1_4(int indicationType,
+            android.hardware.radio.V1_4.SignalStrength signalStrength) {
+
+        mRil.processIndication(indicationType);
+
+        SignalStrength ss = new SignalStrength(signalStrength);
+
         if (RIL.RILJ_LOGV) mRil.unsljLogvRet(RIL_UNSOL_SIGNAL_STRENGTH, ss);
 
         if (mRil.mSignalStrengthRegistrant != null) {
@@ -272,43 +290,65 @@ public class RadioIndication extends IRadioIndication.Stub {
     /**
      * Indicates current physical channel configuration.
      */
+    public void currentPhysicalChannelConfigs_1_4(int indicationType,
+            ArrayList<android.hardware.radio.V1_4.PhysicalChannelConfig> configs) {
+        mRil.processIndication(indicationType);
+        physicalChannelConfigsIndication(configs);
+    }
+
+    /**
+     * Indicates current physical channel configuration.
+     */
     public void currentPhysicalChannelConfigs(int indicationType,
             ArrayList<android.hardware.radio.V1_2.PhysicalChannelConfig> configs) {
-        List<PhysicalChannelConfig> response = new ArrayList<>(configs.size());
+        mRil.processIndication(indicationType);
+        physicalChannelConfigsIndication(configs);
+    }
 
-        for (android.hardware.radio.V1_2.PhysicalChannelConfig config : configs) {
-            int status;
-            switch (config.status) {
-                case CellConnectionStatus.PRIMARY_SERVING:
-                    status = PhysicalChannelConfig.CONNECTION_PRIMARY_SERVING;
-                    break;
-                case CellConnectionStatus.SECONDARY_SERVING:
-                    status = PhysicalChannelConfig.CONNECTION_SECONDARY_SERVING;
-                    break;
-                default:
-                    // only PRIMARY_SERVING and SECONDARY_SERVING are supported.
-                    mRil.riljLoge("Unsupported CellConnectionStatus in PhysicalChannelConfig: "
-                            + config.status);
-                    status = PhysicalChannelConfig.CONNECTION_UNKNOWN;
-                    break;
-            }
+    /**
+     * Indicates current emergency number list.
+     */
+    public void currentEmergencyNumberList(int indicationType,
+            ArrayList<android.hardware.radio.V1_4.EmergencyNumber> emergencyNumberList) {
+        List<EmergencyNumber> response = new ArrayList<>(emergencyNumberList.size());
 
-            response.add(new PhysicalChannelConfig(status, config.cellBandwidthDownlink));
+        for (android.hardware.radio.V1_4.EmergencyNumber emergencyNumberHal
+                : emergencyNumberList) {
+            EmergencyNumber emergencyNumber = new EmergencyNumber(emergencyNumberHal.number,
+                    MccTable.countryCodeForMcc(emergencyNumberHal.mcc), emergencyNumberHal.mnc,
+                    emergencyNumberHal.categories, emergencyNumberHal.urns,
+                    emergencyNumberHal.sources, EmergencyNumber.EMERGENCY_CALL_ROUTING_UNKNOWN);
+            response.add(emergencyNumber);
         }
 
-        if (RIL.RILJ_LOGD) mRil.unsljLogRet(RIL_UNSOL_PHYSICAL_CHANNEL_CONFIG, response);
+        if (RIL.RILJ_LOGD) mRil.unsljLogRet(RIL_UNSOL_EMERGENCY_NUMBER_LIST, response);
 
-        mRil.mPhysicalChannelConfigurationRegistrants.notifyRegistrants(
+        mRil.mEmergencyNumberListRegistrants.notifyRegistrants(
                 new AsyncResult(null, response, null));
     }
 
-    public void dataCallListChanged(int indicationType, ArrayList<SetupDataCallResult> dcList) {
+    /** Indicates current data call list. */
+    public void dataCallListChanged(int indicationType,
+            ArrayList<android.hardware.radio.V1_0.SetupDataCallResult> dcList) {
         mRil.processIndication(indicationType);
 
         if (RIL.RILJ_LOGD) mRil.unsljLogRet(RIL_UNSOL_DATA_CALL_LIST_CHANGED, dcList);
 
+        ArrayList<DataCallResponse> response = RIL.convertDataCallResultList(dcList);
         mRil.mDataCallListChangedRegistrants.notifyRegistrants(
-                new AsyncResult(null, dcList, null));
+                new AsyncResult(null, response, null));
+    }
+
+    /** Indicates current data call list with radio HAL 1.4. */
+    public void dataCallListChanged_1_4(int indicationType,
+            ArrayList<android.hardware.radio.V1_4.SetupDataCallResult> dcList) {
+        mRil.processIndication(indicationType);
+
+        if (RIL.RILJ_LOGD) mRil.unsljLogRet(RIL_UNSOL_DATA_CALL_LIST_CHANGED, dcList);
+
+        ArrayList<DataCallResponse> response = RIL.convertDataCallResultList(dcList);
+        mRil.mDataCallListChangedRegistrants.notifyRegistrants(
+                new AsyncResult(null, response, null));
     }
 
     public void suppSvcNotify(int indicationType, SuppSvcNotification suppSvcNotification) {
@@ -426,9 +466,6 @@ public class RadioIndication extends IRadioIndication.Stub {
         mRil.processIndication(indicationType);
 
         if (RIL.RILJ_LOGD) mRil.unsljLog(RIL_UNSOL_RESPONSE_CDMA_NEW_SMS);
-
-        mRil.writeMetricsNewSms(SmsSession.Event.Tech.SMS_CDMA,
-                SmsSession.Event.Format.SMS_FORMAT_3GPP2);
 
         // todo: conversion from CdmaSmsMessage to SmsMessage should be contained in this class so
         // that usage of auto-generated HAL classes is limited to this file
@@ -668,7 +705,6 @@ public class RadioIndication extends IRadioIndication.Stub {
         // Initial conditions
         mRil.setRadioPower(false, null);
         mRil.setCdmaSubscriptionSource(mRil.mCdmaSubscription, null);
-        mRil.setCellInfoListRate();
         // todo: this should not require a version number now. Setting it to latest RIL version for
         // now.
         mRil.notifyRegistrantsRilConnectionChanged(15);
@@ -700,7 +736,7 @@ public class RadioIndication extends IRadioIndication.Stub {
 
     /** Get unsolicited message for cellInfoList using HAL V1_2 */
     public void cellInfoList_1_2(int indicationType,
-                             ArrayList<android.hardware.radio.V1_2.CellInfo> records) {
+                                 ArrayList<android.hardware.radio.V1_2.CellInfo> records) {
         mRil.processIndication(indicationType);
 
         ArrayList<CellInfo> response = RIL.convertHalCellInfoList_1_2(records);
@@ -710,16 +746,34 @@ public class RadioIndication extends IRadioIndication.Stub {
         mRil.mRilCellInfoListRegistrants.notifyRegistrants(new AsyncResult(null, response, null));
     }
 
+    /** Get unsolicited message for cellInfoList using HAL V1_4 */
+    public void cellInfoList_1_4(int indicationType,
+                                 ArrayList<android.hardware.radio.V1_4.CellInfo> records) {
+        mRil.processIndication(indicationType);
+
+        ArrayList<CellInfo> response = RIL.convertHalCellInfoList_1_4(records);
+
+        if (RIL.RILJ_LOGD) mRil.unsljLogRet(RIL_UNSOL_CELL_INFO_LIST, response);
+
+        mRil.mRilCellInfoListRegistrants.notifyRegistrants(new AsyncResult(null, response, null));
+    }
+
     /** Incremental network scan results */
     public void networkScanResult(int indicationType,
                                   android.hardware.radio.V1_1.NetworkScanResult result) {
-        responseCellInfos(indicationType, result);
+        responseNetworkScan(indicationType, result);
     }
 
     /** Incremental network scan results with HAL V1_2 */
     public void networkScanResult_1_2(int indicationType,
                                       android.hardware.radio.V1_2.NetworkScanResult result) {
-        responseCellInfos_1_2(indicationType, result);
+        responseNetworkScan_1_2(indicationType, result);
+    }
+
+    /** Incremental network scan results with HAL V1_4 */
+    public void networkScanResult_1_4(int indicationType,
+                                      android.hardware.radio.V1_4.NetworkScanResult result) {
+        responseNetworkScan_1_4(indicationType, result);
     }
 
     public void imsNetworkStateChanged(int indicationType) {
@@ -904,18 +958,22 @@ public class RadioIndication extends IRadioIndication.Stub {
         mRil.mNattKeepaliveStatusRegistrants.notifyRegistrants(new AsyncResult(null, ks, null));
     }
 
-    private CommandsInterface.RadioState getRadioStateFromInt(int stateInt) {
-        CommandsInterface.RadioState state;
+    /**
+     * @param stateInt
+     * @return {@link TelephonyManager.RadioPowerState RadioPowerState}
+     */
+    private @TelephonyManager.RadioPowerState int getRadioStateFromInt(int stateInt) {
+        int state;
 
         switch(stateInt) {
             case android.hardware.radio.V1_0.RadioState.OFF:
-                state = CommandsInterface.RadioState.RADIO_OFF;
+                state = TelephonyManager.RADIO_POWER_OFF;
                 break;
             case android.hardware.radio.V1_0.RadioState.UNAVAILABLE:
-                state = CommandsInterface.RadioState.RADIO_UNAVAILABLE;
+                state = TelephonyManager.RADIO_POWER_UNAVAILABLE;
                 break;
             case android.hardware.radio.V1_0.RadioState.ON:
-                state = CommandsInterface.RadioState.RADIO_ON;
+                state = TelephonyManager.RADIO_POWER_ON;
                 break;
             default:
                 throw new RuntimeException("Unrecognized RadioState: " + stateInt);
@@ -923,8 +981,79 @@ public class RadioIndication extends IRadioIndication.Stub {
         return state;
     }
 
-    private void responseCellInfos(int indicationType,
-                                   android.hardware.radio.V1_1.NetworkScanResult result) {
+
+    /**
+     * Set the frequency range or channel number from the physical channel config. Only one of them
+     * is valid, we should set the other to the unknown value.
+     * @param builder the builder of {@link PhysicalChannelConfig}.
+     * @param config physical channel config from ril.
+     */
+    private void setFrequencyRangeOrChannelNumber(PhysicalChannelConfig.Builder builder,
+            android.hardware.radio.V1_4.PhysicalChannelConfig config) {
+
+        switch (config.rfInfo.getDiscriminator()) {
+            case hidl_discriminator.range:
+                builder.setFrequencyRange(config.rfInfo.range());
+                break;
+            case hidl_discriminator.channelNumber:
+                builder.setChannelNumber(config.rfInfo.channelNumber());
+                break;
+            default:
+                mRil.riljLoge("Unsupported frequency type " + config.rfInfo.getDiscriminator());
+        }
+    }
+
+    private int convertConnectionStatusFromCellConnectionStatus(int status) {
+        switch (status) {
+            case CellConnectionStatus.PRIMARY_SERVING:
+                return PhysicalChannelConfig.CONNECTION_PRIMARY_SERVING;
+            case CellConnectionStatus.SECONDARY_SERVING:
+                return PhysicalChannelConfig.CONNECTION_SECONDARY_SERVING;
+            default:
+                // only PRIMARY_SERVING and SECONDARY_SERVING are supported.
+                mRil.riljLoge("Unsupported CellConnectionStatus in PhysicalChannelConfig: "
+                        + status);
+                return PhysicalChannelConfig.CONNECTION_UNKNOWN;
+        }
+    }
+
+    private void physicalChannelConfigsIndication(List<? extends Object> configs) {
+        List<PhysicalChannelConfig> response = new ArrayList<>(configs.size());
+        for (Object obj : configs) {
+            if (obj instanceof android.hardware.radio.V1_2.PhysicalChannelConfig) {
+                android.hardware.radio.V1_2.PhysicalChannelConfig config =
+                        (android.hardware.radio.V1_2.PhysicalChannelConfig) obj;
+
+                response.add(new PhysicalChannelConfig.Builder()
+                        .setCellConnectionStatus(
+                                convertConnectionStatusFromCellConnectionStatus(config.status))
+                        .setCellBandwidthDownlinkKhz(config.cellBandwidthDownlink)
+                        .build());
+            } else if (obj instanceof android.hardware.radio.V1_4.PhysicalChannelConfig) {
+                android.hardware.radio.V1_4.PhysicalChannelConfig config =
+                        (android.hardware.radio.V1_4.PhysicalChannelConfig) obj;
+                PhysicalChannelConfig.Builder builder = new PhysicalChannelConfig.Builder();
+                setFrequencyRangeOrChannelNumber(builder, config);
+                response.add(builder.setCellConnectionStatus(
+                        convertConnectionStatusFromCellConnectionStatus(config.base.status))
+                        .setCellBandwidthDownlinkKhz(config.base.cellBandwidthDownlink)
+                        .setRat(ServiceState.rilRadioTechnologyToNetworkType(config.rat))
+                        .setPhysicalCellId(config.physicalCellId)
+                        .setContextIds(config.contextIds.stream().mapToInt(x -> x).toArray())
+                        .build());
+            } else {
+                mRil.riljLoge("Unsupported PhysicalChannelConfig " + obj);
+            }
+        }
+
+        if (RIL.RILJ_LOGD) mRil.unsljLogRet(RIL_UNSOL_PHYSICAL_CHANNEL_CONFIG, response);
+
+        mRil.mPhysicalChannelConfigurationRegistrants.notifyRegistrants(
+                new AsyncResult(null, response, null));
+    }
+
+    private void responseNetworkScan(int indicationType,
+                                     android.hardware.radio.V1_1.NetworkScanResult result) {
         mRil.processIndication(indicationType);
 
         NetworkScanResult nsr = null;
@@ -934,13 +1063,23 @@ public class RadioIndication extends IRadioIndication.Stub {
         mRil.mRilNetworkScanResultRegistrants.notifyRegistrants(new AsyncResult(null, nsr, null));
     }
 
-    private void responseCellInfos_1_2(int indicationType,
-                                       android.hardware.radio.V1_2.NetworkScanResult result) {
+    private void responseNetworkScan_1_2(int indicationType,
+                                         android.hardware.radio.V1_2.NetworkScanResult result) {
         mRil.processIndication(indicationType);
 
         NetworkScanResult nsr = null;
         ArrayList<CellInfo> infos = RIL.convertHalCellInfoList_1_2(result.networkInfos);
         nsr = new NetworkScanResult(result.status, result.error, infos);
+        if (RIL.RILJ_LOGD) mRil.unsljLogRet(RIL_UNSOL_NETWORK_SCAN_RESULT, nsr);
+        mRil.mRilNetworkScanResultRegistrants.notifyRegistrants(new AsyncResult(null, nsr, null));
+    }
+
+    private void responseNetworkScan_1_4(int indicationType,
+                                         android.hardware.radio.V1_4.NetworkScanResult result) {
+        mRil.processIndication(indicationType);
+
+        ArrayList<CellInfo> cellInfos = RIL.convertHalCellInfoList_1_4(result.networkInfos);
+        NetworkScanResult nsr = new NetworkScanResult(result.status, result.error, cellInfos);
         if (RIL.RILJ_LOGD) mRil.unsljLogRet(RIL_UNSOL_NETWORK_SCAN_RESULT, nsr);
         mRil.mRilNetworkScanResultRegistrants.notifyRegistrants(new AsyncResult(null, nsr, null));
     }

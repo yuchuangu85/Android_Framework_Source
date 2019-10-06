@@ -16,7 +16,7 @@
 
 package com.android.systemui.recents.views;
 
-import android.app.ActivityManager;
+import android.app.ActivityTaskManager;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.view.InputDevice;
@@ -27,7 +27,7 @@ import android.view.ViewConfiguration;
 import android.view.ViewDebug;
 
 import com.android.internal.policy.DividerSnapAlgorithm;
-import com.android.systemui.recents.Recents;
+import com.android.systemui.recents.LegacyRecentsImpl;
 import com.android.systemui.recents.events.EventBus;
 import com.android.systemui.recents.events.activity.ConfigurationChangedEvent;
 import com.android.systemui.recents.events.activity.HideRecentsEvent;
@@ -114,7 +114,7 @@ public class RecentsViewTouchHandler {
     /**** Events ****/
 
     public final void onBusEvent(DragStartEvent event) {
-        SystemServicesProxy ssp = Recents.getSystemServices();
+        SystemServicesProxy ssp = LegacyRecentsImpl.getSystemServices();
         mRv.getParent().requestDisallowInterceptTouchEvent(true);
         mDragRequested = true;
         // We defer starting the actual drag handling until the user moves past the drag slop
@@ -137,15 +137,15 @@ public class RecentsViewTouchHandler {
         }
 
         mVisibleDockStates.clear();
-        if (ActivityManager.supportsMultiWindow(mRv.getContext()) && !ssp.hasDockedTask()
+        if (ActivityTaskManager.supportsMultiWindow(mRv.getContext()) && !ssp.hasDockedTask()
                 && mDividerSnapAlgorithm.isSplitScreenFeasible()) {
-            Recents.logDockAttempt(mRv.getContext(), event.task.getTopComponent(),
+            LegacyRecentsImpl.logDockAttempt(mRv.getContext(), event.task.getTopComponent(),
                     event.task.resizeMode);
             if (!event.task.isDockable) {
                 EventBus.getDefault().send(new ShowIncompatibleAppOverlayEvent());
             } else {
                 // Add the dock state drop targets (these take priority)
-                DockState[] dockStates = Recents.getConfiguration()
+                DockState[] dockStates = LegacyRecentsImpl.getConfiguration()
                         .getDockStatesForCurrentOrientation();
                 for (DockState dockState : dockStates) {
                     registerDropTargetForCurrentDrag(dockState);

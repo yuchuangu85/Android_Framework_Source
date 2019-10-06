@@ -15,6 +15,8 @@
  */
 package com.android.systemui.tuner;
 
+import static com.android.systemui.Dependency.BG_HANDLER_NAME;
+
 import android.app.ActivityManager;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -33,7 +35,6 @@ import android.util.ArraySet;
 
 import com.android.internal.util.ArrayUtils;
 import com.android.systemui.DemoMode;
-import com.android.systemui.Dependency;
 import com.android.systemui.qs.QSTileHost;
 import com.android.systemui.settings.CurrentUserTracker;
 import com.android.systemui.statusbar.phone.StatusBarIconController;
@@ -43,7 +44,14 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 
+import javax.inject.Inject;
+import javax.inject.Named;
+import javax.inject.Singleton;
 
+
+/**
+ */
+@Singleton
 public class TunerServiceImpl extends TunerService {
 
     private static final String TUNER_VERSION = "sysui_tuner_version";
@@ -65,19 +73,25 @@ public class TunerServiceImpl extends TunerService {
     // Set of all tunables, used for leak detection.
     private final HashSet<Tunable> mTunables = LeakDetector.ENABLED ? new HashSet<>() : null;
     private final Context mContext;
+    private final LeakDetector mLeakDetector;
 
     private ContentResolver mContentResolver;
     private int mCurrentUser;
     private CurrentUserTracker mUserTracker;
 
-    public TunerServiceImpl(Context context) {
+    /**
+     */
+    @Inject
+    public TunerServiceImpl(Context context, @Named(BG_HANDLER_NAME) Handler bgHandler,
+            LeakDetector leakDetector) {
         mContext = context;
         mContentResolver = mContext.getContentResolver();
+        mLeakDetector = leakDetector;
 
         for (UserInfo user : UserManager.get(mContext).getUsers()) {
             mCurrentUser = user.getUserHandle().getIdentifier();
             if (getValue(TUNER_VERSION, 0) != CURRENT_TUNER_VERSION) {
-                upgradeTuner(getValue(TUNER_VERSION, 0), CURRENT_TUNER_VERSION);
+                upgradeTuner(getValue(TUNER_VERSION, 0), CURRENT_TUNER_VERSION, bgHandler);
             }
         }
 
@@ -98,7 +112,7 @@ public class TunerServiceImpl extends TunerService {
         mUserTracker.stopTracking();
     }
 
-    private void upgradeTuner(int oldVersion, int newVersion) {
+    private void upgradeTuner(int oldVersion, int newVersion, Handler bgHandler) {
         if (oldVersion < 1) {
             String blacklistStr = getValue(StatusBarIconController.ICON_BLACKLIST);
             if (blacklistStr != null) {
@@ -119,7 +133,9 @@ public class TunerServiceImpl extends TunerService {
         // 3 Removed because of a revert.
         if (oldVersion < 4) {
             // Delay this so that we can wait for everything to be registered first.
-            new Handler(Dependency.get(Dependency.BG_LOOPER)).postDelayed(() -> clearAll(), 5000);
+            final int user = mCurrentUser;
+            bgHandler.postDelayed(
+                    () -> clearAllFromUser(user), 5000);
         }
         setValue(TUNER_VERSION, newVersion);
     }
@@ -165,7 +181,7 @@ public class TunerServiceImpl extends TunerService {
         mTunableLookup.get(key).add(tunable);
         if (LeakDetector.ENABLED) {
             mTunables.add(tunable);
-            Dependency.get(LeakDetector.class).trackCollection(mTunables, "TunerService.mTunables");
+            mLeakDetector.trackCollection(mTunables, "TunerService.mTunables");
         }
         Uri uri = Settings.Secure.getUriFor(key);
         if (!mListeningUris.containsKey(uri)) {
@@ -221,6 +237,10 @@ public class TunerServiceImpl extends TunerService {
 
     @Override
     public void clearAll() {
+        clearAllFromUser(mCurrentUser);
+    }
+
+    public void clearAllFromUser(int user) {
         // A couple special cases.
         Settings.Global.putString(mContentResolver, DemoMode.DEMO_MODE_ALLOWED, null);
         Intent intent = new Intent(DemoMode.ACTION_DEMO);
@@ -231,7 +251,7 @@ public class TunerServiceImpl extends TunerService {
             if (ArrayUtils.contains(RESET_BLACKLIST, key)) {
                 continue;
             }
-            Settings.Secure.putString(mContentResolver, key, null);
+            Settings.Secure.putStringForUser(mContentResolver, key, null, user);
         }
     }
 

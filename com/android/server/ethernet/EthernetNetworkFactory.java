@@ -17,8 +17,12 @@
 package com.android.server.ethernet;
 
 import static android.net.ConnectivityManager.TYPE_ETHERNET;
+import static android.net.shared.LinkPropertiesParcelableUtil.toStableParcelable;
+import static com.android.internal.util.Preconditions.checkNotNull;
 
+import android.annotation.NonNull;
 import android.content.Context;
+import android.net.ConnectivityManager;
 import android.net.IpConfiguration;
 import android.net.IpConfiguration.IpAssignment;
 import android.net.IpConfiguration.ProxySettings;
@@ -31,15 +35,23 @@ import android.net.NetworkInfo.DetailedState;
 import android.net.NetworkRequest;
 import android.net.NetworkSpecifier;
 import android.net.StringNetworkSpecifier;
-import android.net.ip.IpClient;
-import android.net.ip.IpClient.ProvisioningConfiguration;
+import android.net.ip.IIpClient;
+import android.net.ip.IpClientCallbacks;
+import android.net.ip.IpClientUtil;
+import android.net.shared.ProvisioningConfiguration;
+import android.net.util.InterfaceParams;
+import android.os.ConditionVariable;
 import android.os.Handler;
+import android.os.RemoteException;
 import android.text.TextUtils;
+import android.util.AndroidRuntimeException;
 import android.util.Log;
+import android.util.SparseArray;
 
 import com.android.internal.util.IndentingPrintWriter;
 
 import java.io.FileDescriptor;
+import java.lang.Math;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -60,6 +72,12 @@ public class EthernetNetworkFactory extends NetworkFactory {
     private final Handler mHandler;
     private final Context mContext;
 
+    public static class ConfigurationException extends AndroidRuntimeException {
+        public ConfigurationException(String msg) {
+            super(msg);
+        }
+    }
+
     public EthernetNetworkFactory(Handler handler, Context context, NetworkCapabilities filter) {
         super(handler.getLooper(), context, NETWORK_TYPE, filter);
 
@@ -71,6 +89,10 @@ public class EthernetNetworkFactory extends NetworkFactory {
 
     @Override
     public boolean acceptRequest(NetworkRequest request, int score) {
+        if (request.type == NetworkRequest.Type.TRACK_DEFAULT) {
+            return false;
+        }
+
         if (DBG) {
             Log.d(TAG, "acceptRequest, request: " + request + ", score: " + score);
         }
@@ -230,13 +252,77 @@ public class EthernetNetworkFactory extends NetworkFactory {
         private boolean mLinkUp;
         private LinkProperties mLinkProperties = new LinkProperties();
 
-        private IpClient mIpClient;
+        private volatile IIpClient mIpClient;
+        private IpClientCallbacksImpl mIpClientCallback;
         private NetworkAgent mNetworkAgent;
         private IpConfiguration mIpConfig;
 
+        /**
+         * An object to contain all transport type information, including base network score and
+         * the legacy transport type it maps to (if any)
+         */
+        private static class TransportInfo {
+            final int mLegacyType;
+            final int mScore;
+
+            private TransportInfo(int legacyType, int score) {
+                mLegacyType = legacyType;
+                mScore = score;
+            }
+        }
+
+        /**
+         * A map of TRANSPORT_* types to TransportInfo, making scoring and legacy type information
+         * available for each type an ethernet interface could propagate.
+         *
+         * Unfortunately, base scores for the various transports are not yet centrally located.
+         * They've been lifted from the corresponding NetworkFactory files in the meantime.
+         *
+         * Additionally, there are no legacy type equivalents to LOWPAN or WIFI_AWARE. These types
+         * are set to TYPE_NONE to match the behavior of their own network factories.
+         */
+        private static final SparseArray<TransportInfo> sTransports = new SparseArray();
+        static {
+            // LowpanInterfaceTracker.NETWORK_SCORE
+            sTransports.put(NetworkCapabilities.TRANSPORT_LOWPAN,
+                    new TransportInfo(ConnectivityManager.TYPE_NONE, 30));
+            // WifiAwareDataPathStateManager.NETWORK_FACTORY_SCORE_AVAIL
+            sTransports.put(NetworkCapabilities.TRANSPORT_WIFI_AWARE,
+                    new TransportInfo(ConnectivityManager.TYPE_NONE, 1));
+            // EthernetNetworkFactory.NETWORK_SCORE
+            sTransports.put(NetworkCapabilities.TRANSPORT_ETHERNET,
+                    new TransportInfo(ConnectivityManager.TYPE_ETHERNET, 70));
+            // BluetoothTetheringNetworkFactory.NETWORK_SCORE
+            sTransports.put(NetworkCapabilities.TRANSPORT_BLUETOOTH,
+                    new TransportInfo(ConnectivityManager.TYPE_BLUETOOTH, 69));
+            // WifiNetworkFactory.SCORE_FILTER / NetworkAgent.WIFI_BASE_SCORE
+            sTransports.put(NetworkCapabilities.TRANSPORT_WIFI,
+                    new TransportInfo(ConnectivityManager.TYPE_WIFI, 60));
+            // TelephonyNetworkFactory.TELEPHONY_NETWORK_SCORE
+            sTransports.put(NetworkCapabilities.TRANSPORT_CELLULAR,
+                    new TransportInfo(ConnectivityManager.TYPE_MOBILE, 50));
+        }
+
         long refCount = 0;
 
-        private final IpClient.Callback mIpClientCallback = new IpClient.Callback() {
+        private class IpClientCallbacksImpl extends IpClientCallbacks {
+            private final ConditionVariable mIpClientStartCv = new ConditionVariable(false);
+            private final ConditionVariable mIpClientShutdownCv = new ConditionVariable(false);
+
+            @Override
+            public void onIpClientCreated(IIpClient ipClient) {
+                mIpClient = ipClient;
+                mIpClientStartCv.open();
+            }
+
+            private void awaitIpClientStart() {
+                mIpClientStartCv.block();
+            }
+
+            private void awaitIpClientShutdown() {
+                mIpClientShutdownCv.block();
+            }
+
             @Override
             public void onProvisioningSuccess(LinkProperties newLp) {
                 mHandler.post(() -> onIpLayerStarted(newLp));
@@ -251,23 +337,45 @@ public class EthernetNetworkFactory extends NetworkFactory {
             public void onLinkPropertiesChange(LinkProperties newLp) {
                 mHandler.post(() -> updateLinkProperties(newLp));
             }
-        };
+
+            @Override
+            public void onQuit() {
+                mIpClient = null;
+                mIpClientShutdownCv.open();
+            }
+        }
+
+        private static void shutdownIpClient(IIpClient ipClient) {
+            try {
+                ipClient.shutdown();
+            } catch (RemoteException e) {
+                Log.e(TAG, "Error stopping IpClient", e);
+            }
+        }
 
         NetworkInterfaceState(String ifaceName, String hwAddress, Handler handler, Context context,
-                NetworkCapabilities capabilities) {
+                @NonNull NetworkCapabilities capabilities) {
             name = ifaceName;
-            mCapabilities = capabilities;
+            mCapabilities = checkNotNull(capabilities);
             mHandler = handler;
             mContext = context;
+            int legacyType = ConnectivityManager.TYPE_NONE;
+            int[] transportTypes = mCapabilities.getTransportTypes();
+            if (transportTypes.length > 0) {
+                legacyType = getLegacyType(transportTypes[0]);
+            } else {
+                // Should never happen as transport is always one of ETHERNET or a valid override
+                throw new ConfigurationException("Network Capabilities do not have an associated "
+                        + "transport type.");
+            }
 
             mHwAddress = hwAddress;
-            mNetworkInfo = new NetworkInfo(TYPE_ETHERNET, 0, NETWORK_TYPE, "");
+            mNetworkInfo = new NetworkInfo(legacyType, 0, NETWORK_TYPE, "");
             mNetworkInfo.setExtraInfo(mHwAddress);
             mNetworkInfo.setIsAvailable(true);
         }
 
         void setIpConfig(IpConfiguration ipConfig) {
-
             this.mIpConfig = ipConfig;
         }
 
@@ -277,6 +385,47 @@ public class EthernetNetworkFactory extends NetworkFactory {
 
         boolean isRestricted() {
             return mCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED);
+        }
+
+        /**
+         * Determines the legacy transport type from a NetworkCapabilities transport type. Defaults
+         * to legacy TYPE_NONE if there is no known conversion
+         */
+        private static int getLegacyType(int transport) {
+            TransportInfo transportInfo = sTransports.get(transport, /* if dne */ null);
+            if (transportInfo != null) {
+                return transportInfo.mLegacyType;
+            }
+            return ConnectivityManager.TYPE_NONE;
+        }
+
+        /**
+         * Determines the network score based on the transport associated with the interface.
+         * Ethernet interfaces could propagate a transport types forward. Since we can't
+         * get more information about the statuses of the interfaces on the other end of the local
+         * interface, we'll best-effort assign the score as the base score of the assigned transport
+         * when the link is up. When the link is down, the score is set to zero.
+         *
+         * This function is called with the purpose of assigning and updating the network score of
+         * the member NetworkAgent.
+         */
+        private int getNetworkScore() {
+            // never set the network score below 0.
+            if (!mLinkUp) {
+                return 0;
+            }
+
+            int[] transportTypes = mCapabilities.getTransportTypes();
+            if (transportTypes.length < 1) {
+                Log.w(TAG, "Network interface '" + mLinkProperties.getInterfaceName() + "' has no "
+                        + "transport type associated with it. Score set to zero");
+                return 0;
+            }
+            TransportInfo transportInfo = sTransports.get(transportTypes[0], /* if dne */ null);
+            if (transportInfo != null) {
+                return transportInfo.mScore;
+            }
+            return 0;
         }
 
         private void start() {
@@ -290,9 +439,9 @@ public class EthernetNetworkFactory extends NetworkFactory {
             }
 
             mNetworkInfo.setDetailedState(DetailedState.OBTAINING_IPADDR, null, mHwAddress);
-
-            mIpClient = new IpClient(mContext, name, mIpClientCallback);
-
+            mIpClientCallback = new IpClientCallbacksImpl();
+            IpClientUtil.makeIpClient(mContext, name, mIpClientCallback);
+            mIpClientCallback.awaitIpClientStart();
             if (sTcpBufferSizes == null) {
                 sTcpBufferSizes = mContext.getResources().getString(
                         com.android.internal.R.string.config_ethernet_tcp_buffers);
@@ -313,7 +462,7 @@ public class EthernetNetworkFactory extends NetworkFactory {
             // Create our NetworkAgent.
             mNetworkAgent = new NetworkAgent(mHandler.getLooper(), mContext,
                     NETWORK_TYPE, mNetworkInfo, mCapabilities, mLinkProperties,
-                    NETWORK_SCORE) {
+                    getNetworkScore()) {
                 public void unwanted() {
                     if (this == mNetworkAgent) {
                         stop();
@@ -329,7 +478,11 @@ public class EthernetNetworkFactory extends NetworkFactory {
             // This cannot happen due to provisioning timeout, because our timeout is 0. It can only
             // happen if we're provisioned and we lose provisioning.
             stop();
-            start();
+            // If the interface has disappeared provisioning will fail over and over again, so
+            // there is no point in starting again
+            if (null != InterfaceParams.getByName(name)) {
+                start();
+            }
         }
 
         void updateLinkProperties(LinkProperties linkProperties) {
@@ -353,11 +506,13 @@ public class EthernetNetworkFactory extends NetworkFactory {
         }
 
         void stop() {
+            // Invalidate all previous start requests
             if (mIpClient != null) {
-                mIpClient.shutdown();
-                mIpClient.awaitShutdown();
+                shutdownIpClient(mIpClient);
+                mIpClientCallback.awaitIpClientShutdown();
                 mIpClient = null;
             }
+            mIpClientCallback = null;
 
             // ConnectivityService will only forget our NetworkAgent if we send it a NetworkInfo object
             // with a state of DISCONNECTED or SUSPENDED. So we can't simply clear our NetworkInfo here:
@@ -382,8 +537,11 @@ public class EthernetNetworkFactory extends NetworkFactory {
             mNetworkAgent.sendNetworkCapabilities(mCapabilities);
             mNetworkAgent.sendNetworkInfo(mNetworkInfo);
             mNetworkAgent.sendLinkProperties(mLinkProperties);
-            // never set the network score below 0.
-            mNetworkAgent.sendNetworkScore(mLinkUp? NETWORK_SCORE : 0);
+
+            // As a note, getNetworkScore() is fairly expensive to calculate. This is fine for now
+            // since the agent isn't updated frequently. Consider caching the score in the future if
+            // agent updating is required more often
+            mNetworkAgent.sendNetworkScore(getNetworkScore());
         }
 
         private void clear() {
@@ -392,39 +550,54 @@ public class EthernetNetworkFactory extends NetworkFactory {
             mNetworkInfo.setIsAvailable(false);
         }
 
-        private static void provisionIpClient(IpClient ipClient, IpConfiguration config,
+        private static void provisionIpClient(IIpClient ipClient, IpConfiguration config,
                 String tcpBufferSizes) {
             if (config.getProxySettings() == ProxySettings.STATIC ||
                     config.getProxySettings() == ProxySettings.PAC) {
-                ipClient.setHttpProxy(config.getHttpProxy());
+                try {
+                    ipClient.setHttpProxy(toStableParcelable(config.getHttpProxy()));
+                } catch (RemoteException e) {
+                    e.rethrowFromSystemServer();
+                }
             }
 
             if (!TextUtils.isEmpty(tcpBufferSizes)) {
-                ipClient.setTcpBufferSizes(tcpBufferSizes);
+                try {
+                    ipClient.setTcpBufferSizes(tcpBufferSizes);
+                } catch (RemoteException e) {
+                    e.rethrowFromSystemServer();
+                }
             }
 
             final ProvisioningConfiguration provisioningConfiguration;
             if (config.getIpAssignment() == IpAssignment.STATIC) {
-                provisioningConfiguration = IpClient.buildProvisioningConfiguration()
+                provisioningConfiguration = new ProvisioningConfiguration.Builder()
                         .withStaticConfiguration(config.getStaticIpConfiguration())
                         .build();
             } else {
-                provisioningConfiguration = IpClient.buildProvisioningConfiguration()
+                provisioningConfiguration = new ProvisioningConfiguration.Builder()
                         .withProvisioningTimeoutMs(0)
                         .build();
             }
 
-            ipClient.startProvisioning(provisioningConfiguration);
+            try {
+                ipClient.startProvisioning(provisioningConfiguration.toStableParcelable());
+            } catch (RemoteException e) {
+                e.rethrowFromSystemServer();
+            }
         }
 
         @Override
         public String toString() {
             return getClass().getSimpleName() + "{ "
+                    + "refCount: " + refCount + ", "
                     + "iface: " + name + ", "
                     + "up: " + mLinkUp + ", "
                     + "hwAddress: " + mHwAddress + ", "
                     + "networkInfo: " + mNetworkInfo + ", "
+                    + "networkCapabilities: " + mCapabilities + ", "
                     + "networkAgent: " + mNetworkAgent + ", "
+                    + "score: " + getNetworkScore() + ", "
                     + "ipClient: " + mIpClient + ","
                     + "linkProperties: " + mLinkProperties
                     + "}";
@@ -440,9 +613,9 @@ public class EthernetNetworkFactory extends NetworkFactory {
             NetworkInterfaceState ifaceState = mTrackingInterfaces.get(iface);
             pw.println(iface + ":" + ifaceState);
             pw.increaseIndent();
-            final IpClient ipClient = ifaceState.mIpClient;
+            final IIpClient ipClient = ifaceState.mIpClient;
             if (ipClient != null) {
-                ipClient.dump(fd, pw, args);
+                IpClientUtil.dumpIpClient(ipClient, fd, pw, args);
             } else {
                 pw.println("IpClient is null");
             }

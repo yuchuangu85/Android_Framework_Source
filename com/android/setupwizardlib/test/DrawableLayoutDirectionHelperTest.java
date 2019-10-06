@@ -28,117 +28,124 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.os.Build;
+import android.view.View;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
-import android.view.View;
-
 import com.android.setupwizardlib.util.DrawableLayoutDirectionHelper;
-
+import java.util.Locale;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import java.util.Locale;
 
 @RunWith(AndroidJUnit4.class)
 @SmallTest
 public class DrawableLayoutDirectionHelperTest {
 
-    @Test
-    public void testCreateRelativeInsetDrawableLtr() {
-        final Drawable drawable = new ColorDrawable(Color.RED);
-        @SuppressLint("InlinedApi") // Testing with inlined constant is OK here
-        final InsetDrawable insetDrawable =
-                DrawableLayoutDirectionHelper.createRelativeInsetDrawable(drawable,
-                        1 /* start */, 2 /* top */, 3 /* end */, 4 /* bottom */,
-                        View.LAYOUT_DIRECTION_LTR);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            assertSame("Drawable from getDrawable() should be same as passed in", drawable,
-                    insetDrawable.getDrawable());
-        }
-        Rect outRect = new Rect();
-        insetDrawable.getPadding(outRect);
-        assertEquals("InsetDrawable padding should be same as inset", new Rect(1, 2, 3, 4),
-                outRect);
+  @Test
+  public void testCreateRelativeInsetDrawableLtr() {
+    final Drawable drawable = new ColorDrawable(Color.RED);
+    @SuppressLint("InlinedApi") // Testing with inlined constant is OK here
+    final InsetDrawable insetDrawable =
+        DrawableLayoutDirectionHelper.createRelativeInsetDrawable(
+            drawable,
+            1 /* start */,
+            2 /* top */,
+            3 /* end */,
+            4 /* bottom */,
+            View.LAYOUT_DIRECTION_LTR);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      assertSame(
+          "Drawable from getDrawable() should be same as passed in",
+          drawable,
+          insetDrawable.getDrawable());
+    }
+    Rect outRect = new Rect();
+    insetDrawable.getPadding(outRect);
+    assertEquals("InsetDrawable padding should be same as inset", new Rect(1, 2, 3, 4), outRect);
+  }
+
+  @Test
+  public void testCreateRelativeInsetDrawableRtl() {
+    final Drawable drawable = new ColorDrawable(Color.RED);
+    @SuppressLint("InlinedApi") // Testing with inlined constant is OK here
+    final InsetDrawable insetDrawable =
+        DrawableLayoutDirectionHelper.createRelativeInsetDrawable(
+            drawable,
+            1 /* start */,
+            2 /* top */,
+            3 /* end */,
+            4 /* bottom */,
+            View.LAYOUT_DIRECTION_RTL);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      assertSame(
+          "Drawable from getDrawable() should be same as passed in",
+          drawable,
+          insetDrawable.getDrawable());
+    }
+    Rect outRect = new Rect();
+    insetDrawable.getPadding(outRect);
+    assertEquals("InsetDrawable padding should be same as inset", new Rect(3, 2, 1, 4), outRect);
+  }
+
+  @Test
+  public void testCreateRelativeInsetDrawableViewRtl() {
+    final Drawable drawable = new ColorDrawable(Color.RED);
+    final View view = new ForceRtlView(InstrumentationRegistry.getContext());
+    final InsetDrawable insetDrawable =
+        DrawableLayoutDirectionHelper.createRelativeInsetDrawable(
+            drawable, 1 /* start */, 2 /* top */, 3 /* end */, 4 /* bottom */, view);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      assertSame(
+          "Drawable from getDrawable() should be same as passed in",
+          drawable,
+          insetDrawable.getDrawable());
+    }
+    Rect outRect = new Rect();
+    insetDrawable.getPadding(outRect);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+      assertEquals("InsetDrawable padding should be same as inset", new Rect(3, 2, 1, 4), outRect);
+    } else {
+      assertEquals("InsetDrawable padding should be same as inset", new Rect(1, 2, 3, 4), outRect);
+    }
+  }
+
+  @Test
+  public void testCreateRelativeInsetDrawableContextRtl() {
+    Context context = InstrumentationRegistry.getContext();
+    final Drawable drawable = new ColorDrawable(Color.RED);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+      final Configuration config = new Configuration();
+      config.setLayoutDirection(new Locale("fa", "IR"));
+      context = context.createConfigurationContext(config);
+    }
+    final InsetDrawable insetDrawable =
+        DrawableLayoutDirectionHelper.createRelativeInsetDrawable(
+            drawable, 1 /* start */, 2 /* top */, 3 /* end */, 4 /* bottom */, context);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      assertSame(
+          "Drawable from getDrawable() should be same as passed in",
+          drawable,
+          insetDrawable.getDrawable());
+    }
+    Rect outRect = new Rect();
+    insetDrawable.getPadding(outRect);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+      assertEquals("InsetDrawable padding should be same as inset", new Rect(3, 2, 1, 4), outRect);
+    } else {
+      assertEquals("InsetDrawable padding should be same as inset", new Rect(1, 2, 3, 4), outRect);
+    }
+  }
+
+  private static class ForceRtlView extends View {
+
+    ForceRtlView(Context context) {
+      super(context);
     }
 
-    @Test
-    public void testCreateRelativeInsetDrawableRtl() {
-        final Drawable drawable = new ColorDrawable(Color.RED);
-        @SuppressLint("InlinedApi") // Testing with inlined constant is OK here
-        final InsetDrawable insetDrawable =
-                DrawableLayoutDirectionHelper.createRelativeInsetDrawable(drawable,
-                        1 /* start */, 2 /* top */, 3 /* end */, 4 /* bottom */,
-                        View.LAYOUT_DIRECTION_RTL);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            assertSame("Drawable from getDrawable() should be same as passed in", drawable,
-                    insetDrawable.getDrawable());
-        }
-        Rect outRect = new Rect();
-        insetDrawable.getPadding(outRect);
-        assertEquals("InsetDrawable padding should be same as inset", new Rect(3, 2, 1, 4),
-                outRect);
+    @Override
+    @SuppressLint("InlinedApi") // Testing with inlined constant is OK here
+    public int getLayoutDirection() {
+      return View.LAYOUT_DIRECTION_RTL;
     }
-
-    @Test
-    public void testCreateRelativeInsetDrawableViewRtl() {
-        final Drawable drawable = new ColorDrawable(Color.RED);
-        final View view = new ForceRtlView(InstrumentationRegistry.getContext());
-        final InsetDrawable insetDrawable =
-                DrawableLayoutDirectionHelper.createRelativeInsetDrawable(drawable,
-                        1 /* start */, 2 /* top */, 3 /* end */, 4 /* bottom */, view);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            assertSame("Drawable from getDrawable() should be same as passed in", drawable,
-                    insetDrawable.getDrawable());
-        }
-        Rect outRect = new Rect();
-        insetDrawable.getPadding(outRect);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            assertEquals("InsetDrawable padding should be same as inset", new Rect(3, 2, 1, 4),
-                    outRect);
-        } else {
-            assertEquals("InsetDrawable padding should be same as inset", new Rect(1, 2, 3, 4),
-                    outRect);
-        }
-    }
-
-    @Test
-    public void testCreateRelativeInsetDrawableContextRtl() {
-        Context context =  InstrumentationRegistry.getContext();
-        final Drawable drawable = new ColorDrawable(Color.RED);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            final Configuration config = new Configuration();
-            config.setLayoutDirection(new Locale("fa", "IR"));
-            context = context.createConfigurationContext(config);
-        }
-        final InsetDrawable insetDrawable =
-                DrawableLayoutDirectionHelper.createRelativeInsetDrawable(drawable,
-                        1 /* start */, 2 /* top */, 3 /* end */, 4 /* bottom */, context);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            assertSame("Drawable from getDrawable() should be same as passed in", drawable,
-                    insetDrawable.getDrawable());
-        }
-        Rect outRect = new Rect();
-        insetDrawable.getPadding(outRect);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            assertEquals("InsetDrawable padding should be same as inset", new Rect(3, 2, 1, 4),
-                    outRect);
-        } else {
-            assertEquals("InsetDrawable padding should be same as inset", new Rect(1, 2, 3, 4),
-                    outRect);
-        }
-    }
-
-    private static class ForceRtlView extends View {
-
-        ForceRtlView(Context context) {
-            super(context);
-        }
-
-        @Override
-        @SuppressLint("InlinedApi") // Testing with inlined constant is OK here
-        public int getLayoutDirection() {
-            return View.LAYOUT_DIRECTION_RTL;
-        }
-    }
+  }
 }

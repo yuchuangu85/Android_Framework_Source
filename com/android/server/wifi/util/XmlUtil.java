@@ -323,6 +323,8 @@ public class XmlUtil {
         public static final String XML_TAG_ALLOWED_AUTH_ALGOS = "AllowedAuthAlgos";
         public static final String XML_TAG_ALLOWED_GROUP_CIPHERS = "AllowedGroupCiphers";
         public static final String XML_TAG_ALLOWED_PAIRWISE_CIPHERS = "AllowedPairwiseCiphers";
+        public static final String XML_TAG_ALLOWED_GROUP_MGMT_CIPHERS = "AllowedGroupMgmtCiphers";
+        public static final String XML_TAG_ALLOWED_SUITE_B_CIPHERS = "AllowedSuiteBCiphers";
         public static final String XML_TAG_SHARED = "Shared";
         public static final String XML_TAG_STATUS = "Status";
         public static final String XML_TAG_FQDN = "FQDN";
@@ -345,6 +347,7 @@ public class XmlUtil {
         public static final String XML_TAG_IS_LEGACY_PASSPOINT_CONFIG = "IsLegacyPasspointConfig";
         public static final String XML_TAG_ROAMING_CONSORTIUM_OIS = "RoamingConsortiumOIs";
         public static final String XML_TAG_RANDOMIZED_MAC_ADDRESS = "RandomizedMacAddress";
+        public static final String XML_TAG_MAC_RANDOMIZATION_SETTING = "MacRandomizationSetting";
 
         /**
          * Write WepKeys to the XML stream.
@@ -406,6 +409,12 @@ public class XmlUtil {
             XmlUtil.writeNextValue(
                     out, XML_TAG_ALLOWED_PAIRWISE_CIPHERS,
                     configuration.allowedPairwiseCiphers.toByteArray());
+            XmlUtil.writeNextValue(
+                    out, XML_TAG_ALLOWED_GROUP_MGMT_CIPHERS,
+                    configuration.allowedGroupManagementCiphers.toByteArray());
+            XmlUtil.writeNextValue(
+                    out, XML_TAG_ALLOWED_SUITE_B_CIPHERS,
+                    configuration.allowedSuiteBCiphers.toByteArray());
             XmlUtil.writeNextValue(out, XML_TAG_SHARED, configuration.shared);
         }
 
@@ -420,6 +429,7 @@ public class XmlUtil {
         public static void writeToXmlForBackup(XmlSerializer out, WifiConfiguration configuration)
                 throws XmlPullParserException, IOException {
             writeCommonElementsToXml(out, configuration);
+            XmlUtil.writeNextValue(out, XML_TAG_METERED_OVERRIDE, configuration.meteredOverride);
         }
 
         /**
@@ -465,6 +475,8 @@ public class XmlUtil {
                     out, XML_TAG_ROAMING_CONSORTIUM_OIS, configuration.roamingConsortiumIds);
             XmlUtil.writeNextValue(out, XML_TAG_RANDOMIZED_MAC_ADDRESS,
                     configuration.getRandomizedMacAddress().toString());
+            XmlUtil.writeNextValue(out, XML_TAG_MAC_RANDOMIZATION_SETTING,
+                    configuration.macRandomizationSetting);
         }
 
         /**
@@ -507,6 +519,7 @@ public class XmlUtil {
                 throws XmlPullParserException, IOException {
             WifiConfiguration configuration = new WifiConfiguration();
             String configKeyInData = null;
+            boolean macRandomizationSettingExists = false;
 
             // Loop through and parse out all the elements from the stream within this section.
             while (!XmlUtil.isNextSectionEnd(in, outerTagDepth)) {
@@ -560,6 +573,16 @@ public class XmlUtil {
                         byte[] allowedPairwiseCiphers = (byte[]) value;
                         configuration.allowedPairwiseCiphers =
                                 BitSet.valueOf(allowedPairwiseCiphers);
+                        break;
+                    case XML_TAG_ALLOWED_GROUP_MGMT_CIPHERS:
+                        byte[] allowedGroupMgmtCiphers = (byte[]) value;
+                        configuration.allowedGroupManagementCiphers =
+                                BitSet.valueOf(allowedGroupMgmtCiphers);
+                        break;
+                    case XML_TAG_ALLOWED_SUITE_B_CIPHERS:
+                        byte[] allowedSuiteBCiphers = (byte[]) value;
+                        configuration.allowedSuiteBCiphers =
+                                BitSet.valueOf(allowedSuiteBCiphers);
                         break;
                     case XML_TAG_SHARED:
                         configuration.shared = (boolean) value;
@@ -634,10 +657,17 @@ public class XmlUtil {
                         configuration.setRandomizedMacAddress(
                                 MacAddress.fromString((String) value));
                         break;
+                    case XML_TAG_MAC_RANDOMIZATION_SETTING:
+                        configuration.macRandomizationSetting = (int) value;
+                        macRandomizationSettingExists = true;
+                        break;
                     default:
                         throw new XmlPullParserException(
                                 "Unknown value name found: " + valueName[0]);
                 }
+            }
+            if (!macRandomizationSettingExists) {
+                configuration.macRandomizationSetting = WifiConfiguration.RANDOMIZATION_NONE;
             }
             return Pair.create(configKeyInData, configuration);
         }

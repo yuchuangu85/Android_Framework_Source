@@ -35,21 +35,25 @@ import android.net.NetworkInfo;
 import android.net.NetworkRequest;
 import android.net.NetworkSpecifier;
 import android.net.RouteInfo;
+import android.net.wifi.aware.TlvBufferUtils;
 import android.net.wifi.aware.WifiAwareAgentNetworkSpecifier;
 import android.net.wifi.aware.WifiAwareManager;
+import android.net.wifi.aware.WifiAwareNetworkInfo;
 import android.net.wifi.aware.WifiAwareNetworkSpecifier;
 import android.net.wifi.aware.WifiAwareUtils;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.INetworkManagementService;
 import android.os.Looper;
 import android.os.ServiceManager;
-import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
+import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.server.wifi.Clock;
 import com.android.server.wifi.util.WifiPermissionsUtil;
 import com.android.server.wifi.util.WifiPermissionsWrapper;
 
@@ -57,10 +61,13 @@ import libcore.util.HexEncoding;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.net.DatagramSocket;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
+import java.net.UnknownHostException;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.HashSet;
@@ -70,6 +77,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 /**
  * Manages Aware data-path lifetime: interface creation/deletion, data-path setup and tear-down.
@@ -91,7 +99,13 @@ public class WifiAwareDataPathStateManager {
     private static final int NETWORK_FACTORY_BANDWIDTH_AVAIL = 1;
     private static final int NETWORK_FACTORY_SIGNAL_STRENGTH_AVAIL = 1;
 
+    @VisibleForTesting
+    public static final int ADDRESS_VALIDATION_RETRY_INTERVAL_MS = 1_000; // 1 second
+    @VisibleForTesting
+    public static final int ADDRESS_VALIDATION_TIMEOUT_MS = 5_000; // 5 seconds
+
     private final WifiAwareStateManager mMgr;
+    private final Clock mClock;
     public NetworkInterfaceWrapper mNiWrapper = new NetworkInterfaceWrapper();
     private static final NetworkCapabilities sNetworkCapabilitiesFilter = new NetworkCapabilities();
     private final Set<String> mInterfaces = new HashSet<>();
@@ -102,14 +116,16 @@ public class WifiAwareDataPathStateManager {
     private WifiPermissionsUtil mWifiPermissionsUtil;
     private WifiPermissionsWrapper mPermissionsWrapper;
     private Looper mLooper;
+    private Handler mHandler;
     private WifiAwareNetworkFactory mNetworkFactory;
     public INetworkManagementService mNwService;
 
     // internal debug flag to override API check
     /* package */ boolean mAllowNdpResponderFromAnyOverride = false;
 
-    public WifiAwareDataPathStateManager(WifiAwareStateManager mgr) {
+    public WifiAwareDataPathStateManager(WifiAwareStateManager mgr, Clock clock) {
         mMgr = mgr;
+        mClock = clock;
     }
 
     /**
@@ -125,6 +141,7 @@ public class WifiAwareDataPathStateManager {
         mWifiPermissionsUtil = wifiPermissionsUtil;
         mPermissionsWrapper = permissionsWrapper;
         mLooper = looper;
+        mHandler = new Handler(mLooper);
 
         sNetworkCapabilitiesFilter.clearAll();
         sNetworkCapabilitiesFilter.addTransportType(NetworkCapabilities.TRANSPORT_WIFI_AWARE);
@@ -276,7 +293,7 @@ public class WifiAwareDataPathStateManager {
             Log.w(TAG, "onDataPathInitiateSuccess: network request in incorrect state: state="
                     + nnri.state);
             mNetworkRequestsCache.remove(networkSpecifier);
-            mMgr.endDataPath(ndpId);
+            declareUnfullfillableAndEndDp(nnri, ndpId);
             return;
         }
 
@@ -303,6 +320,7 @@ public class WifiAwareDataPathStateManager {
                     + networkSpecifier);
             return;
         }
+        mNetworkFactory.letAppKnowThatRequestsAreUnavailable(nnri);
 
         if (nnri.state
                 != AwareNetworkRequestInformation.STATE_INITIATOR_WAIT_FOR_REQUEST_RESPONSE) {
@@ -322,9 +340,11 @@ public class WifiAwareDataPathStateManager {
      *                      related to a discovery session.
      * @param mac           The discovery MAC address of the peer.
      * @param ndpId         The locally assigned ID for the data-path.
+     * @param message       The app_info HAL field (peer's info: binary blob)
      * @return The network specifier of the data-path (or null if none/error)
      */
-    public WifiAwareNetworkSpecifier onDataPathRequest(int pubSubId, byte[] mac, int ndpId) {
+    public WifiAwareNetworkSpecifier onDataPathRequest(int pubSubId, byte[] mac, int ndpId,
+            byte[] message) {
         if (VDBG) {
             Log.v(TAG,
                     "onDataPathRequest: pubSubId=" + pubSubId + ", mac=" + String.valueOf(
@@ -363,13 +383,42 @@ public class WifiAwareDataPathStateManager {
             break;
         }
 
+        // it is also possible that this is an initiator-side data-path request indication (which
+        // happens when the Responder responds). In such a case it will be matched by the NDP ID.
+        Map.Entry<WifiAwareNetworkSpecifier, AwareNetworkRequestInformation> nnriE =
+                getNetworkRequestByNdpId(ndpId);
+        if (nnriE != null) {
+            if (VDBG) {
+                Log.v(TAG,
+                        "onDataPathRequest: initiator-side indication for " + nnriE.getValue());
+            }
+
+            // potential transmission mechanism for port/transport-protocol information from
+            // Responder (alternative to confirm message)
+            NetworkInformationData.ParsedResults peerServerInfo = NetworkInformationData.parseTlv(
+                    message);
+            if (peerServerInfo != null) {
+                if (peerServerInfo.port != 0) {
+                    nnriE.getValue().peerPort = peerServerInfo.port;
+                }
+                if (peerServerInfo.transportProtocol != -1) {
+                    nnriE.getValue().peerTransportProtocol = peerServerInfo.transportProtocol;
+                }
+                if (peerServerInfo.ipv6Override != null) {
+                    nnriE.getValue().peerIpv6Override = peerServerInfo.ipv6Override;
+                }
+            }
+
+            return null; // ignore this for NDP set up flow: it is used to obtain app_info from Resp
+        }
+
         if (nnri == null) {
             Log.w(TAG, "onDataPathRequest: can't find a request with specified pubSubId=" + pubSubId
                     + ", mac=" + String.valueOf(HexEncoding.encode(mac)));
             if (VDBG) {
                 Log.v(TAG, "onDataPathRequest: network request cache = " + mNetworkRequestsCache);
             }
-            mMgr.respondToDataPathRequest(false, ndpId, "", null, null, false);
+            mMgr.respondToDataPathRequest(false, ndpId, "", null, null, null, false);
             return null;
         }
 
@@ -381,16 +430,20 @@ public class WifiAwareDataPathStateManager {
         if (nnri.interfaceName == null) {
             Log.w(TAG,
                     "onDataPathRequest: request " + networkSpecifier + " no interface available");
-            mMgr.respondToDataPathRequest(false, ndpId, "", null, null, false);
+            mMgr.respondToDataPathRequest(false, ndpId, "", null, null, null, false);
             mNetworkRequestsCache.remove(networkSpecifier);
+            mNetworkFactory.letAppKnowThatRequestsAreUnavailable(nnri);
             return null;
         }
 
         nnri.state = AwareNetworkRequestInformation.STATE_RESPONDER_WAIT_FOR_RESPOND_RESPONSE;
         nnri.ndpId = ndpId;
-        nnri.startTimestamp = SystemClock.elapsedRealtime();
+        nnri.startTimestamp = mClock.getElapsedSinceBootMillis();
         mMgr.respondToDataPathRequest(true, ndpId, nnri.interfaceName, nnri.networkSpecifier.pmk,
-                nnri.networkSpecifier.passphrase, nnri.networkSpecifier.isOutOfBand());
+                nnri.networkSpecifier.passphrase,
+                NetworkInformationData.buildTlv(nnri.networkSpecifier.port,
+                        nnri.networkSpecifier.transportProtocol),
+                nnri.networkSpecifier.isOutOfBand());
 
         return networkSpecifier;
     }
@@ -432,6 +485,7 @@ public class WifiAwareDataPathStateManager {
                     + " failed responding");
             mMgr.endDataPath(ndpId);
             mNetworkRequestsCache.remove(networkSpecifier);
+            mNetworkFactory.letAppKnowThatRequestsAreUnavailable(nnri);
             mAwareMetrics.recordNdpStatus(reasonOnFailure, networkSpecifier.isOutOfBand(),
                     nnri.startTimestamp);
             return;
@@ -443,6 +497,7 @@ public class WifiAwareDataPathStateManager {
                     + " is incorrect state=" + nnri.state);
             mMgr.endDataPath(ndpId);
             mNetworkRequestsCache.remove(networkSpecifier);
+            mNetworkFactory.letAppKnowThatRequestsAreUnavailable(nnri);
             return;
         }
 
@@ -472,6 +527,7 @@ public class WifiAwareDataPathStateManager {
         if (VDBG) {
             Log.v(TAG, "onDataPathConfirm: ndpId=" + ndpId + ", mac=" + String.valueOf(
                     HexEncoding.encode(mac)) + ", accept=" + accept + ", reason=" + reason
+                    + ", message.length=" + ((message == null) ? 0 : message.length)
                     + ", channelInfo=" + channelInfo);
         }
 
@@ -492,6 +548,7 @@ public class WifiAwareDataPathStateManager {
         if (nnri.state != AwareNetworkRequestInformation.STATE_WAIT_FOR_CONFIRM) {
             Log.w(TAG, "onDataPathConfirm: invalid state=" + nnri.state);
             mNetworkRequestsCache.remove(networkSpecifier);
+            mNetworkFactory.letAppKnowThatRequestsAreUnavailable(nnri);
             if (accept) {
                 mMgr.endDataPath(ndpId);
             }
@@ -518,8 +575,7 @@ public class WifiAwareDataPathStateManager {
                     Log.e(TAG, "onDataPathConfirm: ACCEPT nnri=" + nnri
                             + ": can't configure network - "
                             + e);
-                    mMgr.endDataPath(ndpId);
-                    nnri.state = AwareNetworkRequestInformation.STATE_TERMINATING;
+                    declareUnfullfillableAndEndDp(nnri, ndpId);
                     return networkSpecifier;
                 }
             } else {
@@ -529,8 +585,64 @@ public class WifiAwareDataPathStateManager {
                 }
             }
 
-            if (!mNiWrapper.configureAgentProperties(nnri, nnri.equivalentSpecifiers, ndpId,
+            // only relevant for the initiator
+            if (nnri.networkSpecifier.role
+                    == WifiAwareManager.WIFI_AWARE_DATA_PATH_ROLE_INITIATOR) {
+                NetworkInformationData.ParsedResults peerServerInfo =
+                        NetworkInformationData.parseTlv(message);
+                if (peerServerInfo != null) {
+                    if (peerServerInfo.port != 0) {
+                        nnri.peerPort = peerServerInfo.port;
+                    }
+                    if (peerServerInfo.transportProtocol != -1) {
+                        nnri.peerTransportProtocol = peerServerInfo.transportProtocol;
+                    }
+                    if (peerServerInfo.ipv6Override != null) {
+                        nnri.peerIpv6Override = peerServerInfo.ipv6Override;
+                    }
+                }
+            }
+
+            try {
+                if (nnri.peerIpv6Override == null) {
+                    nnri.peerIpv6 = Inet6Address.getByAddress(null,
+                            MacAddress.fromBytes(mac).getLinkLocalIpv6FromEui48Mac().getAddress(),
+                            NetworkInterface.getByName(nnri.interfaceName));
+                } else {
+                    byte[] addr = new byte[16];
+
+                    addr[0] = (byte) 0xfe;
+                    addr[1] = (byte) 0x80;
+                    addr[8] = nnri.peerIpv6Override[0];
+                    addr[9] = nnri.peerIpv6Override[1];
+                    addr[10] = nnri.peerIpv6Override[2];
+                    addr[11] = nnri.peerIpv6Override[3];
+                    addr[12] = nnri.peerIpv6Override[4];
+                    addr[13] = nnri.peerIpv6Override[5];
+                    addr[14] = nnri.peerIpv6Override[6];
+                    addr[15] = nnri.peerIpv6Override[7];
+
+                    nnri.peerIpv6 = Inet6Address.getByAddress(null, addr,
+                            NetworkInterface.getByName(nnri.interfaceName));
+                }
+            } catch (SocketException | UnknownHostException e) {
+                Log.e(TAG, "onDataPathConfirm: error obtaining scoped IPv6 address -- " + e);
+                nnri.peerIpv6 = null;
+            }
+
+            if (nnri.peerIpv6 != null) {
+                networkCapabilities.setTransportInfo(
+                        new WifiAwareNetworkInfo(nnri.peerIpv6, nnri.peerPort,
+                                nnri.peerTransportProtocol));
+            }
+            if (VDBG) {
+                Log.v(TAG, "onDataPathConfirm: AwareNetworkInfo="
+                        + networkCapabilities.getTransportInfo());
+            }
+
+            if (!mNiWrapper.configureAgentProperties(nnri, nnri.equivalentRequests, ndpId,
                     networkInfo, networkCapabilities, linkProperties)) {
+                declareUnfullfillableAndEndDp(nnri, ndpId);
                 return networkSpecifier;
             }
 
@@ -539,23 +651,53 @@ public class WifiAwareDataPathStateManager {
                     new NetworkInfo(ConnectivityManager.TYPE_NONE, 0, NETWORK_TAG, ""),
                     networkCapabilities, linkProperties, NETWORK_FACTORY_SCORE_AVAIL,
                     nnri);
-            nnri.networkAgent.sendNetworkInfo(networkInfo);
-
-            mAwareMetrics.recordNdpStatus(NanStatusType.SUCCESS, networkSpecifier.isOutOfBand(),
-                    nnri.startTimestamp);
-            nnri.startTimestamp = SystemClock.elapsedRealtime(); // update time-stamp for duration
-            mAwareMetrics.recordNdpCreation(nnri.uid, mNetworkRequestsCache);
+            nnri.startValidationTimestamp = mClock.getElapsedSinceBootMillis();
+            handleAddressValidation(nnri, linkProperties, networkInfo, ndpId,
+                    networkSpecifier.isOutOfBand());
         } else {
             if (VDBG) {
                 Log.v(TAG, "onDataPathConfirm: data-path for networkSpecifier=" + networkSpecifier
                         + " rejected - reason=" + reason);
             }
             mNetworkRequestsCache.remove(networkSpecifier);
+            mNetworkFactory.letAppKnowThatRequestsAreUnavailable(nnri);
             mAwareMetrics.recordNdpStatus(reason, networkSpecifier.isOutOfBand(),
                     nnri.startTimestamp);
         }
 
         return networkSpecifier;
+    }
+
+    private void handleAddressValidation(AwareNetworkRequestInformation nnri,
+            LinkProperties linkProperties, NetworkInfo networkInfo, int ndpId,
+            boolean isOutOfBand) {
+        if (mNiWrapper.isAddressUsable(linkProperties)) {
+            mNiWrapper.sendAgentNetworkInfo(nnri.networkAgent, networkInfo);
+
+            mAwareMetrics.recordNdpStatus(NanStatusType.SUCCESS, isOutOfBand, nnri.startTimestamp);
+            nnri.startTimestamp = mClock.getElapsedSinceBootMillis(); // update time-stamp
+            mAwareMetrics.recordNdpCreation(nnri.uid, mNetworkRequestsCache);
+        } else {
+            if (mClock.getElapsedSinceBootMillis() - nnri.startValidationTimestamp
+                    > ADDRESS_VALIDATION_TIMEOUT_MS) {
+                Log.e(TAG, "Timed-out while waiting for IPv6 address to be usable");
+
+                declareUnfullfillableAndEndDp(nnri, ndpId);
+                return;
+            }
+            if (mDbg) {
+                Log.d(TAG, "Failed address validation");
+            }
+            mHandler.postDelayed(() -> {
+                handleAddressValidation(nnri, linkProperties, networkInfo, ndpId, isOutOfBand);
+            }, ADDRESS_VALIDATION_RETRY_INTERVAL_MS);
+        }
+    }
+
+    private void declareUnfullfillableAndEndDp(AwareNetworkRequestInformation nnri, int ndpId) {
+        mNetworkFactory.letAppKnowThatRequestsAreUnavailable(nnri);
+        mMgr.endDataPath(ndpId);
+        nnri.state = AwareNetworkRequestInformation.STATE_TERMINATING;
     }
 
     /**
@@ -649,6 +791,7 @@ public class WifiAwareDataPathStateManager {
         }
         mAwareMetrics.recordNdpStatus(NanStatusType.INTERNAL_FAILURE,
                 nnri.networkSpecifier.isOutOfBand(), nnri.startTimestamp);
+        mNetworkFactory.letAppKnowThatRequestsAreUnavailable(nnri);
 
         mMgr.endDataPath(nnri.ndpId);
         nnri.state = AwareNetworkRequestInformation.STATE_TERMINATING;
@@ -721,11 +864,13 @@ public class WifiAwareDataPathStateManager {
                 return true;
             }
 
-            nnri = AwareNetworkRequestInformation.processNetworkSpecifier(networkSpecifier, mMgr,
-                    mWifiPermissionsUtil, mPermissionsWrapper, mAllowNdpResponderFromAnyOverride);
+            nnri = AwareNetworkRequestInformation.processNetworkSpecifier(request, networkSpecifier,
+                    mMgr, mWifiPermissionsUtil, mPermissionsWrapper,
+                    mAllowNdpResponderFromAnyOverride);
             if (nnri == null) {
                 Log.e(TAG, "WifiAwareNetworkFactory.acceptRequest: request=" + request
                         + " - can't parse network specifier");
+                releaseRequestAsUnfulfillableByAnyFactory(request);
                 return false;
             }
 
@@ -743,7 +888,7 @@ public class WifiAwareDataPathStateManager {
                         == AwareNetworkRequestInformation.STATE_TERMINATING) {
                     mWaitingForTermination = true;
                 } else {
-                    primaryRequest.getValue().updateToSupportNewRequest(networkSpecifier);
+                    primaryRequest.getValue().updateToSupportNewRequest(request);
                 }
                 return false;
             }
@@ -789,16 +934,18 @@ public class WifiAwareDataPathStateManager {
                     Log.w(TAG, "needNetworkFor: request " + networkSpecifier
                             + " no interface available");
                     mNetworkRequestsCache.remove(networkSpecifier);
+                    letAppKnowThatRequestsAreUnavailable(nnri);
                     return;
                 }
 
                 mMgr.initiateDataPathSetup(networkSpecifier, nnri.peerInstanceId,
                         NanDataPathChannelCfg.CHANNEL_NOT_REQUESTED, selectChannelForRequest(nnri),
                         nnri.peerDiscoveryMac, nnri.interfaceName, nnri.networkSpecifier.pmk,
-                        nnri.networkSpecifier.passphrase, nnri.networkSpecifier.isOutOfBand());
+                        nnri.networkSpecifier.passphrase, nnri.networkSpecifier.isOutOfBand(),
+                        null);
                 nnri.state =
                         AwareNetworkRequestInformation.STATE_INITIATOR_WAIT_FOR_REQUEST_RESPONSE;
-                nnri.startTimestamp = SystemClock.elapsedRealtime();
+                nnri.startTimestamp = mClock.getElapsedSinceBootMillis();
             } else {
                 nnri.state = AwareNetworkRequestInformation.STATE_RESPONDER_WAIT_FOR_REQUEST;
             }
@@ -840,8 +987,8 @@ public class WifiAwareDataPathStateManager {
              * However, it is possible that there were other equivalent requests for this NDP. We
              * should keep going in that case.
              */
-            nnri.removeSupportForRequest(networkSpecifier);
-            if (nnri.equivalentSpecifiers.isEmpty()) {
+            nnri.removeSupportForRequest(networkRequest);
+            if (nnri.equivalentRequests.isEmpty()) {
                 if (VDBG) {
                     Log.v(TAG, "releaseNetworkFor: there are no further requests, networkRequest="
                             + networkRequest);
@@ -852,6 +999,9 @@ public class WifiAwareDataPathStateManager {
                     nnri.state = AwareNetworkRequestInformation.STATE_TERMINATING;
                 } else {
                     mNetworkRequestsCache.remove(networkSpecifier);
+                    if (nnri.networkAgent != null) {
+                        letAppKnowThatRequestsAreUnavailable(nnri);
+                    }
                 }
             } else {
                 if (VDBG) {
@@ -860,9 +1010,19 @@ public class WifiAwareDataPathStateManager {
                 }
             }
         }
+
+        void letAppKnowThatRequestsAreUnavailable(AwareNetworkRequestInformation nnri) {
+            for (NetworkRequest nr : nnri.equivalentRequests) {
+                releaseRequestAsUnfulfillableByAnyFactory(nr);
+            }
+        }
     }
 
-    private class WifiAwareNetworkAgent extends NetworkAgent {
+    /**
+     * Network agent for Wi-Fi Aware.
+     */
+    @VisibleForTesting
+    public class WifiAwareNetworkAgent extends NetworkAgent {
         private NetworkInfo mNetworkInfo;
         private AwareNetworkRequestInformation mAwareNetworkRequestInfo;
 
@@ -919,7 +1079,9 @@ public class WifiAwareDataPathStateManager {
             }
         }
 
-        if (nnri.networkAgent != null) {
+        if (nnri.networkAgent == null) {
+            mNetworkFactory.letAppKnowThatRequestsAreUnavailable(nnri);
+        } else {
             nnri.networkAgent.reconfigureAgentAsDisconnected();
         }
     }
@@ -1014,21 +1176,26 @@ public class WifiAwareDataPathStateManager {
         public byte[] peerDiscoveryMac = null;
         public int ndpId = 0; // 0 is never a valid ID!
         public byte[] peerDataMac;
+        public Inet6Address peerIpv6;
+        public int peerPort = 0; // uninitialized (invalid) value
+        public int peerTransportProtocol = -1; // uninitialized (invalid) value
+        public byte[] peerIpv6Override = null;
         public WifiAwareNetworkSpecifier networkSpecifier;
         public List<NanDataPathChannelInfo> channelInfo;
         public long startTimestamp = 0; // request is made (initiator) / get request (responder)
+        public long startValidationTimestamp = 0; // NDP created and starting to validate IPv6 addr
 
         public WifiAwareNetworkAgent networkAgent;
 
-        /* A collection of specifiers which are equivalent to the current request and are
-         * supported by it's agent. This list DOES include the original (first) network specifier
-         * (which is stored separately above).
+        /* A collection of request which are equivalent to the current request and are
+         * supported by it's agent. This list DOES include the original (first) network request
+         * (whose specifier is also stored separately above).
          */
-        public Set<WifiAwareNetworkSpecifier> equivalentSpecifiers = new HashSet<>();
+        public Set<NetworkRequest> equivalentRequests = new HashSet<>();
 
-        void updateToSupportNewRequest(WifiAwareNetworkSpecifier ns) {
+        void updateToSupportNewRequest(NetworkRequest ns) {
             if (VDBG) Log.v(TAG, "updateToSupportNewRequest: ns=" + ns);
-            if (equivalentSpecifiers.add(ns) && state == STATE_CONFIRMED) {
+            if (equivalentRequests.add(ns) && state == STATE_CONFIRMED) {
                 if (networkAgent == null) {
                     Log.wtf(TAG, "updateToSupportNewRequest: null agent in CONFIRMED state!?");
                     return;
@@ -1038,9 +1205,9 @@ public class WifiAwareDataPathStateManager {
             }
         }
 
-        void removeSupportForRequest(WifiAwareNetworkSpecifier ns) {
+        void removeSupportForRequest(NetworkRequest ns) {
             if (VDBG) Log.v(TAG, "removeSupportForRequest: ns=" + ns);
-            equivalentSpecifiers.remove(ns);
+            equivalentRequests.remove(ns);
 
             // we will not update the agent:
             // 1. this will only get called before the agent is created
@@ -1049,8 +1216,14 @@ public class WifiAwareDataPathStateManager {
 
         private NetworkCapabilities getNetworkCapabilities() {
             NetworkCapabilities nc = new NetworkCapabilities(sNetworkCapabilitiesFilter);
-            nc.setNetworkSpecifier(new WifiAwareAgentNetworkSpecifier(equivalentSpecifiers.toArray(
-                    new WifiAwareNetworkSpecifier[equivalentSpecifiers.size()])));
+            nc.setNetworkSpecifier(
+                    new WifiAwareAgentNetworkSpecifier(equivalentRequests.stream().map(
+                            nr -> nr.networkCapabilities.getNetworkSpecifier()).collect(
+                            Collectors.toList()).toArray(new WifiAwareNetworkSpecifier[0])));
+            if (peerIpv6 != null) {
+                nc.setTransportInfo(
+                        new WifiAwareNetworkInfo(peerIpv6, peerPort, peerTransportProtocol));
+            }
             return nc;
         }
 
@@ -1062,9 +1235,9 @@ public class WifiAwareDataPathStateManager {
                     networkSpecifier.sessionId, networkSpecifier.passphrase);
         }
 
-        static AwareNetworkRequestInformation processNetworkSpecifier(WifiAwareNetworkSpecifier ns,
-                WifiAwareStateManager mgr, WifiPermissionsUtil wifiPermissionsUtil,
-                WifiPermissionsWrapper permissionWrapper,
+        static AwareNetworkRequestInformation processNetworkSpecifier(NetworkRequest request,
+                WifiAwareNetworkSpecifier ns, WifiAwareStateManager mgr,
+                WifiPermissionsUtil wifiPermissionsUtil, WifiPermissionsWrapper permissionWrapper,
                 boolean allowNdpResponderFromAnyOverride) {
             int uid, pubSubId = 0;
             int peerInstanceId = 0;
@@ -1112,12 +1285,31 @@ public class WifiAwareDataPathStateManager {
             // permitted).
             // Note: checks are done on the manager. This is a backup for apps which bypass the
             // check.
-            if (!allowNdpResponderFromAnyOverride && !wifiPermissionsUtil.isLegacyVersion(
+            if (!allowNdpResponderFromAnyOverride && !wifiPermissionsUtil.isTargetSdkLessThan(
                     client.getCallingPackage(), Build.VERSION_CODES.P)) {
                 if (ns.type != WifiAwareNetworkSpecifier.NETWORK_SPECIFIER_TYPE_IB
                         && ns.type != WifiAwareNetworkSpecifier.NETWORK_SPECIFIER_TYPE_OOB) {
                     Log.e(TAG, "processNetworkSpecifier: networkSpecifier=" + ns
                             + " -- no ANY specifications allowed for this API level");
+                    return null;
+                }
+            }
+
+            // validate the port & transportProtocol
+            if (ns.port < 0 || ns.transportProtocol < -1) {
+                Log.e(TAG, "processNetworkSpecifier: networkSpecifier=" + ns
+                        + " -- invalid port/transportProtocol");
+                return null;
+            }
+            if (ns.port != 0 || ns.transportProtocol != -1) {
+                if (ns.role != WifiAwareManager.WIFI_AWARE_DATA_PATH_ROLE_RESPONDER) {
+                    Log.e(TAG, "processNetworkSpecifier: networkSpecifier=" + ns
+                            + " -- port/transportProtocol can only be specified on responder");
+                    return null;
+                }
+                if (TextUtils.isEmpty(ns.passphrase) && ns.pmk == null) {
+                    Log.e(TAG, "processNetworkSpecifier: networkSpecifier=" + ns
+                            + " -- port/transportProtocol can only be specified on secure ndp");
                     return null;
                 }
             }
@@ -1207,7 +1399,7 @@ public class WifiAwareDataPathStateManager {
             nnri.peerInstanceId = peerInstanceId;
             nnri.peerDiscoveryMac = peerMac;
             nnri.networkSpecifier = ns;
-            nnri.equivalentSpecifiers.add(ns);
+            nnri.equivalentRequests.add(request);
 
             return nnri;
         }
@@ -1223,11 +1415,14 @@ public class WifiAwareDataPathStateManager {
                             : String.valueOf(HexEncoding.encode(peerDiscoveryMac))).append(
                     ", ndpId=").append(ndpId).append(", peerDataMac=").append(
                     peerDataMac == null ? ""
-                            : String.valueOf(HexEncoding.encode(peerDataMac))).append(
-                    ", startTimestamp=").append(startTimestamp).append(", channelInfo=").append(
+                            : String.valueOf(HexEncoding.encode(peerDataMac)))
+                    .append(", peerIpv6=").append(peerIpv6).append(", peerPort=").append(
+                    peerPort).append(", peerTransportProtocol=").append(
+                    peerTransportProtocol).append(", startTimestamp=").append(
+                    startTimestamp).append(", channelInfo=").append(
                     channelInfo).append(", equivalentSpecifiers=[");
-            for (WifiAwareNetworkSpecifier ns: equivalentSpecifiers) {
-                sb.append(ns.toString()).append(", ");
+            for (NetworkRequest nr : equivalentRequests) {
+                sb.append(nr.toString()).append(", ");
             }
             return sb.append("]").toString();
         }
@@ -1287,7 +1482,7 @@ public class WifiAwareDataPathStateManager {
          * name. Delegated to enable mocking.
          */
         public boolean configureAgentProperties(AwareNetworkRequestInformation nnri,
-                Set<WifiAwareNetworkSpecifier> networkSpecifiers, int ndpId,
+                Set<NetworkRequest> networkRequests, int ndpId,
                 NetworkInfo networkInfo, NetworkCapabilities networkCapabilities,
                 LinkProperties linkProperties) {
             // find link-local address
@@ -1329,8 +1524,10 @@ public class WifiAwareDataPathStateManager {
             networkInfo.setIsAvailable(true);
             networkInfo.setDetailedState(NetworkInfo.DetailedState.CONNECTED, null, null);
 
-            networkCapabilities.setNetworkSpecifier(new WifiAwareAgentNetworkSpecifier(
-                    networkSpecifiers.toArray(new WifiAwareNetworkSpecifier[0])));
+            networkCapabilities.setNetworkSpecifier(
+                    new WifiAwareAgentNetworkSpecifier(networkRequests.stream().map(
+                            nr -> nr.networkCapabilities.getNetworkSpecifier()).collect(
+                            Collectors.toList()).toArray(new WifiAwareNetworkSpecifier[0])));
 
             linkProperties.setInterfaceName(nnri.interfaceName);
             linkProperties.addLinkAddress(new LinkAddress(linkLocal, 64));
@@ -1338,6 +1535,205 @@ public class WifiAwareDataPathStateManager {
                     new RouteInfo(new IpPrefix("fe80::/64"), null, nnri.interfaceName));
 
             return true;
+        }
+
+        /**
+         * Tries binding to the input address to check whether it is configured (and therefore
+         * usable).
+         */
+        public boolean isAddressUsable(LinkProperties linkProperties) {
+            InetAddress address = linkProperties.getLinkAddresses().get(0).getAddress();
+            DatagramSocket testDatagramSocket = null;
+            try {
+                testDatagramSocket = new DatagramSocket(0, address);
+            } catch (SocketException e) {
+                if (mDbg) {
+                    Log.d(TAG, "Can't create socket on address " + address + " -- " + e);
+                }
+                return false;
+            } finally {
+                if (testDatagramSocket != null) {
+                    testDatagramSocket.close();
+                }
+            }
+            return true;
+        }
+
+        /**
+         * Send updated network information to the agent.
+         */
+        public void sendAgentNetworkInfo(WifiAwareNetworkAgent networkAgent,
+                NetworkInfo networkInfo) {
+            networkAgent.sendNetworkInfo(networkInfo);
+        }
+    }
+
+    /**
+     * Utility (hence static) class encapsulating the data structure used to communicate Wi-Fi Aware
+     * specific network capabilities. The TLV is defined as part of the NANv3 spec:
+     *
+     * - Generic Service Protocol
+     *   - Port
+     *   - Transport protocol
+     */
+    @VisibleForTesting
+    public static class NetworkInformationData {
+        // All package visible to allow usage in unit testing
+        /* package */ static final int IPV6_LL_TYPE = 0x00; // Table 82
+        /* package */ static final int SERVICE_INFO_TYPE = 0x01; // Table 83
+        /* package */ static final byte[] WFA_OUI = {0x50, 0x6F, (byte) 0x9A}; // Table 83
+        /* package */ static final int GENERIC_SERVICE_PROTOCOL_TYPE = 0x02; // Table 50
+        /* package */ static final int SUB_TYPE_PORT = 0x00; // Table 127
+        /* package */ static final int SUB_TYPE_TRANSPORT_PROTOCOL = 0x01; // Table 128
+
+        /**
+         * Construct the TLV.
+         */
+        public static byte[] buildTlv(int port, int transportProtocol) {
+            if (port == 0 && transportProtocol == -1) {
+                return null;
+            }
+
+            TlvBufferUtils.TlvConstructor tlvc = new TlvBufferUtils.TlvConstructor(1, 2);
+            tlvc.setByteOrder(ByteOrder.LITTLE_ENDIAN);
+            tlvc.allocate(20); // safe size for now
+
+            tlvc.putRawByteArray(WFA_OUI);
+            tlvc.putRawByte((byte) GENERIC_SERVICE_PROTOCOL_TYPE);
+
+            if (port != 0) {
+                tlvc.putShort(SUB_TYPE_PORT, (short) port);
+            }
+            if (transportProtocol != -1) {
+                tlvc.putByte(SUB_TYPE_TRANSPORT_PROTOCOL, (byte) transportProtocol);
+            }
+
+            byte[] subTypes = tlvc.getArray();
+
+            tlvc.allocate(20);
+            tlvc.putByteArray(SERVICE_INFO_TYPE, subTypes);
+
+            return tlvc.getArray();
+        }
+
+        static class ParsedResults {
+            ParsedResults(int port, int transportProtocol, byte[] ipv6Override) {
+                this.port = port;
+                this.transportProtocol = transportProtocol;
+                this.ipv6Override = ipv6Override;
+            }
+
+            public int port = 0;
+            public int transportProtocol = -1;
+            public byte[] ipv6Override = null;
+        }
+
+        /**
+         * Parse the TLV and returns:
+         * - Null on parsing error
+         * - <port | 0, transport-protocol | -1, ipv6-override | null> otherwise
+         */
+        public static ParsedResults parseTlv(byte[] tlvs) {
+            int port = 0;
+            int transportProtocol = -1;
+            byte[] ipv6Override = null;
+
+            try {
+                TlvBufferUtils.TlvIterable tlvi = new TlvBufferUtils.TlvIterable(1, 2, tlvs);
+                tlvi.setByteOrder(ByteOrder.LITTLE_ENDIAN);
+                for (TlvBufferUtils.TlvElement tlve : tlvi) {
+                    switch (tlve.type) {
+                        case IPV6_LL_TYPE:
+                            if (tlve.length != 8) { // 8 bytes in IPv6 address
+                                Log.e(TAG, "NetworkInformationData: invalid IPv6 TLV -- length: "
+                                        + tlve.length);
+                                return null;
+                            }
+                            ipv6Override = tlve.getRawData();
+                            break;
+                        case SERVICE_INFO_TYPE:
+                            Pair<Integer, Integer> serviceInfo = parseServiceInfoTlv(
+                                    tlve.getRawData());
+                            if (serviceInfo == null) {
+                                return null;
+                            }
+                            port = serviceInfo.first;
+                            transportProtocol = serviceInfo.second;
+                            break;
+                        default:
+                            Log.w(TAG,
+                                    "NetworkInformationData: ignoring unknown T -- " + tlve.type);
+                            break;
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "NetworkInformationData: error parsing TLV -- " + e);
+                return null;
+            }
+            return new ParsedResults(port, transportProtocol, ipv6Override);
+        }
+
+        /**
+         * Parse the Service Info TLV:
+         * - Returns null on error
+         * - Returns <port | 0, transport-protocol | -1> otherwise
+         */
+        private static Pair<Integer, Integer> parseServiceInfoTlv(byte[] tlv) {
+            int port = 0;
+            int transportProtocol = -1;
+
+            if (tlv.length < 4) {
+                Log.e(TAG, "NetworkInformationData: invalid SERVICE_INFO_TYPE length");
+                return null;
+            }
+            if (tlv[0] != WFA_OUI[0] || tlv[1] != WFA_OUI[1] || tlv[2] != WFA_OUI[2]) {
+                Log.e(TAG, "NetworkInformationData: unexpected OUI");
+                return null;
+            }
+            if (tlv[3] != GENERIC_SERVICE_PROTOCOL_TYPE) {
+                Log.e(TAG, "NetworkInformationData: invalid type -- " + tlv[3]);
+                return null;
+            }
+            TlvBufferUtils.TlvIterable subTlvi = new TlvBufferUtils.TlvIterable(1,
+                    2, Arrays.copyOfRange(tlv, 4, tlv.length));
+            subTlvi.setByteOrder(ByteOrder.LITTLE_ENDIAN);
+            for (TlvBufferUtils.TlvElement subTlve : subTlvi) {
+                switch (subTlve.type) {
+                    case SUB_TYPE_PORT:
+                        if (subTlve.length != 2) {
+                            Log.e(TAG,
+                                    "NetworkInformationData: invalid port TLV "
+                                            + "length -- " + subTlve.length);
+                            return null;
+                        }
+                        port = subTlve.getShort();
+                        if (port < 0) {
+                            port += -2 * (int) Short.MIN_VALUE;
+                        }
+                        if (port == 0) {
+                            Log.e(TAG, "NetworkInformationData: invalid port "
+                                    + port);
+                            return null;
+                        }
+                        break;
+                    case SUB_TYPE_TRANSPORT_PROTOCOL:
+                        if (subTlve.length != 1) {
+                            Log.e(TAG,  "NetworkInformationData: invalid transport "
+                                    + "protocol TLV length -- " + subTlve.length);
+                            return null;
+                        }
+                        transportProtocol = subTlve.getByte();
+                        if (transportProtocol < 0) {
+                            transportProtocol += -2 * (int) Byte.MIN_VALUE;
+                        }
+                        break;
+                    default:
+                        Log.w(TAG,  "NetworkInformationData: ignoring unknown "
+                                + "SERVICE_INFO.T -- " + subTlve.type);
+                        break;
+                }
+            }
+            return Pair.create(port, transportProtocol);
         }
     }
 

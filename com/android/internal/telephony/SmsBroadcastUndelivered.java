@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -31,13 +32,14 @@ import android.telephony.SubscriptionManager;
 
 import com.android.internal.telephony.cdma.CdmaInboundSmsHandler;
 import com.android.internal.telephony.gsm.GsmInboundSmsHandler;
+import com.android.internal.telephony.metrics.TelephonyMetrics;
 
 import java.util.HashMap;
 import java.util.HashSet;
 
 /**
  * Called when the credential-encrypted storage is unlocked, collecting all acknowledged messages
- * and deleting any partial message segments older than 30 days. Called from a worker thread to
+ * and deleting any partial message segments older than 7 days. Called from a worker thread to
  * avoid delaying phone app startup. The last step is to broadcast the first pending message from
  * the main thread, then the remaining pending messages will be broadcast after the previous
  * ordered broadcast completes.
@@ -46,8 +48,8 @@ public class SmsBroadcastUndelivered {
     private static final String TAG = "SmsBroadcastUndelivered";
     private static final boolean DBG = InboundSmsHandler.DBG;
 
-    /** Delete any partial message segments older than 30 days. */
-    static final long DEFAULT_PARTIAL_SEGMENT_EXPIRE_AGE = (long) (60 * 60 * 1000) * 24 * 30;
+    /** Delete any partial message segments older than 7 days. */
+    static final long DEFAULT_PARTIAL_SEGMENT_EXPIRE_AGE = (long) (60 * 60 * 1000) * 24 * 7;
 
     /**
      * Query projection for dispatching pending messages at boot time.
@@ -99,7 +101,8 @@ public class SmsBroadcastUndelivered {
 
         @Override
         public void run() {
-            scanRawTable(context);
+            scanRawTable(context, mCdmaInboundSmsHandler, mGsmInboundSmsHandler,
+                    System.currentTimeMillis() - getUndeliveredSmsExpirationTime(context));
             InboundSmsHandler.cancelNewMessageNotification(context);
         }
     }
@@ -122,6 +125,7 @@ public class SmsBroadcastUndelivered {
         }
     }
 
+    @UnsupportedAppUsage
     private SmsBroadcastUndelivered(Context context, GsmInboundSmsHandler gsmInboundSmsHandler,
             CdmaInboundSmsHandler cdmaInboundSmsHandler) {
         mResolver = context.getContentResolver();
@@ -142,18 +146,19 @@ public class SmsBroadcastUndelivered {
     /**
      * Scan the raw table for complete SMS messages to broadcast, and old PDUs to delete.
      */
-    private void scanRawTable(Context context) {
+    static void scanRawTable(Context context, CdmaInboundSmsHandler cdmaInboundSmsHandler,
+            GsmInboundSmsHandler gsmInboundSmsHandler, long oldMessageTimestamp) {
         if (DBG) Rlog.d(TAG, "scanning raw table for undelivered messages");
         long startTime = System.nanoTime();
+        ContentResolver contentResolver = context.getContentResolver();
         HashMap<SmsReferenceKey, Integer> multiPartReceivedCount =
                 new HashMap<SmsReferenceKey, Integer>(4);
         HashSet<SmsReferenceKey> oldMultiPartMessages = new HashSet<SmsReferenceKey>(4);
         Cursor cursor = null;
         try {
             // query only non-deleted ones
-            cursor = mResolver.query(InboundSmsHandler.sRawUri, PDU_PENDING_MESSAGE_PROJECTION,
-                    "deleted = 0", null,
-                    null);
+            cursor = contentResolver.query(InboundSmsHandler.sRawUri,
+                    PDU_PENDING_MESSAGE_PROJECTION, "deleted = 0", null, null);
             if (cursor == null) {
                 Rlog.e(TAG, "error getting pending message cursor");
                 return;
@@ -163,7 +168,8 @@ public class SmsBroadcastUndelivered {
             while (cursor.moveToNext()) {
                 InboundSmsTracker tracker;
                 try {
-                    tracker = TelephonyComponentFactory.getInstance().makeInboundSmsTracker(cursor,
+                    tracker = TelephonyComponentFactory.getInstance()
+                            .inject(InboundSmsTracker.class.getName()).makeInboundSmsTracker(cursor,
                             isCurrentFormat3gpp2);
                 } catch (IllegalArgumentException e) {
                     Rlog.e(TAG, "error loading SmsTracker: " + e);
@@ -172,16 +178,15 @@ public class SmsBroadcastUndelivered {
 
                 if (tracker.getMessageCount() == 1) {
                     // deliver single-part message
-                    broadcastSms(tracker);
+                    broadcastSms(tracker, cdmaInboundSmsHandler, gsmInboundSmsHandler);
                 } else {
                     SmsReferenceKey reference = new SmsReferenceKey(tracker);
                     Integer receivedCount = multiPartReceivedCount.get(reference);
                     if (receivedCount == null) {
                         multiPartReceivedCount.put(reference, 1);    // first segment seen
-                        long expirationTime = getUndeliveredSmsExpirationTime(context);
-                        if (tracker.getTimestamp() <
-                                (System.currentTimeMillis() - expirationTime)) {
-                            // older than 30 days; delete if we don't find all the segments
+                        if (tracker.getTimestamp() < oldMessageTimestamp) {
+                            // older than oldMessageTimestamp; delete if we don't find all the
+                            // segments
                             oldMultiPartMessages.add(reference);
                         }
                     } else {
@@ -190,7 +195,7 @@ public class SmsBroadcastUndelivered {
                             // looks like we've got all the pieces; send a single tracker
                             // to state machine which will find the other pieces to broadcast
                             if (DBG) Rlog.d(TAG, "found complete multi-part message");
-                            broadcastSms(tracker);
+                            broadcastSms(tracker, cdmaInboundSmsHandler, gsmInboundSmsHandler);
                             // don't delete this old message until after we broadcast it
                             oldMultiPartMessages.remove(reference);
                         } else {
@@ -199,16 +204,25 @@ public class SmsBroadcastUndelivered {
                     }
                 }
             }
+            // Retrieve the phone id, required for metrics
+            int phoneId = getPhoneId(gsmInboundSmsHandler, cdmaInboundSmsHandler);
+
             // Delete old incomplete message segments
             for (SmsReferenceKey message : oldMultiPartMessages) {
                 // delete permanently
-                int rows = mResolver.delete(InboundSmsHandler.sRawUriPermanentDelete,
+                int rows = contentResolver.delete(InboundSmsHandler.sRawUriPermanentDelete,
                         message.getDeleteWhere(), message.getDeleteWhereArgs());
                 if (rows == 0) {
                     Rlog.e(TAG, "No rows were deleted from raw table!");
                 } else if (DBG) {
                     Rlog.d(TAG, "Deleted " + rows + " rows from raw table for incomplete "
                             + message.mMessageCount + " part message");
+                }
+                // Update metrics with dropped SMS
+                if (rows > 0) {
+                    TelephonyMetrics metrics = TelephonyMetrics.getInstance();
+                    metrics.writeDroppedIncomingMultipartSms(phoneId, message.mFormat, rows,
+                            message.mMessageCount);
                 }
             }
         } catch (SQLException e) {
@@ -223,14 +237,30 @@ public class SmsBroadcastUndelivered {
     }
 
     /**
+     * Retrieve the phone id for the GSM or CDMA Inbound SMS handler
+     */
+    private static int getPhoneId(GsmInboundSmsHandler gsmInboundSmsHandler,
+            CdmaInboundSmsHandler cdmaInboundSmsHandler) {
+        int phoneId = SubscriptionManager.INVALID_PHONE_INDEX;
+        if (gsmInboundSmsHandler != null) {
+            phoneId = gsmInboundSmsHandler.getPhone().getPhoneId();
+        } else if (cdmaInboundSmsHandler != null) {
+            phoneId = cdmaInboundSmsHandler.getPhone().getPhoneId();
+        }
+        return phoneId;
+    }
+
+    /**
      * Send tracker to appropriate (3GPP or 3GPP2) inbound SMS handler for broadcast.
      */
-    private void broadcastSms(InboundSmsTracker tracker) {
+    private static void broadcastSms(InboundSmsTracker tracker,
+            CdmaInboundSmsHandler cdmaInboundSmsHandler,
+            GsmInboundSmsHandler gsmInboundSmsHandler) {
         InboundSmsHandler handler;
         if (tracker.is3gpp2()) {
-            handler = mCdmaInboundSmsHandler;
+            handler = cdmaInboundSmsHandler;
         } else {
-            handler = mGsmInboundSmsHandler;
+            handler = gsmInboundSmsHandler;
         }
         if (handler != null) {
             handler.sendMessage(InboundSmsHandler.EVENT_BROADCAST_SMS, tracker);
@@ -261,13 +291,14 @@ public class SmsBroadcastUndelivered {
         final int mReferenceNumber;
         final int mMessageCount;
         final String mQuery;
+        final String mFormat;
 
         SmsReferenceKey(InboundSmsTracker tracker) {
             mAddress = tracker.getAddress();
             mReferenceNumber = tracker.getReferenceNumber();
             mMessageCount = tracker.getMessageCount();
             mQuery = tracker.getQueryForSegments();
-
+            mFormat = tracker.getFormat();
         }
 
         String[] getDeleteWhereArgs() {

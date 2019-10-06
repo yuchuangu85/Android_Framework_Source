@@ -157,7 +157,7 @@ import sun.reflect.misc.ReflectUtil;
  * @see java.io.ObjectInputStream
  * @see java.io.Serializable
  * @see java.io.Externalizable
- * @see <a href="{@docRoot}openjdk-redirect.html?v=8&path=/platform/serialization/spec/output.html">Object Serialization Specification, Section 2, Object Output Classes</a>
+ * @see <a href="https://docs.oracle.com/javase/8/docs/platform/serialization/spec/output.html">Object Serialization Specification, Section 2, Object Output Classes</a>
  * @since       JDK1.1
  */
 public class ObjectOutputStream

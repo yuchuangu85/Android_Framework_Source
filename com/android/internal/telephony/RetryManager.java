@@ -16,16 +16,16 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.Build;
 import android.os.PersistableBundle;
 import android.os.SystemProperties;
 import android.telephony.CarrierConfigManager;
 import android.telephony.Rlog;
+import android.telephony.data.ApnSetting;
 import android.text.TextUtils;
 import android.util.Pair;
-
-import com.android.internal.telephony.dataconnection.ApnSetting;
 
 import java.util.ArrayList;
 import java.util.Random;
@@ -135,12 +135,14 @@ public class RetryManager {
     /**
      * The delay (in milliseconds) between APN trying within the same round
      */
+    @UnsupportedAppUsage
     private long mInterApnDelay;
 
     /**
      * The delay (in milliseconds) between APN trying within the same round when we are in
      * fail fast mode
      */
+    @UnsupportedAppUsage
     private long mFailFastInterApnDelay;
 
     /**
@@ -177,6 +179,7 @@ public class RetryManager {
      */
     private ArrayList<RetryRec> mRetryArray = new ArrayList<RetryRec>();
 
+    @UnsupportedAppUsage
     private Phone mPhone;
 
     /**
@@ -219,6 +222,7 @@ public class RetryManager {
     /**
      * Apn context type. Could be "default, "mms", "supl", etc...
      */
+    @UnsupportedAppUsage
     private String mApnType;
 
     /**
@@ -238,6 +242,7 @@ public class RetryManager {
      *
      * @return true if successful
      */
+    @UnsupportedAppUsage
     private boolean configure(String configStr) {
         // Strip quotes if present.
         if ((configStr.startsWith("\"") && configStr.endsWith("\""))) {
@@ -405,6 +410,7 @@ public class RetryManager {
     /**
      * Return the timer that should be used to trigger the data reconnection
      */
+    @UnsupportedAppUsage
     private int getRetryTimer() {
         int index;
         if (mRetryCount < mRetryArray.size()) {
@@ -506,7 +512,9 @@ public class RetryManager {
             if (++index == mWaitingApns.size()) index = 0;
 
             // Stop if we find the non-failed APN.
-            if (mWaitingApns.get(index).permanentFailed == false) break;
+            if (!mWaitingApns.get(index).getPermanentFailed()) {
+                break;
+            }
 
             // If we've already cycled through all the APNs, that means there is no APN we can try
             if (index == mCurrentApnIndex) return null;
@@ -553,7 +561,9 @@ public class RetryManager {
             if (++index >= mWaitingApns.size()) index = 0;
 
             // Stop if we find the non-failed APN.
-            if (mWaitingApns.get(index).permanentFailed == false) break;
+            if (!mWaitingApns.get(index).getPermanentFailed()) {
+                break;
+            }
 
             // If we've already cycled through all the APNs, that means all APNs have
             // permanently failed
@@ -594,7 +604,7 @@ public class RetryManager {
      * */
     public void markApnPermanentFailed(ApnSetting apn) {
         if (apn != null) {
-            apn.permanentFailed = true;
+            apn.setPermanentFailed(true);
         }
     }
 
@@ -627,7 +637,7 @@ public class RetryManager {
         configureRetry();
 
         for (ApnSetting apn : mWaitingApns) {
-            apn.permanentFailed = false;
+            apn.setPermanentFailed(false);
         }
 
         log("Setting " + mWaitingApns.size() + " waiting APNs.");
@@ -674,6 +684,7 @@ public class RetryManager {
                 + " mConfig={" + mConfig + "}";
     }
 
+    @UnsupportedAppUsage
     private void log(String s) {
         Rlog.d(LOG_TAG, "[" + mApnType + "] " + s);
     }

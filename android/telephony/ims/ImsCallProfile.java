@@ -16,15 +16,26 @@
 
 package android.telephony.ims;
 
+import android.annotation.IntDef;
+import android.annotation.NonNull;
 import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.os.PersistableBundle;
 import android.telecom.VideoProfile;
+import android.telephony.emergency.EmergencyNumber;
+import android.telephony.emergency.EmergencyNumber.EmergencyCallRouting;
+import android.telephony.emergency.EmergencyNumber.EmergencyServiceCategories;
 import android.util.Log;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.PhoneConstants;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Parcelable object to handle IMS call profile.
@@ -116,10 +127,14 @@ public final class ImsCallProfile implements Parcelable {
      * @hide
      */
     public static final String EXTRA_CONFERENCE = "conference";
+
     /**
-     * @hide
+     * Boolean extra property set on an {@link ImsCallProfile} to indicate that this call is an
+     * emergency call.  The {@link ImsService} sets this on a call to indicate that the network has
+     * identified the call as an emergency call.
      */
-    public static final String EXTRA_E_CALL = "e_call";
+    public static final String EXTRA_EMERGENCY_CALL = "e_call";
+
     /**
      * @hide
      */
@@ -201,16 +216,35 @@ public final class ImsCallProfile implements Parcelable {
     public static final int DIALSTRING_USSD = 2;
 
     /**
-     * Values for causes that restrict call types
+     * Call is not restricted on peer side and High Definition media is supported
      */
-    // Default cause not restricted at peer and HD is supported
     public static final int CALL_RESTRICT_CAUSE_NONE = 0;
-    // Service not supported by RAT at peer
+
+    /**
+     * High Definition media is not supported on the peer side due to the Radio Access Technology
+     * (RAT) it is are connected to.
+     */
     public static final int CALL_RESTRICT_CAUSE_RAT = 1;
-    // Service Disabled at peer
+
+    /**
+     * The service has been disabled on the peer side.
+     */
     public static final int CALL_RESTRICT_CAUSE_DISABLED = 2;
-    // HD is not supported
+
+    /**
+     * High definition media is not currently supported.
+     */
     public static final int CALL_RESTRICT_CAUSE_HD = 3;
+
+    /**@hide*/
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = "CALL_RESTRICT_CAUSE_", value = {
+            CALL_RESTRICT_CAUSE_NONE,
+            CALL_RESTRICT_CAUSE_RAT,
+            CALL_RESTRICT_CAUSE_DISABLED,
+            CALL_RESTRICT_CAUSE_HD
+    })
+    public @interface CallRestrictCause {}
 
     /**
      * String extra properties
@@ -235,6 +269,13 @@ public final class ImsCallProfile implements Parcelable {
     public static final String EXTRA_IS_CALL_PULL = "CallPull";
 
     /**
+     * String extra property
+     *  Containing fields from the SIP INVITE message for an IMS call
+     */
+    public static final String EXTRA_ADDITIONAL_SIP_INVITE_FIELDS =
+                                  "android.telephony.ims.extra.ADDITIONAL_SIP_INVITE_FIELDS";
+
+    /**
      * Extra key which the RIL can use to indicate the radio technology used for a call.
      * Valid values are:
      * {@link android.telephony.ServiceState#RIL_RADIO_TECHNOLOGY_LTE},
@@ -244,7 +285,8 @@ public final class ImsCallProfile implements Parcelable {
      * constants, the values passed for the {@link #EXTRA_CALL_RAT_TYPE} should be strings (e.g.
      * "14" vs (int) 14).
      * Note: This is used by {@link com.android.internal.telephony.imsphone.ImsPhoneConnection#
-     *      updateWifiStateFromExtras(Bundle)} to determine whether to set the
+     *      updateImsCallRatFromExtras(Bundle)} to determine whether to set the
+     * {@link android.telecom.TelecomManager#EXTRA_CALL_NETWORK_TYPE} extra value and
      * {@link android.telecom.Connection#PROPERTY_WIFI} property on a connection.
      */
     public static final String EXTRA_CALL_RAT_TYPE = "CallRadioTech";
@@ -260,9 +302,62 @@ public final class ImsCallProfile implements Parcelable {
     /** @hide */
     public int mServiceType;
     /** @hide */
+    @UnsupportedAppUsage
     public int mCallType;
     /** @hide */
-    public int mRestrictCause = CALL_RESTRICT_CAUSE_NONE;
+    @UnsupportedAppUsage
+    public @CallRestrictCause int mRestrictCause = CALL_RESTRICT_CAUSE_NONE;
+
+    /**
+     * The emergency service categories, only valid if {@link #getServiceType} returns
+     * {@link #SERVICE_TYPE_EMERGENCY}
+     *
+     * If valid, the value is the bitwise-OR combination of the following constants:
+     * <ol>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_UNSPECIFIED} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_POLICE} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_AMBULANCE} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_FIRE_BRIGADE} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_MARINE_GUARD} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_MOUNTAIN_RESCUE} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_MIEC} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_AIEC} </li>
+     * </ol>
+     *
+     * Reference: 3gpp 23.167, Section 6 - Functional description;
+     *            3gpp 22.101, Section 10 - Emergency Calls.
+     */
+    private @EmergencyServiceCategories int mEmergencyServiceCategories =
+            EmergencyNumber.EMERGENCY_SERVICE_CATEGORY_UNSPECIFIED;
+
+    /**
+     * The emergency Uniform Resource Names (URN), only valid if {@link #getServiceType} returns
+     * {@link #SERVICE_TYPE_EMERGENCY}.
+     *
+     * Reference: 3gpp 24.503, Section 5.1.6.8.1 - General;
+     *            3gpp 22.101, Section 10 - Emergency Calls.
+     */
+    private List<String> mEmergencyUrns = new ArrayList<>();
+
+    /**
+     * The emergency call routing, only valid if {@link #getServiceType} returns
+     * {@link #SERVICE_TYPE_EMERGENCY}
+     *
+     * If valid, the value is any of the following constants:
+     * <ol>
+     * <li>{@link EmergencyNumber#EMERGENCY_CALL_ROUTING_UNKNOWN} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_CALL_ROUTING_NORMAL} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_CALL_ROUTING_EMERGENCY} </li>
+     * </ol>
+     */
+    private @EmergencyCallRouting int mEmergencyCallRouting =
+            EmergencyNumber.EMERGENCY_CALL_ROUTING_UNKNOWN;
+
+    /** Indicates if the call is for testing purpose */
+    private boolean mEmergencyCallTesting = false;
+
+    /** Indicates if we have known the intent of the user for the call is emergency */
+    private boolean mHasKnownUserIntentEmergency = false;
 
     /**
      * Extras associated with this {@link ImsCallProfile}.
@@ -277,7 +372,7 @@ public final class ImsCallProfile implements Parcelable {
      *     <li>{@code long[]}</li>
      *     <li>{@code double[]}</li>
      *     <li>{@code String[]}</li>
-     *     <li>{@link PersistableBundle}</li>
+     *     <li>{@link android.os.PersistableBundle}</li>
      *     <li>{@link Boolean} (and boolean)</li>
      *     <li>{@code boolean[]}</li>
      *     <li>Other {@link Parcelable} classes in the {@code android.*} namespace.</li>
@@ -287,8 +382,10 @@ public final class ImsCallProfile implements Parcelable {
      * a {@link android.os.Binder}.
      */
     /** @hide */
+    @UnsupportedAppUsage
     public Bundle mCallExtras;
     /** @hide */
+    @UnsupportedAppUsage
     public ImsStreamMediaProfile mMediaProfile;
 
     /** @hide */
@@ -416,6 +513,14 @@ public final class ImsCallProfile implements Parcelable {
         }
     }
 
+    /**
+     * Set the call restrict cause, which provides the reason why a call has been restricted from
+     * using High Definition media.
+     */
+    public void setCallRestrictCause(@CallRestrictCause int cause) {
+        mRestrictCause = cause;
+    }
+
     public void updateCallType(ImsCallProfile profile) {
         mCallType = profile.mCallType;
     }
@@ -437,10 +542,15 @@ public final class ImsCallProfile implements Parcelable {
 
     @Override
     public String toString() {
-        return "{ serviceType=" + mServiceType +
-                ", callType=" + mCallType +
-                ", restrictCause=" + mRestrictCause +
-                ", mediaProfile=" + mMediaProfile.toString() + " }";
+        return "{ serviceType=" + mServiceType
+                + ", callType=" + mCallType
+                + ", restrictCause=" + mRestrictCause
+                + ", mediaProfile=" + mMediaProfile.toString()
+                + ", emergencyServiceCategories=" + mEmergencyServiceCategories
+                + ", emergencyUrns=" + mEmergencyUrns
+                + ", emergencyCallRouting=" + mEmergencyCallRouting
+                + ", emergencyCallTesting=" + mEmergencyCallTesting
+                + ", hasKnownUserIntentEmergency=" + mHasKnownUserIntentEmergency + " }";
     }
 
     @Override
@@ -455,6 +565,11 @@ public final class ImsCallProfile implements Parcelable {
         out.writeInt(mCallType);
         out.writeBundle(filteredExtras);
         out.writeParcelable(mMediaProfile, 0);
+        out.writeInt(mEmergencyServiceCategories);
+        out.writeStringList(mEmergencyUrns);
+        out.writeInt(mEmergencyCallRouting);
+        out.writeBoolean(mEmergencyCallTesting);
+        out.writeBoolean(mHasKnownUserIntentEmergency);
     }
 
     private void readFromParcel(Parcel in) {
@@ -462,9 +577,14 @@ public final class ImsCallProfile implements Parcelable {
         mCallType = in.readInt();
         mCallExtras = in.readBundle();
         mMediaProfile = in.readParcelable(ImsStreamMediaProfile.class.getClassLoader());
+        mEmergencyServiceCategories = in.readInt();
+        mEmergencyUrns = in.createStringArrayList();
+        mEmergencyCallRouting = in.readInt();
+        mEmergencyCallTesting = in.readBoolean();
+        mHasKnownUserIntentEmergency = in.readBoolean();
     }
 
-    public static final Creator<ImsCallProfile> CREATOR = new Creator<ImsCallProfile>() {
+    public static final @android.annotation.NonNull Creator<ImsCallProfile> CREATOR = new Creator<ImsCallProfile>() {
         @Override
         public ImsCallProfile createFromParcel(Parcel in) {
             return new ImsCallProfile(in);
@@ -484,7 +604,11 @@ public final class ImsCallProfile implements Parcelable {
         return mCallType;
     }
 
-    public int getRestrictCause() {
+    /**
+     * @return The call restrict cause, which provides the reason why a call has been restricted
+     * from using High Definition media.
+     */
+    public @CallRestrictCause int getRestrictCause() {
         return mRestrictCause;
     }
 
@@ -568,6 +692,7 @@ public final class ImsCallProfile implements Parcelable {
      * See {@link #presentationToOir(int)}.
      * @hide
      */
+    @UnsupportedAppUsage
     public static int presentationToOIR(int presentation) {
         switch (presentation) {
             case PhoneConstants.PRESENTATION_RESTRICTED:
@@ -664,5 +789,169 @@ public final class ImsCallProfile implements Parcelable {
      */
     private static boolean isVideoStateSet(int videoState, int videoStateToCheck) {
         return (videoState & videoStateToCheck) == videoStateToCheck;
+    }
+
+    /**
+     * Set the emergency number information. The set value is valid
+     * only if {@link #getServiceType} returns {@link #SERVICE_TYPE_EMERGENCY}
+     *
+     * Reference: 3gpp 23.167, Section 6 - Functional description;
+     *            3gpp 24.503, Section 5.1.6.8.1 - General;
+     *            3gpp 22.101, Section 10 - Emergency Calls.
+     *
+     * @hide
+     */
+    public void setEmergencyCallInfo(EmergencyNumber num, boolean hasKnownUserIntentEmergency) {
+        setEmergencyServiceCategories(num.getEmergencyServiceCategoryBitmaskInternalDial());
+        setEmergencyUrns(num.getEmergencyUrns());
+        setEmergencyCallRouting(num.getEmergencyCallRouting());
+        setEmergencyCallTesting(num.getEmergencyNumberSourceBitmask()
+                == EmergencyNumber.EMERGENCY_NUMBER_SOURCE_TEST);
+        setHasKnownUserIntentEmergency(hasKnownUserIntentEmergency);
+    }
+
+    /**
+     * Set the emergency service categories. The set value is valid only if
+     * {@link #getServiceType} returns {@link #SERVICE_TYPE_EMERGENCY}
+     *
+     * If valid, the value is the bitwise-OR combination of the following constants:
+     * <ol>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_UNSPECIFIED} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_POLICE} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_AMBULANCE} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_FIRE_BRIGADE} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_MARINE_GUARD} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_MOUNTAIN_RESCUE} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_MIEC} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_AIEC} </li>
+     * </ol>
+     *
+     * Reference: 3gpp 23.167, Section 6 - Functional description;
+     *            3gpp 22.101, Section 10 - Emergency Calls.
+     */
+    @VisibleForTesting
+    public void setEmergencyServiceCategories(
+            @EmergencyServiceCategories int emergencyServiceCategories) {
+        mEmergencyServiceCategories = emergencyServiceCategories;
+    }
+
+    /**
+     * Set the emergency Uniform Resource Names (URN), only valid if {@link #getServiceType}
+     * returns {@link #SERVICE_TYPE_EMERGENCY}.
+     *
+     * Reference: 3gpp 24.503, Section 5.1.6.8.1 - General;
+     *            3gpp 22.101, Section 10 - Emergency Calls.
+     */
+    @VisibleForTesting
+    public void setEmergencyUrns(@NonNull List<String> emergencyUrns) {
+        mEmergencyUrns = emergencyUrns;
+    }
+
+    /**
+     * Set the emergency call routing, only valid if {@link #getServiceType} returns
+     * {@link #SERVICE_TYPE_EMERGENCY}
+     *
+     * If valid, the value is any of the following constants:
+     * <ol>
+     * <li>{@link EmergencyNumber#EMERGENCY_CALL_ROUTING_UNKNOWN} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_CALL_ROUTING_NORMAL} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_CALL_ROUTING_EMERGENCY} </li>
+     * </ol>
+     */
+    @VisibleForTesting
+    public void setEmergencyCallRouting(@EmergencyCallRouting int emergencyCallRouting) {
+        mEmergencyCallRouting = emergencyCallRouting;
+    }
+
+    /**
+     * Set if this is for testing emergency call, only valid if {@link #getServiceType} returns
+     * {@link #SERVICE_TYPE_EMERGENCY}.
+     */
+    @VisibleForTesting
+    public void setEmergencyCallTesting(boolean isTesting) {
+        mEmergencyCallTesting = isTesting;
+    }
+
+    /**
+     * Set if we have known the user intent of the call is emergency.
+     *
+     * This is only used to specify when the dialed number is ambiguous when it can be identified
+     * as both emergency number and any other non-emergency number; e.g. in some situation, 611
+     * could be both an emergency number in a country and a non-emergency number of a carrier's
+     * customer service hotline.
+     */
+    @VisibleForTesting
+    public void setHasKnownUserIntentEmergency(boolean hasKnownUserIntentEmergency) {
+        mHasKnownUserIntentEmergency = hasKnownUserIntentEmergency;
+    }
+
+    /**
+     * Get the emergency service categories, only valid if {@link #getServiceType} returns
+     * {@link #SERVICE_TYPE_EMERGENCY}
+     *
+     * @return the emergency service categories,
+     *
+     * If valid, the value is the bitwise-OR combination of the following constants:
+     * <ol>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_UNSPECIFIED} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_POLICE} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_AMBULANCE} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_FIRE_BRIGADE} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_MARINE_GUARD} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_MOUNTAIN_RESCUE} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_MIEC} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_SERVICE_CATEGORY_AIEC} </li>
+     * </ol>
+     *
+     * Reference: 3gpp 23.167, Section 6 - Functional description;
+     *            3gpp 22.101, Section 10 - Emergency Calls.
+     */
+    public @EmergencyServiceCategories int getEmergencyServiceCategories() {
+        return mEmergencyServiceCategories;
+    }
+
+    /**
+     * Get the emergency Uniform Resource Names (URN), only valid if {@link #getServiceType}
+     * returns {@link #SERVICE_TYPE_EMERGENCY}.
+     *
+     * Reference: 3gpp 24.503, Section 5.1.6.8.1 - General;
+     *            3gpp 22.101, Section 10 - Emergency Calls.
+     */
+    public @NonNull List<String> getEmergencyUrns() {
+        return mEmergencyUrns;
+    }
+
+    /**
+     * Get the emergency call routing, only valid if {@link #getServiceType} returns
+     * {@link #SERVICE_TYPE_EMERGENCY}
+     *
+     * If valid, the value is any of the following constants:
+     * <ol>
+     * <li>{@link EmergencyNumber#EMERGENCY_CALL_ROUTING_UNKNOWN} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_CALL_ROUTING_NORMAL} </li>
+     * <li>{@link EmergencyNumber#EMERGENCY_CALL_ROUTING_EMERGENCY} </li>
+     * </ol>
+     */
+    public @EmergencyCallRouting int getEmergencyCallRouting() {
+        return mEmergencyCallRouting;
+    }
+
+    /**
+     * Get if the emergency call is for testing purpose.
+     */
+    public boolean isEmergencyCallTesting() {
+        return mEmergencyCallTesting;
+    }
+
+    /**
+     * Checks if we have known the user intent of the call is emergency.
+     *
+     * This is only used to specify when the dialed number is ambiguous when it can be identified
+     * as both emergency number and any other non-emergency number; e.g. in some situation, 611
+     * could be both an emergency number in a country and a non-emergency number of a carrier's
+     * customer service hotline.
+     */
+    public boolean hasKnownUserIntentEmergency() {
+        return mHasKnownUserIntentEmergency;
     }
 }

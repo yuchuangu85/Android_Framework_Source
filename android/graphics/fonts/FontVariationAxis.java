@@ -18,17 +18,22 @@ package android.graphics.fonts;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.text.TextUtils;
 
 import java.util.ArrayList;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 /**
  * Class that holds information about single font variation axis.
  */
 public final class FontVariationAxis {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final int mTag;
     private final String mTagString;
+    @UnsupportedAppUsage
     private final float mStyleValue;
 
     /**
@@ -182,6 +187,23 @@ public final class FontVariationAxis {
             return "";
         }
         return TextUtils.join(",", axes);
+    }
+
+    @Override
+    public boolean equals(@Nullable Object o) {
+        if (o == this) {
+            return true;
+        }
+        if (o == null || !(o instanceof FontVariationAxis)) {
+            return false;
+        }
+        FontVariationAxis axis = (FontVariationAxis) o;
+        return axis.mTag == mTag && axis.mStyleValue == mStyleValue;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mTag, mStyleValue);
     }
 }
 

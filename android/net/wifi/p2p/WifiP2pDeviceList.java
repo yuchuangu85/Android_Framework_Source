@@ -16,6 +16,7 @@
 
 package android.net.wifi.p2p;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcelable;
 import android.os.Parcel;
 import android.net.wifi.p2p.WifiP2pDevice;
@@ -83,6 +84,7 @@ public class WifiP2pDeviceList implements Parcelable {
      * @param device to be updated
      * @hide
      */
+    @UnsupportedAppUsage
     public void update(WifiP2pDevice device) {
         updateSupplicantDetails(device);
         mDevices.get(device.deviceAddress).status = device.status;
@@ -146,6 +148,7 @@ public class WifiP2pDeviceList implements Parcelable {
      * @return WifiP2pDevice device removed, or null if none removed
      * @hide
      */
+    @UnsupportedAppUsage
     public WifiP2pDevice remove(String deviceAddress) {
         validateDeviceAddress(deviceAddress);
         return mDevices.remove(deviceAddress);
@@ -197,7 +200,7 @@ public class WifiP2pDeviceList implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<WifiP2pDeviceList> CREATOR =
+    public static final @android.annotation.NonNull Creator<WifiP2pDeviceList> CREATOR =
         new Creator<WifiP2pDeviceList>() {
             public WifiP2pDeviceList createFromParcel(Parcel in) {
                 WifiP2pDeviceList deviceList = new WifiP2pDeviceList();

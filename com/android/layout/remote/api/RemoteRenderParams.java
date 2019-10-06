@@ -17,6 +17,7 @@
 package com.android.layout.remote.api;
 
 import com.android.ide.common.rendering.api.IImageFactory;
+import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.ide.common.rendering.api.SessionParams.Key;
 import com.android.tools.layoutlib.annotations.Nullable;
 
@@ -49,7 +50,7 @@ public interface RemoteRenderParams extends Remote {
 
     IImageFactory getImageFactory() throws RemoteException;
 
-    String getAppIcon() throws RemoteException;
+    ResourceValue getAppIcon() throws RemoteException;
 
     String getAppLabel() throws RemoteException;
 

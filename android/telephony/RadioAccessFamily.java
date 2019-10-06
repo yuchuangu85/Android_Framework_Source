@@ -16,10 +16,16 @@
 
 package android.telephony;
 
+import android.annotation.UnsupportedAppUsage;
+import android.hardware.radio.V1_0.RadioTechnology;
+import android.hardware.radio.V1_4.CellInfo.Info;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.telephony.TelephonyManager.PrefNetworkMode;
 
 import com.android.internal.telephony.RILConstants;
+
 
 /**
  * Object to indicate the phone radio type and access technology.
@@ -28,29 +34,37 @@ import com.android.internal.telephony.RILConstants;
  */
 public class RadioAccessFamily implements Parcelable {
 
-    // Radio Access Family
+    /**
+     * TODO: get rid of RAF definition in RadioAccessFamily and
+     * use {@link TelephonyManager.NetworkTypeBitMask}
+     * TODO: public definition {@link TelephonyManager.NetworkTypeBitMask} is long.
+     * TODO: Convert from int to long everywhere including HAL definitions.
+     */
     // 2G
-    public static final int RAF_UNKNOWN = (1 <<  ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN);
-    public static final int RAF_GSM = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_GSM);
-    public static final int RAF_GPRS = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_GPRS);
-    public static final int RAF_EDGE = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_EDGE);
-    public static final int RAF_IS95A = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_IS95A);
-    public static final int RAF_IS95B = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_IS95B);
-    public static final int RAF_1xRTT = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_1xRTT);
+    public static final int RAF_UNKNOWN = (int) TelephonyManager.NETWORK_TYPE_BITMASK_UNKNOWN;
+    public static final int RAF_GSM = (int) TelephonyManager.NETWORK_TYPE_BITMASK_GSM;
+    public static final int RAF_GPRS = (int) TelephonyManager.NETWORK_TYPE_BITMASK_GPRS;
+    public static final int RAF_EDGE = (int) TelephonyManager.NETWORK_TYPE_BITMASK_EDGE;
+    public static final int RAF_IS95A = (int) TelephonyManager.NETWORK_TYPE_BITMASK_CDMA;
+    public static final int RAF_IS95B = (int) TelephonyManager.NETWORK_TYPE_BITMASK_CDMA;
+    public static final int RAF_1xRTT = (int) TelephonyManager.NETWORK_TYPE_BITMASK_1xRTT;
     // 3G
-    public static final int RAF_EVDO_0 = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_0);
-    public static final int RAF_EVDO_A = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_A);
-    public static final int RAF_EVDO_B = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_B);
-    public static final int RAF_EHRPD = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD);
-    public static final int RAF_HSUPA = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_HSUPA);
-    public static final int RAF_HSDPA = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_HSDPA);
-    public static final int RAF_HSPA = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_HSPA);
-    public static final int RAF_HSPAP = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_HSPAP);
-    public static final int RAF_UMTS = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_UMTS);
-    public static final int RAF_TD_SCDMA = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_TD_SCDMA);
+    public static final int RAF_EVDO_0 = (int) TelephonyManager.NETWORK_TYPE_BITMASK_EVDO_0;
+    public static final int RAF_EVDO_A = (int) TelephonyManager.NETWORK_TYPE_BITMASK_EVDO_A;
+    public static final int RAF_EVDO_B = (int) TelephonyManager.NETWORK_TYPE_BITMASK_EVDO_B;
+    public static final int RAF_EHRPD = (int) TelephonyManager.NETWORK_TYPE_BITMASK_EHRPD;
+    public static final int RAF_HSUPA = (int) TelephonyManager.NETWORK_TYPE_BITMASK_HSUPA;
+    public static final int RAF_HSDPA = (int) TelephonyManager.NETWORK_TYPE_BITMASK_HSDPA;
+    public static final int RAF_HSPA = (int) TelephonyManager.NETWORK_TYPE_BITMASK_HSPA;
+    public static final int RAF_HSPAP = (int) TelephonyManager.NETWORK_TYPE_BITMASK_HSPAP;
+    public static final int RAF_UMTS = (int) TelephonyManager.NETWORK_TYPE_BITMASK_UMTS;
+    public static final int RAF_TD_SCDMA = (int) TelephonyManager.NETWORK_TYPE_BITMASK_TD_SCDMA;
     // 4G
-    public static final int RAF_LTE = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_LTE);
-    public static final int RAF_LTE_CA = (1 << ServiceState.RIL_RADIO_TECHNOLOGY_LTE_CA);
+    public static final int RAF_LTE = (int) TelephonyManager.NETWORK_TYPE_BITMASK_LTE;
+    public static final int RAF_LTE_CA = (int) TelephonyManager.NETWORK_TYPE_BITMASK_LTE_CA;
+
+    // 5G
+    public static final int RAF_NR = (int) TelephonyManager.NETWORK_TYPE_BITMASK_NR;
 
     // Grouping of RAFs
     // 2G
@@ -63,6 +77,9 @@ public class RadioAccessFamily implements Parcelable {
     // 4G
     private static final int LTE = RAF_LTE | RAF_LTE_CA;
 
+    // 5G
+    private static final int NR = RAF_NR;
+
     /* Phone ID of phone */
     private int mPhoneId;
 
@@ -73,10 +90,11 @@ public class RadioAccessFamily implements Parcelable {
      * Constructor.
      *
      * @param phoneId the phone ID
-     * @param radioAccessFamily the phone radio access family defined
-     *        in RadioAccessFamily. It's a bit mask value to represent
-     *        the support type.
+     * @param radioAccessFamily the phone radio access family bitmask based on
+     * {@link TelephonyManager.NetworkTypeBitMask}. It's a bit mask value to represent the support
+     *                          type.
      */
+    @UnsupportedAppUsage
     public RadioAccessFamily(int phoneId, int radioAccessFamily) {
         mPhoneId = phoneId;
         mRadioAccessFamily = radioAccessFamily;
@@ -87,6 +105,7 @@ public class RadioAccessFamily implements Parcelable {
      *
      * @return phone ID
      */
+    @UnsupportedAppUsage
     public int getPhoneId() {
         return mPhoneId;
     }
@@ -96,7 +115,8 @@ public class RadioAccessFamily implements Parcelable {
      *
      * @return radio access family
      */
-    public int getRadioAccessFamily() {
+    @UnsupportedAppUsage
+    public @TelephonyManager.NetworkTypeBitMask int getRadioAccessFamily() {
         return mRadioAccessFamily;
     }
 
@@ -133,102 +153,98 @@ public class RadioAccessFamily implements Parcelable {
     /**
      * Implement the Parcelable interface.
      */
-    public static final Creator<RadioAccessFamily> CREATOR =
-            new Creator<RadioAccessFamily>() {
+    public static final @android.annotation.NonNull Creator<android.telephony.RadioAccessFamily> CREATOR =
+            new Creator<android.telephony.RadioAccessFamily>() {
 
         @Override
-        public RadioAccessFamily createFromParcel(Parcel in) {
+        public android.telephony.RadioAccessFamily createFromParcel(Parcel in) {
             int phoneId = in.readInt();
             int radioAccessFamily = in.readInt();
 
-            return new RadioAccessFamily(phoneId, radioAccessFamily);
+            return new android.telephony.RadioAccessFamily(phoneId, radioAccessFamily);
         }
 
         @Override
-        public RadioAccessFamily[] newArray(int size) {
-            return new RadioAccessFamily[size];
+        public android.telephony.RadioAccessFamily[] newArray(int size) {
+            return new android.telephony.RadioAccessFamily[size];
         }
     };
 
-    public static int getRafFromNetworkType(int type) {
-        int raf;
-
+    @UnsupportedAppUsage
+    @TelephonyManager.NetworkTypeBitMask
+    public static int getRafFromNetworkType(@PrefNetworkMode int type) {
         switch (type) {
             case RILConstants.NETWORK_MODE_WCDMA_PREF:
-                raf = GSM | WCDMA;
-                break;
+                return GSM | WCDMA;
             case RILConstants.NETWORK_MODE_GSM_ONLY:
-                raf = GSM;
-                break;
+                return GSM;
             case RILConstants.NETWORK_MODE_WCDMA_ONLY:
-                raf = WCDMA;
-                break;
+                return WCDMA;
             case RILConstants.NETWORK_MODE_GSM_UMTS:
-                raf = GSM | WCDMA;
-                break;
+                return GSM | WCDMA;
             case RILConstants.NETWORK_MODE_CDMA:
-                raf = CDMA | EVDO;
-                break;
+                return CDMA | EVDO;
             case RILConstants.NETWORK_MODE_LTE_CDMA_EVDO:
-                raf = LTE | CDMA | EVDO;
-                break;
+                return LTE | CDMA | EVDO;
             case RILConstants.NETWORK_MODE_LTE_GSM_WCDMA:
-                raf = LTE | GSM | WCDMA;
-                break;
+                return LTE | GSM | WCDMA;
             case RILConstants.NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA:
-                raf = LTE | CDMA | EVDO | GSM | WCDMA;
-                break;
+                return LTE | CDMA | EVDO | GSM | WCDMA;
             case RILConstants.NETWORK_MODE_LTE_ONLY:
-                raf = LTE;
-                break;
+                return LTE;
             case RILConstants.NETWORK_MODE_LTE_WCDMA:
-                raf = LTE | WCDMA;
-                break;
+                return LTE | WCDMA;
             case RILConstants.NETWORK_MODE_CDMA_NO_EVDO:
-                raf = CDMA;
-                break;
+                return CDMA;
             case RILConstants.NETWORK_MODE_EVDO_NO_CDMA:
-                raf = EVDO;
-                break;
+                return EVDO;
             case RILConstants.NETWORK_MODE_GLOBAL:
-                raf = GSM | WCDMA | CDMA | EVDO;
-                break;
+                return GSM | WCDMA | CDMA | EVDO;
             case RILConstants.NETWORK_MODE_TDSCDMA_ONLY:
-                raf = RAF_TD_SCDMA;
-                break;
+                return RAF_TD_SCDMA;
             case RILConstants.NETWORK_MODE_TDSCDMA_WCDMA:
-                raf = RAF_TD_SCDMA | WCDMA;
-                break;
+                return RAF_TD_SCDMA | WCDMA;
             case RILConstants.NETWORK_MODE_LTE_TDSCDMA:
-                raf = LTE | RAF_TD_SCDMA;
-                break;
+                return LTE | RAF_TD_SCDMA;
             case RILConstants.NETWORK_MODE_TDSCDMA_GSM:
-                raf = RAF_TD_SCDMA | GSM;
-                break;
+                return RAF_TD_SCDMA | GSM;
             case RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM:
-                raf = LTE | RAF_TD_SCDMA | GSM;
-                break;
+                return LTE | RAF_TD_SCDMA | GSM;
             case RILConstants.NETWORK_MODE_TDSCDMA_GSM_WCDMA:
-                raf = RAF_TD_SCDMA | GSM | WCDMA;
-                break;
+                return RAF_TD_SCDMA | GSM | WCDMA;
             case RILConstants.NETWORK_MODE_LTE_TDSCDMA_WCDMA:
-                raf = LTE | RAF_TD_SCDMA | WCDMA;
-                break;
+                return LTE | RAF_TD_SCDMA | WCDMA;
             case RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM_WCDMA:
-                raf = LTE | RAF_TD_SCDMA | GSM | WCDMA;
-                break;
+                return LTE | RAF_TD_SCDMA | GSM | WCDMA;
             case RILConstants.NETWORK_MODE_TDSCDMA_CDMA_EVDO_GSM_WCDMA:
-                raf = RAF_TD_SCDMA | CDMA | EVDO | GSM | WCDMA;
-                break;
+                return RAF_TD_SCDMA | CDMA | EVDO | GSM | WCDMA;
             case RILConstants.NETWORK_MODE_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA:
-                raf = LTE | RAF_TD_SCDMA | CDMA | EVDO | GSM | WCDMA;
-                break;
+                return LTE | RAF_TD_SCDMA | CDMA | EVDO | GSM | WCDMA;
+            case (RILConstants.NETWORK_MODE_NR_ONLY):
+                return NR;
+            case (RILConstants.NETWORK_MODE_NR_LTE):
+                return NR | LTE;
+            case (RILConstants.NETWORK_MODE_NR_LTE_CDMA_EVDO):
+                return NR | LTE | CDMA | EVDO;
+            case (RILConstants.NETWORK_MODE_NR_LTE_GSM_WCDMA):
+                return NR | LTE | GSM | WCDMA;
+            case (RILConstants.NETWORK_MODE_NR_LTE_CDMA_EVDO_GSM_WCDMA):
+                return NR | LTE | CDMA | EVDO | GSM | WCDMA;
+            case (RILConstants.NETWORK_MODE_NR_LTE_WCDMA):
+                return NR | LTE | WCDMA;
+            case (RILConstants.NETWORK_MODE_NR_LTE_TDSCDMA):
+                return NR | LTE | RAF_TD_SCDMA;
+            case (RILConstants.NETWORK_MODE_NR_LTE_TDSCDMA_GSM):
+                return NR | LTE | RAF_TD_SCDMA | GSM;
+            case (RILConstants.NETWORK_MODE_NR_LTE_TDSCDMA_WCDMA):
+                return NR | LTE | RAF_TD_SCDMA | WCDMA;
+            case (RILConstants.NETWORK_MODE_NR_LTE_TDSCDMA_GSM_WCDMA):
+                return NR | LTE | RAF_TD_SCDMA | GSM | WCDMA;
+            case (RILConstants.NETWORK_MODE_NR_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA):
+                return NR | LTE | RAF_TD_SCDMA | CDMA | EVDO | GSM | WCDMA;
             default:
-                raf = RAF_UNKNOWN;
-                break;
+                return RAF_UNKNOWN;
         }
-
-        return raf;
     }
 
     /**
@@ -241,6 +257,7 @@ public class RadioAccessFamily implements Parcelable {
         raf = ((CDMA & raf) > 0) ? (CDMA | raf) : raf;
         raf = ((EVDO & raf) > 0) ? (EVDO | raf) : raf;
         raf = ((LTE & raf) > 0) ? (LTE | raf) : raf;
+        raf = ((NR & raf) > 0) ? (NR | raf) : raf;
 
         return raf;
     }
@@ -263,84 +280,81 @@ public class RadioAccessFamily implements Parcelable {
         return TelephonyManager.NETWORK_CLASS_UNKNOWN;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+    @PrefNetworkMode
     public static int getNetworkTypeFromRaf(int raf) {
-        int type;
-
         raf = getAdjustedRaf(raf);
 
         switch (raf) {
             case (GSM | WCDMA):
-                type = RILConstants.NETWORK_MODE_WCDMA_PREF;
-                break;
+                return RILConstants.NETWORK_MODE_WCDMA_PREF;
             case GSM:
-                type = RILConstants.NETWORK_MODE_GSM_ONLY;
-                break;
+                return RILConstants.NETWORK_MODE_GSM_ONLY;
             case WCDMA:
-                type = RILConstants.NETWORK_MODE_WCDMA_ONLY;
-                break;
+                return RILConstants.NETWORK_MODE_WCDMA_ONLY;
             case (CDMA | EVDO):
-                type = RILConstants.NETWORK_MODE_CDMA;
-                break;
+                return RILConstants.NETWORK_MODE_CDMA;
             case (LTE | CDMA | EVDO):
-                type = RILConstants.NETWORK_MODE_LTE_CDMA_EVDO;
-                break;
+                return RILConstants.NETWORK_MODE_LTE_CDMA_EVDO;
             case (LTE | GSM | WCDMA):
-                type = RILConstants.NETWORK_MODE_LTE_GSM_WCDMA;
-                break;
+                return RILConstants.NETWORK_MODE_LTE_GSM_WCDMA;
             case (LTE | CDMA | EVDO | GSM | WCDMA):
-                type = RILConstants.NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA;
-                break;
+                return RILConstants.NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA;
             case LTE:
-                type = RILConstants.NETWORK_MODE_LTE_ONLY;
-                break;
+                return RILConstants.NETWORK_MODE_LTE_ONLY;
             case (LTE | WCDMA):
-                type = RILConstants.NETWORK_MODE_LTE_WCDMA;
-                break;
+                return RILConstants.NETWORK_MODE_LTE_WCDMA;
             case CDMA:
-                type = RILConstants.NETWORK_MODE_CDMA_NO_EVDO;
-                break;
+                return RILConstants.NETWORK_MODE_CDMA_NO_EVDO;
             case EVDO:
-                type = RILConstants.NETWORK_MODE_EVDO_NO_CDMA;
-                break;
+                return RILConstants.NETWORK_MODE_EVDO_NO_CDMA;
             case (GSM | WCDMA | CDMA | EVDO):
-                type = RILConstants.NETWORK_MODE_GLOBAL;
-                break;
+                return RILConstants.NETWORK_MODE_GLOBAL;
             case RAF_TD_SCDMA:
-                type = RILConstants.NETWORK_MODE_TDSCDMA_ONLY;
-                break;
+                return RILConstants.NETWORK_MODE_TDSCDMA_ONLY;
             case (RAF_TD_SCDMA | WCDMA):
-                type = RILConstants.NETWORK_MODE_TDSCDMA_WCDMA;
-                break;
+                return RILConstants.NETWORK_MODE_TDSCDMA_WCDMA;
             case (LTE | RAF_TD_SCDMA):
-                type = RILConstants.NETWORK_MODE_LTE_TDSCDMA;
-                break;
+                return RILConstants.NETWORK_MODE_LTE_TDSCDMA;
             case (RAF_TD_SCDMA | GSM):
-                type = RILConstants.NETWORK_MODE_TDSCDMA_GSM;
-                break;
+                return RILConstants.NETWORK_MODE_TDSCDMA_GSM;
             case (LTE | RAF_TD_SCDMA | GSM):
-                type = RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM;
-                break;
+                return RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM;
             case (RAF_TD_SCDMA | GSM | WCDMA):
-                type = RILConstants.NETWORK_MODE_TDSCDMA_GSM_WCDMA;
-                break;
+                return RILConstants.NETWORK_MODE_TDSCDMA_GSM_WCDMA;
             case (LTE | RAF_TD_SCDMA | WCDMA):
-                type = RILConstants.NETWORK_MODE_LTE_TDSCDMA_WCDMA;
-                break;
+                return RILConstants.NETWORK_MODE_LTE_TDSCDMA_WCDMA;
             case (LTE | RAF_TD_SCDMA | GSM | WCDMA):
-                type = RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM_WCDMA;
-                break;
+                return RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM_WCDMA;
             case (RAF_TD_SCDMA | CDMA | EVDO | GSM | WCDMA):
-                type = RILConstants.NETWORK_MODE_TDSCDMA_CDMA_EVDO_GSM_WCDMA;
-                break;
+                return RILConstants.NETWORK_MODE_TDSCDMA_CDMA_EVDO_GSM_WCDMA;
             case (LTE | RAF_TD_SCDMA | CDMA | EVDO | GSM | WCDMA):
-                type = RILConstants.NETWORK_MODE_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA;
-                break;
+                return RILConstants.NETWORK_MODE_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA;
+            case (NR):
+                return RILConstants.NETWORK_MODE_NR_ONLY;
+            case (NR | LTE):
+                return RILConstants.NETWORK_MODE_NR_LTE;
+            case (NR | LTE | CDMA | EVDO):
+                return RILConstants.NETWORK_MODE_NR_LTE_CDMA_EVDO;
+            case (NR | LTE | GSM | WCDMA):
+                return RILConstants.NETWORK_MODE_NR_LTE_GSM_WCDMA;
+            case (NR | LTE | CDMA | EVDO | GSM | WCDMA):
+                return RILConstants.NETWORK_MODE_NR_LTE_CDMA_EVDO_GSM_WCDMA;
+            case (NR | LTE | WCDMA):
+                return RILConstants.NETWORK_MODE_NR_LTE_WCDMA;
+            case (NR | LTE | RAF_TD_SCDMA):
+                return RILConstants.NETWORK_MODE_NR_LTE_TDSCDMA;
+            case (NR | LTE | RAF_TD_SCDMA | GSM):
+                return RILConstants.NETWORK_MODE_NR_LTE_TDSCDMA_GSM;
+            case (NR | LTE | RAF_TD_SCDMA | WCDMA):
+                return RILConstants.NETWORK_MODE_NR_LTE_TDSCDMA_WCDMA;
+            case (NR | LTE | RAF_TD_SCDMA | GSM | WCDMA):
+                return RILConstants.NETWORK_MODE_NR_LTE_TDSCDMA_GSM_WCDMA;
+            case (NR | LTE | RAF_TD_SCDMA | CDMA | EVDO | GSM | WCDMA):
+                return RILConstants.NETWORK_MODE_NR_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA;
             default:
-                type = RILConstants.PREFERRED_NETWORK_MODE ;
-                break;
+                return RILConstants.PREFERRED_NETWORK_MODE;
         }
-
-        return type;
     }
 
     public static int singleRafTypeFromString(String rafString) {
@@ -367,6 +381,7 @@ public class RadioAccessFamily implements Parcelable {
             case "EVDO":    return EVDO;
             case "WCDMA":   return WCDMA;
             case "LTE_CA":  return RAF_LTE_CA;
+            case "NR":      return RAF_NR;
             default:        return RAF_UNKNOWN;
         }
     }

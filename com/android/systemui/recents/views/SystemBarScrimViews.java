@@ -21,7 +21,7 @@ import android.view.View;
 
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
-import com.android.systemui.recents.Recents;
+import com.android.systemui.recents.LegacyRecentsImpl;
 import com.android.systemui.recents.RecentsActivity;
 import com.android.systemui.recents.events.activity.ConfigurationChangedEvent;
 import com.android.systemui.recents.events.activity.DismissRecentsToHomeAnimationStarted;
@@ -30,7 +30,7 @@ import com.android.systemui.recents.events.ui.DismissAllTaskViewsEvent;
 import com.android.systemui.recents.events.activity.MultiWindowStateChangedEvent;
 import com.android.systemui.recents.events.ui.dragndrop.DragEndCancelledEvent;
 import com.android.systemui.recents.events.ui.dragndrop.DragEndEvent;
-import com.android.systemui.shared.recents.utilities.AnimationProps;
+import com.android.systemui.recents.utilities.AnimationProps;
 
 /** Manages the scrims for the various system bars. */
 public class SystemBarScrimViews {
@@ -53,8 +53,8 @@ public class SystemBarScrimViews {
         mNavBarScrimView.forceHasOverlappingRendering(false);
         mNavBarScrimEnterDuration = activity.getResources().getInteger(
                 R.integer.recents_nav_bar_scrim_enter_duration);
-        mHasNavBarScrim = Recents.getSystemServices().hasTransposedNavigationBar();
-        mHasDockedTasks = Recents.getSystemServices().hasDockedTask();
+        mHasNavBarScrim = LegacyRecentsImpl.getSystemServices().hasTransposedNavigationBar();
+        mHasDockedTasks = LegacyRecentsImpl.getSystemServices().hasDockedTask();
     }
 
     /**
@@ -147,7 +147,7 @@ public class SystemBarScrimViews {
 
     public final void onBusEvent(ConfigurationChangedEvent event) {
         if (event.fromDeviceOrientationChange) {
-            mHasNavBarScrim = Recents.getSystemServices().hasTransposedNavigationBar();
+            mHasNavBarScrim = LegacyRecentsImpl.getSystemServices().hasTransposedNavigationBar();
         }
         animateScrimToCurrentNavBarState(event.hasStackTasks);
     }

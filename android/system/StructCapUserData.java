@@ -23,19 +23,24 @@ import libcore.util.Objects;
  *
  * @hide
  */
+@libcore.api.CorePlatformApi
 public final class StructCapUserData {
     /** Effective capability mask. */
+    @libcore.api.CorePlatformApi
     public final int effective; /* __u32 */
 
     /** Permitted capability mask. */
+    @libcore.api.CorePlatformApi
     public final int permitted; /* __u32 */
 
     /** Inheritable capability mask. */
+    @libcore.api.CorePlatformApi
     public final int inheritable; /* __u32 */
 
     /**
      * Constructs an instance with the given field values.
      */
+    @libcore.api.CorePlatformApi
     public StructCapUserData(int effective, int permitted, int inheritable) {
         this.effective = effective;
         this.permitted = permitted;

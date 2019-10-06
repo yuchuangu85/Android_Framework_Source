@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.telecom.Log;
 
 /**
@@ -26,11 +27,17 @@ import android.telecom.Log;
 public class CallForwardInfo {
     private static final String TAG = "CallForwardInfo";
 
+    @UnsupportedAppUsage
     public int             status;      /*1 = active, 0 = not active */
+    @UnsupportedAppUsage
     public int             reason;      /* from TS 27.007 7.11 "reason" */
+    @UnsupportedAppUsage
     public int             serviceClass; /* Saum of CommandsInterface.SERVICE_CLASS */
+    @UnsupportedAppUsage
     public int             toa;         /* "type" from TS 27.007 7.11 */
+    @UnsupportedAppUsage
     public String          number;      /* "number" from TS 27.007 7.11 */
+    @UnsupportedAppUsage
     public int             timeSeconds; /* for CF no reply only */
 
     @Override

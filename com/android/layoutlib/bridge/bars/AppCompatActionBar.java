@@ -13,12 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.layoutlib.bridge.bars;
 
 import com.android.ide.common.rendering.api.LayoutLog;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
 import com.android.ide.common.rendering.api.RenderResources;
+import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.ide.common.rendering.api.SessionParams;
 import com.android.ide.common.rendering.api.StyleResourceValue;
@@ -26,7 +26,6 @@ import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.layoutlib.bridge.impl.ResourceHelper;
 import com.android.resources.ResourceType;
-import com.android.tools.layoutlib.annotations.NotNull;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -44,23 +43,18 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
 
-import static com.android.SdkConstants.ANDROID_NS_NAME_PREFIX;
-import static com.android.resources.ResourceType.MENU;
-
-
 /**
  * Assumes that the AppCompat library is present in the project's classpath and creates an
  * actionbar around it.
  */
 public class AppCompatActionBar extends BridgeActionBar {
-
-    private Object mWindowDecorActionBar;
     private static final String[] WINDOW_ACTION_BAR_CLASS_NAMES = {
             "android.support.v7.internal.app.WindowDecorActionBar",
             "android.support.v7.app.WindowDecorActionBar",     // This is used on v23.1.1 and later.
-            "androidx.app.WindowDecorActionBar"                // User from v27
+            "androidx.appcompat.app.WindowDecorActionBar"      // User from v28
     };
 
+    private Object mWindowDecorActionBar;
     private Class<?> mWindowActionBarClass;
 
     /**
@@ -68,9 +62,11 @@ public class AppCompatActionBar extends BridgeActionBar {
      */
     public AppCompatActionBar(@NonNull BridgeContext context, @NonNull SessionParams params) {
         super(context, params);
-        int contentRootId = context.getProjectResourceValue(ResourceType.ID,
-                "action_bar_activity_content", 0);
+        ResourceReference resource = context.createAppCompatResourceReference(
+                ResourceType.ID, "action_bar_activity_content");
+        int contentRootId = context.getResourceId(resource, 0);
         View contentView = getDecorContent().findViewById(contentRootId);
+
         if (contentView != null) {
             assert contentView instanceof FrameLayout;
             setContentRoot((FrameLayout) contentView);
@@ -88,22 +84,21 @@ public class AppCompatActionBar extends BridgeActionBar {
             Object[] constructorArgs = {getDecorContent()};
             LayoutlibCallback callback = params.getLayoutlibCallback();
 
-            // Find the correct WindowActionBar class
+            // Find the correct WindowActionBar class.
             String actionBarClass = null;
-            for  (int i = WINDOW_ACTION_BAR_CLASS_NAMES.length - 1; i >= 0; i--) {
+            for  (int i = WINDOW_ACTION_BAR_CLASS_NAMES.length; --i >= 0;) {
                 actionBarClass = WINDOW_ACTION_BAR_CLASS_NAMES[i];
                 try {
                     callback.findClass(actionBarClass);
-
                     break;
                 } catch (ClassNotFoundException ignore) {
                 }
             }
 
-            mWindowDecorActionBar = callback.loadView(actionBarClass,
-                    constructorParams, constructorArgs);
-            mWindowActionBarClass = mWindowDecorActionBar == null ? null :
-                    mWindowDecorActionBar.getClass();
+            mWindowDecorActionBar =
+                    callback.loadView(actionBarClass, constructorParams, constructorArgs);
+            mWindowActionBarClass =
+                    mWindowDecorActionBar == null ? null : mWindowDecorActionBar.getClass();
             inflateMenus();
             setupActionBar();
         } catch (Exception e) {
@@ -115,8 +110,8 @@ public class AppCompatActionBar extends BridgeActionBar {
     @Override
     protected ResourceValue getLayoutResource(BridgeContext context) {
         // We always assume that the app has requested the action bar.
-        return context.getRenderResources().getProjectResource(ResourceType.LAYOUT,
-                "abc_screen_toolbar");
+        return context.getRenderResources().getResolvedResource(
+                context.createAppCompatResourceReference(ResourceType.LAYOUT,"abc_screen_toolbar"));
     }
 
     @Override
@@ -126,7 +121,8 @@ public class AppCompatActionBar extends BridgeActionBar {
         // https://android.googlesource.com/platform/frameworks/support/+/android-5.1.0_r1/v7/appcompat/src/android/support/v7/app/ActionBarActivityDelegateBase.java
         Context themedContext = context;
         RenderResources resources = context.getRenderResources();
-        ResourceValue actionBarTheme = resources.findItemInTheme("actionBarTheme", false);
+        ResourceValue actionBarTheme =
+                resources.findItemInTheme(context.createAppCompatAttrReference("actionBarTheme"));
         if (actionBarTheme != null) {
             // resolve it, if needed.
             actionBarTheme = resources.resolveResValue(actionBarTheme);
@@ -157,12 +153,12 @@ public class AppCompatActionBar extends BridgeActionBar {
     }
 
     @Override
-    protected void setIcon(String icon) {
+    protected void setIcon(ResourceValue icon) {
         // Do this only if the action bar doesn't already have an icon.
-        if (icon != null && !icon.isEmpty() && mWindowDecorActionBar != null) {
+        if (icon != null && icon.getValue() != null && mWindowDecorActionBar != null) {
             if (invoke(getMethod(mWindowActionBarClass, "hasIcon"), mWindowDecorActionBar)
                     == Boolean.TRUE) {
-                Drawable iconDrawable = getDrawable(icon, false);
+                Drawable iconDrawable = getDrawable(icon);
                 if (iconDrawable != null) {
                     Method setIcon = getMethod(mWindowActionBarClass, "setIcon", Drawable.class);
                     invoke(setIcon, mWindowDecorActionBar, iconDrawable);
@@ -181,12 +177,12 @@ public class AppCompatActionBar extends BridgeActionBar {
     }
 
     private void inflateMenus() {
-        List<String> menuNames = getCallBack().getMenuIdNames();
-        if (menuNames.isEmpty()) {
+        List<ResourceReference> menuIds = getCallBack().getMenuIds();
+        if (menuIds.isEmpty()) {
             return;
         }
 
-        if (menuNames.size() > 1) {
+        if (menuIds.size() > 1) {
             // Supporting multiple menus means that we would need to instantiate our own supportlib
             // MenuInflater instances using reflection
             Bridge.getLog().fidelityWarning(LayoutLog.TAG_UNSUPPORTED,
@@ -194,20 +190,12 @@ public class AppCompatActionBar extends BridgeActionBar {
                     null, null, null);
         }
 
-        String name = menuNames.get(0);
-        int id;
-        if (name.startsWith(ANDROID_NS_NAME_PREFIX)) {
-            // Framework menu.
-            name = name.substring(ANDROID_NS_NAME_PREFIX.length());
-            id = mBridgeContext.getFrameworkResourceValue(MENU, name, -1);
-        } else {
-            // Project menu.
-            id = mBridgeContext.getProjectResourceValue(MENU, name, -1);
-        }
+        ResourceReference menuId = menuIds.get(0);
+        int id = mBridgeContext.getResourceId(menuId, -1);
         if (id < 1) {
             return;
         }
-        // Get toolbar decorator
+        // Get toolbar decorator.
         Object mDecorToolbar = getFieldValue(mWindowDecorActionBar, "mDecorToolbar");
         if (mDecorToolbar == null) {
             return;
@@ -246,7 +234,7 @@ public class AppCompatActionBar extends BridgeActionBar {
      * without having to get all the types for the parameters when we do not need them
      */
     @Nullable
-    private static Method findMethod(@Nullable Class<?> owner, @NotNull String name) {
+    private static Method findMethod(@Nullable Class<?> owner, @NonNull String name) {
         if (owner == null) {
             return null;
         }
@@ -260,7 +248,7 @@ public class AppCompatActionBar extends BridgeActionBar {
     }
 
     @Nullable
-    private static Object getFieldValue(@Nullable Object instance, @NotNull String name) {
+    private static Object getFieldValue(@Nullable Object instance, @NonNull String name) {
         if (instance == null) {
             return null;
         }
@@ -295,10 +283,9 @@ public class AppCompatActionBar extends BridgeActionBar {
 
     // TODO: this is duplicated from FrameworkActionBarWrapper$WindowActionBarWrapper
     @Nullable
-    private Drawable getDrawable(@NonNull String name, boolean isFramework) {
-        RenderResources res = mBridgeContext.getRenderResources();
-        ResourceValue value = res.findResValue(name, isFramework);
-        value = res.resolveResValue(value);
+    private Drawable getDrawable(@NonNull ResourceValue value) {
+        RenderResources resolver = mBridgeContext.getRenderResources();
+        value = resolver.resolveResValue(value);
         if (value != null) {
             return ResourceHelper.getDrawable(value, mBridgeContext);
         }

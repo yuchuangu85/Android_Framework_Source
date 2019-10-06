@@ -12,7 +12,9 @@ public class SIMAccessor {
     private final SubscriptionManager mSubscriptionManager;
 
     public SIMAccessor(Context context) {
+        // TODO(b/132188983): Inject this using WifiInjector
         mTelephonyManager = TelephonyManager.from(context);
+        // TODO(b/132188983): Inject this using WifiInjector
         mSubscriptionManager = SubscriptionManager.from(context);
     }
 

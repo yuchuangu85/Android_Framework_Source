@@ -210,14 +210,14 @@ public class CookieManager extends CookieHandler
 
         boolean secureLink = "https".equalsIgnoreCase(uri.getScheme());
         List<HttpCookie> cookies = new java.util.ArrayList<HttpCookie>();
-        // BEGIN Android-removed: The logic of converting null path is moved into pathMatches
+        // BEGIN Android-removed: The logic of converting null path is moved into pathMatches.
         /*
         String path = uri.getPath();
         if (path == null || path.isEmpty()) {
             path = "/";
         }
         */
-        // BEGIN Android-removed: The logic of converting null path is moved into pathMatches
+        // END Android-removed: The logic of converting null path is moved into pathMatches.
         for (HttpCookie cookie : cookieJar.get(uri)) {
             // apply path-matches rule (RFC 2965 sec. 3.3.4)
             // and check for the possible "secure" tag (i.e. don't send

@@ -224,11 +224,97 @@ import java.lang.Double;
  */
 public abstract class Preferences {
 
-    // Android-changed: Not final for testing.
-    private static PreferencesFactory factory = findPreferencesFactory();
+    // Android-changed: Allow Preferences.factory to be set by tests.
+    // private static final PreferencesFactory factory = factory();
+    private static PreferencesFactory factory = factory();
 
-    // Android-changed: Custom implementation of findPreferencesFactory.
-    private static PreferencesFactory findPreferencesFactory() {
+    // BEGIN Android-changed: Logic for constructing the default Preferences factory.
+    /*
+    private static PreferencesFactory factory() {
+        // 1. Try user-specified system property
+        String factoryName = AccessController.doPrivileged(
+            new PrivilegedAction<String>() {
+                public String run() {
+                    return System.getProperty(
+                        "java.util.prefs.PreferencesFactory");}});
+        if (factoryName != null) {
+            // FIXME: This code should be run in a doPrivileged and
+            // not use the context classloader, to avoid being
+            // dependent on the invoking thread.
+            // Checking AllPermission also seems wrong.
+            try {
+                return (PreferencesFactory)
+                    Class.forName(factoryName, false,
+                                  ClassLoader.getSystemClassLoader())
+                    .newInstance();
+            } catch (Exception ex) {
+                try {
+                    // workaround for javaws, plugin,
+                    // load factory class using non-system classloader
+                    SecurityManager sm = System.getSecurityManager();
+                    if (sm != null) {
+                        sm.checkPermission(new java.security.AllPermission());
+                    }
+                    return (PreferencesFactory)
+                        Class.forName(factoryName, false,
+                                      Thread.currentThread()
+                                      .getContextClassLoader())
+                        .newInstance();
+                } catch (Exception e) {
+                    throw new InternalError(
+                        "Can't instantiate Preferences factory "
+                        + factoryName, e);
+                }
+            }
+        }
+
+        return AccessController.doPrivileged(
+            new PrivilegedAction<PreferencesFactory>() {
+                public PreferencesFactory run() {
+                    return factory1();}});
+    }
+
+    private static PreferencesFactory factory1() {
+        // 2. Try service provider interface
+        Iterator<PreferencesFactory> itr = ServiceLoader
+            .load(PreferencesFactory.class, ClassLoader.getSystemClassLoader())
+            .iterator();
+
+        // choose first provider instance
+        while (itr.hasNext()) {
+            try {
+                return itr.next();
+            } catch (ServiceConfigurationError sce) {
+                if (sce.getCause() instanceof SecurityException) {
+                    // Ignore the security exception, try the next provider
+                    continue;
+                }
+                throw sce;
+            }
+        }
+
+        // 3. Use platform-specific system-wide default
+        String osName = System.getProperty("os.name");
+        String platformFactory;
+        if (osName.startsWith("Windows")) {
+            platformFactory = "java.util.prefs.WindowsPreferencesFactory";
+        } else if (osName.contains("OS X")) {
+            platformFactory = "java.util.prefs.MacOSXPreferencesFactory";
+        } else {
+            platformFactory = "java.util.prefs.FileSystemPreferencesFactory";
+        }
+        try {
+            return (PreferencesFactory)
+                Class.forName(platformFactory, false,
+                              Preferences.class.getClassLoader()).newInstance();
+        } catch (Exception e) {
+            throw new InternalError(
+                "Can't instantiate platform default Preferences factory "
+                + platformFactory, e);
+        }
+    }
+    */
+    private static PreferencesFactory factory() {
         // Try the system property first...
         PreferencesFactory result = ServiceLoader.loadFromSystemProperty(PreferencesFactory.class);
         if (result != null) {
@@ -241,16 +327,16 @@ public abstract class Preferences {
         // Finally return a default...
         return new FileSystemPreferencesFactory();
     }
+    // END Android-changed: Logic for constructing the default Preferences factory.
 
-    /**
-     * @hide for testing only.
-     */
-    // Android-changed: Allow this to be set for testing.
+    // BEGIN Android-added: Allow Preferences.factory to be set by tests.
+    /** @hide for testing only. */
     public static PreferencesFactory setPreferencesFactory(PreferencesFactory pf) {
         PreferencesFactory previous = factory;
         factory = pf;
         return previous;
     }
+    // END Android-added: Allow Preferences.factory to be set by tests.
 
     /**
      * Maximum length of string allowed as a key (80 characters).
@@ -267,6 +353,7 @@ public abstract class Preferences {
      */
     public static final int MAX_NAME_LENGTH = 80;
 
+    // Android-added: Document Android's security restrictions on system/user preferences.
     /**
      * <strong>WARNING:</strong> On Android, the Preference nodes
      * corresponding to the "system" and "user" preferences are stored in sections
@@ -316,6 +403,7 @@ public abstract class Preferences {
         return userRoot().node(nodeName(c));
     }
 
+    // Android-added: Document Android's security restrictions on system/user preferences.
     /**
      * <strong>WARNING:</strong> On Android, the Preference nodes
      * corresponding to the "system" and "user" preferences are stored in sections
@@ -391,6 +479,7 @@ public abstract class Preferences {
      */
     private static Permission prefsPerm = new RuntimePermission("preferences");
 
+    // Android-added: Document Android's security restrictions on system/user preferences.
     /**
      * <strong>WARNING:</strong> On Android, the Preference nodes
      * corresponding to the "system" and "user" preferences are stored in sections
@@ -412,6 +501,7 @@ public abstract class Preferences {
         return factory.userRoot();
     }
 
+    // Android-added: Document Android's security restrictions on system/user preferences.
     /**
      * <strong>WARNING:</strong> On Android, the Preference nodes
      * corresponding to the "system" and "user" preferences are stored in sections

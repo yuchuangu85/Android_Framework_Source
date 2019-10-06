@@ -77,7 +77,6 @@ public class GcSnapshot {
     /** a local layer created with {@link Canvas#saveLayer(RectF, Paint, int)}.
      * If this is null, this does not mean there's no layer, just that the snapshot is not the
      * one that created the layer.
-     * @see #getLayerSnapshot()
      */
     private final Layer mLocalLayer;
     private final Paint_Delegate mLocalLayerPaint;
@@ -252,7 +251,6 @@ public class GcSnapshot {
 
     /**
      * Creates the root snapshot.
-     * {@link #setGraphics2D(Graphics2D)} will have to be called on it when possible.
      */
     private GcSnapshot() {
         mPrevious = null;
@@ -618,10 +616,6 @@ public class GcSnapshot {
                 return;
             }
 
-            int x = 0;
-            int y = 0;
-            int width;
-            int height;
             Rectangle clipBounds = originalGraphics.getClip() != null ? originalGraphics
                     .getClipBounds() : null;
             if (clipBounds != null) {
@@ -629,16 +623,13 @@ public class GcSnapshot {
                     // Clip is 0 so no need to paint anything.
                     return;
                 }
-                // If we have clipBounds available, use them as they will always be
-                // smaller than the full layer size.
-                x = clipBounds.x;
-                y = clipBounds.y;
-                width = clipBounds.width;
-                height = clipBounds.height;
-            } else {
-                width = layer.getImage().getWidth();
-                height = layer.getImage().getHeight();
             }
+
+            // b/63692596:
+            // Don't use the size of clip bound because it may be smaller than original size.
+            // Which makes Vector Drawable pixelized.
+            int width = layer.getImage().getWidth();
+            int height = layer.getImage().getHeight();
 
             // Create a temporary image to which the color filter will be applied.
             BufferedImage image = new BufferedImage(width, height,
@@ -648,25 +639,27 @@ public class GcSnapshot {
             Graphics2D imageGraphics = createCustomGraphics(
                     imageBaseGraphics, paint, compositeOnly,
                     AlphaComposite.SRC_OVER);
+
             // get a Graphics2D object configured with the drawing parameters, but no shader.
             Graphics2D configuredGraphics = createCustomGraphics(originalGraphics, paint,
                     true /*compositeOnly*/, forceMode);
+            configuredGraphics.setTransform(new AffineTransform());
             try {
                 // The main draw operation.
                 // We translate the operation to take into account that the rendering does not
                 // know about the clipping area.
-                imageGraphics.translate(-x, -y);
+                imageGraphics.setTransform(originalGraphics.getTransform());
                 drawable.draw(imageGraphics, paint);
 
                 // Apply the color filter.
                 // Restore the original coordinates system and apply the filter only to the
                 // clipped area.
-                imageGraphics.translate(x, y);
+                imageGraphics.setTransform(new AffineTransform());
                 filter.applyFilter(imageGraphics, width, height);
 
                 // Draw the tinted image on the main layer using as start point the clipping
                 // upper left coordinates.
-                configuredGraphics.drawImage(image, x, y, null);
+                configuredGraphics.drawImage(image, 0, 0, null);
                 layer.change();
             } finally {
                 // dispose Graphics2D objects
@@ -774,6 +767,10 @@ public class GcSnapshot {
         // make new one graphics
         Graphics2D g = (Graphics2D) original.create();
 
+        if (paint == null) {
+            return g;
+        }
+
         // configure it
 
         if (paint.isAntiAliased()) {
@@ -784,39 +781,33 @@ public class GcSnapshot {
         }
 
         // set the shader first, as it'll replace the color if it can be used it.
-        boolean customShader = false;
         if (!compositeOnly) {
-            customShader = setShader(g, paint);
+            setShader(g, paint);
             // set the stroke
             g.setStroke(paint.getJavaStroke());
         }
         // set the composite.
-        setComposite(g, paint, compositeOnly || customShader, forceMode);
+        setComposite(g, paint, compositeOnly, forceMode);
 
         return g;
     }
 
-    private boolean setShader(Graphics2D g, Paint_Delegate paint) {
+    private void setShader(Graphics2D g, Paint_Delegate paint) {
         Shader_Delegate shaderDelegate = paint.getShader();
         if (shaderDelegate != null) {
             if (shaderDelegate.isSupported()) {
                 java.awt.Paint shaderPaint = shaderDelegate.getJavaPaint();
                 assert shaderPaint != null;
-                if (shaderPaint != null) {
-                    g.setPaint(shaderPaint);
-                    return true;
-                }
+                g.setPaint(shaderPaint);
+                return;
             } else {
                 Bridge.getLog().fidelityWarning(LayoutLog.TAG_SHADER,
-                        shaderDelegate.getSupportMessage(),
-                        null /*throwable*/, null /*data*/);
+                        shaderDelegate.getSupportMessage(), null, null, null);
             }
         }
 
         // if no shader, use the paint color
         g.setColor(new Color(paint.getColor(), true /*hasAlpha*/));
-
-        return false;
     }
 
     private void setComposite(Graphics2D g, Paint_Delegate paint, boolean usePaintAlpha,
@@ -824,6 +815,10 @@ public class GcSnapshot {
         // the alpha for the composite. Always opaque if the normal paint color is used since
         // it contains the alpha
         int alpha = usePaintAlpha ? paint.getAlpha() : 0xFF;
+        Shader_Delegate shader = paint.getShader();
+        if (shader != null) {
+            alpha = (int)(alpha * shader.getAlpha());
+        }
         if (forceMode != 0) {
             g.setComposite(AlphaComposite.getInstance(forceMode, (float) alpha / 255.f));
             return;

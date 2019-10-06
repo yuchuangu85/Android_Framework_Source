@@ -29,12 +29,14 @@ import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
+import android.annotation.UnsupportedAppUsage;
 import android.content.ClipData;
 import android.content.ComponentName;
 import android.net.NetworkRequest;
 import android.net.NetworkSpecifier;
 import android.net.Uri;
 import android.os.BaseBundle;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -198,11 +200,23 @@ public class JobInfo implements Parcelable {
     public static final int PRIORITY_SYNC_INITIALIZATION = 20;
 
     /**
-     * Value of {@link #getPriority} for a foreground app (overrides the supplied
+     * Value of {@link #getPriority} for a BFGS app (overrides the supplied
      * JobInfo priority if it is smaller).
      * @hide
      */
-    public static final int PRIORITY_FOREGROUND_APP = 30;
+    public static final int PRIORITY_BOUND_FOREGROUND_SERVICE = 30;
+
+    /** @hide For backward compatibility. */
+    @UnsupportedAppUsage
+    public static final int PRIORITY_FOREGROUND_APP = PRIORITY_BOUND_FOREGROUND_SERVICE;
+
+    /**
+     * Value of {@link #getPriority} for a FG service app (overrides the supplied
+     * JobInfo priority if it is smaller).
+     * @hide
+     */
+    @UnsupportedAppUsage
+    public static final int PRIORITY_FOREGROUND_SERVICE = 35;
 
     /**
      * Value of {@link #getPriority} for the current top app (overrides the supplied
@@ -240,6 +254,7 @@ public class JobInfo implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int FLAG_WILL_BE_FOREGROUND = 1 << 0;
 
     /**
@@ -282,11 +297,13 @@ public class JobInfo implements Parcelable {
      */
     public static final int CONSTRAINT_FLAG_STORAGE_NOT_LOW = 1 << 3;
 
+    @UnsupportedAppUsage
     private final int jobId;
     private final PersistableBundle extras;
     private final Bundle transientExtras;
     private final ClipData clipData;
     private final int clipGrantFlags;
+    @UnsupportedAppUsage
     private final ComponentName service;
     private final int constraintFlags;
     private final TriggerContentUri[] triggerContentUris;
@@ -306,6 +323,7 @@ public class JobInfo implements Parcelable {
     private final long initialBackoffMillis;
     private final int backoffPolicy;
     private final int priority;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final int flags;
 
     /**
@@ -852,7 +870,7 @@ public class JobInfo implements Parcelable {
         out.writeInt(this.flags);
     }
 
-    public static final Creator<JobInfo> CREATOR = new Creator<JobInfo>() {
+    public static final @android.annotation.NonNull Creator<JobInfo> CREATOR = new Creator<JobInfo>() {
         @Override
         public JobInfo createFromParcel(Parcel in) {
             return new JobInfo(in);
@@ -945,7 +963,7 @@ public class JobInfo implements Parcelable {
             out.writeInt(mFlags);
         }
 
-        public static final Creator<TriggerContentUri> CREATOR = new Creator<TriggerContentUri>() {
+        public static final @android.annotation.NonNull Creator<TriggerContentUri> CREATOR = new Creator<TriggerContentUri>() {
             @Override
             public TriggerContentUri createFromParcel(Parcel in) {
                 return new TriggerContentUri(in);
@@ -1009,12 +1027,14 @@ public class JobInfo implements Parcelable {
         }
 
         /** @hide */
+        @UnsupportedAppUsage
         public Builder setPriority(int priority) {
             mPriority = priority;
             return this;
         }
 
         /** @hide */
+        @UnsupportedAppUsage
         public Builder setFlags(int flags) {
             mFlags = flags;
             return this;
@@ -1525,13 +1545,6 @@ public class JobInfo implements Parcelable {
          * @return The job object to hand to the JobScheduler. This object is immutable.
          */
         public JobInfo build() {
-            // Allow jobs with no constraints - What am I, a database?
-            if (!mHasEarlyConstraint && !mHasLateConstraint && mConstraintFlags == 0 &&
-                    mNetworkRequest == null &&
-                    mTriggerContentUris == null) {
-                throw new IllegalArgumentException("You're trying to build a job with no " +
-                        "constraints, this is not allowed.");
-            }
             // Check that network estimates require network type
             if ((mNetworkDownloadBytes > 0 || mNetworkUploadBytes > 0) && mNetworkRequest == null) {
                 throw new IllegalArgumentException(
@@ -1583,5 +1596,40 @@ public class JobInfo implements Parcelable {
             }
             return new JobInfo(this);
         }
+
+        /**
+         * @hide
+         */
+        public String summarize() {
+            final String service = (mJobService != null)
+                    ? mJobService.flattenToShortString()
+                    : "null";
+            return "JobInfo.Builder{job:" + mJobId + "/" + service + "}";
+        }
+    }
+
+    /**
+     * Convert a priority integer into a human readable string for debugging.
+     * @hide
+     */
+    public static String getPriorityString(int priority) {
+        switch (priority) {
+            case PRIORITY_DEFAULT:
+                return PRIORITY_DEFAULT + " [DEFAULT]";
+            case PRIORITY_SYNC_EXPEDITED:
+                return PRIORITY_SYNC_EXPEDITED + " [SYNC_EXPEDITED]";
+            case PRIORITY_SYNC_INITIALIZATION:
+                return PRIORITY_SYNC_INITIALIZATION + " [SYNC_INITIALIZATION]";
+            case PRIORITY_BOUND_FOREGROUND_SERVICE:
+                return PRIORITY_BOUND_FOREGROUND_SERVICE + " [BFGS_APP]";
+            case PRIORITY_FOREGROUND_SERVICE:
+                return PRIORITY_FOREGROUND_SERVICE + " [FGS_APP]";
+            case PRIORITY_TOP_APP:
+                return PRIORITY_TOP_APP + " [TOP_APP]";
+
+                // PRIORITY_ADJ_* are adjustments and not used as real priorities.
+                // No need to convert to strings.
+        }
+        return priority + " [UNKNOWN]";
     }
 }

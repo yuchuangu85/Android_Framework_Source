@@ -35,6 +35,8 @@ import sun.misc.Cleaner;
  * @author   Mark Reinhold
  * @since    1.2
  */
+// BEGIN Android-changed: Reimplemented to accomodate a different GC and compiler.
+
 public class ReferenceQueue<T> {
 
     // Reference.queueNext will be set to sQueueNextUnenqueued to indicate
@@ -278,3 +280,4 @@ public class ReferenceQueue<T> {
         }
     }
 }
+// END Android-changed: Reimplemented to accomodate a different GC and compiler.

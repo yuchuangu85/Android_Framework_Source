@@ -21,6 +21,7 @@ import android.telecom.ConferenceParticipant;
 import java.util.ArrayList;
 import java.util.List;
 
+import android.annotation.UnsupportedAppUsage;
 import android.telephony.Rlog;
 
 /**
@@ -32,12 +33,15 @@ public abstract class Call {
     /* Enums */
 
     public enum State {
+        @UnsupportedAppUsage
         IDLE, ACTIVE, HOLDING, DIALING, ALERTING, INCOMING, WAITING, DISCONNECTED, DISCONNECTING;
 
+        @UnsupportedAppUsage
         public boolean isAlive() {
             return !(this == IDLE || this == DISCONNECTED || this == DISCONNECTING);
         }
 
+        @UnsupportedAppUsage
         public boolean isRinging() {
             return this == INCOMING || this == WAITING;
         }
@@ -66,8 +70,10 @@ public abstract class Call {
 
     /* Instance Variables */
 
+    @UnsupportedAppUsage
     public State mState = State.IDLE;
 
+    @UnsupportedAppUsage
     public ArrayList<Connection> mConnections = new ArrayList<Connection>();
 
     /* Instance Methods */
@@ -76,9 +82,13 @@ public abstract class Call {
      *  It will change across event loop iterations            top
      */
 
+    @UnsupportedAppUsage
     public abstract List<Connection> getConnections();
+    @UnsupportedAppUsage
     public abstract Phone getPhone();
+    @UnsupportedAppUsage
     public abstract boolean isMultiparty();
+    @UnsupportedAppUsage
     public abstract void hangup() throws CallStateException;
 
 
@@ -110,6 +120,7 @@ public abstract class Call {
      * getState
      * @return state of class call
      */
+    @UnsupportedAppUsage
     public State getState() {
         return mState;
     }
@@ -128,6 +139,7 @@ public abstract class Call {
      * FIXME rename
      * @return true if the call contains only disconnected connections (if any)
      */
+    @UnsupportedAppUsage
     public boolean isIdle() {
         return !getState().isAlive();
     }
@@ -136,6 +148,7 @@ public abstract class Call {
      * Returns the Connection associated with this Call that was created
      * first, or null if there are no Connections in this Call
      */
+    @UnsupportedAppUsage
     public Connection
     getEarliestConnection() {
         List<Connection> l;
@@ -223,6 +236,7 @@ public abstract class Call {
      * Returns the Connection associated with this Call that was created
      * last, or null if there are no Connections in this Call
      */
+    @UnsupportedAppUsage
     public Connection
     getLatestConnection() {
         List<Connection> l = getConnections();

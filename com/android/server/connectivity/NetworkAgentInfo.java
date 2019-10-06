@@ -16,20 +16,21 @@
 
 package com.android.server.connectivity;
 
-import static android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED;
-
 import android.content.Context;
+import android.net.IDnsResolver;
+import android.net.INetd;
+import android.net.INetworkMonitor;
 import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.net.NetworkMisc;
+import android.net.NetworkMonitorManager;
 import android.net.NetworkRequest;
 import android.net.NetworkState;
 import android.os.Handler;
 import android.os.INetworkManagementService;
 import android.os.Messenger;
-import android.os.RemoteException;
 import android.os.SystemClock;
 import android.util.Log;
 import android.util.SparseArray;
@@ -37,11 +38,8 @@ import android.util.SparseArray;
 import com.android.internal.util.AsyncChannel;
 import com.android.internal.util.WakeupMessage;
 import com.android.server.ConnectivityService;
-import com.android.server.connectivity.NetworkMonitor;
 
 import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Objects;
 import java.util.SortedSet;
 import java.util.TreeSet;
@@ -124,9 +122,9 @@ public class NetworkAgentInfo implements Comparable<NetworkAgentInfo> {
     // This Network object is always valid.
     public final Network network;
     public LinkProperties linkProperties;
-    // This should only be modified via ConnectivityService.updateCapabilities().
+    // This should only be modified by ConnectivityService, via setNetworkCapabilities().
+    // TODO: make this private with a getter.
     public NetworkCapabilities networkCapabilities;
-    public final NetworkMonitor networkMonitor;
     public final NetworkMisc networkMisc;
     // Indicates if netd has been told to create this Network. From this point on the appropriate
     // routing rules are setup and routes are added so packets can begin flowing over the Network.
@@ -156,6 +154,13 @@ public class NetworkAgentInfo implements Comparable<NetworkAgentInfo> {
 
     // Whether a captive portal was found during the last network validation attempt.
     public boolean lastCaptivePortalDetected;
+
+    // Indicates the captive portal app was opened to show a login UI to the user, but the network
+    // has not validated yet.
+    public volatile boolean captivePortalValidationPending;
+
+    // Set to true when partial connectivity was detected.
+    public boolean partialConnectivity;
 
     // Networks are lingered when they become unneeded as a result of their NetworkRequests being
     // satisfied by a higher-scoring network. so as to allow communication to wrap up before the
@@ -236,8 +241,13 @@ public class NetworkAgentInfo implements Comparable<NetworkAgentInfo> {
     public final Messenger messenger;
     public final AsyncChannel asyncChannel;
 
+    public final int factorySerialNumber;
+
     // Used by ConnectivityService to keep track of 464xlat.
-    public Nat464Xlat clatd;
+    public final Nat464Xlat clatd;
+
+    // Set after asynchronous creation of the NetworkMonitor.
+    private volatile NetworkMonitorManager mNetworkMonitor;
 
     private static final String TAG = ConnectivityService.class.getSimpleName();
     private static final boolean VDBG = false;
@@ -247,7 +257,8 @@ public class NetworkAgentInfo implements Comparable<NetworkAgentInfo> {
 
     public NetworkAgentInfo(Messenger messenger, AsyncChannel ac, Network net, NetworkInfo info,
             LinkProperties lp, NetworkCapabilities nc, int score, Context context, Handler handler,
-            NetworkMisc misc, NetworkRequest defaultRequest, ConnectivityService connService) {
+            NetworkMisc misc, ConnectivityService connService, INetd netd,
+            IDnsResolver dnsResolver, INetworkManagementService nms, int factorySerialNumber) {
         this.messenger = messenger;
         asyncChannel = ac;
         network = net;
@@ -255,15 +266,42 @@ public class NetworkAgentInfo implements Comparable<NetworkAgentInfo> {
         linkProperties = lp;
         networkCapabilities = nc;
         currentScore = score;
+        clatd = new Nat464Xlat(this, netd, dnsResolver, nms);
         mConnService = connService;
         mContext = context;
         mHandler = handler;
-        networkMonitor = mConnService.createNetworkMonitor(context, handler, this, defaultRequest);
         networkMisc = misc;
+        this.factorySerialNumber = factorySerialNumber;
+    }
+
+    /**
+     * Inform NetworkAgentInfo that a new NetworkMonitor was created.
+     */
+    public void onNetworkMonitorCreated(INetworkMonitor networkMonitor) {
+        mNetworkMonitor = new NetworkMonitorManager(networkMonitor);
+    }
+
+    /**
+     * Set the NetworkCapabilities on this NetworkAgentInfo. Also attempts to notify NetworkMonitor
+     * of the new capabilities, if NetworkMonitor has been created.
+     *
+     * <p>If {@link NetworkMonitor#notifyNetworkCapabilitiesChanged(NetworkCapabilities)} fails,
+     * the exception is logged but not reported to callers.
+     */
+    public void setNetworkCapabilities(NetworkCapabilities nc) {
+        networkCapabilities = nc;
+        final NetworkMonitorManager nm = mNetworkMonitor;
+        if (nm != null) {
+            nm.notifyNetworkCapabilitiesChanged(nc);
+        }
     }
 
     public ConnectivityService connService() {
         return mConnService;
+    }
+
+    public NetworkMisc netMisc() {
+        return networkMisc;
     }
 
     public Handler handler() {
@@ -272,6 +310,15 @@ public class NetworkAgentInfo implements Comparable<NetworkAgentInfo> {
 
     public Network network() {
         return network;
+    }
+
+    /**
+     * Get the NetworkMonitorManager in this NetworkAgentInfo.
+     *
+     * <p>This will be null before {@link #onNetworkMonitorCreated(INetworkMonitor)} is called.
+     */
+    public NetworkMonitorManager networkMonitor() {
+        return mNetworkMonitor;
     }
 
     // Functions for manipulating the requests satisfied by this network.
@@ -432,11 +479,11 @@ public class NetworkAgentInfo implements Comparable<NetworkAgentInfo> {
         // down an explicitly selected network before the user gets a chance to prefer it when
         // a higher-scoring network (e.g., Ethernet) is available.
         if (networkMisc.explicitlySelected && (networkMisc.acceptUnvalidated || pretendValidated)) {
-            return ConnectivityConstants.MAXIMUM_NETWORK_SCORE;
+            return ConnectivityConstants.EXPLICITLY_SELECTED_NETWORK_SCORE;
         }
 
         int score = currentScore;
-        if (!lastValidated && !pretendValidated && !ignoreWifiUnvalidationPenalty()) {
+        if (!lastValidated && !pretendValidated && !ignoreWifiUnvalidationPenalty() && !isVPN()) {
             score -= ConnectivityConstants.UNVALIDATED_SCORE_PENALTY;
         }
         if (score < 0) score = 0;
@@ -569,45 +616,24 @@ public class NetworkAgentInfo implements Comparable<NetworkAgentInfo> {
         for (LingerTimer timer : mLingerTimers) { pw.println(timer); }
     }
 
-    public void updateClat(INetworkManagementService netd) {
-        if (Nat464Xlat.requiresClat(this)) {
-            maybeStartClat(netd);
-        } else {
-            maybeStopClat();
-        }
-    }
-
-    /** Ensure clat has started for this network. */
-    public void maybeStartClat(INetworkManagementService netd) {
-        if (clatd != null && clatd.isStarted()) {
-            return;
-        }
-        clatd = new Nat464Xlat(netd, this);
-        clatd.start();
-    }
-
-    /** Ensure clat has stopped for this network. */
-    public void maybeStopClat() {
-        if (clatd == null) {
-            return;
-        }
-        clatd.stop();
-        clatd = null;
-    }
-
+    // TODO: Print shorter members first and only print the boolean variable which value is true
+    // to improve readability.
     public String toString() {
-        return "NetworkAgentInfo{ ni{" + networkInfo + "}  " +
-                "network{" + network + "}  nethandle{" + network.getNetworkHandle() + "}  " +
-                "lp{" + linkProperties + "}  " +
-                "nc{" + networkCapabilities + "}  Score{" + getCurrentScore() + "}  " +
-                "everValidated{" + everValidated + "}  lastValidated{" + lastValidated + "}  " +
-                "created{" + created + "} lingering{" + isLingering() + "} " +
-                "explicitlySelected{" + networkMisc.explicitlySelected + "} " +
-                "acceptUnvalidated{" + networkMisc.acceptUnvalidated + "} " +
-                "everCaptivePortalDetected{" + everCaptivePortalDetected + "} " +
-                "lastCaptivePortalDetected{" + lastCaptivePortalDetected + "} " +
-                "clat{" + clatd + "} " +
-                "}";
+        return "NetworkAgentInfo{ ni{" + networkInfo + "}  "
+                + "network{" + network + "}  nethandle{" + network.getNetworkHandle() + "}  "
+                + "lp{" + linkProperties + "}  "
+                + "nc{" + networkCapabilities + "}  Score{" + getCurrentScore() + "}  "
+                + "everValidated{" + everValidated + "}  lastValidated{" + lastValidated + "}  "
+                + "created{" + created + "} lingering{" + isLingering() + "} "
+                + "explicitlySelected{" + networkMisc.explicitlySelected + "} "
+                + "acceptUnvalidated{" + networkMisc.acceptUnvalidated + "} "
+                + "everCaptivePortalDetected{" + everCaptivePortalDetected + "} "
+                + "lastCaptivePortalDetected{" + lastCaptivePortalDetected + "} "
+                + "captivePortalValidationPending{" + captivePortalValidationPending + "} "
+                + "partialConnectivity{" + partialConnectivity + "} "
+                + "acceptPartialConnectivity{" + networkMisc.acceptPartialConnectivity + "} "
+                + "clat{" + clatd + "} "
+                + "}";
     }
 
     public String name() {

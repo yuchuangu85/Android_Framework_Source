@@ -33,9 +33,6 @@ import java.util.Set;
  *
  * Below are the current configuration data for each respective store file:
  *
- * Share Store (system wide configurations)
- * - No data
- *
  * User Store (user specific configurations)
  * - Set of blacklisted SSIDs
  */
@@ -77,11 +74,8 @@ public class SsidSetStoreData implements WifiConfigStore.StoreData {
     }
 
     @Override
-    public void serializeData(XmlSerializer out, boolean shared)
+    public void serializeData(XmlSerializer out)
             throws XmlPullParserException, IOException {
-        if (shared) {
-            throw new XmlPullParserException("Share data not supported");
-        }
         Set<String> ssidSet = mDataSource.getSsids();
         if (ssidSet != null && !ssidSet.isEmpty()) {
             XmlUtil.writeNextValue(out, XML_TAG_SSID_SET, mDataSource.getSsids());
@@ -89,16 +83,12 @@ public class SsidSetStoreData implements WifiConfigStore.StoreData {
     }
 
     @Override
-    public void deserializeData(XmlPullParser in, int outerTagDepth, boolean shared)
+    public void deserializeData(XmlPullParser in, int outerTagDepth)
             throws XmlPullParserException, IOException {
         // Ignore empty reads.
         if (in == null) {
             return;
         }
-        if (shared) {
-            throw new XmlPullParserException("Share data not supported");
-        }
-
         while (!XmlUtil.isNextSectionEnd(in, outerTagDepth)) {
             String[] valueName = new String[1];
             Object value = XmlUtil.readCurrentValue(in, valueName);
@@ -117,10 +107,14 @@ public class SsidSetStoreData implements WifiConfigStore.StoreData {
     }
 
     @Override
-    public void resetData(boolean shared) {
-        if (!shared) {
-            mDataSource.setSsids(new HashSet<>());
-        }
+    public void resetData() {
+        mDataSource.setSsids(new HashSet<>());
+    }
+
+    @Override
+    public boolean hasNewDataToSerialize() {
+        // always persist.
+        return true;
     }
 
     @Override
@@ -129,7 +123,8 @@ public class SsidSetStoreData implements WifiConfigStore.StoreData {
     }
 
     @Override
-    public boolean supportShareData() {
-        return false;
+    public @WifiConfigStore.StoreFileId int getStoreFileId() {
+        // Shared general store.
+        return WifiConfigStore.STORE_FILE_USER_GENERAL;
     }
 }

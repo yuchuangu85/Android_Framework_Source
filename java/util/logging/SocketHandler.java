@@ -165,6 +165,7 @@ public class SocketHandler extends StreamHandler {
             throw new IllegalArgumentException("Null host name: " + host);
         }
 
+        // Android-added: Enforce cleartext policy.
         if (!NetworkSecurityPolicy.getInstance().isCleartextTrafficPermitted()) {
             throw new IOException("Cleartext traffic not permitted");
         }

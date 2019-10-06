@@ -19,6 +19,7 @@ package android.preference;
 import android.animation.LayoutTransition;
 import android.annotation.Nullable;
 import android.annotation.StringRes;
+import android.annotation.UnsupportedAppUsage;
 import android.annotation.XmlRes;
 import android.app.Fragment;
 import android.app.FragmentBreadCrumbs;
@@ -79,7 +80,7 @@ import java.util.List;
  * <li>On a small screen it may display only the headers as a single list when first launched.
  * Selecting one of the header items will only show the PreferenceFragment of that header (on
  * Android N and lower a new Activity is launched).
- * <li>On a large screen in may display both the headers and current PreferenceFragment together as
+ * <li>On a large screen it may display both the headers and current PreferenceFragment together as
  * panes. Selecting a header item switches to showing the correct PreferenceFragment for that item.
  * </ul>
  *
@@ -96,34 +97,13 @@ import java.util.List;
  * guide.</p>
  * </div>
  *
- * <a name="SampleCode"></a>
- * <h3>Sample Code</h3>
- *
- * <p>The following sample code shows a simple preference activity that
- * has two different sets of preferences.  The implementation, consisting
- * of the activity itself as well as its two preference fragments is:</p>
- *
- * {@sample development/samples/ApiDemos/src/com/example/android/apis/preference/PreferenceWithHeaders.java
- *      activity}
- *
- * <p>The preference_headers resource describes the headers to be displayed
- * and the fragments associated with them.  It is:
- *
- * {@sample development/samples/ApiDemos/res/xml/preference_headers.xml headers}
- *
- * <p>The first header is shown by Prefs1Fragment, which populates itself
- * from the following XML resource:</p>
- *
- * {@sample development/samples/ApiDemos/res/xml/fragmented_preferences.xml preferences}
- *
- * <p>Note that this XML resource contains a preference screen holding another
- * fragment, the Prefs1FragmentInner implemented here.  This allows the user
- * to traverse down a hierarchy of preferences; pressing back will pop each
- * fragment off the stack to return to the previous preferences.
- *
- * <p>See {@link PreferenceFragment} for information on implementing the
- * fragments themselves.
+ * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+ *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+ *      Preference Library</a> for consistent behavior across all devices. For more information on
+ *      using the AndroidX Preference Library see
+ *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
  */
+@Deprecated
 public abstract class PreferenceActivity extends ListActivity implements
         PreferenceManager.OnPreferenceTreeClickListener,
         PreferenceFragment.OnPreferenceStartFragmentCallback {
@@ -198,6 +178,7 @@ public abstract class PreferenceActivity extends ListActivity implements
 
     private FrameLayout mListFooter;
 
+    @UnsupportedAppUsage
     private ViewGroup mPrefsContainer;
 
     // Backup of the original activity title. This is used when navigating back to the headers list
@@ -215,6 +196,7 @@ public abstract class PreferenceActivity extends ListActivity implements
 
     // --- State for old mode when showing a single preference list
 
+    @UnsupportedAppUsage
     private PreferenceManager mPreferenceManager;
 
     private Bundle mSavedInstanceState;
@@ -334,7 +316,14 @@ public abstract class PreferenceActivity extends ListActivity implements
 
     /**
      * Description of a single Header item that the user can select.
+     *
+     * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+     *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+     *      Preference Library</a> for consistent behavior across all devices.
+     *      For more information on using the AndroidX Preference Library see
+     *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
      */
+    @Deprecated
     public static final class Header implements Parcelable {
         /**
          * Identifier for this header, to correlate with a new list when
@@ -529,7 +518,7 @@ public abstract class PreferenceActivity extends ListActivity implements
             readFromParcel(in);
         }
 
-        public static final Creator<Header> CREATOR = new Creator<Header>() {
+        public static final @android.annotation.NonNull Creator<Header> CREATOR = new Creator<Header>() {
             public Header createFromParcel(Parcel source) {
                 return new Header(source);
             }
@@ -739,6 +728,7 @@ public abstract class PreferenceActivity extends ListActivity implements
      * Returns the Header list
      * @hide
      */
+    @UnsupportedAppUsage
     public List<Header> getHeaders() {
         return mHeaders;
     }
@@ -1441,6 +1431,7 @@ public abstract class PreferenceActivity extends ListActivity implements
      * Binding late is preferred as any custom preference types created in
      * {@link #onCreate(Bundle)} are able to have their views recycled.
      */
+    @UnsupportedAppUsage
     private void postBindPreferences() {
         if (mHandler.hasMessages(MSG_BIND_PREFERENCES)) return;
         mHandler.obtainMessage(MSG_BIND_PREFERENCES).sendToTarget();
@@ -1469,6 +1460,7 @@ public abstract class PreferenceActivity extends ListActivity implements
         return mPreferenceManager;
     }
 
+    @UnsupportedAppUsage
     private void requirePreferenceManager() {
         if (mPreferenceManager == null) {
             if (mAdapter == null) {

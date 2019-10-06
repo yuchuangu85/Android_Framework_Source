@@ -20,6 +20,7 @@ import android.content.Context;
 import android.util.Log;
 
 import com.android.server.SystemService;
+import com.android.server.wifi.WifiInjector;
 
 /**
  * Wifi P2p Service class, instantiates P2p service
@@ -33,7 +34,7 @@ public final class WifiP2pService extends SystemService {
 
     public WifiP2pService(Context context) {
         super(context);
-        mImpl = new WifiP2pServiceImpl(context);
+        mImpl = new WifiP2pServiceImpl(context, WifiInjector.getInstance());
     }
 
     @Override

@@ -16,16 +16,29 @@
 
 package android.telephony;
 
+import android.Manifest;
 import android.annotation.NonNull;
+import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
+import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.HandlerExecutor;
 import android.os.Looper;
-import android.os.Message;
+import android.telephony.emergency.EmergencyNumber;
+import android.telephony.ims.ImsReasonInfo;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.IPhoneStateListener;
 
-import java.util.List;
 import java.lang.ref.WeakReference;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Executor;
+
+import dalvik.system.VMRuntime;
 
 /**
  * A listener class for monitoring changes in specific telephony states
@@ -34,7 +47,8 @@ import java.lang.ref.WeakReference;
  * <p>
  * Override the methods for the state that you wish to receive updates for, and
  * pass your PhoneStateListener object, along with bitwise-or of the LISTEN_
- * flags to {@link TelephonyManager#listen TelephonyManager.listen()}.
+ * flags to {@link TelephonyManager#listen TelephonyManager.listen()}. Methods are
+ * called when the state changes, as well as once on initial registration.
  * <p>
  * Note that access to some telephony information is
  * permission-protected. Your application won't receive updates for protected
@@ -48,6 +62,8 @@ public class PhoneStateListener {
 
     /**
      * Stop listening for updates.
+     *
+     * The PhoneStateListener is not tied to any subscription and unregistered for any update.
      */
     public static final int LISTEN_NONE = 0;
 
@@ -163,24 +179,23 @@ public class PhoneStateListener {
     public static final int LISTEN_CELL_INFO = 0x00000400;
 
     /**
-     * Listen for precise changes and fails to the device calls (cellular).
-     * {@more}
-     * Requires Permission: {@link android.Manifest.permission#READ_PRECISE_PHONE_STATE
-     * READ_PRECISE_PHONE_STATE}
+     * Listen for {@link PreciseCallState.State} of ringing, background and foreground calls.
      *
      * @hide
      */
+    @RequiresPermission((android.Manifest.permission.READ_PRECISE_PHONE_STATE))
+    @SystemApi
     public static final int LISTEN_PRECISE_CALL_STATE                       = 0x00000800;
 
     /**
-     * Listen for precise changes and fails on the data connection (cellular).
-     * {@more}
-     * Requires Permission: {@link android.Manifest.permission#READ_PRECISE_PHONE_STATE
-     * READ_PRECISE_PHONE_STATE}
+     * Listen for {@link PreciseDataConnectionState} on the data connection (cellular).
      *
      * @see #onPreciseDataConnectionStateChanged
+     *
      * @hide
      */
+    @RequiresPermission((android.Manifest.permission.READ_PRECISE_PHONE_STATE))
+    @SystemApi
     public static final int LISTEN_PRECISE_DATA_CONNECTION_STATE            = 0x00001000;
 
     /**
@@ -197,12 +212,13 @@ public class PhoneStateListener {
     public static final int LISTEN_DATA_CONNECTION_REAL_TIME_INFO           = 0x00002000;
 
     /**
-     * Listen for changes to LTE network state
-     *
-     * @see #onLteNetworkStateChanged
+     * Listen for changes to the SRVCC state of the active call.
+     * @see #onServiceStateChanged(ServiceState)
      * @hide
      */
-    public static final int LISTEN_VOLTE_STATE                              = 0x00004000;
+    @SystemApi
+    @RequiresPermission(Manifest.permission.READ_PRIVILEGED_PHONE_STATE)
+    public static final int LISTEN_SRVCC_STATE_CHANGED                     = 0x00004000;
 
     /**
      * Listen for OEM hook raw event
@@ -224,34 +240,35 @@ public class PhoneStateListener {
     public static final int LISTEN_CARRIER_NETWORK_CHANGE                   = 0x00010000;
 
     /**
-     *  Listen for changes to the sim voice activation state
-     *  @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATING
-     *  @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED
-     *  @see TelephonyManager#SIM_ACTIVATION_STATE_DEACTIVATED
-     *  @see TelephonyManager#SIM_ACTIVATION_STATE_RESTRICTED
-     *  @see TelephonyManager#SIM_ACTIVATION_STATE_UNKNOWN
-     *  {@more}
-     *  Example: TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED indicates voice service has been
-     *  fully activated
+     * Listen for changes to the sim voice activation state
+     * @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATING
+     * @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED
+     * @see TelephonyManager#SIM_ACTIVATION_STATE_DEACTIVATED
+     * @see TelephonyManager#SIM_ACTIVATION_STATE_RESTRICTED
+     * @see TelephonyManager#SIM_ACTIVATION_STATE_UNKNOWN
+     * {@more}
+     * Example: TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED indicates voice service has been
+     * fully activated
      *
-     *  @see #onVoiceActivationStateChanged
-     *  @hide
+     * @see #onVoiceActivationStateChanged
+     * @hide
      */
+    @SystemApi
     public static final int LISTEN_VOICE_ACTIVATION_STATE                   = 0x00020000;
 
     /**
-     *  Listen for changes to the sim data activation state
-     *  @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATING
-     *  @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED
-     *  @see TelephonyManager#SIM_ACTIVATION_STATE_DEACTIVATED
-     *  @see TelephonyManager#SIM_ACTIVATION_STATE_RESTRICTED
-     *  @see TelephonyManager#SIM_ACTIVATION_STATE_UNKNOWN
-     *  {@more}
-     *  Example: TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED indicates data service has been
-     *  fully activated
+     * Listen for changes to the sim data activation state
+     * @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATING
+     * @see TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED
+     * @see TelephonyManager#SIM_ACTIVATION_STATE_DEACTIVATED
+     * @see TelephonyManager#SIM_ACTIVATION_STATE_RESTRICTED
+     * @see TelephonyManager#SIM_ACTIVATION_STATE_UNKNOWN
+     * {@more}
+     * Example: TelephonyManager#SIM_ACTIVATION_STATE_ACTIVATED indicates data service has been
+     * fully activated
      *
-     *  @see #onDataActivationStateChanged
-     *  @hide
+     * @see #onDataActivationStateChanged
+     * @hide
      */
     public static final int LISTEN_DATA_ACTIVATION_STATE                   = 0x00040000;
 
@@ -270,14 +287,95 @@ public class PhoneStateListener {
      */
     public static final int LISTEN_PHYSICAL_CHANNEL_CONFIGURATION          = 0x00100000;
 
+    /**
+     *  Listen for changes to the phone capability.
+     *
+     *  @see #onPhoneCapabilityChanged
+     *  @hide
+     */
+    public static final int LISTEN_PHONE_CAPABILITY_CHANGE                 = 0x00200000;
+
+    /**
+     *  Listen for changes to active data subId. Active data subscription is
+     *  the current subscription used to setup Cellular Internet data. For example,
+     *  it could be the current active opportunistic subscription in use, or the
+     *  subscription user selected as default data subscription in DSDS mode.
+     *
+     *  Requires Permission: No permission is required to listen, but notification requires
+     *  {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE} or the calling
+     *  app has carrier privileges (see {@link TelephonyManager#hasCarrierPrivileges})
+     *  on any active subscription.
+     *
+     *  @see #onActiveDataSubscriptionIdChanged
+     */
+    public static final int LISTEN_ACTIVE_DATA_SUBSCRIPTION_ID_CHANGE = 0x00400000;
+
+    /**
+     *  Listen for changes to the radio power state.
+     *
+     *  @see #onRadioPowerStateChanged
+     *  @hide
+     */
+    @SystemApi
+    public static final int LISTEN_RADIO_POWER_STATE_CHANGED               = 0x00800000;
+
+    /**
+     * Listen for changes to emergency number list based on all active subscriptions.
+     *
+     * <p>Requires permission {@link android.Manifest.permission#READ_PHONE_STATE} or the calling
+     * app has carrier privileges (see {@link TelephonyManager#hasCarrierPrivileges}).
+     *
+     * @see #onEmergencyNumberListChanged
+     */
+    public static final int LISTEN_EMERGENCY_NUMBER_LIST                   = 0x01000000;
+
+    /**
+     * Listen for call disconnect causes which contains {@link DisconnectCause} and
+     * {@link PreciseDisconnectCause}.
+     *
+     * @hide
+     */
+    @RequiresPermission((android.Manifest.permission.READ_PRECISE_PHONE_STATE))
+    @SystemApi
+    public static final int LISTEN_CALL_DISCONNECT_CAUSES                  = 0x02000000;
+
+    /**
+     * Listen for changes to the call attributes of a currently active call.
+     * {@more}
+     * Requires Permission: {@link android.Manifest.permission#READ_PRECISE_PHONE_STATE
+     * READ_PRECISE_PHONE_STATE}
+     *
+     * @see #onCallAttributesChanged
+     * @hide
+     */
+    @SystemApi
+    public static final int LISTEN_CALL_ATTRIBUTES_CHANGED                 = 0x04000000;
+
+    /**
+     * Listen for IMS call disconnect causes which contains
+     * {@link android.telephony.ims.ImsReasonInfo}
+     *
+     * @see #onImsCallDisconnectCauseChanged(ImsReasonInfo)
+     * @hide
+     */
+    @RequiresPermission((android.Manifest.permission.READ_PRECISE_PHONE_STATE))
+    @SystemApi
+    public static final int LISTEN_IMS_CALL_DISCONNECT_CAUSES              = 0x08000000;
+
     /*
      * Subscription used to listen to the phone state changes
      * @hide
      */
     /** @hide */
+    @UnsupportedAppUsage
     protected Integer mSubId;
 
-    private final Handler mHandler;
+    /**
+     * @hide
+     */
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+    @UnsupportedAppUsage
+    public final IPhoneStateListener callback;
 
     /**
      * Create a PhoneStateListener for the Phone with the default subscription.
@@ -292,6 +390,7 @@ public class PhoneStateListener {
      * using a particular non-null Looper.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public PhoneStateListener(Looper looper) {
         this(null, looper);
     }
@@ -302,99 +401,58 @@ public class PhoneStateListener {
      * own non-null Looper use PhoneStateListener(int subId, Looper looper) below.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public PhoneStateListener(Integer subId) {
         this(subId, Looper.myLooper());
+        if (subId != null && VMRuntime.getRuntime().getTargetSdkVersion()
+                >= Build.VERSION_CODES.Q) {
+            throw new IllegalArgumentException("PhoneStateListener with subId: "
+                    + subId + " is not supported, use default constructor");
+        }
     }
-
     /**
      * Create a PhoneStateListener for the Phone using the specified subscription
      * and non-null Looper.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public PhoneStateListener(Integer subId, Looper looper) {
-        if (DBG) log("ctor: subId=" + subId + " looper=" + looper);
-        mSubId = subId;
-        mHandler = new Handler(looper) {
-            public void handleMessage(Message msg) {
-                if (DBG) {
-                    log("mSubId=" + mSubId + " what=0x" + Integer.toHexString(msg.what)
-                            + " msg=" + msg);
-                }
-                switch (msg.what) {
-                    case LISTEN_SERVICE_STATE:
-                        PhoneStateListener.this.onServiceStateChanged((ServiceState)msg.obj);
-                        break;
-                    case LISTEN_SIGNAL_STRENGTH:
-                        PhoneStateListener.this.onSignalStrengthChanged(msg.arg1);
-                        break;
-                    case LISTEN_MESSAGE_WAITING_INDICATOR:
-                        PhoneStateListener.this.onMessageWaitingIndicatorChanged(msg.arg1 != 0);
-                        break;
-                    case LISTEN_CALL_FORWARDING_INDICATOR:
-                        PhoneStateListener.this.onCallForwardingIndicatorChanged(msg.arg1 != 0);
-                        break;
-                    case LISTEN_CELL_LOCATION:
-                        PhoneStateListener.this.onCellLocationChanged((CellLocation)msg.obj);
-                        break;
-                    case LISTEN_CALL_STATE:
-                        PhoneStateListener.this.onCallStateChanged(msg.arg1, (String)msg.obj);
-                        break;
-                    case LISTEN_DATA_CONNECTION_STATE:
-                        PhoneStateListener.this.onDataConnectionStateChanged(msg.arg1, msg.arg2);
-                        PhoneStateListener.this.onDataConnectionStateChanged(msg.arg1);
-                        break;
-                    case LISTEN_DATA_ACTIVITY:
-                        PhoneStateListener.this.onDataActivity(msg.arg1);
-                        break;
-                    case LISTEN_SIGNAL_STRENGTHS:
-                        PhoneStateListener.this.onSignalStrengthsChanged((SignalStrength)msg.obj);
-                        break;
-                    case LISTEN_OTASP_CHANGED:
-                        PhoneStateListener.this.onOtaspChanged(msg.arg1);
-                        break;
-                    case LISTEN_CELL_INFO:
-                        PhoneStateListener.this.onCellInfoChanged((List<CellInfo>)msg.obj);
-                        break;
-                    case LISTEN_PRECISE_CALL_STATE:
-                        PhoneStateListener.this.onPreciseCallStateChanged((PreciseCallState)msg.obj);
-                        break;
-                    case LISTEN_PRECISE_DATA_CONNECTION_STATE:
-                        PhoneStateListener.this.onPreciseDataConnectionStateChanged(
-                                (PreciseDataConnectionState)msg.obj);
-                        break;
-                    case LISTEN_DATA_CONNECTION_REAL_TIME_INFO:
-                        PhoneStateListener.this.onDataConnectionRealTimeInfoChanged(
-                                (DataConnectionRealTimeInfo)msg.obj);
-                        break;
-                    case LISTEN_VOLTE_STATE:
-                        PhoneStateListener.this.onVoLteServiceStateChanged((VoLteServiceState)msg.obj);
-                        break;
-                    case LISTEN_VOICE_ACTIVATION_STATE:
-                        PhoneStateListener.this.onVoiceActivationStateChanged((int)msg.obj);
-                        break;
-                    case LISTEN_DATA_ACTIVATION_STATE:
-                        PhoneStateListener.this.onDataActivationStateChanged((int)msg.obj);
-                        break;
-                    case LISTEN_USER_MOBILE_DATA_STATE:
-                        PhoneStateListener.this.onUserMobileDataStateChanged((boolean)msg.obj);
-                        break;
-                    case LISTEN_OEM_HOOK_RAW_EVENT:
-                        PhoneStateListener.this.onOemHookRawEvent((byte[])msg.obj);
-                        break;
-                    case LISTEN_CARRIER_NETWORK_CHANGE:
-                        PhoneStateListener.this.onCarrierNetworkChange((boolean)msg.obj);
-                        break;
-                    case LISTEN_PHYSICAL_CHANNEL_CONFIGURATION:
-                        PhoneStateListener.this.onPhysicalChannelConfigurationChanged(
-                                (List<PhysicalChannelConfig>)msg.obj);
-                        break;
-                }
-            }
-        };
+        this(subId, new HandlerExecutor(new Handler(looper)));
+        if (subId != null && VMRuntime.getRuntime().getTargetSdkVersion()
+                >= Build.VERSION_CODES.Q) {
+            throw new IllegalArgumentException("PhoneStateListener with subId: "
+                    + subId + " is not supported, use default constructor");
+        }
     }
 
     /**
-     * Callback invoked when device service state changes.
+     * Create a PhoneStateListener for the Phone using the specified Executor
+     *
+     * <p>Create a PhoneStateListener with a specified Executor for handling necessary callbacks.
+     * The Executor must not be null.
+     *
+     * @param executor a non-null Executor that will execute callbacks for the PhoneStateListener.
+     */
+    public PhoneStateListener(@NonNull Executor executor) {
+        this(null, executor);
+    }
+
+    private PhoneStateListener(Integer subId, Executor e) {
+        if (e == null) {
+            throw new IllegalArgumentException("PhoneStateListener Executor must be non-null");
+        }
+        mSubId = subId;
+        callback = new IPhoneStateListenerStub(this, e);
+    }
+
+    /**
+     * Callback invoked when device service state changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
      *
      * @see ServiceState#STATE_EMERGENCY_ONLY
      * @see ServiceState#STATE_IN_SERVICE
@@ -406,7 +464,13 @@ public class PhoneStateListener {
     }
 
     /**
-     * Callback invoked when network signal strength changes.
+     * Callback invoked when network signal strength changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
      *
      * @see ServiceState#STATE_EMERGENCY_ONLY
      * @see ServiceState#STATE_IN_SERVICE
@@ -420,21 +484,39 @@ public class PhoneStateListener {
     }
 
     /**
-     * Callback invoked when the message-waiting indicator changes.
+     * Callback invoked when the message-waiting indicator changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
      */
     public void onMessageWaitingIndicatorChanged(boolean mwi) {
         // default implementation empty
     }
 
     /**
-     * Callback invoked when the call-forwarding indicator changes.
+     * Callback invoked when the call-forwarding indicator changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
      */
     public void onCallForwardingIndicatorChanged(boolean cfi) {
         // default implementation empty
     }
 
     /**
-     * Callback invoked when device cell location changes.
+     * Callback invoked when device cell location changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
      */
     public void onCellLocationChanged(CellLocation location) {
         // default implementation empty
@@ -442,22 +524,39 @@ public class PhoneStateListener {
 
     /**
      * Callback invoked when device call state changes.
+     * <p>
+     * Reports the state of Telephony (mobile) calls on the device for the registered subscription.
+     * <p>
+     * Note: the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     * <p>
+     * Note: The state returned here may differ from that returned by
+     * {@link TelephonyManager#getCallState()}. Receivers of this callback should be aware that
+     * calling {@link TelephonyManager#getCallState()} from within this callback may return a
+     * different state than the callback reports.
+     *
      * @param state call state
      * @param phoneNumber call phone number. If application does not have
      * {@link android.Manifest.permission#READ_CALL_LOG READ_CALL_LOG} permission or carrier
      * privileges (see {@link TelephonyManager#hasCarrierPrivileges}), an empty string will be
      * passed as an argument.
-     *
-     * @see TelephonyManager#CALL_STATE_IDLE
-     * @see TelephonyManager#CALL_STATE_RINGING
-     * @see TelephonyManager#CALL_STATE_OFFHOOK
      */
-    public void onCallStateChanged(int state, String phoneNumber) {
+    public void onCallStateChanged(@TelephonyManager.CallState int state, String phoneNumber) {
         // default implementation empty
     }
 
     /**
-     * Callback invoked when connection state changes.
+     * Callback invoked when connection state changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
      *
      * @see TelephonyManager#DATA_DISCONNECTED
      * @see TelephonyManager#DATA_CONNECTING
@@ -475,7 +574,13 @@ public class PhoneStateListener {
     }
 
     /**
-     * Callback invoked when data activity state changes.
+     * Callback invoked when data activity state changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
      *
      * @see TelephonyManager#DATA_ACTIVITY_NONE
      * @see TelephonyManager#DATA_ACTIVITY_IN
@@ -488,12 +593,13 @@ public class PhoneStateListener {
     }
 
     /**
-     * Callback invoked when network signal strengths changes.
-     *
-     * @see ServiceState#STATE_EMERGENCY_ONLY
-     * @see ServiceState#STATE_IN_SERVICE
-     * @see ServiceState#STATE_OUT_OF_SERVICE
-     * @see ServiceState#STATE_POWER_OFF
+     * Callback invoked when network signal strengths changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
      */
     public void onSignalStrengthsChanged(SignalStrength signalStrength) {
         // default implementation empty
@@ -501,8 +607,15 @@ public class PhoneStateListener {
 
 
     /**
-     * The Over The Air Service Provisioning (OTASP) has changed. Requires
-     * the READ_PHONE_STATE permission.
+     * The Over The Air Service Provisioning (OTASP) has changed on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     *
+     * Requires the READ_PHONE_STATE permission.
      * @param otaspMode is integer <code>OTASP_UNKNOWN=1<code>
      *   means the value is currently unknown and the system should wait until
      *   <code>OTASP_NEEDED=2<code> or <code>OTASP_NOT_NEEDED=3<code> is received before
@@ -510,76 +623,180 @@ public class PhoneStateListener {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void onOtaspChanged(int otaspMode) {
         // default implementation empty
     }
 
     /**
-     * Callback invoked when a observed cell info has changed,
-     * or new cells have been added or removed.
+     * Callback invoked when a observed cell info has changed or new cells have been added
+     * or removed on the registered subscription.
+     * Note, the registration subId s from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     *
      * @param cellInfo is the list of currently visible cells.
      */
     public void onCellInfoChanged(List<CellInfo> cellInfo) {
     }
 
     /**
-     * Callback invoked when precise device call state changes.
-     *
+     * Callback invoked when precise device call state changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     * @param callState {@link PreciseCallState}
      * @hide
      */
-    public void onPreciseCallStateChanged(PreciseCallState callState) {
+    @RequiresPermission((android.Manifest.permission.READ_PRECISE_PHONE_STATE))
+    @SystemApi
+    public void onPreciseCallStateChanged(@NonNull PreciseCallState callState) {
         // default implementation empty
     }
 
     /**
-     * Callback invoked when data connection state changes with precise information.
+     * Callback invoked when call disconnect cause changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     *
+     * @param disconnectCause {@link DisconnectCause}.
+     * @param preciseDisconnectCause {@link PreciseDisconnectCause}.
      *
      * @hide
      */
+    @RequiresPermission((android.Manifest.permission.READ_PRECISE_PHONE_STATE))
+    @SystemApi
+    public void onCallDisconnectCauseChanged(int disconnectCause, int preciseDisconnectCause) {
+        // default implementation empty
+    }
+
+    /**
+     * Callback invoked when Ims call disconnect cause changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     *
+     * @param imsReasonInfo {@link ImsReasonInfo} contains details on why IMS call failed.
+     *
+     * @hide
+     */
+    @RequiresPermission((android.Manifest.permission.READ_PRECISE_PHONE_STATE))
+    @SystemApi
+    public void onImsCallDisconnectCauseChanged(@NonNull ImsReasonInfo imsReasonInfo) {
+        // default implementation empty
+    }
+
+    /**
+     * Callback invoked when data connection state changes with precise information
+     * on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     *
+     * @param dataConnectionState {@link PreciseDataConnectionState}
+     *
+     * @hide
+     */
+    @RequiresPermission((android.Manifest.permission.READ_PRECISE_PHONE_STATE))
+    @SystemApi
     public void onPreciseDataConnectionStateChanged(
-            PreciseDataConnectionState dataConnectionState) {
+            @NonNull PreciseDataConnectionState dataConnectionState) {
         // default implementation empty
     }
 
     /**
-     * Callback invoked when data connection state changes with precise information.
+     * Callback invoked when data connection real time info changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void onDataConnectionRealTimeInfoChanged(
             DataConnectionRealTimeInfo dcRtInfo) {
         // default implementation empty
     }
 
     /**
-     * Callback invoked when the service state of LTE network
-     * related to the VoLTE service has changed.
-     * @param stateInfo is the current LTE network information
+     * Callback invoked when there has been a change in the Single Radio Voice Call Continuity
+     * (SRVCC) state for the currently active call on the registered subscription.
+     *
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     *
      * @hide
      */
-    public void onVoLteServiceStateChanged(VoLteServiceState stateInfo) {
+    @SystemApi
+    public void onSrvccStateChanged(@TelephonyManager.SrvccState int srvccState) {
+
     }
 
     /**
-     * Callback invoked when the SIM voice activation state has changed
+     * Callback invoked when the SIM voice activation state has changed on the registered
+     * subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     *
      * @param state is the current SIM voice activation state
      * @hide
      */
-    public void onVoiceActivationStateChanged(int state) {
-
+    @SystemApi
+    public void onVoiceActivationStateChanged(@TelephonyManager.SimActivationState int state) {
     }
 
     /**
-     * Callback invoked when the SIM data activation state has changed
+     * Callback invoked when the SIM data activation state has changed on the registered
+     * subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     *
      * @param state is the current SIM data activation state
      * @hide
      */
-    public void onDataActivationStateChanged(int state) {
-
+    public void onDataActivationStateChanged(@TelephonyManager.SimActivationState int state) {
     }
 
     /**
-     * Callback invoked when the user mobile data state has changed
+     * Callback invoked when the user mobile data state has changed on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     *
      * @param enabled indicates whether the current user mobile data state is enabled or disabled.
      */
     public void onUserMobileDataStateChanged(boolean enabled) {
@@ -587,7 +804,14 @@ public class PhoneStateListener {
     }
 
     /**
-     * Callback invoked when the current physical channel configuration has changed
+     * Callback invoked when the current physical channel configuration has changed on the
+     * registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
      *
      * @param configs List of the current {@link PhysicalChannelConfig}s
      * @hide
@@ -598,12 +822,104 @@ public class PhoneStateListener {
     }
 
     /**
-     * Callback invoked when OEM hook raw event is received. Requires
-     * the READ_PRIVILEGED_PHONE_STATE permission.
+     * Callback invoked when the current emergency number list has changed on the registered
+     * subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     *
+     * @param emergencyNumberList Map including the key as the active subscription ID
+     *                           (Note: if there is no active subscription, the key is
+     *                           {@link SubscriptionManager#getDefaultSubscriptionId})
+     *                           and the value as the list of {@link EmergencyNumber};
+     *                           null if this information is not available.
+     * @hide
+     */
+    public void onEmergencyNumberListChanged(
+            @NonNull Map<Integer, List<EmergencyNumber>> emergencyNumberList) {
+        // default implementation empty
+    }
+
+    /**
+     * Callback invoked when OEM hook raw event is received on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     *
+     * Requires the READ_PRIVILEGED_PHONE_STATE permission.
      * @param rawData is the byte array of the OEM hook raw data.
      * @hide
      */
+    @UnsupportedAppUsage
     public void onOemHookRawEvent(byte[] rawData) {
+        // default implementation empty
+    }
+
+    /**
+     * Callback invoked when phone capability changes.
+     * Note, this callback triggers regardless of registered subscription.
+     *
+     * Requires the READ_PRIVILEGED_PHONE_STATE permission.
+     * @param capability the new phone capability
+     * @hide
+     */
+    public void onPhoneCapabilityChanged(PhoneCapability capability) {
+        // default implementation empty
+    }
+
+    /**
+     * Callback invoked when active data subId changes.
+     * Note, this callback triggers regardless of registered subscription.
+     *
+     * Requires the READ_PHONE_STATE permission.
+     * @param subId current subscription used to setup Cellular Internet data.
+     *              For example, it could be the current active opportunistic subscription in use,
+     *              or the subscription user selected as default data subscription in DSDS mode.
+     */
+    public void onActiveDataSubscriptionIdChanged(int subId) {
+        // default implementation empty
+    }
+
+    /**
+     * Callback invoked when the call attributes changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     *
+     * Requires the READ_PRIVILEGED_PHONE_STATE permission.
+     * @param callAttributes the call attributes
+     * @hide
+     */
+    @SystemApi
+    public void onCallAttributesChanged(@NonNull CallAttributes callAttributes) {
+        // default implementation empty
+    }
+
+    /**
+     * Callback invoked when modem radio power state changes on the registered subscription.
+     * Note, the registration subId comes from {@link TelephonyManager} object which registers
+     * PhoneStateListener by {@link TelephonyManager#listen(PhoneStateListener, int)}.
+     * If this TelephonyManager object was created with
+     * {@link TelephonyManager#createForSubscriptionId(int)}, then the callback applies to the
+     * subId. Otherwise, this callback applies to
+     * {@link SubscriptionManager#getDefaultSubscriptionId()}.
+     *
+     * Requires
+     * the READ_PRIVILEGED_PHONE_STATE permission.
+     * @param state the modem radio power state
+     * @hide
+     */
+    @SystemApi
+    public void onRadioPowerStateChanged(@TelephonyManager.RadioPowerState int state) {
         // default implementation empty
     }
 
@@ -612,6 +928,10 @@ public class PhoneStateListener {
      * app that a network action that could result in connectivity loss
      * has been requested by an app using
      * {@link android.telephony.TelephonyManager#notifyCarrierNetworkChange(boolean)}
+     *
+     * Note, this callback is pinned to the registered subscription and will be invoked when
+     * the notifying carrier app has carrier privilege rule on the registered
+     * subscription. {@link android.telephony.TelephonyManager#hasCarrierPrivileges}
      *
      * @param active Whether the carrier network change is or shortly
      *               will be active. This value is true to indicate
@@ -636,107 +956,254 @@ public class PhoneStateListener {
      */
     private static class IPhoneStateListenerStub extends IPhoneStateListener.Stub {
         private WeakReference<PhoneStateListener> mPhoneStateListenerWeakRef;
+        private Executor mExecutor;
 
-        public IPhoneStateListenerStub(PhoneStateListener phoneStateListener) {
+        IPhoneStateListenerStub(PhoneStateListener phoneStateListener, Executor executor) {
             mPhoneStateListenerWeakRef = new WeakReference<PhoneStateListener>(phoneStateListener);
-        }
-
-        private void send(int what, int arg1, int arg2, Object obj) {
-            PhoneStateListener listener = mPhoneStateListenerWeakRef.get();
-            if (listener != null) {
-                Message.obtain(listener.mHandler, what, arg1, arg2, obj).sendToTarget();
-            }
+            mExecutor = executor;
         }
 
         public void onServiceStateChanged(ServiceState serviceState) {
-            send(LISTEN_SERVICE_STATE, 0, 0, serviceState);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onServiceStateChanged(serviceState)));
         }
 
         public void onSignalStrengthChanged(int asu) {
-            send(LISTEN_SIGNAL_STRENGTH, asu, 0, null);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onSignalStrengthChanged(asu)));
         }
 
         public void onMessageWaitingIndicatorChanged(boolean mwi) {
-            send(LISTEN_MESSAGE_WAITING_INDICATOR, mwi ? 1 : 0, 0, null);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onMessageWaitingIndicatorChanged(mwi)));
         }
 
         public void onCallForwardingIndicatorChanged(boolean cfi) {
-            send(LISTEN_CALL_FORWARDING_INDICATOR, cfi ? 1 : 0, 0, null);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onCallForwardingIndicatorChanged(cfi)));
         }
 
         public void onCellLocationChanged(Bundle bundle) {
             CellLocation location = CellLocation.newFromBundle(bundle);
-            send(LISTEN_CELL_LOCATION, 0, 0, location);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onCellLocationChanged(location)));
         }
 
         public void onCallStateChanged(int state, String incomingNumber) {
-            send(LISTEN_CALL_STATE, state, 0, incomingNumber);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onCallStateChanged(state, incomingNumber)));
         }
 
         public void onDataConnectionStateChanged(int state, int networkType) {
-            send(LISTEN_DATA_CONNECTION_STATE, state, networkType, null);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(() -> mExecutor.execute(
+                    () -> {
+                        psl.onDataConnectionStateChanged(state, networkType);
+                        psl.onDataConnectionStateChanged(state);
+                    }));
         }
 
         public void onDataActivity(int direction) {
-            send(LISTEN_DATA_ACTIVITY, direction, 0, null);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onDataActivity(direction)));
         }
 
         public void onSignalStrengthsChanged(SignalStrength signalStrength) {
-            send(LISTEN_SIGNAL_STRENGTHS, 0, 0, signalStrength);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onSignalStrengthsChanged(signalStrength)));
         }
 
         public void onOtaspChanged(int otaspMode) {
-            send(LISTEN_OTASP_CHANGED, otaspMode, 0, null);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onOtaspChanged(otaspMode)));
         }
 
         public void onCellInfoChanged(List<CellInfo> cellInfo) {
-            send(LISTEN_CELL_INFO, 0, 0, cellInfo);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onCellInfoChanged(cellInfo)));
         }
 
         public void onPreciseCallStateChanged(PreciseCallState callState) {
-            send(LISTEN_PRECISE_CALL_STATE, 0, 0, callState);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onPreciseCallStateChanged(callState)));
+        }
+
+        public void onCallDisconnectCauseChanged(int disconnectCause, int preciseDisconnectCause) {
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onCallDisconnectCauseChanged(
+                            disconnectCause, preciseDisconnectCause)));
         }
 
         public void onPreciseDataConnectionStateChanged(
                 PreciseDataConnectionState dataConnectionState) {
-            send(LISTEN_PRECISE_DATA_CONNECTION_STATE, 0, 0, dataConnectionState);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(
+                            () -> psl.onPreciseDataConnectionStateChanged(dataConnectionState)));
         }
 
-        public void onDataConnectionRealTimeInfoChanged(
-                DataConnectionRealTimeInfo dcRtInfo) {
-            send(LISTEN_DATA_CONNECTION_REAL_TIME_INFO, 0, 0, dcRtInfo);
+        public void onDataConnectionRealTimeInfoChanged(DataConnectionRealTimeInfo dcRtInfo) {
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(
+                            () -> psl.onDataConnectionRealTimeInfoChanged(dcRtInfo)));
         }
 
-        public void onVoLteServiceStateChanged(VoLteServiceState lteState) {
-            send(LISTEN_VOLTE_STATE, 0, 0, lteState);
+        public void onSrvccStateChanged(int state) {
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onSrvccStateChanged(state)));
         }
 
         public void onVoiceActivationStateChanged(int activationState) {
-            send(LISTEN_VOICE_ACTIVATION_STATE, 0, 0, activationState);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(
+                            () -> psl.onVoiceActivationStateChanged(activationState)));
         }
 
         public void onDataActivationStateChanged(int activationState) {
-            send(LISTEN_DATA_ACTIVATION_STATE, 0, 0, activationState);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(
+                            () -> psl.onDataActivationStateChanged(activationState)));
         }
 
         public void onUserMobileDataStateChanged(boolean enabled) {
-            send(LISTEN_USER_MOBILE_DATA_STATE, 0, 0, enabled);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(
+                            () -> psl.onUserMobileDataStateChanged(enabled)));
         }
 
         public void onOemHookRawEvent(byte[] rawData) {
-            send(LISTEN_OEM_HOOK_RAW_EVENT, 0, 0, rawData);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onOemHookRawEvent(rawData)));
         }
 
         public void onCarrierNetworkChange(boolean active) {
-            send(LISTEN_CARRIER_NETWORK_CHANGE, 0, 0, active);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onCarrierNetworkChange(active)));
         }
 
         public void onPhysicalChannelConfigurationChanged(List<PhysicalChannelConfig> configs) {
-            send(LISTEN_PHYSICAL_CHANNEL_CONFIGURATION, 0, 0, configs);
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(
+                            () -> psl.onPhysicalChannelConfigurationChanged(configs)));
+        }
+
+        @Override
+        public void onEmergencyNumberListChanged(Map emergencyNumberList) {
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(
+                            () -> psl.onEmergencyNumberListChanged(emergencyNumberList)));
+        }
+
+        public void onPhoneCapabilityChanged(PhoneCapability capability) {
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onPhoneCapabilityChanged(capability)));
+        }
+
+        public void onRadioPowerStateChanged(@TelephonyManager.RadioPowerState int state) {
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onRadioPowerStateChanged(state)));
+        }
+
+        public void onCallAttributesChanged(CallAttributes callAttributes) {
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onCallAttributesChanged(callAttributes)));
+        }
+
+        public void onActiveDataSubIdChanged(int subId) {
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(() -> psl.onActiveDataSubscriptionIdChanged(subId)));
+        }
+
+        public void onImsCallDisconnectCauseChanged(ImsReasonInfo disconnectCause) {
+            PhoneStateListener psl = mPhoneStateListenerWeakRef.get();
+            if (psl == null) return;
+
+            Binder.withCleanCallingIdentity(
+                    () -> mExecutor.execute(
+                            () -> psl.onImsCallDisconnectCauseChanged(disconnectCause)));
+
         }
     }
 
-    IPhoneStateListener callback = new IPhoneStateListenerStub(this);
 
     private void log(String s) {
         Rlog.d(LOG_TAG, s);

@@ -17,6 +17,7 @@
 package android.security.keystore;
 
 import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.security.KeyStore;
 import android.security.keymaster.ExportResult;
 import android.security.keymaster.KeyCharacteristics;
@@ -156,6 +157,7 @@ public class AndroidKeyStoreProvider extends Provider {
      *         by AndroidKeyStore provider.
      * @throws IllegalStateException if the provided primitive is not initialized.
      */
+    @UnsupportedAppUsage
     public static long getKeyStoreOperationHandle(Object cryptoPrimitive) {
         if (cryptoPrimitive == null) {
             throw new NullPointerException();
@@ -226,10 +228,16 @@ public class AndroidKeyStoreProvider extends Provider {
     @NonNull
     private static KeyCharacteristics getKeyCharacteristics(@NonNull KeyStore keyStore,
             @NonNull String alias, int uid)
-            throws UnrecoverableKeyException {
+            throws UnrecoverableKeyException, KeyPermanentlyInvalidatedException {
         KeyCharacteristics keyCharacteristics = new KeyCharacteristics();
         int errorCode = keyStore.getKeyCharacteristics(
                 alias, null, null, uid, keyCharacteristics);
+        if (errorCode == KeyStore.KEY_PERMANENTLY_INVALIDATED) {
+            throw (KeyPermanentlyInvalidatedException)
+                new KeyPermanentlyInvalidatedException(
+                            "User changed or deleted their auth credentials",
+                            KeyStore.getKeyStoreException(errorCode));
+        }
         if (errorCode != KeyStore.NO_ERROR) {
             throw (UnrecoverableKeyException)
                     new UnrecoverableKeyException("Failed to obtain information about key")
@@ -274,7 +282,7 @@ public class AndroidKeyStoreProvider extends Provider {
     @NonNull
     public static AndroidKeyStorePublicKey loadAndroidKeyStorePublicKeyFromKeystore(
             @NonNull KeyStore keyStore, @NonNull String privateKeyAlias, int uid)
-            throws UnrecoverableKeyException {
+            throws UnrecoverableKeyException, KeyPermanentlyInvalidatedException {
         return loadAndroidKeyStorePublicKeyFromKeystore(keyStore, privateKeyAlias, uid,
                 getKeyCharacteristics(keyStore, privateKeyAlias, uid));
     }
@@ -295,7 +303,7 @@ public class AndroidKeyStoreProvider extends Provider {
     @NonNull
     public static KeyPair loadAndroidKeyStoreKeyPairFromKeystore(
             @NonNull KeyStore keyStore, @NonNull String privateKeyAlias, int uid)
-            throws UnrecoverableKeyException {
+            throws UnrecoverableKeyException, KeyPermanentlyInvalidatedException {
         return loadAndroidKeyStoreKeyPairFromKeystore(keyStore, privateKeyAlias, uid,
                 getKeyCharacteristics(keyStore, privateKeyAlias, uid));
     }
@@ -313,7 +321,7 @@ public class AndroidKeyStoreProvider extends Provider {
     @NonNull
     public static AndroidKeyStorePrivateKey loadAndroidKeyStorePrivateKeyFromKeystore(
             @NonNull KeyStore keyStore, @NonNull String privateKeyAlias, int uid)
-            throws UnrecoverableKeyException {
+            throws UnrecoverableKeyException, KeyPermanentlyInvalidatedException {
         return loadAndroidKeyStorePrivateKeyFromKeystore(keyStore, privateKeyAlias, uid,
                 getKeyCharacteristics(keyStore, privateKeyAlias, uid));
     }
@@ -352,7 +360,7 @@ public class AndroidKeyStoreProvider extends Provider {
     @NonNull
     public static AndroidKeyStoreKey loadAndroidKeyStoreKeyFromKeystore(
             @NonNull KeyStore keyStore, @NonNull String userKeyAlias, int uid)
-            throws UnrecoverableKeyException  {
+            throws UnrecoverableKeyException, KeyPermanentlyInvalidatedException  {
         KeyCharacteristics keyCharacteristics = getKeyCharacteristics(keyStore, userKeyAlias, uid);
 
         Integer keymasterAlgorithm = keyCharacteristics.getEnum(KeymasterDefs.KM_TAG_ALGORITHM);

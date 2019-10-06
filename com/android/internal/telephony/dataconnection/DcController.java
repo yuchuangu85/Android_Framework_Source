@@ -17,6 +17,7 @@
 package com.android.internal.telephony.dataconnection;
 
 import android.content.Context;
+import android.hardware.radio.V1_4.DataConnActiveStatus;
 import android.net.INetworkPolicyListener;
 import android.net.LinkAddress;
 import android.net.LinkProperties.CompareResult;
@@ -26,7 +27,8 @@ import android.os.AsyncResult;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
-import android.telephony.AccessNetworkConstants.TransportType;
+import android.telephony.AccessNetworkConstants;
+import android.telephony.DataFailCause;
 import android.telephony.PhoneStateListener;
 import android.telephony.Rlog;
 import android.telephony.TelephonyManager;
@@ -34,7 +36,6 @@ import android.telephony.data.DataCallResponse;
 
 import com.android.internal.telephony.DctConstants;
 import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.dataconnection.DataConnection.UpdateLinkPropertyResult;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
@@ -43,6 +44,7 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
 /**
  * Data Connection Controller which is a package visible class and controls
@@ -63,17 +65,6 @@ public class DcController extends StateMachine {
     final ArrayList<DataConnection> mDcListAll = new ArrayList<>();
     // @GuardedBy("mDcListAll")
     private final HashMap<Integer, DataConnection> mDcListActiveByCid = new HashMap<>();
-
-    /**
-     * Constants for the data connection activity:
-     * physical link down/up
-     *
-     * TODO: Move to RILConstants.java
-     */
-    static final int DATA_CONNECTION_ACTIVE_PH_LINK_INACTIVE = 0;
-    static final int DATA_CONNECTION_ACTIVE_PH_LINK_DORMANT = 1;
-    static final int DATA_CONNECTION_ACTIVE_PH_LINK_UP = 2;
-    static final int DATA_CONNECTION_ACTIVE_UNKNOWN = Integer.MAX_VALUE;
 
     private DccDefaultState mDccDefaultState = new DccDefaultState();
 
@@ -130,9 +121,9 @@ public class DcController extends StateMachine {
     }
 
     public static DcController makeDcc(Phone phone, DcTracker dct,
-                                       DataServiceManager dataServiceManager, Handler handler) {
-        DcController dcc = new DcController("Dcc", phone, dct, dataServiceManager, handler);
-        return dcc;
+                                       DataServiceManager dataServiceManager, Handler handler,
+                                       String tagSuffix) {
+        return new DcController("Dcc" + tagSuffix, phone, dct, dataServiceManager, handler);
     }
 
     void dispose() {
@@ -201,7 +192,7 @@ public class DcController extends StateMachine {
         @Override
         public void enter() {
             if (mPhone != null && mDataServiceManager.getTransportType()
-                    == TransportType.WWAN) {
+                    == AccessNetworkConstants.TRANSPORT_TYPE_WWAN) {
                 mPhone.mCi.registerForRilConnected(getHandler(),
                         DataConnection.EVENT_RIL_CONNECTED, null);
             }
@@ -217,7 +208,7 @@ public class DcController extends StateMachine {
         @Override
         public void exit() {
             if (mPhone != null & mDataServiceManager.getTransportType()
-                    == TransportType.WWAN) {
+                    == AccessNetworkConstants.TRANSPORT_TYPE_WWAN) {
                 mPhone.mCi.unregisterForRilConnected(getHandler());
             }
             mDataServiceManager.unregisterForDataCallListChanged(getHandler());
@@ -284,7 +275,7 @@ public class DcController extends StateMachine {
             HashMap<Integer, DataCallResponse> dataCallResponseListByCid =
                     new HashMap<Integer, DataCallResponse>();
             for (DataCallResponse dcs : dcsList) {
-                dataCallResponseListByCid.put(dcs.getCallId(), dcs);
+                dataCallResponseListByCid.put(dcs.getId(), dcs);
             }
 
             // Add a DC that is active but not in the
@@ -307,29 +298,30 @@ public class DcController extends StateMachine {
 
             for (DataCallResponse newState : dcsList) {
 
-                DataConnection dc = dcListActiveByCid.get(newState.getCallId());
+                DataConnection dc = dcListActiveByCid.get(newState.getId());
                 if (dc == null) {
                     // UNSOL_DATA_CALL_LIST_CHANGED arrived before SETUP_DATA_CALL completed.
                     loge("onDataStateChanged: no associated DC yet, ignore");
                     continue;
                 }
 
-                if (dc.mApnContexts.size() == 0) {
+                List<ApnContext> apnContexts = dc.getApnContexts();
+                if (apnContexts.size() == 0) {
                     if (DBG) loge("onDataStateChanged: no connected apns, ignore");
                 } else {
                     // Determine if the connection/apnContext should be cleaned up
                     // or just a notification should be sent out.
                     if (DBG) {
-                        log("onDataStateChanged: Found ConnId=" + newState.getCallId()
+                        log("onDataStateChanged: Found ConnId=" + newState.getId()
                                 + " newState=" + newState.toString());
                     }
-                    if (newState.getActive() == DATA_CONNECTION_ACTIVE_PH_LINK_INACTIVE) {
+                    if (newState.getLinkStatus() == DataConnActiveStatus.INACTIVE) {
                         if (mDct.isCleanupRequired.get()) {
-                            apnsToCleanup.addAll(dc.mApnContexts.keySet());
+                            apnsToCleanup.addAll(apnContexts);
                             mDct.isCleanupRequired.set(false);
                         } else {
-                            DcFailCause failCause = DcFailCause.fromInt(newState.getStatus());
-                            if (failCause.isRestartRadioFail(mPhone.getContext(),
+                            int failCause = DataFailCause.getFailCause(newState.getCause());
+                            if (DataFailCause.isRadioRestartFailure(mPhone.getContext(), failCause,
                                         mPhone.getSubId())) {
                                 if (DBG) {
                                     log("onDataStateChanged: X restart radio, failCause="
@@ -341,7 +333,7 @@ public class DcController extends StateMachine {
                                     log("onDataStateChanged: inactive, add to cleanup list. "
                                             + "failCause=" + failCause);
                                 }
-                                apnsToCleanup.addAll(dc.mApnContexts.keySet());
+                                apnsToCleanup.addAll(apnContexts);
                             } else {
                                 if (DBG) {
                                     log("onDataStateChanged: inactive, add to retry list. "
@@ -382,19 +374,17 @@ public class DcController extends StateMachine {
                                     }
                                     if (needToClean) {
                                         if (DBG) {
-                                            log("onDataStateChanged: addr change," +
-                                                    " cleanup apns=" + dc.mApnContexts +
-                                                    " oldLp=" + result.oldLp +
-                                                    " newLp=" + result.newLp);
+                                            log("onDataStateChanged: addr change,"
+                                                    + " cleanup apns=" + apnContexts
+                                                    + " oldLp=" + result.oldLp
+                                                    + " newLp=" + result.newLp);
                                         }
-                                        apnsToCleanup.addAll(dc.mApnContexts.keySet());
+                                        apnsToCleanup.addAll(apnContexts);
                                     } else {
                                         if (DBG) log("onDataStateChanged: simple change");
 
-                                        for (ApnContext apnContext : dc.mApnContexts.keySet()) {
-                                             mPhone.notifyDataConnection(
-                                                 PhoneConstants.REASON_LINK_PROPERTIES_CHANGED,
-                                                 apnContext.getApnType());
+                                        for (ApnContext apnContext : apnContexts) {
+                                            mPhone.notifyDataConnection(apnContext.getApnType());
                                         }
                                     }
                                 } else {
@@ -403,20 +393,20 @@ public class DcController extends StateMachine {
                                     }
                                 }
                             } else {
-                                apnsToCleanup.addAll(dc.mApnContexts.keySet());
+                                apnsToCleanup.addAll(apnContexts);
                                 if (DBG) {
                                     log("onDataStateChanged: interface change, cleanup apns="
-                                            + dc.mApnContexts);
+                                            + apnContexts);
                                 }
                             }
                         }
                     }
                 }
 
-                if (newState.getActive() == DATA_CONNECTION_ACTIVE_PH_LINK_UP) {
+                if (newState.getLinkStatus() == DataConnActiveStatus.ACTIVE) {
                     isAnyDataCallActive = true;
                 }
-                if (newState.getActive() == DATA_CONNECTION_ACTIVE_PH_LINK_DORMANT) {
+                if (newState.getLinkStatus() == DataConnActiveStatus.DORMANT) {
                     isAnyDataCallDormant = true;
                 }
             }
@@ -449,7 +439,7 @@ public class DcController extends StateMachine {
 
             // Cleanup connections that have changed
             for (ApnContext apnContext : apnsToCleanup) {
-               mDct.sendCleanUpConnection(true, apnContext);
+                mDct.cleanUpConnection(apnContext);
             }
 
             // Retry connections that have disappeared
@@ -487,9 +477,6 @@ public class DcController extends StateMachine {
     protected String getWhatToString(int what) {
         String info = null;
         info = DataConnection.cmdToString(what);
-        if (info == null) {
-            info = DcAsyncChannel.cmdToString(what);
-        }
         return info;
     }
 

@@ -20,54 +20,51 @@ import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
 import android.util.AttributeSet;
 import android.widget.TextView;
-
 import com.android.setupwizardlib.R;
 import com.android.setupwizardlib.TemplateLayout;
 
 /**
  * A {@link Mixin} displaying a header text that can be set to different colors. This Mixin is
- * registered to the tempalte using HeaderMixin.class, and can be retrieved using:
- * {@code (ColoredHeaderMixin) templateLayout.getMixin(HeaderMixin.class}.
+ * registered to the template using HeaderMixin.class, and can be retrieved using: {@code
+ * (ColoredHeaderMixin) templateLayout.getMixin(HeaderMixin.class}.
  */
 public class ColoredHeaderMixin extends HeaderMixin {
 
-    /**
-     * {@inheritDoc}
-     */
-    public ColoredHeaderMixin(TemplateLayout layout, AttributeSet attrs, int defStyleAttr) {
-        super(layout, attrs, defStyleAttr);
+  /** {@inheritDoc} */
+  public ColoredHeaderMixin(TemplateLayout layout, AttributeSet attrs, int defStyleAttr) {
+    super(layout, attrs, defStyleAttr);
 
-        final TypedArray a = layout.getContext().obtainStyledAttributes(
-                attrs, R.styleable.SuwColoredHeaderMixin, defStyleAttr, 0);
+    final TypedArray a =
+        layout
+            .getContext()
+            .obtainStyledAttributes(attrs, R.styleable.SuwColoredHeaderMixin, defStyleAttr, 0);
 
-        // Set the header color
-        final ColorStateList headerColor =
-                a.getColorStateList(R.styleable.SuwColoredHeaderMixin_suwHeaderColor);
-        if (headerColor != null) {
-            setColor(headerColor);
-        }
-
-        a.recycle();
+    // Set the header color
+    final ColorStateList headerColor =
+        a.getColorStateList(R.styleable.SuwColoredHeaderMixin_suwHeaderColor);
+    if (headerColor != null) {
+      setColor(headerColor);
     }
 
-    /**
-     * Sets the color of the header text. This can also be set via XML using
-     * {@code app:suwHeaderColor}.
-     *
-     * @param color The text color of the header.
-     */
-    public void setColor(ColorStateList color) {
-        final TextView titleView = getTextView();
-        if (titleView != null) {
-            titleView.setTextColor(color);
-        }
-    }
+    a.recycle();
+  }
 
-    /**
-     * @return The current text color of the header.
-     */
-    public ColorStateList getColor() {
-        final TextView titleView = getTextView();
-        return titleView != null ? titleView.getTextColors() : null;
+  /**
+   * Sets the color of the header text. This can also be set via XML using {@code
+   * app:suwHeaderColor}.
+   *
+   * @param color The text color of the header.
+   */
+  public void setColor(ColorStateList color) {
+    final TextView titleView = getTextView();
+    if (titleView != null) {
+      titleView.setTextColor(color);
     }
+  }
+
+  /** @return The current text color of the header. */
+  public ColorStateList getColor() {
+    final TextView titleView = getTextView();
+    return titleView != null ? titleView.getTextColors() : null;
+  }
 }

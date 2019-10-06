@@ -21,7 +21,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.IBinder;
-import android.os.RemoteException;
 import android.telephony.ims.aidl.IImsServiceController;
 import android.telephony.ims.stub.ImsFeatureConfiguration;
 import android.util.Log;
@@ -86,7 +85,7 @@ public class ImsServiceFeatureQueryManager {
             ImsFeatureConfiguration config;
             try {
                 config = controller.querySupportedImsFeatures();
-            } catch (RemoteException e) {
+            } catch (Exception e) {
                 Log.w(LOG_TAG, "queryImsFeatures - error: " + e);
                 cleanup();
                 mListener.onError(mName);

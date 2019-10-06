@@ -252,7 +252,7 @@ public class SupplicantStateTracker extends StateMachine {
                     mAuthFailureReason = WifiManager.ERROR_AUTH_FAILURE_NONE;
                     transitionOnSupplicantStateChange(stateChangeResult);
                     break;
-                case WifiStateMachine.CMD_RESET_SUPPLICANT_STATE:
+                case ClientModeImpl.CMD_RESET_SUPPLICANT_STATE:
                     transitionTo(mUninitializedState);
                     break;
                 case WifiManager.CONNECT_NETWORK:
@@ -307,7 +307,7 @@ public class SupplicantStateTracker extends StateMachine {
     class ConnectionActiveState extends State {
         @Override
         public boolean processMessage(Message message) {
-            if (message.what == WifiStateMachine.CMD_RESET_SUPPLICANT_STATE) {
+            if (message.what == ClientModeImpl.CMD_RESET_SUPPLICANT_STATE) {
                 sendSupplicantStateChangedBroadcast(SupplicantState.DISCONNECTED, false);
             }
 

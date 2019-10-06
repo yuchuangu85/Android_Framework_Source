@@ -26,7 +26,6 @@ import android.os.SystemProperties;
 import com.android.systemui.R;
 import com.android.systemui.recents.misc.SystemServicesProxy;
 import com.android.systemui.recents.views.DockState;
-import com.android.systemui.shared.recents.model.TaskStack;
 
 /**
  * Represents the dock regions for each orientation.
@@ -86,7 +85,7 @@ public class RecentsConfiguration {
     public RecentsConfiguration(Context context) {
         // Load only resources that can not change after the first load either through developer
         // settings or via multi window
-        SystemServicesProxy ssp = Recents.getSystemServices();
+        SystemServicesProxy ssp = LegacyRecentsImpl.getSystemServices();
         mAppContext = context.getApplicationContext();
         Resources res = mAppContext.getResources();
         fakeShadows = res.getBoolean(R.bool.config_recents_fake_shadows);
@@ -116,7 +115,7 @@ public class RecentsConfiguration {
     public DockState[] getDockStatesForCurrentOrientation() {
         boolean isLandscape = mAppContext.getResources().getConfiguration().orientation ==
                 Configuration.ORIENTATION_LANDSCAPE;
-        RecentsConfiguration config = Recents.getConfiguration();
+        RecentsConfiguration config = LegacyRecentsImpl.getConfiguration();
         if (config.isLargeScreen) {
             return isLandscape ? DockRegion.TABLET_LANDSCAPE : DockRegion.TABLET_PORTRAIT;
         } else {

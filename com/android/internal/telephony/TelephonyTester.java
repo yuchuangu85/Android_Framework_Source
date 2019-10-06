@@ -23,7 +23,8 @@ import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.BadParcelableException;
 import android.os.Build;
-import android.telephony.NetworkRegistrationState;
+import android.os.Bundle;
+import android.telephony.AccessNetworkConstants;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.ims.ImsCallProfile;
@@ -105,6 +106,19 @@ public class TelephonyTester {
     private static final String EXTRA_CODE = "code";
     private static final String EXTRA_TYPE = "type";
 
+    /**
+     * Test-only intent used to trigger signalling that an IMS call is an emergency call.
+     */
+    private static final String ACTION_TEST_IMS_E_CALL =
+            "com.android.internal.telephony.TestImsECall";
+
+    /**
+     * Test-only intent used to trigger a change to the current call's phone number.
+     * Use the {@link #EXTRA_NUMBER} extra to specify the new phone number.
+     */
+    private static final String ACTION_TEST_CHANGE_NUMBER =
+            "com.android.internal.telephony.TestChangeNumber";
+
     private static final String ACTION_TEST_SERVICE_STATE =
             "com.android.internal.telephony.TestServiceState";
 
@@ -115,6 +129,7 @@ public class TelephonyTester {
     private static final String EXTRA_DATA_REG_STATE = "data_reg_state";
     private static final String EXTRA_VOICE_ROAMING_TYPE = "voice_roaming_type";
     private static final String EXTRA_DATA_ROAMING_TYPE = "data_roaming_type";
+    private static final String EXTRA_OPERATOR = "operator";
 
     private static final String ACTION_RESET = "reset";
 
@@ -134,10 +149,12 @@ public class TelephonyTester {
                 if (DBG) log("sIntentReceiver.onReceive: action=" + action);
                 if (action.equals(mPhone.getActionDetached())) {
                     log("simulate detaching");
-                    mPhone.getServiceStateTracker().mDetachedRegistrants.notifyRegistrants();
+                    mPhone.getServiceStateTracker().mDetachedRegistrants.get(
+                            AccessNetworkConstants.TRANSPORT_TYPE_WWAN).notifyRegistrants();
                 } else if (action.equals(mPhone.getActionAttached())) {
                     log("simulate attaching");
-                    mPhone.getServiceStateTracker().mAttachedRegistrants.notifyRegistrants();
+                    mPhone.getServiceStateTracker().mAttachedRegistrants.get(
+                            AccessNetworkConstants.TRANSPORT_TYPE_WWAN).notifyRegistrants();
                 } else if (action.equals(ACTION_TEST_CONFERENCE_EVENT_PACKAGE)) {
                     log("inject simulated conference event package");
                     handleTestConferenceEventPackage(context,
@@ -161,6 +178,12 @@ public class TelephonyTester {
                     mServiceStateTestIntent = intent;
                     mPhone.getServiceStateTracker().sendEmptyMessage(
                             ServiceStateTracker.EVENT_NETWORK_STATE_CHANGED);
+                } else if (action.equals(ACTION_TEST_IMS_E_CALL)) {
+                    log("handle test IMS ecall intent");
+                    testImsECall();
+                } else if (action.equals(ACTION_TEST_CHANGE_NUMBER)) {
+                    log("handle test change number intent");
+                    testChangeNumber(intent);
                 } else {
                     if (DBG) log("onReceive: unknown action=" + action);
                 }
@@ -189,12 +212,13 @@ public class TelephonyTester {
                 filter.addAction(ACTION_TEST_SUPP_SRVC_FAIL);
                 filter.addAction(ACTION_TEST_HANDOVER_FAIL);
                 filter.addAction(ACTION_TEST_SUPP_SRVC_NOTIFICATION);
+                filter.addAction(ACTION_TEST_IMS_E_CALL);
                 mImsExternalCallStates = new ArrayList<ImsExternalCallState>();
             } else {
                 filter.addAction(ACTION_TEST_SERVICE_STATE);
                 log("register for intent action=" + ACTION_TEST_SERVICE_STATE);
             }
-
+            filter.addAction(ACTION_TEST_CHANGE_NUMBER);
             phone.getContext().registerReceiver(mIntentReceiver, filter, null, mPhone.getHandler());
         }
     }
@@ -339,15 +363,18 @@ public class TelephonyTester {
             log("Service state override reset");
             return;
         }
-        if (mServiceStateTestIntent.hasExtra(EXTRA_VOICE_REG_STATE)) {
+
+        // TODO: Fix this with modifing NetworkRegistrationInfo inside ServiceState. Do not call
+        // ServiceState's set methods directly.
+        /*if (mServiceStateTestIntent.hasExtra(EXTRA_VOICE_REG_STATE)) {
             ss.setVoiceRegState(mServiceStateTestIntent.getIntExtra(EXTRA_VOICE_REG_STATE,
-                    NetworkRegistrationState.REG_STATE_UNKNOWN));
-            log("Override voice reg state with " + ss.getVoiceRegState());
+                    ServiceState.STATE_OUT_OF_SERVICE));
+            log("Override voice service state with " + ss.getVoiceRegState());
         }
         if (mServiceStateTestIntent.hasExtra(EXTRA_DATA_REG_STATE)) {
             ss.setDataRegState(mServiceStateTestIntent.getIntExtra(EXTRA_DATA_REG_STATE,
-                    NetworkRegistrationState.REG_STATE_UNKNOWN));
-            log("Override data reg state with " + ss.getDataRegState());
+                    ServiceState.STATE_OUT_OF_SERVICE));
+            log("Override data service state with " + ss.getDataRegState());
         }
         if (mServiceStateTestIntent.hasExtra(EXTRA_VOICE_RAT)) {
             ss.setRilVoiceRadioTechnology(mServiceStateTestIntent.getIntExtra(EXTRA_VOICE_RAT,
@@ -358,7 +385,7 @@ public class TelephonyTester {
             ss.setRilDataRadioTechnology(mServiceStateTestIntent.getIntExtra(EXTRA_DATA_RAT,
                     ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN));
             log("Override data rat with " + ss.getRilDataRadioTechnology());
-        }
+        }*/
         if (mServiceStateTestIntent.hasExtra(EXTRA_VOICE_ROAMING_TYPE)) {
             ss.setVoiceRoamingType(mServiceStateTestIntent.getIntExtra(EXTRA_VOICE_ROAMING_TYPE,
                     ServiceState.ROAMING_TYPE_UNKNOWN));
@@ -368,6 +395,64 @@ public class TelephonyTester {
             ss.setDataRoamingType(mServiceStateTestIntent.getIntExtra(EXTRA_DATA_ROAMING_TYPE,
                     ServiceState.ROAMING_TYPE_UNKNOWN));
             log("Override data roaming type with " + ss.getDataRoamingType());
+        }
+        if (mServiceStateTestIntent.hasExtra(EXTRA_OPERATOR)) {
+            String operator = mServiceStateTestIntent.getStringExtra(EXTRA_OPERATOR);
+            ss.setOperatorName(operator, operator, "");
+            log("Override operator with " + operator);
+        }
+    }
+
+    void testImsECall() {
+        // Attempt to get the active IMS call before parsing the test XML file.
+        ImsPhone imsPhone = (ImsPhone) mPhone;
+        if (imsPhone == null) {
+            return;
+        }
+
+        ImsPhoneCall imsPhoneCall = imsPhone.getForegroundCall();
+        if (imsPhoneCall == null) {
+            return;
+        }
+
+        ImsCall imsCall = imsPhoneCall.getImsCall();
+        if (imsCall == null) {
+            return;
+        }
+
+        ImsCallProfile callProfile = imsCall.getCallProfile();
+        Bundle extras = callProfile.getCallExtras();
+        if (extras == null) {
+            extras = new Bundle();
+        }
+        extras.putBoolean(ImsCallProfile.EXTRA_EMERGENCY_CALL, true);
+        callProfile.mCallExtras = extras;
+        imsCall.getImsCallSessionListenerProxy().callSessionUpdated(imsCall.getSession(),
+                callProfile);
+    }
+
+    void testChangeNumber(Intent intent) {
+        if (!intent.hasExtra(EXTRA_NUMBER)) {
+            return;
+        }
+
+        String newNumber = intent.getStringExtra(EXTRA_NUMBER);
+
+        // Update all the calls.
+        mPhone.getForegroundCall().getConnections()
+                .stream()
+                .forEach(c -> {
+                    c.setAddress(newNumber, PhoneConstants.PRESENTATION_ALLOWED);
+                    c.setDialString(newNumber);
+                });
+
+        // <sigh>
+        if (mPhone instanceof GsmCdmaPhone) {
+            ((GsmCdmaPhone) mPhone).notifyPhoneStateChanged();
+            ((GsmCdmaPhone) mPhone).notifyPreciseCallStateChanged();
+        } else if (mPhone instanceof ImsPhone) {
+            ((ImsPhone) mPhone).notifyPhoneStateChanged();
+            ((ImsPhone) mPhone).notifyPreciseCallStateChanged();
         }
     }
 }

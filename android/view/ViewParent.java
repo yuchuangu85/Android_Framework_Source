@@ -18,6 +18,7 @@ package android.view;
 
 import android.annotation.NonNull;
 import android.graphics.Rect;
+import android.graphics.Region;
 import android.os.Bundle;
 import android.view.accessibility.AccessibilityEvent;
 
@@ -35,8 +36,7 @@ public interface ViewParent {
     public void requestLayout();
 
     /**
-     * Indicates whether layout was requested（被请求） on this view parent.
-     * 是否被强制布局
+     * Indicates whether layout was requested on this view parent.
      *
      * @return true if layout was requested, false otherwise
      */
@@ -301,8 +301,8 @@ public interface ViewParent {
     public void childDrawableStateChanged(View child);
 
     /**
-     * Called when a child does not want this parent and its ancestors(上代) to
-     * intercept（拦截） touch events with
+     * Called when a child does not want this parent and its ancestors to
+     * intercept touch events with
      * {@link ViewGroup#onInterceptTouchEvent(MotionEvent)}.
      *
      * <p>This parent should pass this call onto its parents. This parent must obey
@@ -310,7 +310,7 @@ public interface ViewParent {
      * after this parent has received an up or a cancel.</p>
      * 
      * @param disallowIntercept True if the child does not want the parent to
-     *                          intercept touch events.不允许拦截
+     *            intercept touch events.
      */
     public void requestDisallowInterceptTouchEvent(boolean disallowIntercept);
 
@@ -515,19 +515,16 @@ public interface ViewParent {
      * will receive a call to {@link #onStopNestedScroll(View)}.
      * </p>
      *
-     * @param child            Direct child of this ViewParent containing target(嵌套父View的直系子View)
-     * @param target           View that initiated the nested scroll(嵌套滑动子View)
+     * @param child Direct child of this ViewParent containing target
+     * @param target View that initiated the nested scroll
      * @param nestedScrollAxes Flags consisting of {@link View#SCROLL_AXIS_HORIZONTAL},
      *                         {@link View#SCROLL_AXIS_VERTICAL} or both
-     *
      * @return true if this ViewParent accepts the nested scroll operation
      */
     public boolean onStartNestedScroll(View child, View target, int nestedScrollAxes);
 
     /**
      * React to the successful claiming of a nested scroll operation.
-     * <p>
-     * 反应了一个嵌套滑动操作的成功声明(也就是允许嵌套滑动)
      *
      * <p>This method will be called after
      * {@link #onStartNestedScroll(View, View, int) onStartNestedScroll} returns true. It offers
@@ -552,8 +549,6 @@ public interface ViewParent {
      * scroll ends with a {@link MotionEvent#ACTION_UP} or {@link MotionEvent#ACTION_CANCEL} event.
      * Implementations of this method should always call their superclass's implementation of this
      * method if one is present.</p>
-     * <p>
-     * 父View的onStopNestedScroll()来对整个系列的滑动来收尾
      *
      * @param target View that initiated the nested scroll
      */
@@ -573,8 +568,6 @@ public interface ViewParent {
      * allow continuous dragging of multiple scrolling or draggable elements, such as scrolling
      * a list within a vertical drawer where the drawer begins dragging once the edge of inner
      * scrolling content is reached.</p>
-     * <p>
-     * 父View在这里将最后子View滑动完后剩余的距离进行收尾处理
      *
      * @param target The descendent view controlling the nested scroll
      * @param dxConsumed Horizontal scroll distance in pixels already consumed by target
@@ -599,17 +592,11 @@ public interface ViewParent {
      * <code>consumed</code> array. Index 0 corresponds to dx and index 1 corresponds to dy.
      * This parameter will never be null. Initial values for consumed[0] and consumed[1]
      * will always be 0.</p>
-     * <p>
-     * 计算父View滑动的距离，并将父ViewY方向消耗的距离记录下来，放到consumed里面
      *
-     * @param target   View that initiated the nested scroll
-     *                 嵌套滑动子View
-     * @param dx       Horizontal scroll distance in pixels
-     *                 手指横向滑动距离
-     * @param dy       Vertical scroll distance in pixels
-     *                 手指纵向滑动距离
+     * @param target View that initiated the nested scroll
+     * @param dx Horizontal scroll distance in pixels
+     * @param dy Vertical scroll distance in pixels
      * @param consumed Output. The horizontal and vertical scroll distance consumed by this parent
-     *                 父View复写该方法是为了判断是否需要消费滑动距离，如果需要，计算后放到consumed里面
      */
     public void onNestedPreScroll(View target, int dx, int dy, int[] consumed);
 
@@ -674,4 +661,17 @@ public interface ViewParent {
      * @return true if the action was consumed by this ViewParent
      */
     public boolean onNestedPrePerformAccessibilityAction(View target, int action, Bundle arguments);
+
+    /**
+     * Given a touchable region of a child, this method reduces region by the bounds of all views on
+     * top of the child for which {@link View#canReceivePointerEvents} returns {@code true}. This
+     * applies recursively for all views in the view hierarchy on top of this one.
+     *
+     * @param touchableRegion The touchable region we want to modify.
+     * @param view A child view of this ViewGroup which indicates the z-order of the touchable
+     *             region.
+     * @hide
+     */
+    default void subtractObscuredTouchableRegion(Region touchableRegion, View view) {
+    }
 }

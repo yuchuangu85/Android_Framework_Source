@@ -23,7 +23,7 @@ import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
-import android.app.PendingIntent;
+import android.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.hardware.soundtrigger.SoundTrigger;
@@ -239,6 +239,7 @@ public final class SoundTriggerManager {
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @UnsupportedAppUsage
     public int loadSoundModel(SoundModel soundModel) {
         if (soundModel == null) {
             return STATUS_ERROR;
@@ -256,25 +257,6 @@ public final class SoundTriggerManager {
                     Slog.e(TAG, "Unkown model type");
                     return STATUS_ERROR;
             }
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Starts recognition on the given model id. All events from the model will be sent to the
-     * PendingIntent.
-     * @hide
-     */
-    @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
-    public int startRecognition(UUID soundModelId, PendingIntent callbackIntent,
-            RecognitionConfig config) {
-        if (soundModelId == null || callbackIntent == null || config == null) {
-            return STATUS_ERROR;
-        }
-        try {
-            return mSoundTriggerService.startRecognitionForIntent(new ParcelUuid(soundModelId),
-                    callbackIntent, config);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -300,6 +282,7 @@ public final class SoundTriggerManager {
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @UnsupportedAppUsage
     public int startRecognition(@NonNull UUID soundModelId, @Nullable Bundle params,
         @NonNull ComponentName detectionService, @NonNull RecognitionConfig config) {
         Preconditions.checkNotNull(soundModelId);
@@ -319,12 +302,13 @@ public final class SoundTriggerManager {
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @UnsupportedAppUsage
     public int stopRecognition(UUID soundModelId) {
         if (soundModelId == null) {
             return STATUS_ERROR;
         }
         try {
-            return mSoundTriggerService.stopRecognitionForIntent(new ParcelUuid(soundModelId));
+            return mSoundTriggerService.stopRecognitionForService(new ParcelUuid(soundModelId));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -335,6 +319,7 @@ public final class SoundTriggerManager {
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @UnsupportedAppUsage
     public int unloadSoundModel(UUID soundModelId) {
         if (soundModelId == null) {
             return STATUS_ERROR;
@@ -352,6 +337,7 @@ public final class SoundTriggerManager {
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @UnsupportedAppUsage
     public boolean isRecognitionActive(UUID soundModelId) {
         if (soundModelId == null) {
             return false;
@@ -376,6 +362,25 @@ public final class SoundTriggerManager {
                     Settings.Global.SOUND_TRIGGER_DETECTION_SERVICE_OP_TIMEOUT);
         } catch (Settings.SettingNotFoundException e) {
             return Integer.MAX_VALUE;
+        }
+    }
+
+    /**
+     * Asynchronously get state of the indicated model.  The model state is returned as
+     * a recognition event in the callback that was registered in the startRecognition
+     * method.
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
+    @UnsupportedAppUsage
+    public int getModelState(UUID soundModelId) {
+        if (soundModelId == null) {
+            return STATUS_ERROR;
+        }
+        try {
+            return mSoundTriggerService.getModelState(new ParcelUuid(soundModelId));
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
         }
     }
 }

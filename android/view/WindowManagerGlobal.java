@@ -17,11 +17,14 @@
 package android.view;
 
 import android.animation.ValueAnimator;
+import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.app.ActivityManager;
 import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.res.Configuration;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.ServiceManager;
@@ -43,7 +46,7 @@ import java.util.ArrayList;
  * operations that are not associated with any particular context.
  *
  * This class is only used internally to implement global functions where
- * the caller already knows the display and relevant（有关） compatibility（兼容性的） information
+ * the caller already knows the display and relevant compatibility information
  * for the operation.  For most purposes, you should use {@link WindowManager} instead
  * since it is bound to a context.
  *
@@ -54,7 +57,7 @@ public final class WindowManagerGlobal {
     private static final String TAG = "WindowManager";
 
     /**
-     * The user is navigating（导航） with keys (not the touch screen), so
+     * The user is navigating with keys (not the touch screen), so
      * navigational focus should be shown.
      */
     public static final int RELAYOUT_RES_IN_TOUCH_MODE = 0x1;
@@ -90,11 +93,11 @@ public final class WindowManagerGlobal {
     public static final int RELAYOUT_RES_SURFACE_RESIZED = 0x20;
 
     /**
-     * In multi-window we force show the navigation bar. Because we don't want that the surface size
-     * changes in this mode, we instead have a flag whether the navigation bar size should always be
-     * consumed, so the app is treated like there is no virtual navigation bar at all.
+     * In multi-window we force show the system bars. Because we don't want that the surface size
+     * changes in this mode, we instead have a flag whether the system bar sizes should always be
+     * consumed, so the app is treated like there is no virtual system bars at all.
      */
-    public static final int RELAYOUT_RES_CONSUME_ALWAYS_NAV_BAR = 0x40;
+    public static final int RELAYOUT_RES_CONSUME_ALWAYS_SYSTEM_BARS = 0x40;
 
     /**
      * Flag for relayout: the client will be later giving
@@ -115,9 +118,10 @@ public final class WindowManagerGlobal {
     public static final int ADD_FLAG_IN_TOUCH_MODE = RELAYOUT_RES_IN_TOUCH_MODE;
 
     /**
-     * Like {@link #RELAYOUT_RES_CONSUME_ALWAYS_NAV_BAR}, but as a "hint" when adding the window.
+     * Like {@link #RELAYOUT_RES_CONSUME_ALWAYS_SYSTEM_BARS}, but as a "hint" when adding the
+     * window.
      */
-    public static final int ADD_FLAG_ALWAYS_CONSUME_NAV_BAR = 0x4;
+    public static final int ADD_FLAG_ALWAYS_CONSUME_SYSTEM_BARS = 0x4;
 
     public static final int ADD_OKAY = 0;
     public static final int ADD_BAD_APP_TOKEN = -1;
@@ -131,14 +135,21 @@ public final class WindowManagerGlobal {
     public static final int ADD_INVALID_DISPLAY = -9;
     public static final int ADD_INVALID_TYPE = -10;
 
+    @UnsupportedAppUsage
     private static WindowManagerGlobal sDefaultWindowManager;
+    @UnsupportedAppUsage
     private static IWindowManager sWindowManagerService;
+    @UnsupportedAppUsage
     private static IWindowSession sWindowSession;
 
+    @UnsupportedAppUsage
     private final Object mLock = new Object();
 
+    @UnsupportedAppUsage
     private final ArrayList<View> mViews = new ArrayList<View>();
+    @UnsupportedAppUsage
     private final ArrayList<ViewRootImpl> mRoots = new ArrayList<ViewRootImpl>();
+    @UnsupportedAppUsage
     private final ArrayList<WindowManager.LayoutParams> mParams =
             new ArrayList<WindowManager.LayoutParams>();
     private final ArraySet<View> mDyingViews = new ArraySet<View>();
@@ -148,10 +159,12 @@ public final class WindowManagerGlobal {
     private WindowManagerGlobal() {
     }
 
+    @UnsupportedAppUsage
     public static void initialize() {
         getWindowManagerService();
     }
 
+    @UnsupportedAppUsage
     public static WindowManagerGlobal getInstance() {
         synchronized (WindowManagerGlobal.class) {
             if (sDefaultWindowManager == null) {
@@ -161,6 +174,7 @@ public final class WindowManagerGlobal {
         }
     }
 
+    @UnsupportedAppUsage
     public static IWindowManager getWindowManagerService() {
         synchronized (WindowManagerGlobal.class) {
             if (sWindowManagerService == null) {
@@ -179,11 +193,15 @@ public final class WindowManagerGlobal {
         }
     }
 
+    @UnsupportedAppUsage
     public static IWindowSession getWindowSession() {
         synchronized (WindowManagerGlobal.class) {
             if (sWindowSession == null) {
                 try {
-                    InputMethodManager imm = InputMethodManager.getInstance();
+                    // Emulate the legacy behavior.  The global instance of InputMethodManager
+                    // was instantiated here.
+                    // TODO(b/116157766): Remove this hack after cleaning up @UnsupportedAppUsage
+                    InputMethodManager.ensureDefaultInstanceForDefaultDisplayIfNecessary();
                     IWindowManager windowManager = getWindowManagerService();
                     sWindowSession = windowManager.openSession(
                             new IWindowSessionCallback.Stub() {
@@ -191,8 +209,7 @@ public final class WindowManagerGlobal {
                                 public void onAnimatorScaleChanged(float scale) {
                                     ValueAnimator.setDurationScale(scale);
                                 }
-                            },
-                            imm.getClient(), imm.getInputContext());
+                            });
                 } catch (RemoteException e) {
                     throw e.rethrowFromSystemServer();
                 }
@@ -201,12 +218,14 @@ public final class WindowManagerGlobal {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public static IWindowSession peekWindowSession() {
         synchronized (WindowManagerGlobal.class) {
             return sWindowSession;
         }
     }
 
+    @UnsupportedAppUsage
     public String[] getViewRootNames() {
         synchronized (mLock) {
             final int numRoots = mRoots.size();
@@ -218,6 +237,7 @@ public final class WindowManagerGlobal {
         }
     }
 
+    @UnsupportedAppUsage
     public ArrayList<ViewRootImpl> getRootViews(IBinder token) {
         ArrayList<ViewRootImpl> views = new ArrayList<>();
         synchronized (mLock) {
@@ -251,6 +271,16 @@ public final class WindowManagerGlobal {
         return views;
     }
 
+    /**
+     * @return the list of all views attached to the global window manager
+     */
+    @NonNull
+    public ArrayList<View> getWindowViews() {
+        synchronized (mLock) {
+            return new ArrayList<>(mViews);
+        }
+    }
+
     public View getWindowView(IBinder windowToken) {
         synchronized (mLock) {
             final int numViews = mViews.size();
@@ -264,6 +294,7 @@ public final class WindowManagerGlobal {
         return null;
     }
 
+    @UnsupportedAppUsage
     public View getRootView(String name) {
         synchronized (mLock) {
             for (int i = mRoots.size() - 1; i >= 0; --i) {
@@ -275,14 +306,6 @@ public final class WindowManagerGlobal {
         return null;
     }
 
-    /**
-     * 窗口显示时调用，添加视图到窗口进行显示（Activity显示或者Dialog显示）
-     *
-     * @param view         要显示的视图（Layout布局）
-     * @param params       布局参数
-     * @param display      显示参数对象（大小、分辨率等）
-     * @param parentWindow 要显示的窗口（Activity的PhoneWindow或者Dialog的PhoneWindow）
-     */
     public void addView(View view, ViewGroup.LayoutParams params,
             Display display, Window parentWindow) {
         if (view == null) {
@@ -351,7 +374,6 @@ public final class WindowManagerGlobal {
                 }
             }
 
-            // 初始化ViewRootImpl
             root = new ViewRootImpl(view.getContext(), display);
 
             view.setLayoutParams(wparams);
@@ -394,6 +416,7 @@ public final class WindowManagerGlobal {
         }
     }
 
+    @UnsupportedAppUsage
     public void removeView(View view, boolean immediate) {
         if (view == null) {
             throw new IllegalArgumentException("view must not be null");
@@ -459,7 +482,7 @@ public final class WindowManagerGlobal {
         View view = root.getView();
 
         if (view != null) {
-            InputMethodManager imm = InputMethodManager.getInstance();
+            InputMethodManager imm = view.getContext().getSystemService(InputMethodManager.class);
             if (imm != null) {
                 imm.windowDismissed(mViews.get(index).getWindowToken());
             }
@@ -509,6 +532,7 @@ public final class WindowManagerGlobal {
         return false;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public void trimMemory(int level) {
         if (ThreadedRenderer.isAvailable()) {
             if (shouldDestroyEglContext(level)) {
@@ -612,18 +636,36 @@ public final class WindowManagerGlobal {
     }
 
     public void setStoppedState(IBinder token, boolean stopped) {
+        ArrayList<ViewRootImpl> nonCurrentThreadRoots = null;
         synchronized (mLock) {
             int count = mViews.size();
             for (int i = count - 1; i >= 0; i--) {
                 if (token == null || mParams.get(i).token == token) {
                     ViewRootImpl root = mRoots.get(i);
                     // Client might remove the view by "stopped" event.
-                    root.setWindowStopped(stopped);
+                    if (root.mThread == Thread.currentThread()) {
+                        root.setWindowStopped(stopped);
+                    } else {
+                        if (nonCurrentThreadRoots == null) {
+                            nonCurrentThreadRoots = new ArrayList<>();
+                        }
+                        nonCurrentThreadRoots.add(root);
+                    }
                     // Recursively forward stopped state to View's attached
                     // to this Window rather than the root application token,
                     // e.g. PopupWindow's.
                     setStoppedState(root.mAttachInfo.mWindowToken, stopped);
                 }
+            }
+        }
+
+        // Update the stopped state synchronously to ensure the surface won't be used after server
+        // side has destroyed it. This operation should be outside the lock to avoid any potential
+        // paths from setWindowStopped to WindowManagerGlobal which may cause deadlocks.
+        if (nonCurrentThreadRoots != null) {
+            for (int i = nonCurrentThreadRoots.size() - 1; i >= 0; i--) {
+                ViewRootImpl root = nonCurrentThreadRoots.get(i);
+                root.mHandler.runWithScissors(() -> root.setWindowStopped(stopped), 0);
             }
         }
     }
@@ -656,6 +698,7 @@ public final class WindowManagerGlobal {
 }
 
 final class WindowLeaked extends AndroidRuntimeException {
+    @UnsupportedAppUsage
     public WindowLeaked(String msg) {
         super(msg);
     }

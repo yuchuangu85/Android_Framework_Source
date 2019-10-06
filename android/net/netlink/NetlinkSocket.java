@@ -16,27 +16,26 @@
 
 package android.net.netlink;
 
+import static android.net.util.SocketUtils.makeNetlinkSocketAddress;
 import static android.system.OsConstants.AF_NETLINK;
 import static android.system.OsConstants.EIO;
 import static android.system.OsConstants.EPROTO;
 import static android.system.OsConstants.ETIMEDOUT;
+import static android.system.OsConstants.SOCK_DGRAM;
+import static android.system.OsConstants.SOL_SOCKET;
 import static android.system.OsConstants.SO_RCVBUF;
 import static android.system.OsConstants.SO_RCVTIMEO;
 import static android.system.OsConstants.SO_SNDTIMEO;
-import static android.system.OsConstants.SOCK_DGRAM;
-import static android.system.OsConstants.SOL_SOCKET;
 
+import android.net.util.SocketUtils;
 import android.system.ErrnoException;
-import android.system.NetlinkSocketAddress;
 import android.system.Os;
 import android.system.StructTimeval;
 import android.util.Log;
-import libcore.io.IoUtils;
-import libcore.io.Libcore;
 
 import java.io.FileDescriptor;
+import java.io.IOException;
 import java.io.InterruptedIOException;
-import java.net.SocketAddress;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -59,10 +58,9 @@ public class NetlinkSocket {
         final String errPrefix = "Error in NetlinkSocket.sendOneShotKernelMessage";
         final long IO_TIMEOUT = 300L;
 
-        FileDescriptor fd;
+        final FileDescriptor fd = forProto(nlProto);
 
         try {
-            fd = forProto(nlProto);
             connectToKernel(fd);
             sendMessage(fd, msg, 0, msg.length, IO_TIMEOUT);
             final ByteBuffer bytes = recvMessage(fd, DEFAULT_RECV_BUFSIZE, IO_TIMEOUT);
@@ -96,9 +94,13 @@ public class NetlinkSocket {
         } catch (SocketException e) {
             Log.e(TAG, errPrefix, e);
             throw new ErrnoException(errPrefix, EIO, e);
+        } finally {
+            try {
+                SocketUtils.closeSocket(fd);
+            } catch (IOException e) {
+                // Nothing we can do here
+            }
         }
-
-        IoUtils.closeQuietly(fd);
     }
 
     public static FileDescriptor forProto(int nlProto) throws ErrnoException {
@@ -108,7 +110,7 @@ public class NetlinkSocket {
     }
 
     public static void connectToKernel(FileDescriptor fd) throws ErrnoException, SocketException {
-        Os.connect(fd, (SocketAddress) (new NetlinkSocketAddress(0, 0)));
+        Os.connect(fd, makeNetlinkSocketAddress(0, 0));
     }
 
     private static void checkTimeout(long timeoutMs) {

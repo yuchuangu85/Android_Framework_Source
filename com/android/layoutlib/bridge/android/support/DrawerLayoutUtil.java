@@ -35,7 +35,7 @@ public class DrawerLayoutUtil {
 
     public static final String[] CN_DRAWER_LAYOUT = {
             "android.support.v4.widget.DrawerLayout",
-            "androidx.widget.DrawerLayout"
+            "androidx.drawerlayout.widget.DrawerLayout"
     };
 
     public static void openDrawer(View drawerLayout, @Nullable String drawerGravity) {

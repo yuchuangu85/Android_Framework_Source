@@ -24,11 +24,10 @@ import static android.app.WindowConfiguration.WINDOWING_MODE_UNDEFINED;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.GraphicBuffer;
 import android.graphics.Rect;
 import android.util.Log;
 
-import com.android.systemui.recents.Recents;
+import com.android.systemui.recents.LegacyRecentsImpl;
 import com.android.systemui.recents.RecentsDebugFlags;
 import com.android.systemui.shared.recents.model.Task;
 import com.android.systemui.shared.recents.view.AppTransitionAnimationSpecCompat;
@@ -71,7 +70,7 @@ public class RecentsTransitionComposer {
         // height (stackView height) and when transitioning to fullscreen app, the code below would
         // force the task thumbnail to full stackView height immediately causing the transition
         // jarring.
-        if (!Recents.getConfiguration().isLowRamDevice && taskView.getTask() !=
+        if (!LegacyRecentsImpl.getConfiguration().isLowRamDevice && taskView.getTask() !=
                 stackView.getStack().getFrontMostTask()) {
             taskRect.bottom = taskRect.top + stackView.getMeasuredHeight();
         }

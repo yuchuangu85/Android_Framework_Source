@@ -17,6 +17,7 @@ package android.telephony.euicc;
 
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.app.PendingIntent;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -37,7 +38,7 @@ import com.android.internal.util.Preconditions;
  */
 public final class DownloadableSubscription implements Parcelable {
 
-    public static final Creator<DownloadableSubscription> CREATOR =
+    public static final @android.annotation.NonNull Creator<DownloadableSubscription> CREATOR =
             new Creator<DownloadableSubscription>() {
                 @Override
                 public DownloadableSubscription createFromParcel(Parcel in) {
@@ -59,6 +60,7 @@ public final class DownloadableSubscription implements Parcelable {
      */
     @Nullable
     @Deprecated
+    @UnsupportedAppUsage
     public final String encodedActivationCode;
 
     @Nullable private String confirmationCode;
@@ -188,6 +190,7 @@ public final class DownloadableSubscription implements Parcelable {
      * @deprecated - Do not use.
      */
     @Deprecated
+    @UnsupportedAppUsage
     public void setCarrierName(String carrierName) {
         this.carrierName = carrierName;
     }
@@ -234,6 +237,7 @@ public final class DownloadableSubscription implements Parcelable {
      * @deprecated - Do not use.
      */
     @Deprecated
+    @UnsupportedAppUsage
     public void setAccessRules(UiccAccessRule[] accessRules) {
         this.accessRules = Arrays.asList(accessRules);
     }

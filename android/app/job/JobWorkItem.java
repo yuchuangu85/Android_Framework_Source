@@ -19,7 +19,9 @@ package android.app.job;
 import static android.app.job.JobInfo.NETWORK_BYTES_UNKNOWN;
 
 import android.annotation.BytesLong;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -29,11 +31,15 @@ import android.os.Parcelable;
  * {@link JobParameters#dequeueWork() JobParameters.dequeueWork} for more details.
  */
 final public class JobWorkItem implements Parcelable {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     final Intent mIntent;
     final long mNetworkDownloadBytes;
     final long mNetworkUploadBytes;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     int mDeliveryCount;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     int mWorkId;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     Object mGrants;
 
     /**
@@ -208,7 +214,7 @@ final public class JobWorkItem implements Parcelable {
         out.writeInt(mWorkId);
     }
 
-    public static final Parcelable.Creator<JobWorkItem> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<JobWorkItem> CREATOR
             = new Parcelable.Creator<JobWorkItem>() {
         public JobWorkItem createFromParcel(Parcel in) {
             return new JobWorkItem(in);
@@ -219,6 +225,7 @@ final public class JobWorkItem implements Parcelable {
         }
     };
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     JobWorkItem(Parcel in) {
         if (in.readInt() != 0) {
             mIntent = Intent.CREATOR.createFromParcel(in);

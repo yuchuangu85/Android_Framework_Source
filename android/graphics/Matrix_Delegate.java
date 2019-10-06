@@ -616,15 +616,25 @@ public final class Matrix_Delegate {
             return false;
         }
 
-        try {
-            AffineTransform affineTransform = d.getAffineTransform();
-            AffineTransform inverseTransform = affineTransform.createInverse();
-            setValues(inverseTransform, inv_mtx.mValues);
+        float det = d.mValues[0] * (d.mValues[4] * d.mValues[8] - d.mValues[5] * d.mValues[7])
+                  + d.mValues[1] * (d.mValues[5] * d.mValues[6] - d.mValues[3] * d.mValues[8])
+                  + d.mValues[2] * (d.mValues[3] * d.mValues[7] - d.mValues[4] * d.mValues[6]);
 
-            return true;
-        } catch (NoninvertibleTransformException e) {
+        if (det == 0.0) {
             return false;
         }
+
+        inv_mtx.mValues[0] = (d.mValues[4] * d.mValues[8] - d.mValues[5] * d.mValues[7]) / det;
+        inv_mtx.mValues[1] = (d.mValues[2] * d.mValues[7] - d.mValues[1] * d.mValues[8]) / det;
+        inv_mtx.mValues[2] = (d.mValues[1] * d.mValues[5] - d.mValues[2] * d.mValues[4]) / det;
+        inv_mtx.mValues[3] = (d.mValues[5] * d.mValues[6] - d.mValues[3] * d.mValues[8]) / det;
+        inv_mtx.mValues[4] = (d.mValues[0] * d.mValues[8] - d.mValues[2] * d.mValues[6]) / det;
+        inv_mtx.mValues[5] = (d.mValues[2] * d.mValues[3] - d.mValues[0] * d.mValues[5]) / det;
+        inv_mtx.mValues[6] = (d.mValues[3] * d.mValues[7] - d.mValues[4] * d.mValues[6]) / det;
+        inv_mtx.mValues[7] = (d.mValues[1] * d.mValues[6] - d.mValues[0] * d.mValues[7]) / det;
+        inv_mtx.mValues[8] = (d.mValues[0] * d.mValues[4] - d.mValues[1] * d.mValues[3]) / det;
+
+        return true;
     }
 
     @LayoutlibDelegate

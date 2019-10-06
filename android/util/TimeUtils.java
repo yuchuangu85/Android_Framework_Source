@@ -16,15 +16,26 @@
 
 package android.util;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.SystemClock;
 
-import libcore.util.TimeZoneFinder;
-import libcore.util.ZoneInfoDB;
+import libcore.timezone.CountryTimeZones;
+import libcore.timezone.CountryTimeZones.TimeZoneMapping;
+import libcore.timezone.TimeZoneFinder;
+import libcore.timezone.ZoneInfoDB;
 
 import java.io.PrintWriter;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
+import java.util.List;
+
 /**
  * A class containing utility methods related to time zones.
  */
@@ -33,6 +44,9 @@ public class TimeUtils {
     /** {@hide} */
     private static SimpleDateFormat sLoggingFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
+    /** @hide */
+    public static final SimpleDateFormat sDumpDateFormat =
+            new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
     /**
      * Tries to return a time zone that would have had the specified offset
      * and DST value at the specified moment in the specified country.
@@ -61,6 +75,38 @@ public class TimeUtils {
         android.icu.util.TimeZone bias = android.icu.util.TimeZone.getDefault();
         return TimeZoneFinder.getInstance()
                 .lookupTimeZoneByCountryAndOffset(country, offset, dst, when, bias);
+    }
+
+    /**
+     * Returns time zone IDs for time zones known to be associated with a country.
+     *
+     * <p>The list returned may be different from other on-device sources like
+     * {@link android.icu.util.TimeZone#getRegion(String)} as it can be curated to avoid
+     * contentious mappings.
+     *
+     * @param countryCode the ISO 3166-1 alpha-2 code for the country as can be obtained using
+     *     {@link java.util.Locale#getCountry()}
+     * @return IDs that can be passed to {@link java.util.TimeZone#getTimeZone(String)} or similar
+     *     methods, or {@code null} if the countryCode is unrecognized
+     */
+    public static @Nullable List<String> getTimeZoneIdsForCountryCode(@NonNull String countryCode) {
+        if (countryCode == null) {
+            throw new NullPointerException("countryCode == null");
+        }
+        TimeZoneFinder timeZoneFinder = TimeZoneFinder.getInstance();
+        CountryTimeZones countryTimeZones =
+                timeZoneFinder.lookupCountryTimeZones(countryCode.toLowerCase());
+        if (countryTimeZones == null) {
+            return null;
+        }
+
+        List<String> timeZoneIds = new ArrayList<>();
+        for (TimeZoneMapping timeZoneMapping : countryTimeZones.getTimeZoneMappings()) {
+            if (timeZoneMapping.showInPicker) {
+                timeZoneIds.add(timeZoneMapping.timeZoneId);
+            }
+        }
+        return Collections.unmodifiableList(timeZoneIds);
     }
 
     /**
@@ -248,6 +294,7 @@ public class TimeUtils {
     }
 
     /** @hide Just for debugging; not internationalized. */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public static void formatDuration(long duration, PrintWriter pw, int fieldLen) {
         synchronized (sFormatSync) {
             int len = formatDurationLocked(duration, fieldLen);
@@ -256,6 +303,7 @@ public class TimeUtils {
     }
 
     /** @hide Just for debugging; not internationalized. */
+    @TestApi
     public static String formatDuration(long duration) {
         synchronized (sFormatSync) {
             int len = formatDurationLocked(duration, 0);
@@ -264,6 +312,7 @@ public class TimeUtils {
     }
 
     /** @hide Just for debugging; not internationalized. */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public static void formatDuration(long duration, PrintWriter pw) {
         formatDuration(duration, pw, 0);
     }
@@ -297,6 +346,7 @@ public class TimeUtils {
      * @return String representation of the time.
      * @hide
      */
+    @UnsupportedAppUsage
     public static String logTimeOfDay(long millis) {
         Calendar c = Calendar.getInstance();
         if (millis >= 0) {
@@ -315,4 +365,28 @@ public class TimeUtils {
             return sLoggingFormat.format(new Date(millis));
         }
     }
-}
+
+    /**
+     * Dump a currentTimeMillis style timestamp for dumpsys.
+     *
+     * @hide
+     */
+    public static void dumpTime(PrintWriter pw, long time) {
+        pw.print(sDumpDateFormat.format(new Date(time)));
+    }
+
+    /**
+     * Dump a currentTimeMillis style timestamp for dumpsys, with the delta time from now.
+     *
+     * @hide
+     */
+    public static void dumpTimeWithDelta(PrintWriter pw, long time, long now) {
+        pw.print(sDumpDateFormat.format(new Date(time)));
+        if (time == now) {
+            pw.print(" (now)");
+        } else {
+            pw.print(" (");
+            TimeUtils.formatDuration(time, now, pw);
+            pw.print(")");
+        }
+    }}

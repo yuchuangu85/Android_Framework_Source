@@ -59,18 +59,11 @@ public class RadialGradient_Delegate extends Gradient_Delegate {
     // ---- native methods ----
 
     @LayoutlibDelegate
-    /*package*/ static long nativeCreate1(long matrix, float x, float y, float radius,
-            int colors[], float positions[], int tileMode) {
+    /*package*/ static long nativeCreate(long matrix, float x, float y, float radius,
+            long[] colors, float[] positions, int tileMode, long colorSpaceHandle) {
         RadialGradient_Delegate newDelegate = new RadialGradient_Delegate(matrix, x, y, radius,
                 colors, positions, Shader_Delegate.getTileMode(tileMode));
         return sManager.addNewDelegate(newDelegate);
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static long nativeCreate2(long matrix, float x, float y, float radius,
-            int color0, int color1, int tileMode) {
-        return nativeCreate1(matrix, x, y, radius, new int[] { color0, color1 },
-                null /*positions*/, tileMode);
     }
 
     // ---- Private delegate/helper methods ----
@@ -91,7 +84,7 @@ public class RadialGradient_Delegate extends Gradient_Delegate {
      * @param tile The Shader tiling mode
      */
     private RadialGradient_Delegate(long nativeMatrix, float x, float y, float radius,
-            int colors[], float positions[], TileMode tile) {
+            long[] colors, float[] positions, TileMode tile) {
         super(nativeMatrix, colors, positions);
         mJavaPaint = new RadialGradientPaint(x, y, radius, mColors, mPositions, tile);
     }

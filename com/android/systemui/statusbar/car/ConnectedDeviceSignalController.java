@@ -1,4 +1,22 @@
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.android.systemui.statusbar.car;
+
+import static com.android.systemui.statusbar.phone.StatusBar.DEBUG;
 
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -9,27 +27,25 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.telephony.SignalStrength;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.View;
 import android.widget.ImageView;
+
 import com.android.settingslib.graph.SignalDrawable;
 import com.android.systemui.Dependency;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.ScalingDrawableWrapper;
 import com.android.systemui.statusbar.policy.BluetoothController;
 
-import static com.android.systemui.statusbar.phone.StatusBar.DEBUG;
-
 /**
  * Controller that monitors signal strength for a device that is connected via bluetooth.
  */
 public class ConnectedDeviceSignalController extends BroadcastReceiver implements
         BluetoothController.Callback {
-    private final static String TAG = "DeviceSignalCtlr";
+    private static final String TAG = "DeviceSignalCtlr";
 
     /**
      * The value that indicates if a network is unavailable. This value is according ot the
@@ -70,6 +86,21 @@ public class ConnectedDeviceSignalController extends BroadcastReceiver implement
     private final SignalDrawable mSignalDrawable;
 
     private BluetoothHeadsetClient mBluetoothHeadsetClient;
+    private final ServiceListener mHfpServiceListener = new ServiceListener() {
+        @Override
+        public void onServiceConnected(int profile, BluetoothProfile proxy) {
+            if (profile == BluetoothProfile.HEADSET_CLIENT) {
+                mBluetoothHeadsetClient = (BluetoothHeadsetClient) proxy;
+            }
+        }
+
+        @Override
+        public void onServiceDisconnected(int profile) {
+            if (profile == BluetoothProfile.HEADSET_CLIENT) {
+                mBluetoothHeadsetClient = null;
+            }
+        }
+    };
 
     public ConnectedDeviceSignalController(Context context, View signalsView) {
         mContext = context;
@@ -87,7 +118,7 @@ public class ConnectedDeviceSignalController extends BroadcastReceiver implement
                 new ScalingDrawableWrapper(mSignalDrawable, mIconScaleFactor));
 
         if (mAdapter == null) {
-          return;
+            return;
         }
 
         mAdapter.getProfileProxy(context.getApplicationContext(), mHfpServiceListener,
@@ -236,20 +267,4 @@ public class ConnectedDeviceSignalController extends BroadcastReceiver implement
             mSignalsView.setVisibility(View.GONE);
         }
     }
-
-    private final ServiceListener mHfpServiceListener = new ServiceListener() {
-        @Override
-        public void onServiceConnected(int profile, BluetoothProfile proxy) {
-            if (profile == BluetoothProfile.HEADSET_CLIENT) {
-                mBluetoothHeadsetClient = (BluetoothHeadsetClient) proxy;
-            }
-        }
-
-        @Override
-        public void onServiceDisconnected(int profile) {
-            if (profile == BluetoothProfile.HEADSET_CLIENT) {
-                mBluetoothHeadsetClient = null;
-            }
-        }
-    };
 }

@@ -7,6 +7,7 @@
 
 package org.xml.sax.helpers;
 
+import dalvik.annotation.compat.UnsupportedAppUsage;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -185,6 +186,7 @@ final public class XMLReaderFactory
     return loadClass (NewInstance.getClassLoader (), className);
     }
 
+    @UnsupportedAppUsage
     private static XMLReader loadClass (ClassLoader loader, String className)
     throws SAXException
     {

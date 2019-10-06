@@ -34,6 +34,7 @@ public class IccSlotStatus {
     public int        logicalSlotIndex;
     public String     atr;
     public String     iccid;
+    public String     eid;
 
     /**
      * Set the cardState according to the input state.
@@ -80,7 +81,8 @@ public class IccSlotStatus {
                 .append(slotState).append(",")
                 .append("logicalSlotIndex=").append(logicalSlotIndex).append(",")
                 .append("atr=").append(atr).append(",iccid=")
-                .append(SubscriptionInfo.givePrintableIccid(iccid));
+                .append(SubscriptionInfo.givePrintableIccid(iccid)).append(",")
+                .append("eid=").append(eid);
 
         sb.append("}");
         return sb.toString();
@@ -100,7 +102,8 @@ public class IccSlotStatus {
                 && (slotState == that.slotState)
                 && (logicalSlotIndex == that.logicalSlotIndex)
                 && (TextUtils.equals(atr, that.atr))
-                && (TextUtils.equals(iccid, that.iccid));
+                && (TextUtils.equals(iccid, that.iccid))
+                && (TextUtils.equals(eid, that.eid));
     }
 
 }

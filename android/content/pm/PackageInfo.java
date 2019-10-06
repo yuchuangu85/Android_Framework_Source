@@ -17,6 +17,8 @@
 package android.content.pm;
 
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -233,7 +235,7 @@ public class PackageInfo implements Parcelable {
     /**
      * Array of all signatures read from the package file. This is only filled
      * in if the flag {@link PackageManager#GET_SIGNATURES} was set. A package
-     * must be singed with at least one certificate which is at position zero.
+     * must be signed with at least one certificate which is at position zero.
      * The package can be signed with additional certificates which appear as
      * subsequent entries.
      *
@@ -297,6 +299,7 @@ public class PackageInfo implements Parcelable {
      * the {@link android.R.attr#installLocation} attribute.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int INSTALL_LOCATION_UNSPECIFIED = -1;
 
     /**
@@ -329,6 +332,7 @@ public class PackageInfo implements Parcelable {
     public boolean isStub;
 
     /** @hide */
+    @UnsupportedAppUsage
     public boolean coreApp;
 
     /** @hide */
@@ -346,7 +350,16 @@ public class PackageInfo implements Parcelable {
      * Package name of target package, or null.
      * @hide
      */
+    @UnsupportedAppUsage
     public String overlayTarget;
+
+    /**
+     * The name of the overlayable set of elements package, if any, this package will overlay.
+     *
+     * Overlayable name defined within the target package, or null.
+     * @hide
+     */
+    public String targetOverlayableName;
 
     /**
      * The overlay category, if any, of this package
@@ -385,6 +398,11 @@ public class PackageInfo implements Parcelable {
      */
     @Nullable
     public String compileSdkVersionCodename;
+
+    /**
+     * Whether the package is an APEX package.
+     */
+    public boolean isApex;
 
     public PackageInfo() {
     }
@@ -468,9 +486,10 @@ public class PackageInfo implements Parcelable {
         } else {
             dest.writeInt(0);
         }
+        dest.writeBoolean(isApex);
     }
 
-    public static final Parcelable.Creator<PackageInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<PackageInfo> CREATOR
             = new Parcelable.Creator<PackageInfo>() {
         @Override
         public PackageInfo createFromParcel(Parcel source) {
@@ -483,6 +502,7 @@ public class PackageInfo implements Parcelable {
         }
     };
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private PackageInfo(Parcel source) {
         packageName = source.readString();
         splitNames = source.createStringArray();
@@ -528,7 +548,7 @@ public class PackageInfo implements Parcelable {
         if (hasSigningInfo != 0) {
             signingInfo = SigningInfo.CREATOR.createFromParcel(source);
         }
-
+        isApex = source.readBoolean();
         // The component lists were flattened with the redundant ApplicationInfo
         // instances omitted.  Distribute the canonical one here as appropriate.
         if (applicationInfo != null) {

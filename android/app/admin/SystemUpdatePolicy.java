@@ -76,9 +76,7 @@ import java.util.stream.Collectors;
  * </code></pre>
  *
  * <h3>Developer guide</h3>
- * To learn more about managing system updates, read
- * <a href="{@docRoot}/work/dpc/security.html#control_remote_software_updates">Control remote
- * software updates</a>.
+ * To learn more, read <a href="{@docRoot}work/dpc/system-updates">Manage system updates</a>.
  *
  * @see DevicePolicyManager#setSystemUpdatePolicy
  * @see DevicePolicyManager#getSystemUpdatePolicy
@@ -282,7 +280,7 @@ public final class SystemUpdatePolicy implements Parcelable {
             dest.writeString(getMessage());
         }
 
-        public static final Parcelable.Creator<ValidationFailedException> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<ValidationFailedException> CREATOR =
                 new Parcelable.Creator<ValidationFailedException>() {
             @Override
             public ValidationFailedException createFromParcel(Parcel source) {
@@ -691,13 +689,11 @@ public final class SystemUpdatePolicy implements Parcelable {
                 mFreezePeriods.stream().map(n -> n.toString()).collect(Collectors.joining(",")));
     }
 
-    @SystemApi
     @Override
     public int describeContents() {
         return 0;
     }
 
-    @SystemApi
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeInt(mPolicyType);
@@ -714,8 +710,7 @@ public final class SystemUpdatePolicy implements Parcelable {
         }
     }
 
-    @SystemApi
-    public static final Parcelable.Creator<SystemUpdatePolicy> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<SystemUpdatePolicy> CREATOR =
             new Parcelable.Creator<SystemUpdatePolicy>() {
 
                 @Override

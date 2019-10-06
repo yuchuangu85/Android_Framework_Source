@@ -18,6 +18,7 @@ package com.android.internal.telephony.cat;
 
 import com.android.internal.telephony.uicc.IccFileHandler;
 
+import android.annotation.UnsupportedAppUsage;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.AsyncResult;
@@ -99,6 +100,7 @@ class IconLoader extends Handler {
         startLoadingIcon(recordNumbers[0]);
     }
 
+    @UnsupportedAppUsage
     void loadIcon(int recordNumber, Message msg) {
         if (msg == null) {
             return;

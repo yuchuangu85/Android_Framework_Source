@@ -17,6 +17,7 @@
 package android.net.nsd;
 
 import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcelable;
 import android.os.Parcel;
 import android.text.TextUtils;
@@ -185,6 +186,7 @@ public final class NsdServiceInfo implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setAttribute(String key, byte[] value) {
         if (TextUtils.isEmpty(key)) {
             throw new IllegalArgumentException("Key cannot be empty");
@@ -353,7 +355,7 @@ public final class NsdServiceInfo implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<NsdServiceInfo> CREATOR =
+    public static final @android.annotation.NonNull Creator<NsdServiceInfo> CREATOR =
         new Creator<NsdServiceInfo>() {
             public NsdServiceInfo createFromParcel(Parcel in) {
                 NsdServiceInfo info = new NsdServiceInfo();

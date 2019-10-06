@@ -1098,6 +1098,18 @@ public abstract class ClassLoader {
         return SystemClassLoader.loader;
     }
 
+    // Returns the class's class loader, or null if none.
+    static ClassLoader getClassLoader(Class<?> caller) {
+        // This can be null if the VM is requesting it
+        if (caller == null) {
+            return null;
+        }
+        // Android-changed: Use Class.getClassLoader(); there is no Class.getClassLoader0().
+        // // Circumvent security check since this is package-private
+        // return caller.getClassLoader0();
+        return caller.getClassLoader();
+    }
+
     // -- Package --
 
     /**

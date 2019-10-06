@@ -22,10 +22,13 @@ import android.os.connectivity.WifiBatteryStats;
 import android.text.format.DateUtils;
 import android.util.Log;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.IBatteryStats;
 import com.android.server.wifi.nano.WifiMetricsProto.WifiPowerStats;
+import com.android.server.wifi.nano.WifiMetricsProto.WifiRadioUsage;
 
 import java.io.PrintWriter;
+import java.text.DecimalFormat;
 
 /**
  * WifiPowerMetrics holds the wifi power metrics and converts them to WifiPowerStats proto buf.
@@ -40,7 +43,13 @@ public class WifiPowerMetrics {
 
     public WifiPowerMetrics() {
         mBatteryStats = IBatteryStats.Stub.asInterface(ServiceManager.getService(
-            BatteryStats.SERVICE_NAME));
+                BatteryStats.SERVICE_NAME));
+    }
+
+    // This constructor injects IBatteryStats and should be used for testing only.
+    @VisibleForTesting
+    public WifiPowerMetrics(IBatteryStats batteryStats) {
+        mBatteryStats = batteryStats;
     }
 
     /**
@@ -60,6 +69,35 @@ public class WifiPowerMetrics {
             m.idleTimeMs = stats.getIdleTimeMs();
             m.rxTimeMs = stats.getRxTimeMs();
             m.txTimeMs = stats.getTxTimeMs();
+            m.wifiKernelActiveTimeMs = stats.getKernelActiveTimeMs();
+            m.numPacketsTx = stats.getNumPacketsTx();
+            m.numBytesTx = stats.getNumBytesTx();
+            m.numPacketsRx = stats.getNumPacketsRx();
+            m.numBytesRx = stats.getNumPacketsRx();
+            m.sleepTimeMs = stats.getSleepTimeMs();
+            m.scanTimeMs = stats.getScanTimeMs();
+            m.monitoredRailEnergyConsumedMah = stats.getMonitoredRailChargeConsumedMaMs()
+                    / ((double) DateUtils.HOUR_IN_MILLIS);
+        }
+        return m;
+    }
+
+    /**
+     * Build WifiRadioUsage proto
+     * A snapshot of Wifi statistics in Batterystats is obtained. Due to reboots multiple correlated
+     * logs may be uploaded in a day. Server side should analyze based the ratio of collected
+     * properties over the total logging duration (ie. |scanTimeMs| / |loggingDurationMs|)
+     *
+     * This proto contains additional wifi usage data that are not directly related to power
+     * calculations.
+     * @return WifiRadioUsage
+     */
+    public WifiRadioUsage buildWifiRadioUsageProto() {
+        WifiRadioUsage m = new WifiRadioUsage();
+        WifiBatteryStats stats = getStats();
+        if (stats != null) {
+            m.loggingDurationMs = stats.getLoggingDurationMs();
+            m.scanTimeMs = stats.getScanTimeMs();
         }
         return m;
     }
@@ -77,7 +115,22 @@ public class WifiPowerMetrics {
             pw.println("Amount of time wifi is in idle (ms): " + s.idleTimeMs);
             pw.println("Amount of time wifi is in rx (ms): " + s.rxTimeMs);
             pw.println("Amount of time wifi is in tx (ms): " + s.txTimeMs);
+            pw.println("Amount of time kernel is active because of wifi data (ms): "
+                    + s.wifiKernelActiveTimeMs);
+            pw.println("Amount of time wifi is in sleep (ms): " + s.sleepTimeMs);
+            pw.println("Amount of time wifi is scanning (ms): " + s.scanTimeMs);
+            pw.println("Number of packets sent (tx): " + s.numPacketsTx);
+            pw.println("Number of bytes sent (tx): " + s.numBytesTx);
+            pw.println("Number of packets received (rx): " + s.numPacketsRx);
+            pw.println("Number of bytes sent (rx): " + s.numBytesRx);
+            pw.println("Energy consumed across measured wifi rails (mAh): "
+                    + new DecimalFormat("#.##").format(s.monitoredRailEnergyConsumedMah));
         }
+        WifiRadioUsage wifiRadioUsage = buildWifiRadioUsageProto();
+        pw.println("Wifi radio usage metrics:");
+        pw.println("Logging duration (time on battery): " + wifiRadioUsage.loggingDurationMs);
+        pw.println("Amount of time wifi is in scan mode while on battery (ms): "
+                + wifiRadioUsage.scanTimeMs);
     }
 
     /**

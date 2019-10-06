@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.cdma;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.XmlResourceParser;
@@ -64,6 +65,7 @@ public class EriManager {
     class EriDisplayInformation {
         int mEriIconIndex;
         int mEriIconMode;
+        @UnsupportedAppUsage
         String mEriIconText;
 
         EriDisplayInformation(int eriIconIndex, int eriIconMode, String eriIconText) {
@@ -99,9 +101,9 @@ public class EriManager {
     private EriFile mEriFile;
     private final Phone mPhone;
 
-    public EriManager(Phone phone, Context context, int eriFileSource) {
+    public EriManager(Phone phone, int eriFileSource) {
         mPhone = phone;
-        mContext = context;
+        mContext = mPhone.getContext();
         mEriFileSource = eriFileSource;
         mEriFile = new EriFile();
     }
@@ -308,6 +310,7 @@ public class EriManager {
         }
     }
 
+    @UnsupportedAppUsage
     private EriDisplayInformation getEriDisplayInformation(int roamInd, int defRoamInd){
         EriDisplayInformation ret;
 

@@ -33,7 +33,6 @@ import com.android.systemui.util.AlarmTimeout;
 import com.android.systemui.util.wakelock.WakeLock;
 
 import java.util.Calendar;
-import java.util.GregorianCalendar;
 
 /**
  * The policy controlling doze.
@@ -94,7 +93,16 @@ public class DozeUi implements DozeMachine.Part {
                 new DozeHost.PulseCallback() {
                     @Override
                     public void onPulseStarted() {
-                        mMachine.requestState(DozeMachine.State.DOZE_PULSING);
+                        try {
+                            mMachine.requestState(
+                                    reason == DozeLog.PULSE_REASON_SENSOR_WAKE_LOCK_SCREEN
+                                            ? DozeMachine.State.DOZE_PULSING_BRIGHT
+                                            : DozeMachine.State.DOZE_PULSING);
+                        } catch (IllegalStateException e) {
+                            // It's possible that the pulse was asynchronously cancelled while
+                            // we were waiting for it to start (under stress conditions.)
+                            // In those cases we should just ignore it. b/127657926
+                        }
                     }
 
                     @Override
@@ -113,9 +121,7 @@ public class DozeUi implements DozeMachine.Part {
                     // The display buffers will be empty and need to be filled.
                     mHost.dozeTimeTick();
                     // The first frame may arrive when the display isn't ready yet.
-                    mHandler.postDelayed(mWakeLock.wrap(mHost::dozeTimeTick), 100);
-                    // The the delayed frame may arrive when the display isn't ready yet either.
-                    mHandler.postDelayed(mWakeLock.wrap(mHost::dozeTimeTick), 1000);
+                    mHandler.postDelayed(mWakeLock.wrap(mHost::dozeTimeTick), 500);
                 }
                 scheduleTimeTick();
                 break;
@@ -127,6 +133,7 @@ public class DozeUi implements DozeMachine.Part {
                 unscheduleTimeTick();
                 break;
             case DOZE_REQUEST_PULSE:
+                scheduleTimeTick();
                 pulseWhileDozing(mMachine.getPulseReason());
                 break;
             case INITIALIZED:
@@ -144,6 +151,7 @@ public class DozeUi implements DozeMachine.Part {
         switch (state) {
             case DOZE_REQUEST_PULSE:
             case DOZE_PULSING:
+            case DOZE_PULSING_BRIGHT:
             case DOZE_PULSE_DONE:
                 mHost.setAnimateWakeup(true);
                 break;
@@ -161,8 +169,12 @@ public class DozeUi implements DozeMachine.Part {
             return;
         }
 
-        long delta = roundToNextMinute(System.currentTimeMillis()) - System.currentTimeMillis();
-        mTimeTicker.schedule(delta, AlarmTimeout.MODE_IGNORE_IF_SCHEDULED);
+        long time = System.currentTimeMillis();
+        long delta = roundToNextMinute(time) - System.currentTimeMillis();
+        boolean scheduled = mTimeTicker.schedule(delta, AlarmTimeout.MODE_IGNORE_IF_SCHEDULED);
+        if (scheduled) {
+            DozeLog.traceTimeTickScheduled(time, time + delta);
+        }
         mLastTimeTickElapsed = SystemClock.elapsedRealtime();
     }
 
@@ -184,7 +196,7 @@ public class DozeUi implements DozeMachine.Part {
     }
 
     private long roundToNextMinute(long timeInMillis) {
-        Calendar calendar = GregorianCalendar.getInstance();
+        Calendar calendar = Calendar.getInstance();
         calendar.setTimeInMillis(timeInMillis);
         calendar.set(Calendar.MILLISECOND, 0);
         calendar.set(Calendar.SECOND, 0);

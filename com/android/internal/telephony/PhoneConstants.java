@@ -79,8 +79,6 @@ public class PhoneConstants {
     public static final int SIM_ACTIVATION_TYPE_DATA = 1;
 
     public static final String PHONE_NAME_KEY = "phoneName";
-    public static final String FAILURE_REASON_KEY = "reason";
-    public static final String STATE_CHANGE_REASON_KEY = "reason";
     public static final String DATA_NETWORK_TYPE_KEY = "networkType";
     public static final String DATA_FAILURE_CAUSE_KEY = "failCause";
     public static final String DATA_APN_TYPE_KEY = "apnType";
@@ -143,6 +141,8 @@ public class PhoneConstants {
     /** APN type for Emergency PDN. This is not an IA apn, but is used
      * for access to carrier services in an emergency call situation. */
     public static final String APN_TYPE_EMERGENCY = "emergency";
+    /** APN type for Mission Critical Services */
+    public static final String APN_TYPE_MCX = "mcx";
     /** Array of all APN types */
     public static final String[] APN_TYPES = {APN_TYPE_DEFAULT,
             APN_TYPE_MMS,
@@ -153,7 +153,8 @@ public class PhoneConstants {
             APN_TYPE_IMS,
             APN_TYPE_CBS,
             APN_TYPE_IA,
-            APN_TYPE_EMERGENCY
+            APN_TYPE_EMERGENCY,
+            APN_TYPE_MCX
     };
 
     public static final int RIL_CARD_MAX_APPS    = 8;
@@ -176,6 +177,10 @@ public class PhoneConstants {
 
     // FIXME: This is used to pass a subId via intents, we need to look at its usage, which is
     // FIXME: extensive, and see if this should be an array of all active subId's or ...?
+    /**
+     * @Deprecated use {@link android.telephony.SubscriptionManager#EXTRA_SUBSCRIPTION_INDEX}
+     * instead.
+     */
     public static final String SUBSCRIPTION_KEY  = "subscription";
 
     public static final String SUB_SETTING  = "subSettings";

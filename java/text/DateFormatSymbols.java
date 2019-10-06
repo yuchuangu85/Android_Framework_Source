@@ -787,7 +787,7 @@ public class DateFormatSymbols implements Serializable, Cloneable {
             return true;
         }
         return Arrays.deepEquals(getZoneStringsWrapper(), that.getZoneStringsWrapper());
-        // END Android-changed: Avoid populating zoneStrings just for the comparison.
+        // END Android-changed: Avoid populating zoneStrings just for the comparison, add fields.
     }
 
     // =======================privates===============================

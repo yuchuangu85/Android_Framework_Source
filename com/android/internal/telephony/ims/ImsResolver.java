@@ -382,9 +382,12 @@ public class ImsResolver implements ImsServiceController.ImsServiceControllerCal
                     maybeRebindService(slotId, packageName);
                 } else {
                     Log.i(TAG, "overriding device ImsService -  packageName=" + packageName);
-                    if (packageName == null || packageName.isEmpty()) {
-                        unbindImsService(getImsServiceInfoFromCache(mDeviceService));
+                    if (TextUtils.equals(mDeviceService, packageName)) {
+                        // No change in device service.
+                        break;
                     }
+                    // Unbind from the previous ImsService before binding to the new one.
+                    unbindImsService(getImsServiceInfoFromCache(mDeviceService));
                     mDeviceService = packageName;
                     ImsServiceInfo deviceInfo = getImsServiceInfoFromCache(mDeviceService);
                     if (deviceInfo == null) {
@@ -1129,17 +1132,6 @@ public class ImsResolver implements ImsServiceController.ImsServiceControllerCal
             // New ImsService is registered as device default and must be newly bound.
             bindImsService(service);
         }
-    }
-
-    /**
-     * @return true if the ImsResolver is in the process of resolving a dynamic query and should not
-     * be considered available, false if the ImsResolver is idle.
-     */
-    public boolean isResolvingBinding() {
-        return mHandler.hasMessages(HANDLER_START_DYNAMIC_FEATURE_QUERY)
-                // We haven't processed this message yet, so it is still resolving.
-                || mHandler.hasMessages(HANDLER_DYNAMIC_FEATURE_CHANGE)
-                || mFeatureQueryManager.isQueryInProgress();
     }
 
     private String printFeatures(Set<ImsFeatureConfiguration.FeatureSlotPair> features) {

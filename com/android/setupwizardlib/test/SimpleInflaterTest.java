@@ -20,14 +20,12 @@ import static org.junit.Assert.assertEquals;
 
 import android.content.Context;
 import android.content.res.Resources;
-import android.support.annotation.NonNull;
+import androidx.annotation.NonNull;
+import android.util.AttributeSet;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
-import android.util.AttributeSet;
-
 import com.android.setupwizardlib.items.SimpleInflater;
-
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -35,30 +33,30 @@ import org.junit.runner.RunWith;
 @RunWith(AndroidJUnit4.class)
 public class SimpleInflaterTest {
 
-    @Test
-    public void testInflateXml() {
-        final Context context = InstrumentationRegistry.getContext();
-        TestInflater inflater = new TestInflater(context.getResources());
-        final StringBuilder result = inflater.inflate(R.xml.simple_inflater_test);
+  @Test
+  public void testInflateXml() {
+    final Context context = InstrumentationRegistry.getContext();
+    TestInflater inflater = new TestInflater(context.getResources());
+    final StringBuilder result = inflater.inflate(R.xml.simple_inflater_test);
 
-        assertEquals("Parent[null] > Child[foobar]", result.toString());
+    assertEquals("Parent[null] > Child[foobar]", result.toString());
+  }
+
+  private static class TestInflater extends SimpleInflater<StringBuilder> {
+
+    protected TestInflater(@NonNull Resources resources) {
+      super(resources);
     }
 
-    private static class TestInflater extends SimpleInflater<StringBuilder> {
-
-        protected TestInflater(@NonNull Resources resources) {
-            super(resources);
-        }
-
-        @Override
-        protected StringBuilder onCreateItem(String tagName, AttributeSet attrs) {
-            final String attribute = attrs.getAttributeValue(null, "myattribute");
-            return new StringBuilder(tagName).append("[").append(attribute).append("]");
-        }
-
-        @Override
-        protected void onAddChildItem(StringBuilder parent, StringBuilder child) {
-            parent.append(" > ").append(child);
-        }
+    @Override
+    protected StringBuilder onCreateItem(String tagName, AttributeSet attrs) {
+      final String attribute = attrs.getAttributeValue(null, "myattribute");
+      return new StringBuilder(tagName).append("[").append(attribute).append("]");
     }
+
+    @Override
+    protected void onAddChildItem(StringBuilder parent, StringBuilder child) {
+      parent.append(" > ").append(child);
+    }
+  }
 }

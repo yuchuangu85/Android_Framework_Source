@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.os.AsyncResult;
@@ -28,6 +29,7 @@ import android.telephony.Rlog;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 
+import com.android.internal.telephony.ims.RcsMessageStoreController;
 import com.android.internal.telephony.uicc.UiccController;
 
 import java.util.ArrayList;
@@ -57,6 +59,7 @@ public class ProxyController {
     private static final int SET_RC_TIMEOUT_WAITING_MSEC    = (45 * 1000);
 
     //***** Class Variables
+    @UnsupportedAppUsage
     private static ProxyController sProxyController;
 
     private Phone[] mPhones;
@@ -75,12 +78,13 @@ public class ProxyController {
     //PhoneSubInfoController to use proper PhoneSubInfoProxy object
     private PhoneSubInfoController mPhoneSubInfoController;
 
-    //UiccSmsController to use proper IccSmsInterfaceManager object
-    private UiccSmsController mUiccSmsController;
+    //SmsController to use proper IccSmsInterfaceManager object
+    private SmsController mSmsController;
 
     WakeLock mWakeLock;
 
     // record each phone's set radio capability status
+    @UnsupportedAppUsage
     private int[] mSetRadioAccessFamilyStatus;
     private int mRadioAccessFamilyStatusCounter;
     private boolean mTransactionFailed = false;
@@ -89,15 +93,18 @@ public class ProxyController {
     private String[] mNewLogicalModemIds;
 
     // Allows the generation of unique Id's for radio capability request session  id
+    @UnsupportedAppUsage
     private AtomicInteger mUniqueIdGenerator = new AtomicInteger(new Random().nextInt());
 
     // on-going radio capability request session id
+    @UnsupportedAppUsage
     private int mRadioCapabilitySessionId;
 
     // Record new and old Radio Access Family (raf) configuration.
     // The old raf configuration is used to restore each logical modem raf when FINISH is
     // issued if any requests fail.
     private int[] mNewRadioAccessFamily;
+    @UnsupportedAppUsage
     private int[] mOldRadioAccessFamily;
 
 
@@ -110,6 +117,7 @@ public class ProxyController {
         return sProxyController;
     }
 
+    @UnsupportedAppUsage
     public static ProxyController getInstance() {
         return sProxyController;
     }
@@ -124,9 +132,11 @@ public class ProxyController {
         mCi = ci;
         mPhoneSwitcher = phoneSwitcher;
 
+        RcsMessageStoreController.init(context);
+
         mUiccPhoneBookController = new UiccPhoneBookController(mPhones);
         mPhoneSubInfoController = new PhoneSubInfoController(mContext, mPhones);
-        mUiccSmsController = new UiccSmsController();
+        mSmsController = new SmsController(mContext);
         mSetRadioAccessFamilyStatus = new int[mPhones.length];
         mNewRadioAccessFamily = new int[mPhones.length];
         mOldRadioAccessFamily = new int[mPhones.length];
@@ -147,28 +157,11 @@ public class ProxyController {
         logd("Constructor - Exit");
     }
 
-    public void updateDataConnectionTracker(int sub) {
-        mPhones[sub].updateDataConnectionTracker();
-    }
-
-    public void enableDataConnectivity(int sub) {
-        mPhones[sub].setInternalDataEnabled(true, null);
-    }
-
-    public void disableDataConnectivity(int sub,
-            Message dataCleanedUpMsg) {
-        mPhones[sub].setInternalDataEnabled(false, dataCleanedUpMsg);
-    }
-
-    public void updateCurrentCarrierInProvider(int sub) {
-        mPhones[sub].updateCurrentCarrierInProvider();
-    }
-
-    public void registerForAllDataDisconnected(int subId, Handler h, int what, Object obj) {
+    public void registerForAllDataDisconnected(int subId, Handler h, int what) {
         int phoneId = SubscriptionController.getInstance().getPhoneId(subId);
 
         if (phoneId >= 0 && phoneId < TelephonyManager.getDefault().getPhoneCount()) {
-            mPhones[phoneId].registerForAllDataDisconnected(h, what, obj);
+            mPhones[phoneId].registerForAllDataDisconnected(h, what);
         }
     }
 
@@ -180,11 +173,12 @@ public class ProxyController {
         }
     }
 
-    public boolean isDataDisconnected(int subId) {
+
+    public boolean areAllDataDisconnected(int subId) {
         int phoneId = SubscriptionController.getInstance().getPhoneId(subId);
 
         if (phoneId >= 0 && phoneId < TelephonyManager.getDefault().getPhoneCount()) {
-            return mPhones[phoneId].mDcTracker.isDisconnected();
+            return mPhones[phoneId].areAllDataDisconnected();
         } else {
             // if we can't find a phone for the given subId, it is disconnected.
             return true;
@@ -250,6 +244,14 @@ public class ProxyController {
         mWakeLock.acquire();
 
         return doSetRadioCapabilities(rafs);
+    }
+
+    /**
+     * Get the SmsController.
+     * @return the SmsController object.
+     */
+    public SmsController getSmsController() {
+        return mSmsController;
     }
 
     private boolean doSetRadioCapabilities(RadioAccessFamily[] rafs) {
@@ -454,7 +456,7 @@ public class ProxyController {
                 logd("onNotificationRadioCapabilityChanged: phoneId=" + id + " status=SUCCESS");
                 mSetRadioAccessFamilyStatus[id] = SET_RC_STATUS_SUCCESS;
                 // The modems may have been restarted and forgotten this
-                mPhoneSwitcher.resendDataAllowed(id);
+                mPhoneSwitcher.onRadioCapChanged(id);
                 mPhones[id].radioCapabilityUpdated(rc);
             }
 
@@ -542,6 +544,7 @@ public class ProxyController {
         }
     }
 
+    @UnsupportedAppUsage
     private void completeRadioCapabilityTransaction() {
         // Create the intent to broadcast
         Intent intent;
@@ -601,6 +604,7 @@ public class ProxyController {
         mRadioAccessFamilyStatusCounter = mPhones.length;
     }
 
+    @UnsupportedAppUsage
     private void sendRadioCapabilityRequest(int phoneId, int sessionId, int rcPhase,
             int radioFamily, String logicalModemId, int status, int eventId) {
         RadioCapability requestRC = new RadioCapability(
@@ -658,6 +662,7 @@ public class ProxyController {
         return modemUuid;
     }
 
+    @UnsupportedAppUsage
     private void logd(String string) {
         Rlog.d(LOG_TAG, string);
     }

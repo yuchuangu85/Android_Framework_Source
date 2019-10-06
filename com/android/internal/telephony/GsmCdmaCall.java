@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import java.util.List;
 
 /**
@@ -72,6 +73,7 @@ public class GsmCdmaCall extends Call {
         mState = stateFromDCState (dc.state);
     }
 
+    @UnsupportedAppUsage
     public void attachFake(Connection conn, State state) {
         mConnections.add(conn);
 

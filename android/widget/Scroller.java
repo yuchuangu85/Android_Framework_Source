@@ -16,6 +16,7 @@
 
 package android.widget;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.hardware.SensorManager;
 import android.os.Build;
@@ -25,9 +26,9 @@ import android.view.animation.Interpolator;
 
 
 /**
- * <p>This class encapsulates(封装) scrolling. You can use scrollers ({@link Scroller}
+ * <p>This class encapsulates scrolling. You can use scrollers ({@link Scroller}
  * or {@link OverScroller}) to collect the data you need to produce a scrolling
- * animation&mdash;for example, in response to（为了应对） a fling gesture. Scrollers track
+ * animation&mdash;for example, in response to a fling gesture. Scrollers track
  * scroll offsets for you over time, but they don't automatically apply those
  * positions to your view. It's your responsibility to get and apply new
  * coordinates at a rate that will make the scrolling animation look smooth.</p>
@@ -60,6 +61,7 @@ import android.view.animation.Interpolator;
  * }</pre>
  */
 public class Scroller  {
+    @UnsupportedAppUsage
     private final Interpolator mInterpolator;
 
     private int mMode;
@@ -77,6 +79,7 @@ public class Scroller  {
     private int mCurrX;
     private int mCurrY;
     private long mStartTime;
+    @UnsupportedAppUsage
     private int mDuration;
     private float mDurationReciprocal;
     private float mDeltaX;
@@ -94,7 +97,9 @@ public class Scroller  {
     private static final int SCROLL_MODE = 0;
     private static final int FLING_MODE = 1;
 
+    @UnsupportedAppUsage
     private static float DECELERATION_RATE = (float) (Math.log(0.78) / Math.log(0.9));
+    @UnsupportedAppUsage
     private static final float INFLEXION = 0.35f; // Tension lines cross at (INFLEXION, 1)
     private static final float START_TENSION = 0.5f;
     private static final float END_TENSION = 1.0f;
@@ -105,10 +110,12 @@ public class Scroller  {
     private static final float[] SPLINE_POSITION = new float[NB_SAMPLES + 1];
     private static final float[] SPLINE_TIME = new float[NB_SAMPLES + 1];
 
+    @UnsupportedAppUsage
     private float mDeceleration;
     private final float mPpi;
 
     // A context-specific coefficient adjusted to physical values.
+    @UnsupportedAppUsage
     private float mPhysicalCoeff;
 
     static {

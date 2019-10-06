@@ -23,6 +23,7 @@ import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListCon
 import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants
         .USER_ACTIVITY_EVENT;
 
+import android.annotation.UnsupportedAppUsage;
 import android.app.ActivityManagerNative;
 import android.app.IActivityManager;
 import android.app.backup.BackupManager;
@@ -34,7 +35,6 @@ import android.content.res.Configuration;
 import android.content.res.Resources.NotFoundException;
 import android.os.AsyncResult;
 import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.LocaleList;
 import android.os.Message;
 import android.os.RemoteException;
@@ -59,10 +59,13 @@ import java.util.List;
 import java.util.Locale;
 
 class RilMessage {
+    @UnsupportedAppUsage
     int mId;
+    @UnsupportedAppUsage
     Object mData;
     ResultCode mResCode;
 
+    @UnsupportedAppUsage
     RilMessage(int msgId, String rawData) {
         mId = msgId;
         mData = rawData;
@@ -90,16 +93,25 @@ public class CatService extends Handler implements AppInterface {
 
     // Service members.
     // Protects singleton instance lazy initialization.
+    @UnsupportedAppUsage
     private static final Object sInstanceLock = new Object();
+    @UnsupportedAppUsage
     private static CatService[] sInstance = null;
+    @UnsupportedAppUsage
     private CommandsInterface mCmdIf;
+    @UnsupportedAppUsage
     private Context mContext;
+    @UnsupportedAppUsage
     private CatCmdMessage mCurrntCmd = null;
+    @UnsupportedAppUsage
     private CatCmdMessage mMenuCmd = null;
 
+    @UnsupportedAppUsage
     private RilMessageDecoder mMsgDecoder = null;
+    @UnsupportedAppUsage
     private boolean mStkAppInstalled = false;
 
+    @UnsupportedAppUsage
     private UiccController mUiccController;
     private CardState mCardState = CardState.CARDSTATE_ABSENT;
 
@@ -131,7 +143,7 @@ public class CatService extends Handler implements AppInterface {
 
     static final String STK_DEFAULT = "Default Message";
 
-    private HandlerThread mHandlerThread;
+    @UnsupportedAppUsage
     private int mSlotId;
 
     /* For multisim catservice should not be singleton */
@@ -145,8 +157,6 @@ public class CatService extends Handler implements AppInterface {
         mCmdIf = ci;
         mContext = context;
         mSlotId = slotId;
-        mHandlerThread = new HandlerThread("Cat Telephony service" + slotId);
-        mHandlerThread.start();
 
         // Get the RilMessagesDecoder for decoding the messages.
         mMsgDecoder = RilMessageDecoder.getInstance(this, fh, slotId);
@@ -241,6 +251,7 @@ public class CatService extends Handler implements AppInterface {
         }
     }
 
+    @UnsupportedAppUsage
     public void dispose() {
         synchronized (sInstanceLock) {
             CatLog.d(this, "Disposing CatService object");
@@ -262,8 +273,6 @@ public class CatService extends Handler implements AppInterface {
             }
             mMsgDecoder.dispose();
             mMsgDecoder = null;
-            mHandlerThread.quit();
-            mHandlerThread = null;
             removeCallbacksAndMessages(null);
             if (sInstance != null) {
                 if (SubscriptionManager.isValidSlotIndex(mSlotId)) {
@@ -395,11 +404,6 @@ public class CatService extends Handler implements AppInterface {
                 break;
             case DISPLAY_TEXT:
                 break;
-            case REFRESH:
-                // ME side only handles refresh commands which meant to remove IDLE
-                // MODE TEXT.
-                cmdParams.mCmdDet.typeOfCommand = CommandType.SET_UP_IDLE_MODE_TEXT.value();
-                break;
             case SET_UP_IDLE_MODE_TEXT:
                 resultCode = cmdParams.mLoadIconFailed ? ResultCode.PRFRMD_ICON_NOT_DISPLAYED
                                                                             : ResultCode.OK;
@@ -439,6 +443,13 @@ public class CatService extends Handler implements AppInterface {
             case SELECT_ITEM:
             case GET_INPUT:
             case GET_INKEY:
+                break;
+            case REFRESH:
+            case RUN_AT:
+                if (STK_DEFAULT.equals(((DisplayTextParams)cmdParams).mTextMsg.text)) {
+                    // Remove the default text which was temporarily added and shall not be shown
+                    ((DisplayTextParams)cmdParams).mTextMsg.text = null;
+                }
                 break;
             case SEND_DTMF:
             case SEND_SMS:
@@ -554,6 +565,7 @@ public class CatService extends Handler implements AppInterface {
     }
 
 
+    @UnsupportedAppUsage
     private void sendTerminalResponse(CommandDetails cmdDet,
             ResultCode resultCode, boolean includeAdditionalInfo,
             int additionalInfo, ResponseData resp) {
@@ -1096,6 +1108,7 @@ public class CatService extends Handler implements AppInterface {
         mCurrntCmd = null;
     }
 
+    @UnsupportedAppUsage
     private boolean isStkAppInstalled() {
         Intent intent = new Intent(AppInterface.CAT_CMD_ACTION);
         PackageManager pm = mContext.getPackageManager();

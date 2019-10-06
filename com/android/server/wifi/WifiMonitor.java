@@ -28,7 +28,6 @@ import android.util.SparseArray;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.Protocol;
-import com.android.internal.util.StateMachine;
 import com.android.server.wifi.hotspot2.AnqpEvent;
 import com.android.server.wifi.hotspot2.IconEvent;
 import com.android.server.wifi.hotspot2.WnmData;
@@ -39,9 +38,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Listens for events from the wpa_supplicant server, and passes them on
- * to the {@link StateMachine} for handling.
- *
+ * Listen for events from the wpa_supplicant & wificond and broadcast them on
+ * to the various {@link ClientModeImpl} modules interested in handling these events.
  * @hide
  */
 public class WifiMonitor {
@@ -120,7 +118,6 @@ public class WifiMonitor {
         }
     }
 
-    // TODO(b/27569474) remove support for multiple handlers for the same event
     private final Map<String, SparseArray<Set<Handler>>> mHandlerMap = new HashMap<>();
     public synchronized void registerHandler(String iface, int what, Handler handler) {
         SparseArray<Set<Handler>> ifaceHandlers = mHandlerMap.get(iface);
@@ -476,7 +473,7 @@ public class WifiMonitor {
      * @param bssid BSSID of the access point.
      */
     public void broadcastAssociatedBssidEvent(String iface, String bssid) {
-        sendMessage(iface, WifiStateMachine.CMD_ASSOCIATED_BSSID, 0, 0, bssid);
+        sendMessage(iface, ClientModeImpl.CMD_ASSOCIATED_BSSID, 0, 0, bssid);
     }
 
     /**
@@ -486,7 +483,7 @@ public class WifiMonitor {
      * @param bssid BSSID of the access point.
      */
     public void broadcastTargetBssidEvent(String iface, String bssid) {
-        sendMessage(iface, WifiStateMachine.CMD_TARGET_BSSID, 0, 0, bssid);
+        sendMessage(iface, ClientModeImpl.CMD_TARGET_BSSID, 0, 0, bssid);
     }
 
     /**

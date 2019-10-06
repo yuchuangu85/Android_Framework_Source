@@ -16,6 +16,9 @@
 
 package android.util;
 
+import android.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 import java.io.PrintWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -108,6 +111,7 @@ public class DebugUtils {
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public static void buildShortClassTag(Object cls, StringBuilder out) {
         if (cls == null) {
             out.append("null");
@@ -247,7 +251,7 @@ public class DebugUtils {
                     if (value == 0 && flagsWasZero) {
                         return constNameWithoutPrefix(prefix, field);
                     }
-                    if ((flags & value) != 0) {
+                    if ((flags & value) == value) {
                         flags &= ~value;
                         res.append(constNameWithoutPrefix(prefix, field)).append('|');
                     }

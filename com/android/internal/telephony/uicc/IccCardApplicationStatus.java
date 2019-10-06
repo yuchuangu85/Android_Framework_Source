@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.UnsupportedAppUsage;
 import android.telephony.Rlog;
 
 import com.android.internal.telephony.uicc.IccCardStatus.PinState;
@@ -29,20 +30,32 @@ import com.android.internal.telephony.uicc.IccCardStatus.PinState;
 public class IccCardApplicationStatus {
     // TODO: Replace with constants from PhoneConstants.APPTYPE_xxx
     public enum AppType{
+        @UnsupportedAppUsage
         APPTYPE_UNKNOWN,
+        @UnsupportedAppUsage
         APPTYPE_SIM,
+        @UnsupportedAppUsage
         APPTYPE_USIM,
+        @UnsupportedAppUsage
         APPTYPE_RUIM,
+        @UnsupportedAppUsage
         APPTYPE_CSIM,
+        @UnsupportedAppUsage
         APPTYPE_ISIM
     }
 
     public enum AppState{
+        @UnsupportedAppUsage
         APPSTATE_UNKNOWN,
+        @UnsupportedAppUsage
         APPSTATE_DETECTED,
+        @UnsupportedAppUsage
         APPSTATE_PIN,
+        @UnsupportedAppUsage
         APPSTATE_PUK,
+        @UnsupportedAppUsage
         APPSTATE_SUBSCRIPTION_PERSO,
+        @UnsupportedAppUsage
         APPSTATE_READY;
 
         boolean isPinRequired() {
@@ -68,17 +81,23 @@ public class IccCardApplicationStatus {
     }
 
     public enum PersoSubState{
+        @UnsupportedAppUsage
         PERSOSUBSTATE_UNKNOWN,
         PERSOSUBSTATE_IN_PROGRESS,
         PERSOSUBSTATE_READY,
+        @UnsupportedAppUsage
         PERSOSUBSTATE_SIM_NETWORK,
+        @UnsupportedAppUsage
         PERSOSUBSTATE_SIM_NETWORK_SUBSET,
         PERSOSUBSTATE_SIM_CORPORATE,
+        @UnsupportedAppUsage
         PERSOSUBSTATE_SIM_SERVICE_PROVIDER,
         PERSOSUBSTATE_SIM_SIM,
         PERSOSUBSTATE_SIM_NETWORK_PUK,
+        @UnsupportedAppUsage
         PERSOSUBSTATE_SIM_NETWORK_SUBSET_PUK,
         PERSOSUBSTATE_SIM_CORPORATE_PUK,
+        @UnsupportedAppUsage
         PERSOSUBSTATE_SIM_SERVICE_PROVIDER_PUK,
         PERSOSUBSTATE_SIM_SIM_PUK,
         PERSOSUBSTATE_RUIM_NETWORK1,
@@ -99,6 +118,7 @@ public class IccCardApplicationStatus {
         }
     }
 
+    @UnsupportedAppUsage
     public AppType        app_type;
     public AppState       app_state;
     // applicable only if app_state == RIL_APPSTATE_SUBSCRIPTION_PERSO
@@ -112,6 +132,7 @@ public class IccCardApplicationStatus {
     public PinState       pin1;
     public PinState       pin2;
 
+    @UnsupportedAppUsage
     public AppType AppTypeFromRILInt(int type) {
         AppType newType;
         /* RIL_AppType ril.h */

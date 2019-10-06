@@ -38,10 +38,10 @@ public class AnswerToReset {
     private static final boolean VDBG = false; // STOPSHIP if true
     private static final int TAG_CARD_CAPABILITIES = 0x07;
     private static final int EXTENDED_APDU_INDEX = 2;
+    private static final int B8_MASK = 0x80;
     private static final int B7_MASK = 0x40;
     private static final int B2_MASK = 0x02;
 
-    public static final byte EUICC_SUPPORTED = (byte) 0x82;
     public static final byte DIRECT_CONVENTION = (byte) 0x3B;
     public static final byte INVERSE_CONVENTION = (byte) 0x3F;
     public static final int INTERFACE_BYTES_MASK = 0xF0;
@@ -148,12 +148,13 @@ public class AnswerToReset {
     }
 
     private void checkIsEuiccSupported() {
-        // eUICC is supported only if the value of the first tB after T=15 is 82.
+        // eUICC is supported only if the b8 and b2 of the first tB after T=15 are set to 1.
         for (int i = 0; i < mInterfaceBytes.size() - 1; i++) {
             if (mInterfaceBytes.get(i).getTD() != null
                     && (mInterfaceBytes.get(i).getTD() & T_MASK) == T_VALUE_FOR_GLOBAL_INTERFACE
                     && mInterfaceBytes.get(i + 1).getTB() != null
-                    && mInterfaceBytes.get(i + 1).getTB() == EUICC_SUPPORTED) {
+                    && (mInterfaceBytes.get(i + 1).getTB() & B8_MASK) != 0
+                    && (mInterfaceBytes.get(i + 1).getTB() & B2_MASK) != 0) {
                 mIsEuiccSupported = true;
                 return;
             }

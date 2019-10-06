@@ -34,6 +34,7 @@ import android.system.ErrnoException;
 import dalvik.system.CloseGuard;
 import libcore.io.IoBridge;
 import libcore.io.IoTracker;
+import libcore.io.IoUtils;
 import libcore.io.Libcore;
 import static android.system.OsConstants.*;
 
@@ -286,6 +287,7 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
 
         // BEGIN Android-changed: Use IoBridge.open() instead of open.
         fd = IoBridge.open(name, imode);
+        IoUtils.setFdOwner(fd, this);
         maybeSync();
         guard.open("close");
         // END Android-changed: Use IoBridge.open() instead of open.

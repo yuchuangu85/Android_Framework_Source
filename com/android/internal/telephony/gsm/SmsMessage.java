@@ -16,33 +16,32 @@
 
 package com.android.internal.telephony.gsm;
 
-import android.telephony.PhoneNumberUtils;
-import android.text.format.Time;
-import android.telephony.Rlog;
+import static com.android.internal.telephony.SmsConstants.ENCODING_16BIT;
+import static com.android.internal.telephony.SmsConstants.ENCODING_7BIT;
+import static com.android.internal.telephony.SmsConstants.ENCODING_8BIT;
+import static com.android.internal.telephony.SmsConstants.ENCODING_KSC5601;
+import static com.android.internal.telephony.SmsConstants.ENCODING_UNKNOWN;
+import static com.android.internal.telephony.SmsConstants.MAX_USER_DATA_BYTES;
+import static com.android.internal.telephony.SmsConstants.MAX_USER_DATA_SEPTETS;
+import static com.android.internal.telephony.SmsConstants.MessageClass;
+
 import android.content.res.Resources;
+import android.telephony.PhoneNumberUtils;
+import android.telephony.Rlog;
 import android.text.TextUtils;
+import android.text.format.Time;
 
 import com.android.internal.telephony.EncodeException;
 import com.android.internal.telephony.GsmAlphabet;
 import com.android.internal.telephony.GsmAlphabet.TextEncodingDetails;
-import com.android.internal.telephony.uicc.IccUtils;
+import com.android.internal.telephony.Sms7BitEncodingTranslator;
 import com.android.internal.telephony.SmsHeader;
 import com.android.internal.telephony.SmsMessageBase;
-import com.android.internal.telephony.Sms7BitEncodingTranslator;
+import com.android.internal.telephony.uicc.IccUtils;
 
 import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.text.ParseException;
-
-import static com.android.internal.telephony.SmsConstants.MessageClass;
-import static com.android.internal.telephony.SmsConstants.ENCODING_UNKNOWN;
-import static com.android.internal.telephony.SmsConstants.ENCODING_7BIT;
-import static com.android.internal.telephony.SmsConstants.ENCODING_8BIT;
-import static com.android.internal.telephony.SmsConstants.ENCODING_16BIT;
-import static com.android.internal.telephony.SmsConstants.ENCODING_KSC5601;
-import static com.android.internal.telephony.SmsConstants.MAX_USER_DATA_SEPTETS;
-import static com.android.internal.telephony.SmsConstants.MAX_USER_DATA_BYTES;
-import static com.android.internal.telephony.SmsConstants.MAX_USER_DATA_BYTES_WITH_HEADER;
 
 /**
  * A Short Message Service message.
@@ -70,9 +69,6 @@ public class SmsMessage extends SmsMessageBase {
     // TP-Reply-Path
     // e.g. 23.040 9.2.2.1
     private boolean mReplyPathPresent = false;
-
-    /** The address of the receiver. */
-    private GsmSmsAddress mRecipientAddress;
 
     /**
      *  TP-Status - status of a previously submitted SMS.
@@ -384,16 +380,22 @@ public class SmsMessage extends SmsMessageBase {
                 }
             }
         } catch (EncodeException ex) {
-            // Encoding to the 7-bit alphabet failed. Let's see if we can
-            // send it as a UCS-2 encoded message
-            try {
-                userData = encodeUCS2(message, header);
-                encoding = ENCODING_16BIT;
-            } catch(UnsupportedEncodingException uex) {
-                Rlog.e(LOG_TAG,
-                        "Implausible UnsupportedEncodingException ",
-                        uex);
+            if (ex.getError() == EncodeException.ERROR_EXCEED_SIZE) {
+                Rlog.e(LOG_TAG, "Exceed size limitation EncodeException", ex);
                 return null;
+            } else {
+                // Encoding to the 7-bit alphabet failed. Let's see if we can
+                // send it as a UCS-2 encoded message
+                try {
+                    userData = encodeUCS2(message, header);
+                    encoding = ENCODING_16BIT;
+                } catch (EncodeException ex1) {
+                    Rlog.e(LOG_TAG, "Exceed size limitation EncodeException", ex1);
+                    return null;
+                } catch (UnsupportedEncodingException uex) {
+                    Rlog.e(LOG_TAG, "Implausible UnsupportedEncodingException ", uex);
+                    return null;
+                }
             }
         }
 
@@ -438,9 +440,10 @@ public class SmsMessage extends SmsMessageBase {
      *
      * @return encoded message as UCS2
      * @throws UnsupportedEncodingException
+     * @throws EncodeException if String is too large to encode
      */
     private static byte[] encodeUCS2(String message, byte[] header)
-        throws UnsupportedEncodingException {
+            throws UnsupportedEncodingException, EncodeException {
         byte[] userData, textPart;
         textPart = message.getBytes("utf-16be");
 
@@ -454,6 +457,10 @@ public class SmsMessage extends SmsMessageBase {
         }
         else {
             userData = textPart;
+        }
+        if (userData.length > 255) {
+            throw new EncodeException(
+                    "Payload cannot exceed 255 bytes", EncodeException.ERROR_EXCEED_SIZE);
         }
         byte[] ret = new byte[userData.length+1];
         ret[0] = (byte) (userData.length & 0xff );
@@ -906,7 +913,7 @@ public class SmsMessage extends SmsMessageBase {
         CharSequence newMsgBody = null;
         Resources r = Resources.getSystem();
         if (r.getBoolean(com.android.internal.R.bool.config_sms_force_7bit_encoding)) {
-            newMsgBody  = Sms7BitEncodingTranslator.translate(msgBody);
+            newMsgBody = Sms7BitEncodingTranslator.translate(msgBody, false);
         }
         if (TextUtils.isEmpty(newMsgBody)) {
             newMsgBody = msgBody;

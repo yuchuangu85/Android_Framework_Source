@@ -513,9 +513,7 @@ public final class ImageDecoder implements AutoCloseable {
      *
      *  @param allocator Type of allocator to use.
      */
-    public ImageDecoder setAllocator(@Allocator int allocator) {
-        return this;
-    }
+    public void setAllocator(@Allocator int allocator) { }
 
     /**
      *  Specify whether the {@link Bitmap} should have unpremultiplied pixels.
@@ -546,9 +544,7 @@ public final class ImageDecoder implements AutoCloseable {
      *  {@link Canvas} will be recorded immediately and then applied to each
      *  frame.</p>
      */
-    public ImageDecoder setPostProcessor(@Nullable PostProcessor p) {
-        return this;
-    }
+    public void setPostProcessor(@Nullable PostProcessor p) { }
 
     /**
      *  Set (replace) the {@link OnPartialImageListener} on this object.
@@ -556,9 +552,7 @@ public final class ImageDecoder implements AutoCloseable {
      *  Will be called if there is an error in the input. Without one, a
      *  partial {@link Bitmap} will be created.
      */
-    public ImageDecoder setOnPartialImageListener(@Nullable OnPartialImageListener l) {
-        return this;
-    }
+    public void setOnPartialImageListener(@Nullable OnPartialImageListener l) { }
 
     /**
      *  Crop the output to {@code subset} of the (possibly) scaled image.
@@ -572,9 +566,7 @@ public final class ImageDecoder implements AutoCloseable {
      *  {@link BitmapRegionDecoder#decodeRegion}. This supports all formats,
      *  but merely crops the output.</p>
      */
-    public ImageDecoder setCrop(@Nullable Rect subset) {
-        return this;
-    }
+    public void setCrop(@Nullable Rect subset) { }
 
     /**
      *  Set a Rect for retrieving nine patch padding.
@@ -584,9 +576,8 @@ public final class ImageDecoder implements AutoCloseable {
      *
      *  @hide
      */
-    public ImageDecoder setOutPaddingRect(@NonNull Rect outPadding) {
+    public void setOutPaddingRect(@NonNull Rect outPadding) {
         mOutPaddingRect = outPadding;
-        return this;
     }
 
     /**
@@ -700,5 +691,78 @@ public final class ImageDecoder implements AutoCloseable {
     @NonNull
     public static Bitmap decodeBitmap(@NonNull Source src) throws IOException {
         return decodeBitmap(src, null);
+    }
+
+    public static final class DecodeException extends IOException {
+        /**
+         *  An Exception was thrown reading the {@link Source}.
+         */
+        public static final int SOURCE_EXCEPTION  = 1;
+
+        /**
+         *  The encoded data was incomplete.
+         */
+        public static final int SOURCE_INCOMPLETE = 2;
+
+        /**
+         *  The encoded data contained an error.
+         */
+        public static final int SOURCE_MALFORMED_DATA      = 3;
+
+        @Error final int mError;
+        @NonNull final Source mSource;
+
+        DecodeException(@Error int error, @Nullable Throwable cause, @NonNull Source source) {
+            super(errorMessage(error, cause), cause);
+            mError = error;
+            mSource = source;
+        }
+
+        /**
+         * Private method called by JNI.
+         */
+        @SuppressWarnings("unused")
+        DecodeException(@Error int error, @Nullable String msg, @Nullable Throwable cause,
+                @NonNull Source source) {
+            super(msg + errorMessage(error, cause), cause);
+            mError = error;
+            mSource = source;
+        }
+
+        /**
+         *  Retrieve the reason that decoding was interrupted.
+         *
+         *  <p>If the error is {@link #SOURCE_EXCEPTION}, the underlying
+         *  {@link java.lang.Throwable} can be retrieved with
+         *  {@link java.lang.Throwable#getCause}.</p>
+         */
+        @Error
+        public int getError() {
+            return mError;
+        }
+
+        /**
+         *  Retrieve the {@link Source Source} that was interrupted.
+         *
+         *  <p>This can be used for equality checking to find the Source which
+         *  failed to completely decode.</p>
+         */
+        @NonNull
+        public Source getSource() {
+            return mSource;
+        }
+
+        private static String errorMessage(@Error int error, @Nullable Throwable cause) {
+            switch (error) {
+                case SOURCE_EXCEPTION:
+                    return "Exception in input: " + cause;
+                case SOURCE_INCOMPLETE:
+                    return "Input was incomplete.";
+                case SOURCE_MALFORMED_DATA:
+                    return "Input contained an error.";
+                default:
+                    return "";
+            }
+        }
     }
 }

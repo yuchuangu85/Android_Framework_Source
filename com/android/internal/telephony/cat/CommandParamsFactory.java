@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.cat;
 
+import android.annotation.UnsupportedAppUsage;
 import android.graphics.Bitmap;
 import android.os.Handler;
 import android.os.Message;
@@ -45,6 +46,7 @@ import static com.android.internal.telephony.cat.CatCmdMessage
  */
 class CommandParamsFactory extends Handler {
     private static CommandParamsFactory sInstance = null;
+    @UnsupportedAppUsage
     private IconLoader mIconLoader;
     private CommandParams mCmdParams = null;
     private int mIconLoadState = LOAD_NO_ICON;
@@ -60,12 +62,6 @@ class CommandParamsFactory extends Handler {
     static final int LOAD_NO_ICON           = 0;
     static final int LOAD_SINGLE_ICON       = 1;
     static final int LOAD_MULTI_ICONS       = 2;
-
-    // Command Qualifier values for refresh command
-    static final int REFRESH_NAA_INIT_AND_FULL_FILE_CHANGE  = 0x00;
-    static final int REFRESH_NAA_INIT_AND_FILE_CHANGE       = 0x02;
-    static final int REFRESH_NAA_INIT                       = 0x03;
-    static final int REFRESH_UICC_RESET                     = 0x04;
 
     // Command Qualifier values for PLI command
     static final int DTTZ_SETTING                           = 0x03;
@@ -188,6 +184,8 @@ class CommandParamsFactory extends Handler {
                  break;
              case SEND_DTMF:
              case SEND_SMS:
+             case REFRESH:
+             case RUN_AT:
              case SEND_SS:
              case SEND_USSD:
                  cmdPending = processEventNotify(cmdDet, ctlvs);
@@ -196,10 +194,6 @@ class CommandParamsFactory extends Handler {
              case SET_UP_CALL:
                  cmdPending = processSetupCall(cmdDet, ctlvs);
                  break;
-             case REFRESH:
-                processRefresh(cmdDet, ctlvs);
-                cmdPending = false;
-                break;
              case LAUNCH_BROWSER:
                  cmdPending = processLaunchBrowser(cmdDet, ctlvs);
                  break;
@@ -297,6 +291,7 @@ class CommandParamsFactory extends Handler {
      * @return A ComprehensionTlv object that has the tag value of {@code tag}.
      *         If no object is found with the tag, null is returned.
      */
+    @UnsupportedAppUsage
     private ComprehensionTlv searchForTag(ComprehensionTlvTag tag,
             List<ComprehensionTlv> ctlvs) {
         Iterator<ComprehensionTlv> iter = ctlvs.iterator();
@@ -315,6 +310,7 @@ class CommandParamsFactory extends Handler {
      * @return A ComprehensionTlv object that has the tag value of {@code tag}.
      *         If no object is found with the tag, null is returned.
      */
+    @UnsupportedAppUsage
     private ComprehensionTlv searchForNextTag(ComprehensionTlvTag tag,
             Iterator<ComprehensionTlv> iter) {
         int tagValue = tag.value();
@@ -580,32 +576,6 @@ class CommandParamsFactory extends Handler {
             mIconLoader.loadIcon(iconId.recordNumber, this
                     .obtainMessage(MSG_ID_LOAD_ICON_DONE));
             return true;
-        }
-        return false;
-    }
-
-    /**
-     * Processes REFRESH proactive command from the SIM card.
-     *
-     * @param cmdDet Command Details container object.
-     * @param ctlvs List of ComprehensionTlv objects following Command Details
-     *        object and Device Identities object within the proactive command
-     */
-    private boolean processRefresh(CommandDetails cmdDet,
-            List<ComprehensionTlv> ctlvs) {
-
-        CatLog.d(this, "process Refresh");
-
-        // REFRESH proactive command is rerouted by the baseband and handled by
-        // the telephony layer. IDLE TEXT should be removed for a REFRESH command
-        // with "initialization" or "reset"
-        switch (cmdDet.commandQualifier) {
-        case REFRESH_NAA_INIT_AND_FULL_FILE_CHANGE:
-        case REFRESH_NAA_INIT_AND_FILE_CHANGE:
-        case REFRESH_NAA_INIT:
-        case REFRESH_UICC_RESET:
-            mCmdParams = new DisplayTextParams(cmdDet, null);
-            break;
         }
         return false;
     }
@@ -1135,6 +1105,7 @@ class CommandParamsFactory extends Handler {
         return false;
     }
 
+    @UnsupportedAppUsage
     public void dispose() {
         mIconLoader.dispose();
         mIconLoader = null;

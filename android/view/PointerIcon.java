@@ -17,6 +17,7 @@
 package android.view;
 
 import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.annotation.XmlRes;
 import android.content.Context;
 import android.content.res.Resources;
@@ -30,6 +31,8 @@ import android.graphics.RectF;
 import android.graphics.drawable.AnimationDrawable;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.hardware.display.DisplayManager;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
@@ -142,18 +145,31 @@ public final class PointerIcon implements Parcelable {
     public static final int TYPE_DEFAULT = TYPE_ARROW;
 
     private static final PointerIcon gNullIcon = new PointerIcon(TYPE_NULL);
-    private static final SparseArray<PointerIcon> gSystemIcons = new SparseArray<PointerIcon>();
+    private static final SparseArray<SparseArray<PointerIcon>> gSystemIconsByDisplay =
+            new SparseArray<SparseArray<PointerIcon>>();
     private static boolean sUseLargeIcons = false;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final int mType;
     private int mSystemIconResourceId;
+    @UnsupportedAppUsage
     private Bitmap mBitmap;
+    @UnsupportedAppUsage
     private float mHotSpotX;
+    @UnsupportedAppUsage
     private float mHotSpotY;
     // The bitmaps for the additional frame of animated pointer icon. Note that the first frame
     // will be stored in mBitmap.
+    @UnsupportedAppUsage
     private Bitmap mBitmapFrames[];
+    @UnsupportedAppUsage
     private int mDurationPerFrame;
+
+    /**
+     * Listener for displays lifecycle.
+     * @hide
+     */
+    private static DisplayManager.DisplayListener sDisplayListener;
 
     private PointerIcon(int type) {
         mType = type;
@@ -203,7 +219,19 @@ public final class PointerIcon implements Parcelable {
             return gNullIcon;
         }
 
-        PointerIcon icon = gSystemIcons.get(type);
+        if (sDisplayListener == null) {
+            registerDisplayListener(context);
+        }
+
+        final int displayId = context.getDisplayId();
+        SparseArray<PointerIcon> systemIcons = gSystemIconsByDisplay.get(displayId);
+        if (systemIcons == null) {
+            systemIcons = new SparseArray<>();
+            gSystemIconsByDisplay.put(displayId, systemIcons);
+        }
+
+        PointerIcon icon = systemIcons.get(type);
+        // Reload if not in the same display.
         if (icon != null) {
             return icon;
         }
@@ -232,7 +260,7 @@ public final class PointerIcon implements Parcelable {
         } else {
             icon.loadResource(context, context.getResources(), resourceId);
         }
-        gSystemIcons.append(type, icon);
+        systemIcons.append(type, icon);
         return icon;
     }
 
@@ -242,7 +270,7 @@ public final class PointerIcon implements Parcelable {
      */
     public static void setUseLargeIcons(boolean use) {
         sUseLargeIcons = use;
-        gSystemIcons.clear();
+        gSystemIconsByDisplay.clear();
     }
 
     /**
@@ -312,6 +340,7 @@ public final class PointerIcon implements Parcelable {
      * @throws IllegalArgumentException if context is null.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public PointerIcon load(@NonNull Context context) {
         if (context == null) {
             throw new IllegalArgumentException("context must not be null");
@@ -332,7 +361,7 @@ public final class PointerIcon implements Parcelable {
         return mType;
     }
 
-    public static final Parcelable.Creator<PointerIcon> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<PointerIcon> CREATOR
             = new Parcelable.Creator<PointerIcon>() {
         public PointerIcon createFromParcel(Parcel in) {
             int type = in.readInt();
@@ -567,4 +596,30 @@ public final class PointerIcon implements Parcelable {
                 return 0;
         }
     }
+
+    /**
+     * Manage system icon cache handled by display lifecycle.
+     * @param context The context.
+     */
+    private static void registerDisplayListener(@NonNull Context context) {
+        sDisplayListener = new DisplayManager.DisplayListener() {
+            @Override
+            public void onDisplayAdded(int displayId) {
+            }
+
+            @Override
+            public void onDisplayRemoved(int displayId) {
+                gSystemIconsByDisplay.remove(displayId);
+            }
+
+            @Override
+            public void onDisplayChanged(int displayId) {
+                gSystemIconsByDisplay.remove(displayId);
+            }
+        };
+
+        DisplayManager displayManager = context.getSystemService(DisplayManager.class);
+        displayManager.registerDisplayListener(sDisplayListener, null /* handler */);
+    }
+
 }

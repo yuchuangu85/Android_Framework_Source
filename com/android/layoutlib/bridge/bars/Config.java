@@ -33,13 +33,26 @@ public class Config {
     private static final String GINGERBREAD_DIR      = "/bars/v9/";
     private static final String JELLYBEAN_DIR        = "/bars/v18/";
     private static final String KITKAT_DIR           = "/bars/v19/";
-    private static final String DEFAULT_RESOURCE_DIR = "/bars/v21/";
+    private static final String LOLLIPOP_DIR         = "/bars/v21/";
+    private static final String PI_DIR = "/bars/v28/";
 
-    private static final List<String> sDefaultResourceDir =
-            Collections.singletonList(DEFAULT_RESOURCE_DIR);
+
+    private static final List<String> sDefaultResourceDir;
 
     private static final int WHITE = 0xFFFFFFFF;
     private static final int BLACK = 0xFF000000;
+
+    static {
+        sDefaultResourceDir = new ArrayList<>(6);
+        sDefaultResourceDir.add(PI_DIR);
+        sDefaultResourceDir.add("/bars/");
+        // If something is not found in the default directories, we fall back to search in the
+        // old versions
+        sDefaultResourceDir.add(LOLLIPOP_DIR);
+        sDefaultResourceDir.add(KITKAT_DIR);
+        sDefaultResourceDir.add(JELLYBEAN_DIR);
+        sDefaultResourceDir.add(GINGERBREAD_DIR);
+    }
 
     public static boolean showOnScreenNavBar(int platformVersion) {
         return isGreaterOrEqual(platformVersion, ICE_CREAM_SANDWICH);
@@ -55,7 +68,7 @@ public class Config {
         if (platformVersion == 0) {
             return sDefaultResourceDir;
         }
-        List<String> list = new ArrayList<String>(4);
+        List<String> list = new ArrayList<String>(10);
         // Gingerbread - uses custom battery and wifi icons.
         if (platformVersion <= GINGERBREAD) {
             list.add(GINGERBREAD_DIR);
@@ -68,7 +81,12 @@ public class Config {
         if (platformVersion <= KITKAT) {
             list.add(KITKAT_DIR);
         }
-        list.add(DEFAULT_RESOURCE_DIR);
+        // Lollipop - Custom for sysbar and battery
+        if (platformVersion <= LOLLIPOP) {
+            list.add(LOLLIPOP_DIR);
+        }
+
+        list.addAll(sDefaultResourceDir);
 
         return Collections.unmodifiableList(list);
     }

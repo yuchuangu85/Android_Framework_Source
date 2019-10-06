@@ -29,8 +29,6 @@ import com.android.internal.telephony.SmsHeader;
 import com.android.internal.telephony.SmsMessageBase;
 import com.android.internal.telephony.SmsStorageMonitor;
 import com.android.internal.telephony.VisualVoicemailSmsFilter;
-import com.android.internal.telephony.uicc.IccRecords;
-import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.telephony.uicc.UsimServiceTable;
 
 /**
@@ -50,7 +48,7 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
         super("GsmInboundSmsHandler", context, storageMonitor, phone,
                 GsmCellBroadcastHandler.makeGsmCellBroadcastHandler(context, phone));
         phone.mCi.setOnNewGsmSms(getHandler(), EVENT_NEW_SMS, null);
-        mDataDownloadHandler = new UsimDataDownloadHandler(phone.mCi);
+        mDataDownloadHandler = new UsimDataDownloadHandler(phone.mCi, phone.getPhoneId());
     }
 
     /**
@@ -110,6 +108,7 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
             // As per 3GPP TS 23.040 9.2.3.9, Type Zero messages should not be
             // Displayed/Stored/Notified. They should only be acknowledged.
             log("Received short message type 0, Don't display or store it. Send Ack");
+            addSmsTypeZeroToMetrics();
             return Intents.RESULT_SMS_HANDLED;
         }
 
@@ -130,6 +129,7 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
             if (DBG) log("Received voice mail indicator clear SMS shouldStore=" + !handled);
         }
         if (handled) {
+            addVoicemailSmsToMetrics();
             return Intents.RESULT_SMS_HANDLED;
         }
 
@@ -154,15 +154,6 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
         }
         // update voice mail count in Phone
         mPhone.setVoiceMessageCount(voicemailCount);
-        // store voice mail count in SIM & shared preferences
-        IccRecords records = UiccController.getInstance().getIccRecords(
-                mPhone.getPhoneId(), UiccController.APP_FAM_3GPP);
-        if (records != null) {
-            log("updateMessageWaitingIndicator: updating SIM Records");
-            records.setVoiceMessageWaiting(1, voicemailCount);
-        } else {
-            log("updateMessageWaitingIndicator: SIM Records not found");
-        }
     }
 
     /**
@@ -174,22 +165,6 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
     @Override
     protected void acknowledgeLastIncomingSms(boolean success, int result, Message response) {
         mPhone.mCi.acknowledgeLastIncomingGsmSms(success, resultToCause(result), response);
-    }
-
-    /**
-     * Called when the phone changes the default method updates mPhone
-     * mStorageMonitor and mCellBroadcastHandler.updatePhoneObject.
-     * Override if different or other behavior is desired.
-     *
-     * @param phone
-     */
-    @Override
-    protected void onUpdatePhoneObject(Phone phone) {
-        super.onUpdatePhoneObject(phone);
-        log("onUpdatePhoneObject: dispose of old CellBroadcastHandler and make a new one");
-        mCellBroadcastHandler.dispose();
-        mCellBroadcastHandler = GsmCellBroadcastHandler
-                .makeGsmCellBroadcastHandler(mContext, phone);
     }
 
     /**
@@ -209,5 +184,21 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
             default:
                 return CommandsInterface.GSM_SMS_FAIL_CAUSE_UNSPECIFIED_ERROR;
         }
+    }
+
+    /**
+     * Add SMS of type 0 to metrics.
+     */
+    private void addSmsTypeZeroToMetrics() {
+        mMetrics.writeIncomingSmsTypeZero(mPhone.getPhoneId(),
+                android.telephony.SmsMessage.FORMAT_3GPP);
+    }
+
+    /**
+     * Add voicemail indication SMS 0 to metrics.
+     */
+    private void addVoicemailSmsToMetrics() {
+        mMetrics.writeIncomingVoiceMailSms(mPhone.getPhoneId(),
+                android.telephony.SmsMessage.FORMAT_3GPP);
     }
 }

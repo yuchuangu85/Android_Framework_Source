@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.telephony.PhoneNumberUtils;
@@ -39,11 +40,17 @@ public class AdnRecord implements Parcelable {
 
     //***** Instance Variables
 
+    @UnsupportedAppUsage
     String mAlphaTag = null;
+    @UnsupportedAppUsage
     String mNumber = null;
+    @UnsupportedAppUsage
     String[] mEmails;
+    @UnsupportedAppUsage
     int mExtRecord = 0xff;
+    @UnsupportedAppUsage
     int mEfid;                   // or 0 if none
+    @UnsupportedAppUsage
     int mRecordNumber;           // or 0 if none
 
 
@@ -71,6 +78,7 @@ public class AdnRecord implements Parcelable {
 
     //***** Static Methods
 
+    @UnsupportedAppUsage
     public static final Parcelable.Creator<AdnRecord> CREATOR
             = new Parcelable.Creator<AdnRecord>() {
         @Override
@@ -98,24 +106,29 @@ public class AdnRecord implements Parcelable {
 
 
     //***** Constructor
+    @UnsupportedAppUsage
     public AdnRecord (byte[] record) {
         this(0, 0, record);
     }
 
+    @UnsupportedAppUsage
     public AdnRecord (int efid, int recordNumber, byte[] record) {
         this.mEfid = efid;
         this.mRecordNumber = recordNumber;
         parseRecord(record);
     }
 
+    @UnsupportedAppUsage
     public AdnRecord (String alphaTag, String number) {
         this(0, 0, alphaTag, number);
     }
 
+    @UnsupportedAppUsage
     public AdnRecord (String alphaTag, String number, String[] emails) {
         this(0, 0, alphaTag, number, emails);
     }
 
+    @UnsupportedAppUsage
     public AdnRecord (int efid, int recordNumber, String alphaTag, String number, String[] emails) {
         this.mEfid = efid;
         this.mRecordNumber = recordNumber;
@@ -124,6 +137,7 @@ public class AdnRecord implements Parcelable {
         this.mEmails = emails;
     }
 
+    @UnsupportedAppUsage
     public AdnRecord(int efid, int recordNumber, String alphaTag, String number) {
         this.mEfid = efid;
         this.mRecordNumber = recordNumber;
@@ -146,6 +160,7 @@ public class AdnRecord implements Parcelable {
         return mRecordNumber;
     }
 
+    @UnsupportedAppUsage
     public String getNumber() {
         return mNumber;
     }
@@ -154,10 +169,12 @@ public class AdnRecord implements Parcelable {
         mNumber = number;
     }
 
+    @UnsupportedAppUsage
     public String[] getEmails() {
         return mEmails;
     }
 
+    @UnsupportedAppUsage
     public void setEmails(String[] emails) {
         this.mEmails = emails;
     }
@@ -168,6 +185,7 @@ public class AdnRecord implements Parcelable {
                 + Rlog.pii(LOG_TAG, mEmails) + "'";
     }
 
+    @UnsupportedAppUsage
     public boolean isEmpty() {
         return TextUtils.isEmpty(mAlphaTag) && TextUtils.isEmpty(mNumber) && mEmails == null;
     }
@@ -219,6 +237,7 @@ public class AdnRecord implements Parcelable {
      * @return hex byte[recordSize] to be written to EF record
      *          return null for wrong format of dialing number or tag
      */
+    @UnsupportedAppUsage
     public byte[] buildAdnString(int recordSize) {
         byte[] bcdNumber;
         byte[] byteTag;

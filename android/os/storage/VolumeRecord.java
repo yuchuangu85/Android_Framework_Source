@@ -16,6 +16,7 @@
 
 package android.os.storage;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.DebugUtils;
@@ -24,6 +25,7 @@ import android.util.TimeUtils;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.internal.util.Preconditions;
 
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -44,6 +46,7 @@ public class VolumeRecord implements Parcelable {
     public String nickname;
     public int userFlags;
     public long createdMillis;
+    public long lastSeenMillis;
     public long lastTrimMillis;
     public long lastBenchMillis;
 
@@ -52,6 +55,7 @@ public class VolumeRecord implements Parcelable {
         this.fsUuid = Preconditions.checkNotNull(fsUuid);
     }
 
+    @UnsupportedAppUsage
     public VolumeRecord(Parcel parcel) {
         type = parcel.readInt();
         fsUuid = parcel.readString();
@@ -59,6 +63,7 @@ public class VolumeRecord implements Parcelable {
         nickname = parcel.readString();
         userFlags = parcel.readInt();
         createdMillis = parcel.readLong();
+        lastSeenMillis = parcel.readLong();
         lastTrimMillis = parcel.readLong();
         lastBenchMillis = parcel.readLong();
     }
@@ -69,6 +74,10 @@ public class VolumeRecord implements Parcelable {
 
     public String getFsUuid() {
         return fsUuid;
+    }
+
+    public String getNormalizedFsUuid() {
+        return fsUuid != null ? fsUuid.toLowerCase(Locale.US) : null;
     }
 
     public String getNickname() {
@@ -95,6 +104,7 @@ public class VolumeRecord implements Parcelable {
                 DebugUtils.flagsToString(VolumeRecord.class, "USER_FLAG_", userFlags));
         pw.println();
         pw.printPair("createdMillis", TimeUtils.formatForLogging(createdMillis));
+        pw.printPair("lastSeenMillis", TimeUtils.formatForLogging(lastSeenMillis));
         pw.printPair("lastTrimMillis", TimeUtils.formatForLogging(lastTrimMillis));
         pw.printPair("lastBenchMillis", TimeUtils.formatForLogging(lastBenchMillis));
         pw.decreaseIndent();
@@ -127,7 +137,8 @@ public class VolumeRecord implements Parcelable {
         return fsUuid.hashCode();
     }
 
-    public static final Creator<VolumeRecord> CREATOR = new Creator<VolumeRecord>() {
+    @UnsupportedAppUsage
+    public static final @android.annotation.NonNull Creator<VolumeRecord> CREATOR = new Creator<VolumeRecord>() {
         @Override
         public VolumeRecord createFromParcel(Parcel in) {
             return new VolumeRecord(in);
@@ -152,6 +163,7 @@ public class VolumeRecord implements Parcelable {
         parcel.writeString(nickname);
         parcel.writeInt(userFlags);
         parcel.writeLong(createdMillis);
+        parcel.writeLong(lastSeenMillis);
         parcel.writeLong(lastTrimMillis);
         parcel.writeLong(lastBenchMillis);
     }

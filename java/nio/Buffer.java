@@ -253,7 +253,7 @@ public abstract class Buffer {
      * @throws  IllegalArgumentException
      *          If the preconditions on <tt>newPosition</tt> do not hold
      */
-    public final Buffer position(int newPosition) {
+    public Buffer position(int newPosition) {
         if ((newPosition > limit) || (newPosition < 0))
             // Android-changed: Improved error message.
             throw new IllegalArgumentException("Bad position " + newPosition + "/" + limit);
@@ -285,7 +285,7 @@ public abstract class Buffer {
      * @throws  IllegalArgumentException
      *          If the preconditions on <tt>newLimit</tt> do not hold
      */
-    public final Buffer limit(int newLimit) {
+    public Buffer limit(int newLimit) {
         if ((newLimit > capacity) || (newLimit < 0))
             throw new IllegalArgumentException();
         limit = newLimit;
@@ -299,7 +299,7 @@ public abstract class Buffer {
      *
      * @return  This buffer
      */
-    public final Buffer mark() {
+    public Buffer mark() {
         mark = position;
         return this;
     }
@@ -315,7 +315,7 @@ public abstract class Buffer {
      * @throws  InvalidMarkException
      *          If the mark has not been set
      */
-    public final Buffer reset() {
+    public Buffer reset() {
         int m = mark;
         if (m < 0)
             throw new InvalidMarkException();
@@ -340,7 +340,7 @@ public abstract class Buffer {
      *
      * @return  This buffer
      */
-    public final Buffer clear() {
+    public Buffer clear() {
         position = 0;
         limit = capacity;
         mark = -1;
@@ -368,7 +368,7 @@ public abstract class Buffer {
      *
      * @return  This buffer
      */
-    public final Buffer flip() {
+    public Buffer flip() {
         limit = position;
         position = 0;
         mark = -1;
@@ -390,7 +390,7 @@ public abstract class Buffer {
      *
      * @return  This buffer
      */
-    public final Buffer rewind() {
+    public Buffer rewind() {
         position = 0;
         mark = -1;
         return this;

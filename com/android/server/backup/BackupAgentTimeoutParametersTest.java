@@ -16,6 +16,8 @@
 
 package com.android.server.backup;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertEquals;
 
 import android.content.ContentResolver;
@@ -23,22 +25,16 @@ import android.content.Context;
 import android.os.Handler;
 import android.platform.test.annotations.Presubmit;
 import android.provider.Settings;
-import android.util.KeyValueSettingObserver;
-import com.android.server.testing.FrameworkRobolectricTestRunner;
-import com.android.server.testing.SystemLoaderClasses;
-import com.android.server.testing.SystemLoaderPackages;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
-import org.robolectric.annotation.Config;
 
 /** Tests for {@link BackupAgentTimeoutParameters}. */
-@RunWith(FrameworkRobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 26)
-@SystemLoaderPackages({"com.android.server.backup"})
-@SystemLoaderClasses({KeyValueSettingObserver.class})
+@RunWith(RobolectricTestRunner.class)
 @Presubmit
 public class BackupAgentTimeoutParametersTest {
     private ContentResolver mContentResolver;
@@ -51,7 +47,6 @@ public class BackupAgentTimeoutParametersTest {
 
         mContentResolver = context.getContentResolver();
         mParameters = new BackupAgentTimeoutParameters(new Handler(), mContentResolver);
-        mParameters.start();
     }
 
     /** Stop observing changes to the setting. */
@@ -61,8 +56,11 @@ public class BackupAgentTimeoutParametersTest {
     }
 
     /** Tests that timeout parameters are initialized with default values on creation. */
+    // TODO: Break down tests
     @Test
     public void testGetParameters_afterConstructorWithStart_returnsDefaultValues() {
+        mParameters.start();
+
         long kvBackupAgentTimeoutMillis = mParameters.getKvBackupAgentTimeoutMillis();
         long fullBackupAgentTimeoutMillis = mParameters.getFullBackupAgentTimeoutMillis();
         long sharedBackupAgentTimeoutMillis = mParameters.getSharedBackupAgentTimeoutMillis();
@@ -86,13 +84,33 @@ public class BackupAgentTimeoutParametersTest {
                 restoreAgentFinishedTimeoutMillis);
     }
 
+    @Test
+    public void testGetQuotaExceededTimeoutMillis_returnsDefaultValue() {
+        mParameters.start();
+
+        long timeout = mParameters.getQuotaExceededTimeoutMillis();
+
+        assertThat(timeout)
+                .isEqualTo(BackupAgentTimeoutParameters.DEFAULT_QUOTA_EXCEEDED_TIMEOUT_MILLIS);
+    }
+
+    @Test
+    public void testGetQuotaExceededTimeoutMillis_whenSettingSet_returnsSetValue() {
+        putStringAndNotify(
+                BackupAgentTimeoutParameters.SETTING_QUOTA_EXCEEDED_TIMEOUT_MILLIS + "=" + 1279);
+        mParameters.start();
+
+        long timeout = mParameters.getQuotaExceededTimeoutMillis();
+
+        assertThat(timeout).isEqualTo(1279);
+    }
+
     /**
      * Tests that timeout parameters are updated when we call start, even when a setting change
      * occurs while we are not observing.
      */
     @Test
     public void testGetParameters_withSettingChangeBeforeStart_updatesValues() {
-        mParameters.stop();
         long testTimeout = BackupAgentTimeoutParameters.DEFAULT_KV_BACKUP_AGENT_TIMEOUT_MILLIS * 2;
         final String setting =
                 BackupAgentTimeoutParameters.SETTING_KV_BACKUP_AGENT_TIMEOUT_MILLIS
@@ -112,6 +130,7 @@ public class BackupAgentTimeoutParametersTest {
      */
     @Test
     public void testGetParameters_withSettingChangeAfterStart_updatesValues() {
+        mParameters.start();
         long testTimeout = BackupAgentTimeoutParameters.DEFAULT_KV_BACKUP_AGENT_TIMEOUT_MILLIS * 2;
         final String setting =
                 BackupAgentTimeoutParameters.SETTING_KV_BACKUP_AGENT_TIMEOUT_MILLIS

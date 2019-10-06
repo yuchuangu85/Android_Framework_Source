@@ -150,6 +150,7 @@ public class ConditionProviders extends ManagedServices {
         try {
             provider.onConnected();
         } catch (RemoteException e) {
+            Slog.e(TAG, "can't connect to service " + info, e);
             // we tried
         }
         if (mCallback != null) {
@@ -189,6 +190,11 @@ public class ConditionProviders extends ManagedServices {
     @Override
     protected boolean isValidEntry(String packageOrComponent, int userId) {
         return true;
+    }
+
+    @Override
+    protected String getRequiredPermission() {
+        return null;
     }
 
     public ManagedServiceInfo checkServiceToken(IConditionProvider provider) {
@@ -278,11 +284,13 @@ public class ConditionProviders extends ManagedServices {
 
     public void ensureRecordExists(ComponentName component, Uri conditionId,
             IConditionProvider provider) {
-        // constructed by convention, make sure the record exists...
-        final ConditionRecord r = getRecordLocked(conditionId, component, true /*create*/);
-        if (r.info == null) {
-            // ... and is associated with the in-process service
-            r.info = checkServiceTokenLocked(provider);
+        synchronized (mMutex) {
+            // constructed by convention, make sure the record exists...
+            final ConditionRecord r = getRecordLocked(conditionId, component, true /*create*/);
+            if (r.info == null) {
+                // ... and is associated with the in-process service
+                r.info = checkServiceTokenLocked(provider);
+            }
         }
     }
 

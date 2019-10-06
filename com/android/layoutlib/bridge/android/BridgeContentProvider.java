@@ -40,7 +40,7 @@ import java.util.ArrayList;
  */
 public final class BridgeContentProvider implements IContentProvider {
     @Override
-    public ContentProviderResult[] applyBatch(String callingPackage,
+    public ContentProviderResult[] applyBatch(String callingPackage, String authority,
             ArrayList<ContentProviderOperation> arg0)
             throws RemoteException, OperationApplicationException {
         // TODO Auto-generated method stub
@@ -55,8 +55,8 @@ public final class BridgeContentProvider implements IContentProvider {
     }
 
     @Override
-    public Bundle call(String callingPackage, String arg0, String arg1, Bundle arg2)
-            throws RemoteException {
+    public Bundle call(String callingPackage, String authority, String arg0, String arg1,
+            Bundle arg2) throws RemoteException {
         // TODO Auto-generated method stub
         return null;
     }

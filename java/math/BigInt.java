@@ -26,8 +26,8 @@ import libcore.util.NativeAllocationRegistry;
  */
 final class BigInt {
 
-    private static NativeAllocationRegistry registry = new NativeAllocationRegistry(
-            BigInt.class.getClassLoader(), NativeBN.getNativeFinalizer(), NativeBN.size());
+    private static NativeAllocationRegistry registry = NativeAllocationRegistry.createMalloced(
+            BigInt.class.getClassLoader(), NativeBN.getNativeFinalizer());
 
     /* Fields used for the internal representation. */
     @ReachabilitySensitive

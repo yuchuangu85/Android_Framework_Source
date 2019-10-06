@@ -1,11 +1,12 @@
 /*
- * Copyright 2016 Google Inc.
+ * Copyright (C) 2016 The Android Open Source Project
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
- * published by the Free Software Foundation.  Google designates this
- * particular file as subject to the "Classpath" exception as provided
- * by Google in the LICENSE file that accompanied this code.
+ * published by the Free Software Foundation.  The Android Open Source
+ * Project designates this particular file as subject to the "Classpath"
+ * exception as provided by The Android Open Source Project in the LICENSE
+ * file that accompanied this code.
  *
  * This code is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
@@ -25,6 +26,10 @@ import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
+// Android-changed: Android specific implementation.
+// The whole class was implemented from scratch for the Android runtime based
+// on the specification of the MethodHandle class.
+// The code does not originate from upstream OpenJDK.
 /**
  * A method handle that's directly associated with an ArtField or an ArtMethod and
  * specifies no additional transformations.

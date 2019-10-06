@@ -154,7 +154,6 @@ public class BidiRenderer {
         }
 
         while (start < limit) {
-            boolean foundFont = false;
             int canDisplayUpTo = preferredFont.canDisplayUpTo(mText, start, limit);
             if (canDisplayUpTo == -1) {
                 // We can draw all characters in the text.
@@ -166,37 +165,58 @@ public class BidiRenderer {
                 render(start, canDisplayUpTo, preferredFont, flag, advances, advancesIndex, draw);
                 advancesIndex += canDisplayUpTo - start;
                 start = canDisplayUpTo;
-            }
+            } else {
+                // We can display everything with the preferred font. Search for the font that
+                // allows us to display the maximum number of chars
+                List<FontInfo> fontInfos = mPaint.getFonts();
+                Font bestFont = null;
+                int highestUpTo = canDisplayUpTo;
+                //noinspection ForLoopReplaceableByForEach
+                for (int i = 0; i < fontInfos.size(); i++) {
+                    Font font = fontInfos.get(i).mFont;
 
-            // The current character cannot be drawn with the preferred font. Cycle through all the
-            // fonts to check which one can draw it.
-            int charCount = Character.isHighSurrogate(mText[start]) ? 2 : 1;
-            List<FontInfo> fontInfos = mPaint.getFonts();
-            //noinspection ForLoopReplaceableByForEach (avoid iterator allocation)
-            for (int i = 0; i < fontInfos.size(); i++) {
-                Font font = fontInfos.get(i).mFont;
-                if (font == null) {
-                    logFontWarning();
-                    continue;
+                    if (preferredFont == font) {
+                        // We know this font won't work since we've already tested it at the
+                        // beginning of the loop
+                        continue;
+                    }
+
+                    if (font == null) {
+                        logFontWarning();
+                        continue;
+                    }
+
+                    canDisplayUpTo = font.canDisplayUpTo(mText, start, limit);
+                    if (canDisplayUpTo == -1) {
+                        // This font can dis
+                        highestUpTo = limit;
+                        bestFont = font;
+                        break;
+                    } else if (canDisplayUpTo > highestUpTo) {
+                        highestUpTo = canDisplayUpTo;
+                        bestFont = font;
+                        // Keep searching in case there is a font that allows to display even
+                        // more text
+                    }
                 }
-                canDisplayUpTo = font.canDisplayUpTo(mText, start, start + charCount);
-                if (canDisplayUpTo == -1) {
-                    render(start, start+charCount, font, flag, advances, advancesIndex, draw);
+
+                if (bestFont != null) {
+                    render(start, highestUpTo, bestFont, flag, advances, advancesIndex, draw);
+                    advancesIndex += highestUpTo - start;
+                    start = highestUpTo;
+                } else {
+                    int charCount = Character.isHighSurrogate(mText[start]) ? 2 : 1;
+
+                    // No font can display this char. Use the preferred font and skip this char.
+                    // The char will most probably appear as a box or a blank space. We could,
+                    // probably, use some heuristics and break the character into the base
+                    // character and diacritics and then draw it, but it's probably not worth the
+                    // effort.
+                    render(start, start + charCount, preferredFont, flag, advances, advancesIndex,
+                            draw);
                     start += charCount;
                     advancesIndex += charCount;
-                    foundFont = true;
-                    break;
                 }
-            }
-            if (!foundFont) {
-                // No font can display this char. Use the preferred font. The char will most
-                // probably appear as a box or a blank space. We could, probably, use some
-                // heuristics and break the character into the base character and diacritics and
-                // then draw it, but it's probably not worth the effort.
-                render(start, start + charCount, preferredFont, flag, advances, advancesIndex,
-                        draw);
-                start += charCount;
-                advancesIndex += charCount;
             }
         }
     }
@@ -313,19 +333,29 @@ public class BidiRenderer {
     // TODO: Replace this method with one which returns the font based on the scriptCode.
     @NonNull
     private static Font getScriptFont(char[] text, int start, int limit, List<FontInfo> fonts) {
-        for (FontInfo fontInfo : fonts) {
-            if (fontInfo.mFont.canDisplayUpTo(text, start, limit) == -1) {
-                return fontInfo.mFont;
-            }
-        }
-
         if (fonts.isEmpty()) {
             logFontWarning();
             // Fallback font in case no font can be loaded
             return Font.getFont(Font.SERIF);
         }
 
-        return fonts.get(0).mFont;
+        // From all the fonts, select the one that can display the highest number of characters
+        Font bestFont = fonts.get(0).mFont;
+        int bestFontCount = 0;
+        for (FontInfo fontInfo : fonts) {
+            int count = fontInfo.mFont.canDisplayUpTo(text, start, limit);
+            if (count == -1) {
+                // This font can display everything, return this one
+                return fontInfo.mFont;
+            }
+
+            if (count > bestFontCount) {
+                bestFontCount = count;
+                bestFont = fontInfo.mFont;
+            }
+        }
+
+        return bestFont;
     }
 
     private static int getIcuFlags(int bidiFlag) {

@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Build;
 
 /**
@@ -170,26 +171,34 @@ IccIoResult {
     }
 
 
+    @UnsupportedAppUsage
     public int sw1;
+    @UnsupportedAppUsage
     public int sw2;
 
+    @UnsupportedAppUsage
     public byte[] payload;
 
+    @UnsupportedAppUsage
     public IccIoResult(int sw1, int sw2, byte[] payload) {
         this.sw1 = sw1;
         this.sw2 = sw2;
         this.payload = payload;
     }
 
+    @UnsupportedAppUsage
     public IccIoResult(int sw1, int sw2, String hexString) {
         this(sw1, sw2, IccUtils.hexStringToBytes(hexString));
     }
 
     @Override
     public String toString() {
-        return "IccIoResult sw1:0x" + Integer.toHexString(sw1) + " sw2:0x"
-                + Integer.toHexString(sw2) + " Payload: "
-                + ((Build.IS_DEBUGGABLE && Build.IS_ENG) ? payload : "*******")
+        return "IccIoResult sw1:0x"
+                + Integer.toHexString(sw1)
+                + " sw2:0x"
+                + Integer.toHexString(sw2)
+                + " Payload: "
+                + (Build.IS_DEBUGGABLE ? IccUtils.bytesToHexString(payload) : "*******")
                 + ((!success()) ? " Error: " + getErrorString() : "");
     }
 
@@ -198,6 +207,7 @@ IccIoResult {
      * See GSM 11.11 Section 9.4
      * (the fun stuff is absent in 51.011)
      */
+    @UnsupportedAppUsage
     public boolean success() {
         return sw1 == 0x90 || sw1 == 0x91 || sw1 == 0x9e || sw1 == 0x9f;
     }

@@ -16,6 +16,7 @@
 
 package org.json;
 
+import dalvik.annotation.compat.UnsupportedAppUsage;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -23,6 +24,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import libcore.util.NonNull;
+import libcore.util.Nullable;
 
 // Note: this class was written without inspecting the non-free org.json sourcecode.
 
@@ -80,6 +83,7 @@ import java.util.Set;
  */
 public class JSONObject {
 
+    @UnsupportedAppUsage
     private static final Double NEGATIVE_ZERO = -0d;
 
     /**
@@ -97,7 +101,7 @@ public class JSONObject {
      * returning true when compared to {@code null}. Its {@link #toString}
      * method returns "null".
      */
-    public static final Object NULL = new Object() {
+    @NonNull public static final Object NULL = new Object() {
         @Override public boolean equals(Object o) {
             return o == this || o == null; // API specifies this broken equals implementation
         }
@@ -108,6 +112,7 @@ public class JSONObject {
         }
     };
 
+    @UnsupportedAppUsage
     private final LinkedHashMap<String, Object> nameValuePairs;
 
     /**
@@ -126,7 +131,7 @@ public class JSONObject {
      * @throws NullPointerException if any of the map's keys are null.
      */
     /* (accept a raw type for API compatibility) */
-    public JSONObject(Map copyFrom) {
+    public JSONObject(@NonNull Map copyFrom) {
         this();
         Map<?, ?> contentsTyped = (Map<?, ?>) copyFrom;
         for (Map.Entry<?, ?> entry : contentsTyped.entrySet()) {
@@ -151,7 +156,7 @@ public class JSONObject {
      * @throws JSONException if the parse fails or doesn't yield a
      *     {@code JSONObject}.
      */
-    public JSONObject(JSONTokener readFrom) throws JSONException {
+    public JSONObject(@NonNull JSONTokener readFrom) throws JSONException {
         /*
          * Getting the parser to populate this could get tricky. Instead, just
          * parse to temporary JSONObject and then steal the data from that.
@@ -172,7 +177,7 @@ public class JSONObject {
      * @throws JSONException if the parse fails or doesn't yield a {@code
      *     JSONObject}.
      */
-    public JSONObject(String json) throws JSONException {
+    public JSONObject(@NonNull String json) throws JSONException {
         this(new JSONTokener(json));
     }
 
@@ -181,7 +186,7 @@ public class JSONObject {
      * from the given object. Names that aren't present in {@code copyFrom} will
      * be skipped.
      */
-    public JSONObject(JSONObject copyFrom, String[] names) throws JSONException {
+    public JSONObject(@NonNull JSONObject copyFrom, @NonNull String @NonNull [] names) throws JSONException {
         this();
         for (String name : names) {
             Object value = copyFrom.opt(name);
@@ -204,7 +209,7 @@ public class JSONObject {
      *
      * @return this object.
      */
-    public JSONObject put(String name, boolean value) throws JSONException {
+    @NonNull public JSONObject put(@NonNull String name, boolean value) throws JSONException {
         nameValuePairs.put(checkName(name), value);
         return this;
     }
@@ -217,7 +222,7 @@ public class JSONObject {
      *     {@link Double#isInfinite() infinities}.
      * @return this object.
      */
-    public JSONObject put(String name, double value) throws JSONException {
+    @NonNull public JSONObject put(@NonNull String name, double value) throws JSONException {
         nameValuePairs.put(checkName(name), JSON.checkDouble(value));
         return this;
     }
@@ -228,7 +233,7 @@ public class JSONObject {
      *
      * @return this object.
      */
-    public JSONObject put(String name, int value) throws JSONException {
+    @NonNull public JSONObject put(@NonNull String name, int value) throws JSONException {
         nameValuePairs.put(checkName(name), value);
         return this;
     }
@@ -239,7 +244,7 @@ public class JSONObject {
      *
      * @return this object.
      */
-    public JSONObject put(String name, long value) throws JSONException {
+    @NonNull public JSONObject put(@NonNull String name, long value) throws JSONException {
         nameValuePairs.put(checkName(name), value);
         return this;
     }
@@ -255,7 +260,7 @@ public class JSONObject {
      *     infinities}.
      * @return this object.
      */
-    public JSONObject put(String name, Object value) throws JSONException {
+    @NonNull public JSONObject put(@NonNull String name, @Nullable Object value) throws JSONException {
         if (value == null) {
             nameValuePairs.remove(name);
             return this;
@@ -272,7 +277,7 @@ public class JSONObject {
      * Equivalent to {@code put(name, value)} when both parameters are non-null;
      * does nothing otherwise.
      */
-    public JSONObject putOpt(String name, Object value) throws JSONException {
+    @NonNull public JSONObject putOpt(@Nullable String name, @Nullable Object value) throws JSONException {
         if (name == null || value == null) {
             return this;
         }
@@ -299,7 +304,7 @@ public class JSONObject {
      */
     // TODO: Change {@code append) to {@link #append} when append is
     // unhidden.
-    public JSONObject accumulate(String name, Object value) throws JSONException {
+    @NonNull public JSONObject accumulate(@NonNull String name, @Nullable Object value) throws JSONException {
         Object current = nameValuePairs.get(checkName(name));
         if (current == null) {
             return put(name, value);
@@ -328,6 +333,7 @@ public class JSONObject {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public JSONObject append(String name, Object value) throws JSONException {
         Object current = nameValuePairs.get(checkName(name));
 
@@ -347,6 +353,7 @@ public class JSONObject {
         return this;
     }
 
+    @UnsupportedAppUsage
     String checkName(String name) throws JSONException {
         if (name == null) {
             throw new JSONException("Names must be non-null");
@@ -360,7 +367,7 @@ public class JSONObject {
      * @return the value previously mapped by {@code name}, or null if there was
      *     no such mapping.
      */
-    public Object remove(String name) {
+    @Nullable public Object remove(@Nullable String name) {
         return nameValuePairs.remove(name);
     }
 
@@ -368,7 +375,7 @@ public class JSONObject {
      * Returns true if this object has no mapping for {@code name} or if it has
      * a mapping whose value is {@link #NULL}.
      */
-    public boolean isNull(String name) {
+    public boolean isNull(@Nullable String name) {
         Object value = nameValuePairs.get(name);
         return value == null || value == NULL;
     }
@@ -377,7 +384,7 @@ public class JSONObject {
      * Returns true if this object has a mapping for {@code name}. The mapping
      * may be {@link #NULL}.
      */
-    public boolean has(String name) {
+    public boolean has(@Nullable String name) {
         return nameValuePairs.containsKey(name);
     }
 
@@ -386,7 +393,7 @@ public class JSONObject {
      *
      * @throws JSONException if no such mapping exists.
      */
-    public Object get(String name) throws JSONException {
+    @NonNull public Object get(@NonNull String name) throws JSONException {
         Object result = nameValuePairs.get(name);
         if (result == null) {
             throw new JSONException("No value for " + name);
@@ -398,7 +405,7 @@ public class JSONObject {
      * Returns the value mapped by {@code name}, or null if no such mapping
      * exists.
      */
-    public Object opt(String name) {
+    @Nullable public Object opt(@Nullable String name) {
         return nameValuePairs.get(name);
     }
 
@@ -409,7 +416,7 @@ public class JSONObject {
      * @throws JSONException if the mapping doesn't exist or cannot be coerced
      *     to a boolean.
      */
-    public boolean getBoolean(String name) throws JSONException {
+    public boolean getBoolean(@NonNull String name) throws JSONException {
         Object object = get(name);
         Boolean result = JSON.toBoolean(object);
         if (result == null) {
@@ -422,7 +429,7 @@ public class JSONObject {
      * Returns the value mapped by {@code name} if it exists and is a boolean or
      * can be coerced to a boolean, or false otherwise.
      */
-    public boolean optBoolean(String name) {
+    public boolean optBoolean(@Nullable String name) {
         return optBoolean(name, false);
     }
 
@@ -430,7 +437,7 @@ public class JSONObject {
      * Returns the value mapped by {@code name} if it exists and is a boolean or
      * can be coerced to a boolean, or {@code fallback} otherwise.
      */
-    public boolean optBoolean(String name, boolean fallback) {
+    public boolean optBoolean(@Nullable String name, boolean fallback) {
         Object object = opt(name);
         Boolean result = JSON.toBoolean(object);
         return result != null ? result : fallback;
@@ -443,7 +450,7 @@ public class JSONObject {
      * @throws JSONException if the mapping doesn't exist or cannot be coerced
      *     to a double.
      */
-    public double getDouble(String name) throws JSONException {
+    public double getDouble(@NonNull String name) throws JSONException {
         Object object = get(name);
         Double result = JSON.toDouble(object);
         if (result == null) {
@@ -456,7 +463,7 @@ public class JSONObject {
      * Returns the value mapped by {@code name} if it exists and is a double or
      * can be coerced to a double, or {@code NaN} otherwise.
      */
-    public double optDouble(String name) {
+    public double optDouble(@Nullable String name) {
         return optDouble(name, Double.NaN);
     }
 
@@ -464,7 +471,7 @@ public class JSONObject {
      * Returns the value mapped by {@code name} if it exists and is a double or
      * can be coerced to a double, or {@code fallback} otherwise.
      */
-    public double optDouble(String name, double fallback) {
+    public double optDouble(@Nullable String name, double fallback) {
         Object object = opt(name);
         Double result = JSON.toDouble(object);
         return result != null ? result : fallback;
@@ -477,7 +484,7 @@ public class JSONObject {
      * @throws JSONException if the mapping doesn't exist or cannot be coerced
      *     to an int.
      */
-    public int getInt(String name) throws JSONException {
+    public int getInt(@NonNull String name) throws JSONException {
         Object object = get(name);
         Integer result = JSON.toInteger(object);
         if (result == null) {
@@ -490,7 +497,7 @@ public class JSONObject {
      * Returns the value mapped by {@code name} if it exists and is an int or
      * can be coerced to an int, or 0 otherwise.
      */
-    public int optInt(String name) {
+    public int optInt(@Nullable String name) {
         return optInt(name, 0);
     }
 
@@ -498,7 +505,7 @@ public class JSONObject {
      * Returns the value mapped by {@code name} if it exists and is an int or
      * can be coerced to an int, or {@code fallback} otherwise.
      */
-    public int optInt(String name, int fallback) {
+    public int optInt(@Nullable String name, int fallback) {
         Object object = opt(name);
         Integer result = JSON.toInteger(object);
         return result != null ? result : fallback;
@@ -513,7 +520,7 @@ public class JSONObject {
      * @throws JSONException if the mapping doesn't exist or cannot be coerced
      *     to a long.
      */
-    public long getLong(String name) throws JSONException {
+    public long getLong(@NonNull String name) throws JSONException {
         Object object = get(name);
         Long result = JSON.toLong(object);
         if (result == null) {
@@ -527,7 +534,7 @@ public class JSONObject {
      * can be coerced to a long, or 0 otherwise. Note that JSON represents numbers as doubles,
      * so this is <a href="#lossy">lossy</a>; use strings to transfer numbers via JSON.
      */
-    public long optLong(String name) {
+    public long optLong(@Nullable String name) {
         return optLong(name, 0L);
     }
 
@@ -537,7 +544,7 @@ public class JSONObject {
      * numbers as doubles, so this is <a href="#lossy">lossy</a>; use strings to transfer
      * numbers via JSON.
      */
-    public long optLong(String name, long fallback) {
+    public long optLong(@Nullable String name, long fallback) {
         Object object = opt(name);
         Long result = JSON.toLong(object);
         return result != null ? result : fallback;
@@ -549,7 +556,7 @@ public class JSONObject {
      *
      * @throws JSONException if no such mapping exists.
      */
-    public String getString(String name) throws JSONException {
+    @NonNull public String getString(@NonNull String name) throws JSONException {
         Object object = get(name);
         String result = JSON.toString(object);
         if (result == null) {
@@ -562,7 +569,7 @@ public class JSONObject {
      * Returns the value mapped by {@code name} if it exists, coercing it if
      * necessary, or the empty string if no such mapping exists.
      */
-    public String optString(String name) {
+    @NonNull public String optString(@Nullable String name) {
         return optString(name, "");
     }
 
@@ -570,7 +577,7 @@ public class JSONObject {
      * Returns the value mapped by {@code name} if it exists, coercing it if
      * necessary, or {@code fallback} if no such mapping exists.
      */
-    public String optString(String name, String fallback) {
+    @NonNull public String optString(@Nullable String name, @NonNull String fallback) {
         Object object = opt(name);
         String result = JSON.toString(object);
         return result != null ? result : fallback;
@@ -583,7 +590,7 @@ public class JSONObject {
      * @throws JSONException if the mapping doesn't exist or is not a {@code
      *     JSONArray}.
      */
-    public JSONArray getJSONArray(String name) throws JSONException {
+    @NonNull public JSONArray getJSONArray(@NonNull String name) throws JSONException {
         Object object = get(name);
         if (object instanceof JSONArray) {
             return (JSONArray) object;
@@ -596,7 +603,7 @@ public class JSONObject {
      * Returns the value mapped by {@code name} if it exists and is a {@code
      * JSONArray}, or null otherwise.
      */
-    public JSONArray optJSONArray(String name) {
+    @Nullable public JSONArray optJSONArray(@Nullable String name) {
         Object object = opt(name);
         return object instanceof JSONArray ? (JSONArray) object : null;
     }
@@ -608,7 +615,7 @@ public class JSONObject {
      * @throws JSONException if the mapping doesn't exist or is not a {@code
      *     JSONObject}.
      */
-    public JSONObject getJSONObject(String name) throws JSONException {
+    @NonNull public JSONObject getJSONObject(@NonNull String name) throws JSONException {
         Object object = get(name);
         if (object instanceof JSONObject) {
             return (JSONObject) object;
@@ -621,7 +628,7 @@ public class JSONObject {
      * Returns the value mapped by {@code name} if it exists and is a {@code
      * JSONObject}, or null otherwise.
      */
-    public JSONObject optJSONObject(String name) {
+    @Nullable public JSONObject optJSONObject(@Nullable String name) {
         Object object = opt(name);
         return object instanceof JSONObject ? (JSONObject) object : null;
     }
@@ -631,7 +638,7 @@ public class JSONObject {
      * array contains null for names that aren't mapped. This method returns
      * null if {@code names} is either null or empty.
      */
-    public JSONArray toJSONArray(JSONArray names) throws JSONException {
+    @Nullable public JSONArray toJSONArray(@Nullable JSONArray names) throws JSONException {
         JSONArray result = new JSONArray();
         if (names == null) {
             return null;
@@ -654,7 +661,7 @@ public class JSONObject {
      * modified after the iterator is returned, the iterator's behavior is
      * undefined. The order of the keys is undefined.
      */
-    public Iterator<String> keys() {
+    @NonNull public Iterator<@NonNull String> keys() {
         return nameValuePairs.keySet().iterator();
     }
 
@@ -668,6 +675,8 @@ public class JSONObject {
      *
      * @hide.
      */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
     public Set<String> keySet() {
         return nameValuePairs.keySet();
     }
@@ -676,7 +685,7 @@ public class JSONObject {
      * Returns an array containing the string names in this object. This method
      * returns null if this object contains no mappings.
      */
-    public JSONArray names() {
+    @Nullable public JSONArray names() {
         return nameValuePairs.isEmpty()
                 ? null
                 : new JSONArray(new ArrayList<String>(nameValuePairs.keySet()));
@@ -686,7 +695,7 @@ public class JSONObject {
      * Encodes this object as a compact JSON string, such as:
      * <pre>{"query":"Pizza","locations":[94043,90210]}</pre>
      */
-    @Override public String toString() {
+    @Override @NonNull public String toString() {
         try {
             JSONStringer stringer = new JSONStringer();
             writeTo(stringer);
@@ -711,12 +720,13 @@ public class JSONObject {
      * @param indentSpaces the number of spaces to indent for each level of
      *     nesting.
      */
-    public String toString(int indentSpaces) throws JSONException {
+    @NonNull public String toString(int indentSpaces) throws JSONException {
         JSONStringer stringer = new JSONStringer(indentSpaces);
         writeTo(stringer);
         return stringer.toString();
     }
 
+    @UnsupportedAppUsage
     void writeTo(JSONStringer stringer) throws JSONException {
         stringer.object();
         for (Map.Entry<String, Object> entry : nameValuePairs.entrySet()) {
@@ -731,7 +741,7 @@ public class JSONObject {
      * @param number a finite value. May not be {@link Double#isNaN() NaNs} or
      *     {@link Double#isInfinite() infinities}.
      */
-    public static String numberToString(Number number) throws JSONException {
+    @NonNull public static String numberToString(@NonNull Number number) throws JSONException {
         if (number == null) {
             throw new JSONException("Number must be non-null");
         }
@@ -759,7 +769,7 @@ public class JSONObject {
      * @param data the string to encode. Null will be interpreted as an empty
      *     string.
      */
-    public static String quote(String data) {
+    @NonNull public static String quote(@Nullable String data) {
         if (data == null) {
             return "\"\"";
         }
@@ -786,7 +796,7 @@ public class JSONObject {
      * Otherwise if the object is from a {@code java} package, returns the result of {@code toString}.
      * If wrapping fails, returns null.
      */
-    public static Object wrap(Object o) {
+    @Nullable public static Object wrap(@Nullable Object o) {
         if (o == null) {
             return NULL;
         }

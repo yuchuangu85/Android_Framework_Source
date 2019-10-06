@@ -16,15 +16,18 @@
 
 package com.android.server.wifi.util;
 
+import android.annotation.NonNull;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiEnterpriseConfig;
 import android.telephony.ImsiEncryptionInfo;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.util.Base64;
 import android.util.Log;
 import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.server.wifi.CarrierNetworkConfig;
 import com.android.server.wifi.WifiNative;
 
 import java.security.InvalidKeyException;
@@ -32,6 +35,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.util.HashMap;
 
+import javax.annotation.Nonnull;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
@@ -39,13 +43,18 @@ import javax.crypto.NoSuchPaddingException;
 
 /**
  * Utilities for the Wifi Service to interact with telephony.
+ * TODO(b/132188983): Refactor into TelephonyFacade which owns all instances of
+ *  TelephonyManager/SubscriptionManager in Wifi
  */
 public class TelephonyUtil {
     public static final String TAG = "TelephonyUtil";
-
     public static final String DEFAULT_EAP_PREFIX = "\0";
 
-    private static final String THREE_GPP_NAI_REALM_FORMAT = "wlan.mnc%s.mcc%s.3gppnetwork.org";
+    public static final int CARRIER_INVALID_TYPE = -1;
+    public static final int CARRIER_MNO_TYPE = 0; // Mobile Network Operator
+    public static final int CARRIER_MVNO_TYPE = 1; // Mobile Virtual Network Operator
+    public static final String ANONYMOUS_IDENTITY = "anonymous";
+    public static final String THREE_GPP_NAI_REALM_FORMAT = "wlan.mnc%s.mcc%s.3gppnetwork.org";
 
     // IMSI encryption method: RSA-OAEP with SHA-256 hash function
     private static final String IMSI_CIPHER_TRANSFORMATION =
@@ -59,33 +68,43 @@ public class TelephonyUtil {
     }
 
     /**
+     * 3GPP TS 11.11  2G_authentication command/response
+     *                Input: [RAND]
+     *                Output: [SRES][Cipher Key Kc]
+     */
+    private static final int START_SRES_POS = 0; // MUST be 0
+    private static final int SRES_LEN = 4;
+    private static final int START_KC_POS = START_SRES_POS + SRES_LEN;
+    private static final int KC_LEN = 8;
+
+    /**
      * Get the identity for the current SIM or null if the SIM is not available
      *
      * @param tm TelephonyManager instance
      * @param config WifiConfiguration that indicates what sort of authentication is necessary
+     * @param telephonyUtil TelephonyUtil instance
+     * @param carrierNetworkConfig CarrierNetworkConfig instance
      * @return Pair<identify, encrypted identity> or null if the SIM is not available
      * or config is invalid
      */
     public static Pair<String, String> getSimIdentity(TelephonyManager tm,
-                                                      TelephonyUtil telephonyUtil,
-                                                      WifiConfiguration config) {
+            TelephonyUtil telephonyUtil,
+            WifiConfiguration config, CarrierNetworkConfig carrierNetworkConfig) {
         if (tm == null) {
             Log.e(TAG, "No valid TelephonyManager");
             return null;
         }
-        String imsi = tm.getSubscriberId();
+        TelephonyManager defaultDataTm = tm.createForSubscriptionId(
+                SubscriptionManager.getDefaultDataSubscriptionId());
+        if (carrierNetworkConfig == null) {
+            Log.e(TAG, "No valid CarrierNetworkConfig");
+            return null;
+        }
+        String imsi = defaultDataTm.getSubscriberId();
         String mccMnc = "";
 
-        if (tm.getSimState() == TelephonyManager.SIM_STATE_READY) {
-            mccMnc = tm.getSimOperator();
-        }
-
-        ImsiEncryptionInfo imsiEncryptionInfo;
-        try {
-            imsiEncryptionInfo = tm.getCarrierInfoForImsiEncryption(TelephonyManager.KEY_TYPE_WLAN);
-        } catch (RuntimeException e) {
-            Log.e(TAG, "Failed to get imsi encryption info: " + e.getMessage());
-            return null;
+        if (defaultDataTm.getSimState() == TelephonyManager.SIM_STATE_READY) {
+            mccMnc = defaultDataTm.getSimOperator();
         }
 
         String identity = buildIdentity(getSimMethodForConfig(config), imsi, mccMnc, false);
@@ -94,11 +113,61 @@ public class TelephonyUtil {
             return null;
         }
 
-        String encryptedIdentity = buildEncryptedIdentity(telephonyUtil,
-                getSimMethodForConfig(config), imsi, mccMnc, imsiEncryptionInfo);
-        // In case of failure for encryption, set empty string
-        if (encryptedIdentity == null) encryptedIdentity = "";
+        ImsiEncryptionInfo imsiEncryptionInfo;
+        try {
+            imsiEncryptionInfo = defaultDataTm.getCarrierInfoForImsiEncryption(
+                    TelephonyManager.KEY_TYPE_WLAN);
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Failed to get imsi encryption info: " + e.getMessage());
+            return null;
+        }
+        if (imsiEncryptionInfo == null) {
+            // Does not support encrypted identity.
+            return Pair.create(identity, "");
+        }
+
+        String encryptedIdentity = buildEncryptedIdentity(telephonyUtil, identity,
+                    imsiEncryptionInfo);
+
+        // In case of failure for encryption, abort current EAP authentication.
+        if (encryptedIdentity == null) {
+            Log.e(TAG, "failed to encrypt the identity");
+            return null;
+        }
         return Pair.create(identity, encryptedIdentity);
+    }
+
+    /**
+     * Gets Anonymous identity for current active SIM.
+     *
+     * @param tm TelephonyManager instance
+     * @return anonymous identity@realm which is based on current MCC/MNC, {@code null} if SIM is
+     * not ready or absent.
+     */
+    public static String getAnonymousIdentityWith3GppRealm(@Nonnull TelephonyManager tm) {
+        if (tm == null) {
+            return null;
+        }
+        TelephonyManager defaultDataTm = tm.createForSubscriptionId(
+                SubscriptionManager.getDefaultDataSubscriptionId());
+        if (defaultDataTm.getSimState() != TelephonyManager.SIM_STATE_READY) {
+            return null;
+        }
+        String mccMnc = defaultDataTm.getSimOperator();
+        if (mccMnc == null || mccMnc.isEmpty()) {
+            return null;
+        }
+
+        // Extract mcc & mnc from mccMnc
+        String mcc = mccMnc.substring(0, 3);
+        String mnc = mccMnc.substring(3);
+
+        if (mnc.length() == 2) {
+            mnc = "0" + mnc;
+        }
+
+        String realm = String.format(THREE_GPP_NAI_REALM_FORMAT, mnc, mcc);
+        return ANONYMOUS_IDENTITY + "@" + realm;
     }
 
     /**
@@ -106,15 +175,17 @@ public class TelephonyUtil {
      * a Base64 encoded string.
      *
      * @param key The public key to use for encryption
+     * @param encodingFlag base64 encoding flag
      * @return Base64 encoded string, or null if encryption failed
      */
     @VisibleForTesting
-    public String encryptDataUsingPublicKey(PublicKey key, byte[] data) {
+    public String encryptDataUsingPublicKey(PublicKey key, byte[] data, int encodingFlag) {
         try {
             Cipher cipher = Cipher.getInstance(IMSI_CIPHER_TRANSFORMATION);
             cipher.init(Cipher.ENCRYPT_MODE, key);
             byte[] encryptedBytes = cipher.doFinal(data);
-            return Base64.encodeToString(encryptedBytes, 0, encryptedBytes.length, Base64.DEFAULT);
+
+            return Base64.encodeToString(encryptedBytes, 0, encryptedBytes.length, encodingFlag);
         } catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException
                 | IllegalBlockSizeException | BadPaddingException e) {
             Log.e(TAG, "Encryption failed: " + e.getMessage());
@@ -123,36 +194,38 @@ public class TelephonyUtil {
     }
 
     /**
-     * Create the encrypted IMSI.
-     *  Prefix value:
+     * Create the encrypted identity.
+     *
+     * Prefix value:
      * "0" - EAP-AKA Identity
      * "1" - EAP-SIM Identity
      * "6" - EAP-AKA' Identity
-     * @param eapMethod EAP authentication method: EAP-SIM, EAP-AKA, EAP-AKA'
-     * @param imsi The IMSI retrieved from the SIM
-     * @param mccMnc The MCC MNC identifier retrieved from the SIM
+     * Encrypted identity format: prefix|IMSI@<NAIRealm>
+     * @param telephonyUtil      TelephonyUtil instance
+     * @param identity           permanent identity with format based on section 4.1.1.6 of RFC 4187
+     *                           and 4.2.1.6 of RFC 4186.
      * @param imsiEncryptionInfo The IMSI encryption info retrieved from the SIM
+     * @return "\0" + encryptedIdentity + "{, Key Identifier AVP}"
      */
-    private static String buildEncryptedIdentity(TelephonyUtil telephonyUtil, int eapMethod,
-                                                 String imsi, String mccMnc,
-                                                 ImsiEncryptionInfo imsiEncryptionInfo) {
+    private static String buildEncryptedIdentity(TelephonyUtil telephonyUtil, String identity,
+            ImsiEncryptionInfo imsiEncryptionInfo) {
         if (imsiEncryptionInfo == null) {
+            Log.e(TAG, "imsiEncryptionInfo is not valid");
+            return null;
+        }
+        if (identity == null) {
+            Log.e(TAG, "identity is not valid");
             return null;
         }
 
-        String prefix = EAP_METHOD_PREFIX.get(eapMethod);
-        if (prefix == null) {
-            return null;
-        }
-        imsi = prefix + imsi;
         // Build and return the encrypted identity.
-        String encryptedImsi = telephonyUtil.encryptDataUsingPublicKey(
-                imsiEncryptionInfo.getPublicKey(), imsi.getBytes());
-        if (encryptedImsi == null) {
+        String encryptedIdentity = telephonyUtil.encryptDataUsingPublicKey(
+                imsiEncryptionInfo.getPublicKey(), identity.getBytes(), Base64.NO_WRAP);
+        if (encryptedIdentity == null) {
             Log.e(TAG, "Failed to encrypt IMSI");
             return null;
         }
-        String encryptedIdentity = buildIdentity(eapMethod, encryptedImsi, mccMnc, true);
+        encryptedIdentity = DEFAULT_EAP_PREFIX + encryptedIdentity;
         if (imsiEncryptionInfo.getKeyIdentifier() != null) {
             // Include key identifier AVP (Attribute Value Pair).
             encryptedIdentity = encryptedIdentity + "," + imsiEncryptionInfo.getKeyIdentifier();
@@ -260,6 +333,14 @@ public class TelephonyUtil {
     }
 
     /**
+     * Returns true if {@code identity} contains an anonymous@realm identity, false otherwise.
+     */
+    public static boolean isAnonymousAtRealmIdentity(String identity) {
+        if (identity == null) return false;
+        return identity.startsWith(TelephonyUtil.ANONYMOUS_IDENTITY + "@");
+    }
+
+    /**
      * Checks if the EAP outer method is SIM related.
      *
      * @param eapMethod WifiEnterpriseConfig Eap method.
@@ -305,6 +386,18 @@ public class TelephonyUtil {
         return result;
     }
 
+    private static byte[] parseHexWithoutLength(String hex) {
+        byte[] tmpRes = parseHex(hex);
+        if (tmpRes.length == 0) {
+            return tmpRes;
+        }
+
+        byte[] result = new byte[tmpRes.length - 1];
+        System.arraycopy(tmpRes, 1, result, 0, tmpRes.length - 1);
+
+        return result;
+    }
+
     private static String makeHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {
@@ -345,11 +438,48 @@ public class TelephonyUtil {
         return result;
     }
 
+    /**
+     * Calculate SRES and KC as 3G authentication.
+     *
+     * Standard       Cellular_auth     Type Command
+     *
+     * 3GPP TS 31.102 3G_authentication [Length][RAND][Length][AUTN]
+     *                         [Length][RES][Length][CK][Length][IK] and more
+     *
+     * @param requestData RAND data from server.
+     * @param tm the instance of TelephonyManager.
+     * @return the response data processed by SIM. If all request data is malformed, then returns
+     * empty string. If request data is invalid, then returns null.
+     */
     public static String getGsmSimAuthResponse(String[] requestData, TelephonyManager tm) {
+        return getGsmAuthResponseWithLength(requestData, tm, TelephonyManager.APPTYPE_USIM);
+    }
+
+    /**
+     * Calculate SRES and KC as 2G authentication.
+     *
+     * Standard       Cellular_auth     Type Command
+     *
+     * 3GPP TS 31.102 2G_authentication [Length][RAND]
+     *                         [Length][SRES][Length][Cipher Key Kc]
+     *
+     * @param requestData RAND data from server.
+     * @param tm the instance of TelephonyManager.
+     * @return the response data processed by SIM. If all request data is malformed, then returns
+     * empty string. If request data is invalid, then returns null.
+     */
+    public static String getGsmSimpleSimAuthResponse(String[] requestData, TelephonyManager tm) {
+        return getGsmAuthResponseWithLength(requestData, tm, TelephonyManager.APPTYPE_SIM);
+    }
+
+    private static String getGsmAuthResponseWithLength(String[] requestData, TelephonyManager tm,
+            int appType) {
         if (tm == null) {
             Log.e(TAG, "No valid TelephonyManager");
             return null;
         }
+        TelephonyManager defaultDataTm = tm.createForSubscriptionId(
+                SubscriptionManager.getDefaultDataSubscriptionId());
         StringBuilder sb = new StringBuilder();
         for (String challenge : requestData) {
             if (challenge == null || challenge.isEmpty()) {
@@ -367,14 +497,8 @@ public class TelephonyUtil {
 
             String base64Challenge = Base64.encodeToString(rand, Base64.NO_WRAP);
 
-            // Try USIM first for authentication.
-            String tmResponse = tm.getIccAuthentication(TelephonyManager.APPTYPE_USIM,
-                    TelephonyManager.AUTHTYPE_EAP_SIM, base64Challenge);
-            if (tmResponse == null) {
-                // Then, in case of failure, issue may be due to sim type, retry as a simple sim
-                tmResponse = tm.getIccAuthentication(TelephonyManager.APPTYPE_SIM,
-                        TelephonyManager.AUTHTYPE_EAP_SIM, base64Challenge);
-            }
+            String tmResponse = defaultDataTm.getIccAuthentication(
+                    appType, TelephonyManager.AUTHTYPE_EAP_SIM, base64Challenge);
             Log.v(TAG, "Raw Response - " + tmResponse);
 
             if (tmResponse == null || tmResponse.length() <= 4) {
@@ -385,22 +509,84 @@ public class TelephonyUtil {
             byte[] result = Base64.decode(tmResponse, Base64.DEFAULT);
             Log.v(TAG, "Hex Response -" + makeHex(result));
             int sresLen = result[0];
-            if (sresLen >= result.length) {
-                Log.e(TAG, "malfomed response - " + tmResponse);
+            if (sresLen < 0 || sresLen >= result.length) {
+                Log.e(TAG, "malformed response - " + tmResponse);
                 return null;
             }
             String sres = makeHex(result, 1, sresLen);
             int kcOffset = 1 + sresLen;
             if (kcOffset >= result.length) {
-                Log.e(TAG, "malfomed response - " + tmResponse);
+                Log.e(TAG, "malformed response - " + tmResponse);
                 return null;
             }
             int kcLen = result[kcOffset];
-            if (kcOffset + kcLen > result.length) {
-                Log.e(TAG, "malfomed response - " + tmResponse);
+            if (kcLen < 0 || kcOffset + kcLen > result.length) {
+                Log.e(TAG, "malformed response - " + tmResponse);
                 return null;
             }
             String kc = makeHex(result, 1 + kcOffset, kcLen);
+            sb.append(":" + kc + ":" + sres);
+            Log.v(TAG, "kc:" + kc + " sres:" + sres);
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * Calculate SRES and KC as 2G authentication.
+     *
+     * Standard       Cellular_auth     Type Command
+     *
+     * 3GPP TS 11.11  2G_authentication [RAND]
+     *                         [SRES][Cipher Key Kc]
+     *
+     * @param requestData RAND data from server.
+     * @param tm the instance of TelephonyManager.
+     * @return the response data processed by SIM. If all request data is malformed, then returns
+     * empty string. If request data is invalid, then returns null.
+     */
+    public static String getGsmSimpleSimNoLengthAuthResponse(String[] requestData,
+            TelephonyManager tm) {
+        if (tm == null) {
+            Log.e(TAG, "No valid TelephonyManager");
+            return null;
+        }
+        TelephonyManager defaultDataTm = tm.createForSubscriptionId(
+                SubscriptionManager.getDefaultDataSubscriptionId());
+        StringBuilder sb = new StringBuilder();
+        for (String challenge : requestData) {
+            if (challenge == null || challenge.isEmpty()) {
+                continue;
+            }
+            Log.d(TAG, "RAND = " + challenge);
+
+            byte[] rand = null;
+            try {
+                rand = parseHexWithoutLength(challenge);
+            } catch (NumberFormatException e) {
+                Log.e(TAG, "malformed challenge");
+                continue;
+            }
+
+            String base64Challenge = Base64.encodeToString(rand, Base64.NO_WRAP);
+
+            String tmResponse = defaultDataTm.getIccAuthentication(TelephonyManager.APPTYPE_SIM,
+                    TelephonyManager.AUTHTYPE_EAP_SIM, base64Challenge);
+            Log.v(TAG, "Raw Response - " + tmResponse);
+
+            if (tmResponse == null || tmResponse.length() <= 4) {
+                Log.e(TAG, "bad response - " + tmResponse);
+                return null;
+            }
+
+            byte[] result = Base64.decode(tmResponse, Base64.DEFAULT);
+            if (SRES_LEN + KC_LEN != result.length) {
+                Log.e(TAG, "malformed response - " + tmResponse);
+                return null;
+            }
+            Log.v(TAG, "Hex Response -" + makeHex(result));
+            String sres = makeHex(result, START_SRES_POS, SRES_LEN);
+            String kc = makeHex(result, START_KC_POS, KC_LEN);
             sb.append(":" + kc + ":" + sres);
             Log.v(TAG, "kc:" + kc + " sres:" + sres);
         }
@@ -463,8 +649,10 @@ public class TelephonyUtil {
         if (rand != null && authn != null) {
             String base64Challenge = Base64.encodeToString(concatHex(rand, authn), Base64.NO_WRAP);
             if (tm != null) {
-                tmResponse = tm.getIccAuthentication(TelephonyManager.APPTYPE_USIM,
-                        TelephonyManager.AUTHTYPE_EAP_AKA, base64Challenge);
+                tmResponse = tm
+                        .createForSubscriptionId(SubscriptionManager.getDefaultDataSubscriptionId())
+                        .getIccAuthentication(TelephonyManager.APPTYPE_USIM,
+                                TelephonyManager.AUTHTYPE_EAP_AKA, base64Challenge);
                 Log.v(TAG, "Raw Response - " + tmResponse);
             } else {
                 Log.e(TAG, "No valid TelephonyManager");
@@ -509,5 +697,37 @@ public class TelephonyUtil {
         } else {
             return null;
         }
+    }
+
+    /**
+     * Get the carrier type of current SIM.
+     *
+     * @param tm {@link TelephonyManager} instance
+     * @return carrier type of current active sim, {{@link #CARRIER_INVALID_TYPE}} if sim is not
+     * ready or {@code tm} is {@code null}
+     */
+    public static int getCarrierType(@NonNull TelephonyManager tm) {
+        if (tm == null) {
+            return CARRIER_INVALID_TYPE;
+        }
+        TelephonyManager defaultDataTm = tm.createForSubscriptionId(
+                SubscriptionManager.getDefaultDataSubscriptionId());
+
+        if (defaultDataTm.getSimState() != TelephonyManager.SIM_STATE_READY) {
+            return CARRIER_INVALID_TYPE;
+        }
+
+        // If two APIs return the same carrier ID, then is considered as MNO, otherwise MVNO
+        if (defaultDataTm.getCarrierIdFromSimMccMnc() == defaultDataTm.getSimCarrierId()) {
+            return CARRIER_MNO_TYPE;
+        }
+        return CARRIER_MVNO_TYPE;
+    }
+
+    /**
+     * Returns true if at least one SIM is present on the device, false otherwise.
+     */
+    public static boolean isSimPresent(@Nonnull SubscriptionManager sm) {
+        return sm.getActiveSubscriptionIdList().length > 0;
     }
 }

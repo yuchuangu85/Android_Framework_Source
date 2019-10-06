@@ -16,12 +16,14 @@
 
 package android.net.wifi.p2p;
 
-import android.os.Parcelable;
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
+import android.os.Parcelable;
 import android.util.Log;
 
-import java.util.regex.Pattern;
+import java.util.Objects;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * A class representing a Wi-Fi p2p device
@@ -94,18 +96,21 @@ public class WifiP2pDevice implements Parcelable {
      * WPS config methods supported
      * @hide
      */
+    @UnsupportedAppUsage
     public int wpsConfigMethodsSupported;
 
     /**
      * Device capability
      * @hide
      */
+    @UnsupportedAppUsage
     public int deviceCapability;
 
     /**
      * Group capability
      * @hide
      */
+    @UnsupportedAppUsage
     public int groupCapability;
 
     public static final int CONNECTED   = 0;
@@ -118,6 +123,7 @@ public class WifiP2pDevice implements Parcelable {
     public int status = UNAVAILABLE;
 
     /** @hide */
+    @UnsupportedAppUsage
     public WifiP2pWfdInfo wfdInfo;
 
     /** Detailed device string pattern with WFD info
@@ -177,6 +183,7 @@ public class WifiP2pDevice implements Parcelable {
      *  Note: The events formats can be looked up in the wpa_supplicant code
      * @hide
      */
+    @UnsupportedAppUsage
     public WifiP2pDevice(String string) throws IllegalArgumentException {
         String[] tokens = string.split("[ \n]");
         Matcher match;
@@ -277,6 +284,7 @@ public class WifiP2pDevice implements Parcelable {
      * @throws IllegalArgumentException if the device is null or device address does not match
      * @hide
      */
+    @UnsupportedAppUsage
     public void update(WifiP2pDevice device) {
         updateSupplicantDetails(device);
         status = device.status;
@@ -315,6 +323,11 @@ public class WifiP2pDevice implements Parcelable {
     }
 
     @Override
+    public int hashCode() {
+        return Objects.hashCode(deviceAddress);
+    }
+
+    @Override
     public String toString() {
         StringBuffer sbuf = new StringBuffer();
         sbuf.append("Device: ").append(deviceName);
@@ -346,7 +359,9 @@ public class WifiP2pDevice implements Parcelable {
             deviceCapability = source.deviceCapability;
             groupCapability = source.groupCapability;
             status = source.status;
-            wfdInfo = new WifiP2pWfdInfo(source.wfdInfo);
+            if (source.wfdInfo != null) {
+                wfdInfo = new WifiP2pWfdInfo(source.wfdInfo);
+            }
         }
     }
 
@@ -370,7 +385,7 @@ public class WifiP2pDevice implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<WifiP2pDevice> CREATOR =
+    public static final @android.annotation.NonNull Creator<WifiP2pDevice> CREATOR =
         new Creator<WifiP2pDevice>() {
             @Override
             public WifiP2pDevice createFromParcel(Parcel in) {

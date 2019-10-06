@@ -30,14 +30,22 @@ import android.provider.Settings;
 import android.provider.Telephony;
 import android.telephony.SmsCbMessage;
 import android.telephony.SubscriptionManager;
+import android.util.LocalLog;
 
 import com.android.internal.telephony.metrics.TelephonyMetrics;
+
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 
 /**
  * Dispatch new Cell Broadcasts to receivers. Acquires a private wakelock until the broadcast
  * completes and our result receiver is called.
  */
 public class CellBroadcastHandler extends WakeLockStateMachine {
+
+    private final LocalLog mLocalLog = new LocalLog(100);
+
+    private static final String EXTRA_MESSAGE = "message";
 
     private CellBroadcastHandler(Context context, Phone phone) {
         this("CellBroadcastHandler", context, phone);
@@ -88,45 +96,71 @@ public class CellBroadcastHandler extends WakeLockStateMachine {
         TelephonyMetrics metrics = TelephonyMetrics.getInstance();
         metrics.writeNewCBSms(mPhone.getPhoneId(), message.getMessageFormat(),
                 message.getMessagePriority(), message.isCmasMessage(), message.isEtwsMessage(),
-                message.getServiceCategory());
+                message.getServiceCategory(), message.getSerialNumber(),
+                System.currentTimeMillis());
 
+        String msg;
         Intent intent;
         if (message.isEmergencyMessage()) {
-            log("Dispatching emergency SMS CB, SmsCbMessage is: " + message);
+            msg = "Dispatching emergency SMS CB, SmsCbMessage is: " + message;
+            log(msg);
+            mLocalLog.log(msg);
             intent = new Intent(Telephony.Sms.Intents.SMS_EMERGENCY_CB_RECEIVED_ACTION);
-            // Explicitly send the intent to the default cell broadcast receiver.
-            intent.setPackage(mContext.getResources().getString(
-                    com.android.internal.R.string.config_defaultCellBroadcastReceiverPkg));
+            //Emergency alerts need to be delivered with high priority
+            intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
             receiverPermission = Manifest.permission.RECEIVE_EMERGENCY_BROADCAST;
             appOp = AppOpsManager.OP_RECEIVE_EMERGECY_SMS;
+
+            intent.putExtra(EXTRA_MESSAGE, message);
+            SubscriptionManager.putPhoneIdAndSubIdExtra(intent, mPhone.getPhoneId());
+
+            if (Build.IS_DEBUGGABLE) {
+                // Send additional broadcast intent to the specified package. This is only for sl4a
+                // automation tests.
+                final String additionalPackage = Settings.Secure.getString(
+                        mContext.getContentResolver(), CMAS_ADDITIONAL_BROADCAST_PKG);
+                if (additionalPackage != null) {
+                    Intent additionalIntent = new Intent(intent);
+                    additionalIntent.setPackage(additionalPackage);
+                    mContext.sendOrderedBroadcastAsUser(additionalIntent, UserHandle.ALL,
+                            receiverPermission, appOp, null, getHandler(), Activity.RESULT_OK,
+                            null, null);
+                }
+            }
+
+            String[] pkgs = mContext.getResources().getStringArray(
+                    com.android.internal.R.array.config_defaultCellBroadcastReceiverPkgs);
+            mReceiverCount.addAndGet(pkgs.length);
+            for (String pkg : pkgs) {
+                // Explicitly send the intent to all the configured cell broadcast receivers.
+                intent.setPackage(pkg);
+                mContext.sendOrderedBroadcastAsUser(intent, UserHandle.ALL, receiverPermission,
+                        appOp, mReceiver, getHandler(), Activity.RESULT_OK, null, null);
+            }
         } else {
-            log("Dispatching SMS CB, SmsCbMessage is: " + message);
+            msg = "Dispatching SMS CB, SmsCbMessage is: " + message;
+            log(msg);
+            mLocalLog.log(msg);
             intent = new Intent(Telephony.Sms.Intents.SMS_CB_RECEIVED_ACTION);
             // Send implicit intent since there are various 3rd party carrier apps listen to
             // this intent.
             intent.addFlags(Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND);
             receiverPermission = Manifest.permission.RECEIVE_SMS;
             appOp = AppOpsManager.OP_RECEIVE_SMS;
+
+            intent.putExtra(EXTRA_MESSAGE, message);
+            SubscriptionManager.putPhoneIdAndSubIdExtra(intent, mPhone.getPhoneId());
+
+            mReceiverCount.incrementAndGet();
+            mContext.sendOrderedBroadcastAsUser(intent, UserHandle.ALL, receiverPermission, appOp,
+                    mReceiver, getHandler(), Activity.RESULT_OK, null, null);
         }
+    }
 
-        intent.putExtra("message", message);
-        SubscriptionManager.putPhoneIdAndSubIdExtra(intent, mPhone.getPhoneId());
-
-        if (Build.IS_DEBUGGABLE) {
-            // Send additional broadcast intent to the specified package. This is only for sl4a
-            // automation tests.
-            final String additionalPackage = Settings.Secure.getString(
-                    mContext.getContentResolver(), CMAS_ADDITIONAL_BROADCAST_PKG);
-            if (additionalPackage != null) {
-                Intent additionalIntent = new Intent(intent);
-                additionalIntent.setPackage(additionalPackage);
-                mContext.sendOrderedBroadcastAsUser(additionalIntent, UserHandle.ALL,
-                        receiverPermission, appOp, null, getHandler(), Activity.RESULT_OK, null,
-                        null);
-            }
-        }
-
-        mContext.sendOrderedBroadcastAsUser(intent, UserHandle.ALL, receiverPermission, appOp,
-                mReceiver, getHandler(), Activity.RESULT_OK, null, null);
+    @Override
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        pw.println("CellBroadcastHandler:");
+        mLocalLog.dump(fd, pw, args);
+        pw.flush();
     }
 }

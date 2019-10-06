@@ -16,72 +16,67 @@
 
 package com.android.setupwizardlib.template;
 
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import android.util.Log;
 import android.widget.AbsListView;
 import android.widget.ListAdapter;
 import android.widget.ListView;
-
 import com.android.setupwizardlib.template.RequireScrollMixin.ScrollHandlingDelegate;
 
 /**
- * {@link ScrollHandlingDelegate} which analyzes scroll events from {@link ListView} and
- * notifies {@link RequireScrollMixin} about scrollability changes.
+ * {@link ScrollHandlingDelegate} which analyzes scroll events from {@link ListView} and notifies
+ * {@link RequireScrollMixin} about scrollability changes.
  */
-public class ListViewScrollHandlingDelegate implements ScrollHandlingDelegate,
-        AbsListView.OnScrollListener {
+public class ListViewScrollHandlingDelegate
+    implements ScrollHandlingDelegate, AbsListView.OnScrollListener {
 
-    private static final String TAG = "ListViewDelegate";
+  private static final String TAG = "ListViewDelegate";
 
-    private static final int SCROLL_DURATION = 500;
+  private static final int SCROLL_DURATION = 500;
 
-    @NonNull
-    private final RequireScrollMixin mRequireScrollMixin;
+  @NonNull private final RequireScrollMixin requireScrollMixin;
 
-    @Nullable
-    private final ListView mListView;
+  @Nullable private final ListView listView;
 
-    public ListViewScrollHandlingDelegate(
-            @NonNull RequireScrollMixin requireScrollMixin,
-            @Nullable ListView listView) {
-        mRequireScrollMixin = requireScrollMixin;
-        mListView = listView;
+  public ListViewScrollHandlingDelegate(
+      @NonNull RequireScrollMixin requireScrollMixin, @Nullable ListView listView) {
+    this.requireScrollMixin = requireScrollMixin;
+    this.listView = listView;
+  }
+
+  @Override
+  public void startListening() {
+    if (listView != null) {
+      listView.setOnScrollListener(this);
+
+      final ListAdapter adapter = listView.getAdapter();
+      if (listView.getLastVisiblePosition() < adapter.getCount()) {
+        requireScrollMixin.notifyScrollabilityChange(true);
+      }
+    } else {
+      Log.w(TAG, "Cannot require scroll. List view is null");
     }
+  }
 
-    @Override
-    public void startListening() {
-        if (mListView != null) {
-            mListView.setOnScrollListener(this);
-
-            final ListAdapter adapter = mListView.getAdapter();
-            if (mListView.getLastVisiblePosition() < adapter.getCount()) {
-                mRequireScrollMixin.notifyScrollabilityChange(true);
-            }
-        } else {
-            Log.w(TAG, "Cannot require scroll. List view is null");
-        }
+  @Override
+  public void pageScrollDown() {
+    if (listView != null) {
+      final int height = listView.getHeight();
+      listView.smoothScrollBy(height, SCROLL_DURATION);
     }
+  }
 
-    @Override
-    public void pageScrollDown() {
-        if (mListView != null) {
-            final int height = mListView.getHeight();
-            mListView.smoothScrollBy(height, SCROLL_DURATION);
-        }
-    }
+  @Override
+  public void onScrollStateChanged(AbsListView view, int scrollState) {}
 
-    @Override
-    public void onScrollStateChanged(AbsListView view, int scrollState) {
+  @Override
+  public void onScroll(
+      AbsListView view, int firstVisibleItem, int visibleItemCount, int totalItemCount) {
+    if (firstVisibleItem + visibleItemCount >= totalItemCount) {
+      requireScrollMixin.notifyScrollabilityChange(false);
+    } else {
+      requireScrollMixin.notifyScrollabilityChange(true);
     }
-
-    @Override
-    public void onScroll(AbsListView view, int firstVisibleItem, int visibleItemCount,
-            int totalItemCount) {
-        if (firstVisibleItem + visibleItemCount >= totalItemCount) {
-            mRequireScrollMixin.notifyScrollabilityChange(false);
-        } else {
-            mRequireScrollMixin.notifyScrollabilityChange(true);
-        }
-    }
+  }
 }

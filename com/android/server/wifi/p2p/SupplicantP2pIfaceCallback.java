@@ -39,7 +39,7 @@ import java.util.List;
  */
 public class SupplicantP2pIfaceCallback extends ISupplicantP2pIfaceCallback.Stub {
     private static final String TAG = "SupplicantP2pIfaceCallback";
-    private static final boolean DBG = true;
+    private static boolean sVerboseLoggingEnabled = true;
 
     private final String mInterface;
     private final WifiP2pMonitor mMonitor;
@@ -49,9 +49,15 @@ public class SupplicantP2pIfaceCallback extends ISupplicantP2pIfaceCallback.Stub
         mMonitor = monitor;
     }
 
+    /**
+     * Enable verbose logging for all sub modules.
+     */
+    public static void enableVerboseLogging(int verbose) {
+        sVerboseLoggingEnabled = verbose > 0;
+    }
 
     protected static void logd(String s) {
-        if (DBG) Log.d(TAG, s);
+        if (sVerboseLoggingEnabled) Log.d(TAG, s);
     }
 
     /**
@@ -121,9 +127,9 @@ public class SupplicantP2pIfaceCallback extends ISupplicantP2pIfaceCallback.Stub
 
         if (wfdDeviceInfo != null && wfdDeviceInfo.length >= 6) {
             device.wfdInfo = new WifiP2pWfdInfo(
-                    (wfdDeviceInfo[0] << 8) + wfdDeviceInfo[1],
-                    (wfdDeviceInfo[2] << 8) + wfdDeviceInfo[3],
-                    (wfdDeviceInfo[4] << 8) + wfdDeviceInfo[5]);
+                    ((wfdDeviceInfo[0] & 0xFF) << 8) + (wfdDeviceInfo[1] & 0xFF),
+                    ((wfdDeviceInfo[2] & 0xFF) << 8) + (wfdDeviceInfo[3] & 0xFF),
+                    ((wfdDeviceInfo[4] & 0xFF) << 8) + (wfdDeviceInfo[5] & 0xFF));
         }
 
         logd("Device discovered on " + mInterface + ": " + device);
@@ -274,6 +280,7 @@ public class SupplicantP2pIfaceCallback extends ISupplicantP2pIfaceCallback.Stub
             return;
         }
 
+        group.setFrequency(frequency);
         group.setIsGroupOwner(isGo);
         group.setPassphrase(passphrase);
 

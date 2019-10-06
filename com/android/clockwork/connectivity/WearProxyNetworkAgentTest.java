@@ -4,7 +4,6 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkInfo;
 import android.net.NetworkRequest;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -12,24 +11,24 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RobolectricTestRunner;
-import org.robolectric.annotation.Config;
 
-import static org.mockito.Matchers.any;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
 public class WearProxyNetworkAgentTest {
 
-    @Mock ConnectivityManager mockConnectivityMgr;
-    @Mock Network mockProxyNetwork;
-    @Mock NetworkInfo mockProxyNetworkInfo;
-    @Mock WearProxyNetworkAgent.Listener mockListener;
+    private @Mock ConnectivityManager mockConnectivityMgr;
+    private @Mock Network mockProxyNetwork;
+    private @Mock NetworkInfo mockProxyNetworkInfo;
+    private @Mock WearProxyNetworkAgent.Listener mockListener;
 
-    WearProxyNetworkAgent mAgent;
-    ConnectivityManager.NetworkCallback mNetworkCallback;
+    private WearProxyNetworkAgent mAgent;
+    private ConnectivityManager.NetworkCallback mNetworkCallback;
 
     @Before
     public void setUp() {
@@ -53,16 +52,16 @@ public class WearProxyNetworkAgentTest {
     @Test
     public void testNotifyProxyChanges() {
         // the default setup starts off as connected
-        Assert.assertTrue(mAgent.isProxyConnected());
+        assertTrue(mAgent.isProxyConnected());
 
         mNetworkCallback.onLost(mockProxyNetwork);
         verify(mockListener).onProxyConnectionChange(false);
-        Assert.assertFalse(mAgent.isProxyConnected());
+        assertFalse(mAgent.isProxyConnected());
 
         reset(mockListener);
         mNetworkCallback.onAvailable(mockProxyNetwork);
         verify(mockListener).onProxyConnectionChange(true);
-        Assert.assertTrue(mAgent.isProxyConnected());
+        assertTrue(mAgent.isProxyConnected());
     }
 
     @Test
@@ -70,7 +69,7 @@ public class WearProxyNetworkAgentTest {
         when(mockProxyNetworkInfo.isConnected()).thenReturn(true);
         when(mockProxyNetworkInfo.getType()).thenReturn(ConnectivityManager.TYPE_WIFI);
         WearProxyNetworkAgent agent = new WearProxyNetworkAgent(mockConnectivityMgr);
-        Assert.assertFalse(agent.isProxyConnected());
+        assertFalse(agent.isProxyConnected());
     }
 
     @Test
@@ -78,7 +77,7 @@ public class WearProxyNetworkAgentTest {
         when(mockProxyNetworkInfo.isConnected()).thenReturn(false);
         when(mockProxyNetworkInfo.getType()).thenReturn(ConnectivityManager.TYPE_PROXY);
         WearProxyNetworkAgent agent = new WearProxyNetworkAgent(mockConnectivityMgr);
-        Assert.assertFalse(agent.isProxyConnected());
+        assertFalse(agent.isProxyConnected());
     }
 
     @Test
@@ -86,6 +85,6 @@ public class WearProxyNetworkAgentTest {
         when(mockConnectivityMgr.getAllNetworks()).thenReturn(new Network[0]);
         when(mockConnectivityMgr.getNetworkInfo(mockProxyNetwork)).thenReturn(null);
         WearProxyNetworkAgent agent = new WearProxyNetworkAgent(mockConnectivityMgr);
-        Assert.assertFalse(agent.isProxyConnected());
+        assertFalse(agent.isProxyConnected());
     }
 }

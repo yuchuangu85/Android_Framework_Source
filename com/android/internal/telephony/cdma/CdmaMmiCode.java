@@ -25,6 +25,7 @@ import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
 import com.android.internal.telephony.MmiCode;
 import com.android.internal.telephony.Phone;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
@@ -65,6 +66,7 @@ public final class CdmaMmiCode  extends Handler implements MmiCode {
     UiccCardApplication mUiccApplication;
 
     String mAction;              // ACTION_REGISTER
+    @UnsupportedAppUsage
     String mSc;                  // Service Code
     String mSia, mSib, mSic;     // Service Info a,b,c
     String mPoundString;         // Entire MMI string up to and including #
@@ -135,6 +137,7 @@ public final class CdmaMmiCode  extends Handler implements MmiCode {
     /** make empty strings be null.
      *  Regexp returns empty strings for empty groups
      */
+    @UnsupportedAppUsage
     private static String
     makeEmptyNull (String s) {
         if (s != null && s.length() == 0) return null;

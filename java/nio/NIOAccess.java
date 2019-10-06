@@ -16,6 +16,8 @@
 
 package java.nio;
 
+import dalvik.annotation.compat.UnsupportedAppUsage;
+
 /**
  * This class is used via JNI by code in frameworks/base/.
  * @hide
@@ -30,6 +32,7 @@ public final class NIOAccess {
      * @hide
      */
     // @VisibleForTesting : was default
+    @UnsupportedAppUsage
     public static long getBasePointer(Buffer b) {
         long address = b.address;
         if (address == 0L) {
@@ -42,6 +45,7 @@ public final class NIOAccess {
      * Returns the underlying Java array containing the data of the
      * given Buffer, or null if the Buffer is not backed by a Java array.
      */
+    @UnsupportedAppUsage
     static Object getBaseArray(Buffer b) {
         return b.hasArray() ? b.array() : null;
     }
@@ -53,6 +57,7 @@ public final class NIOAccess {
      * account the Buffer's current position. This method is only
      * meaningful if getBaseArray() returns non-null.
      */
+    @UnsupportedAppUsage
     static int getBaseArrayOffset(Buffer b) {
         return b.hasArray() ? ((b.arrayOffset() + b.position) << b._elementSizeShift) : 0;
     }

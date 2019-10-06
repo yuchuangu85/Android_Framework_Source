@@ -21,6 +21,7 @@ import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
@@ -28,14 +29,13 @@ import android.os.Handler;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.RemoteException;
-import android.os.UserHandle;
 import android.os.WorkSource;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.util.proto.ProtoOutputStream;
 
-import libcore.util.ZoneInfoDB;
+import libcore.timezone.ZoneInfoDB;
 
 import java.io.IOException;
 import java.lang.annotation.Retention;
@@ -130,8 +130,10 @@ public class AlarmManager {
             "android.app.action.NEXT_ALARM_CLOCK_CHANGED";
 
     /** @hide */
+    @UnsupportedAppUsage
     public static final long WINDOW_EXACT = 0;
     /** @hide */
+    @UnsupportedAppUsage
     public static final long WINDOW_HEURISTIC = -1;
 
     /**
@@ -139,6 +141,7 @@ public class AlarmManager {
      * other alarms.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int FLAG_STANDALONE = 1<<0;
 
     /**
@@ -146,6 +149,7 @@ public class AlarmManager {
      * is, for example, an alarm for an alarm clock.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int FLAG_WAKE_FROM_IDLE = 1<<1;
 
     /**
@@ -166,6 +170,7 @@ public class AlarmManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int FLAG_ALLOW_WHILE_IDLE_UNRESTRICTED = 1<<3;
 
     /**
@@ -175,8 +180,10 @@ public class AlarmManager {
      * avoids scheduling any further alarms until the marker alarm is executed.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int FLAG_IDLE_UNTIL = 1<<4;
 
+    @UnsupportedAppUsage
     private final IAlarmManager mService;
     private final Context mContext;
     private final String mPackageName;
@@ -629,6 +636,7 @@ public class AlarmManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void set(@AlarmType int type, long triggerAtMillis, long windowMillis,
             long intervalMillis, String tag, OnAlarmListener listener, Handler targetHandler,
             WorkSource workSource) {
@@ -958,6 +966,7 @@ public class AlarmManager {
      *
      * @param millis time in milliseconds since the Epoch
      */
+    @RequiresPermission(android.Manifest.permission.SET_TIME)
     public void setTime(long millis) {
         try {
             mService.setTime(millis);
@@ -981,6 +990,7 @@ public class AlarmManager {
      * @param timeZone one of the Olson ids from the list returned by
      *     {@link java.util.TimeZone#getAvailableIDs}
      */
+    @RequiresPermission(android.Manifest.permission.SET_TIME_ZONE)
     public void setTimeZone(String timeZone) {
         if (TextUtils.isEmpty(timeZone)) {
             return;
@@ -1125,7 +1135,7 @@ public class AlarmManager {
             dest.writeParcelable(mShowIntent, flags);
         }
 
-        public static final Creator<AlarmClockInfo> CREATOR = new Creator<AlarmClockInfo>() {
+        public static final @android.annotation.NonNull Creator<AlarmClockInfo> CREATOR = new Creator<AlarmClockInfo>() {
             @Override
             public AlarmClockInfo createFromParcel(Parcel in) {
                 return new AlarmClockInfo(in);
@@ -1141,7 +1151,9 @@ public class AlarmManager {
         public void writeToProto(ProtoOutputStream proto, long fieldId) {
             final long token = proto.start(fieldId);
             proto.write(AlarmClockInfoProto.TRIGGER_TIME_MS, mTriggerTime);
-            mShowIntent.writeToProto(proto, AlarmClockInfoProto.SHOW_INTENT);
+            if (mShowIntent != null) {
+                mShowIntent.writeToProto(proto, AlarmClockInfoProto.SHOW_INTENT);
+            }
             proto.end(token);
         }
     }

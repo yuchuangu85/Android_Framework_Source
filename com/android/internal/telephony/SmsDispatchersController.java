@@ -22,15 +22,19 @@ import static com.android.internal.telephony.IccSmsInterfaceManager.SMS_MESSAGE_
 import android.app.Activity;
 import android.app.PendingIntent;
 import android.app.PendingIntent.CanceledException;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
+import android.os.UserManager;
 import android.provider.Telephony.Sms;
 import android.provider.Telephony.Sms.Intents;
 import android.telephony.Rlog;
+import android.telephony.ServiceState;
 import android.telephony.SmsManager;
 import android.telephony.SmsMessage;
 import android.util.Pair;
@@ -41,6 +45,8 @@ import com.android.internal.telephony.cdma.CdmaSMSDispatcher;
 import com.android.internal.telephony.gsm.GsmInboundSmsHandler;
 import com.android.internal.telephony.gsm.GsmSMSDispatcher;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 
@@ -49,6 +55,7 @@ import java.util.HashMap;
  */
 public class SmsDispatchersController extends Handler {
     private static final String TAG = "SmsDispatchersController";
+    private static final boolean VDBG = false; // STOPSHIP if true
 
     /** Radio is ON */
     private static final int EVENT_RADIO_ON = 11;
@@ -58,6 +65,29 @@ public class SmsDispatchersController extends Handler {
 
     /** Callback from RIL_REQUEST_IMS_REGISTRATION_STATE */
     private static final int EVENT_IMS_STATE_DONE = 13;
+
+    /** Service state changed */
+    private static final int EVENT_SERVICE_STATE_CHANGED = 14;
+
+    /** Purge old message segments */
+    private static final int EVENT_PARTIAL_SEGMENT_TIMER_EXPIRY = 15;
+
+    /** User unlocked the device */
+    private static final int EVENT_USER_UNLOCKED = 16;
+
+    /** InboundSmsHandler exited WaitingState */
+    protected static final int EVENT_SMS_HANDLER_EXITING_WAITING_STATE = 17;
+
+    /** Delete any partial message segments after being IN_SERVICE for 1 day. */
+    private static final long PARTIAL_SEGMENT_WAIT_DURATION = (long) (60 * 60 * 1000) * 24;
+    /** Constant for invalid time */
+    private static final long INVALID_TIME = -1;
+    /** Time at which last IN_SERVICE event was received */
+    private long mLastInServiceTime = INVALID_TIME;
+    /** Current IN_SERVICE duration */
+    private long mCurrentWaitElapsedDuration = 0;
+    /** Time at which the current PARTIAL_SEGMENT_WAIT_DURATION timer was started */
+    private long mCurrentWaitStartTime = INVALID_TIME;
 
     private SMSDispatcher mCdmaDispatcher;
     private SMSDispatcher mGsmDispatcher;
@@ -100,20 +130,39 @@ public class SmsDispatchersController extends Handler {
 
         mCi.registerForOn(this, EVENT_RADIO_ON, null);
         mCi.registerForImsNetworkStateChanged(this, EVENT_IMS_STATE_CHANGED, null);
+
+        UserManager userManager = (UserManager) mContext.getSystemService(Context.USER_SERVICE);
+        if (userManager.isUserUnlocked()) {
+            if (VDBG) {
+                logd("SmsDispatchersController: user unlocked; registering for service"
+                        + "state changed");
+            }
+            mPhone.registerForServiceStateChanged(this, EVENT_SERVICE_STATE_CHANGED, null);
+            resetPartialSegmentWaitTimer();
+        } else {
+            if (VDBG) {
+                logd("SmsDispatchersController: user locked; waiting for USER_UNLOCKED");
+            }
+            IntentFilter userFilter = new IntentFilter();
+            userFilter.addAction(Intent.ACTION_USER_UNLOCKED);
+            mContext.registerReceiver(mBroadcastReceiver, userFilter);
+        }
     }
 
-    /* Updates the phone object when there is a change */
-    protected void updatePhoneObject(Phone phone) {
-        Rlog.d(TAG, "In IMS updatePhoneObject ");
-        mCdmaDispatcher.updatePhoneObject(phone);
-        mGsmDispatcher.updatePhoneObject(phone);
-        mGsmInboundSmsHandler.updatePhoneObject(phone);
-        mCdmaInboundSmsHandler.updatePhoneObject(phone);
-    }
+    private final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(final Context context, Intent intent) {
+            Rlog.d(TAG, "Received broadcast " + intent.getAction());
+            if (Intent.ACTION_USER_UNLOCKED.equals(intent.getAction())) {
+                sendMessage(obtainMessage(EVENT_USER_UNLOCKED));
+            }
+        }
+    };
 
     public void dispose() {
         mCi.unregisterForOn(this);
         mCi.unregisterForImsNetworkStateChanged(this);
+        mPhone.unregisterForServiceStateChanged(this);
         mGsmDispatcher.dispose();
         mCdmaDispatcher.dispose();
         mGsmInboundSmsHandler.dispose();
@@ -146,6 +195,23 @@ public class SmsDispatchersController extends Handler {
                 }
                 break;
 
+            case EVENT_SERVICE_STATE_CHANGED:
+            case EVENT_SMS_HANDLER_EXITING_WAITING_STATE:
+                reevaluateTimerStatus();
+                break;
+
+            case EVENT_PARTIAL_SEGMENT_TIMER_EXPIRY:
+                handlePartialSegmentTimerExpiry((Long) msg.obj);
+                break;
+
+            case EVENT_USER_UNLOCKED:
+                if (VDBG) {
+                    logd("handleMessage: EVENT_USER_UNLOCKED");
+                }
+                mPhone.registerForServiceStateChanged(this, EVENT_SERVICE_STATE_CHANGED, null);
+                resetPartialSegmentWaitTimer();
+                break;
+
             default:
                 if (isCdmaMo()) {
                     mCdmaDispatcher.handleMessage(msg);
@@ -153,6 +219,118 @@ public class SmsDispatchersController extends Handler {
                     mGsmDispatcher.handleMessage(msg);
                 }
         }
+    }
+
+    private void reevaluateTimerStatus() {
+        long currentTime = System.currentTimeMillis();
+
+        // Remove unhandled timer expiry message. A new message will be posted if needed.
+        removeMessages(EVENT_PARTIAL_SEGMENT_TIMER_EXPIRY);
+        // Update timer duration elapsed time (add time since last IN_SERVICE to now).
+        // This is needed for IN_SERVICE as well as OUT_OF_SERVICE because same events can be
+        // received back to back
+        if (mLastInServiceTime != INVALID_TIME) {
+            mCurrentWaitElapsedDuration += (currentTime - mLastInServiceTime);
+        }
+
+        if (VDBG) {
+            logd("reevaluateTimerStatus: currentTime: " + currentTime
+                    + " mCurrentWaitElapsedDuration: " + mCurrentWaitElapsedDuration);
+        }
+
+        if (mCurrentWaitElapsedDuration > PARTIAL_SEGMENT_WAIT_DURATION) {
+            // handle this event as timer expiry
+            handlePartialSegmentTimerExpiry(mCurrentWaitStartTime);
+        } else {
+            if (isInService()) {
+                handleInService(currentTime);
+            } else {
+                handleOutOfService(currentTime);
+            }
+        }
+    }
+
+    private void handleInService(long currentTime) {
+        if (VDBG) {
+            logd("handleInService: timer expiry in "
+                    + (PARTIAL_SEGMENT_WAIT_DURATION - mCurrentWaitElapsedDuration) + "ms");
+        }
+
+        // initialize mCurrentWaitStartTime if needed
+        if (mCurrentWaitStartTime == INVALID_TIME) mCurrentWaitStartTime = currentTime;
+
+        // Post a message for timer expiry time. mCurrentWaitElapsedDuration is the duration already
+        // elapsed from the timer.
+        sendMessageDelayed(
+                obtainMessage(EVENT_PARTIAL_SEGMENT_TIMER_EXPIRY, mCurrentWaitStartTime),
+                PARTIAL_SEGMENT_WAIT_DURATION - mCurrentWaitElapsedDuration);
+
+        // update mLastInServiceTime as the current time
+        mLastInServiceTime = currentTime;
+    }
+
+    private void handleOutOfService(long currentTime) {
+        if (VDBG) {
+            logd("handleOutOfService: currentTime: " + currentTime
+                    + " mCurrentWaitElapsedDuration: " + mCurrentWaitElapsedDuration);
+        }
+
+        // mLastInServiceTime is not relevant now since state is OUT_OF_SERVICE; set it to INVALID
+        mLastInServiceTime = INVALID_TIME;
+    }
+
+    private void handlePartialSegmentTimerExpiry(long waitTimerStart) {
+        if (mGsmInboundSmsHandler.getCurrentState().getName().equals("WaitingState")
+                || mCdmaInboundSmsHandler.getCurrentState().getName().equals("WaitingState")) {
+            logd("handlePartialSegmentTimerExpiry: ignoring timer expiry as InboundSmsHandler is"
+                    + " in WaitingState");
+            return;
+        }
+
+        if (VDBG) {
+            logd("handlePartialSegmentTimerExpiry: calling scanRawTable()");
+        }
+        // Timer expired. This indicates that device has been in service for
+        // PARTIAL_SEGMENT_WAIT_DURATION since waitTimerStart. Delete orphaned message segments
+        // older than waitTimerStart.
+        SmsBroadcastUndelivered.scanRawTable(mContext, mCdmaInboundSmsHandler,
+                mGsmInboundSmsHandler, waitTimerStart);
+        if (VDBG) {
+            logd("handlePartialSegmentTimerExpiry: scanRawTable() done");
+        }
+
+        resetPartialSegmentWaitTimer();
+    }
+
+    private void resetPartialSegmentWaitTimer() {
+        long currentTime = System.currentTimeMillis();
+
+        removeMessages(EVENT_PARTIAL_SEGMENT_TIMER_EXPIRY);
+        if (isInService()) {
+            if (VDBG) {
+                logd("resetPartialSegmentWaitTimer: currentTime: " + currentTime
+                        + " IN_SERVICE");
+            }
+            mCurrentWaitStartTime = currentTime;
+            mLastInServiceTime = currentTime;
+            sendMessageDelayed(
+                    obtainMessage(EVENT_PARTIAL_SEGMENT_TIMER_EXPIRY, mCurrentWaitStartTime),
+                    PARTIAL_SEGMENT_WAIT_DURATION);
+        } else {
+            if (VDBG) {
+                logd("resetPartialSegmentWaitTimer: currentTime: " + currentTime
+                        + " not IN_SERVICE");
+            }
+            mCurrentWaitStartTime = INVALID_TIME;
+            mLastInServiceTime = INVALID_TIME;
+        }
+
+        mCurrentWaitElapsedDuration = 0;
+    }
+
+    private boolean isInService() {
+        ServiceState serviceState = mPhone.getServiceState();
+        return serviceState != null && serviceState.getState() == ServiceState.STATE_IN_SERVICE;
     }
 
     private void setImsSmsFormat(int format) {
@@ -366,6 +544,7 @@ public class SmsDispatchersController extends Handler {
     /**
      * Send a data based SMS to a specific application port.
      *
+     * @param callingPackage the package name of the calling app
      * @param destAddr the address to send the message to
      * @param scAddr is the service center address or null to use
      *  the current default SMSC
@@ -389,15 +568,17 @@ public class SmsDispatchersController extends Handler {
      *  broadcast when the message is delivered to the recipient.  The
      *  raw pdu of the status report is in the extended data ("pdu").
      */
-    protected void sendData(String destAddr, String scAddr, int destPort,
-                            byte[] data, PendingIntent sentIntent, PendingIntent deliveryIntent) {
+    protected void sendData(String callingPackage, String destAddr, String scAddr, int destPort,
+            byte[] data, PendingIntent sentIntent, PendingIntent deliveryIntent, boolean isForVvm) {
         if (mImsSmsDispatcher.isAvailable()) {
-            mImsSmsDispatcher.sendData(destAddr, scAddr, destPort, data, sentIntent,
-                    deliveryIntent);
+            mImsSmsDispatcher.sendData(callingPackage, destAddr, scAddr, destPort, data, sentIntent,
+                    deliveryIntent, isForVvm);
         } else if (isCdmaMo()) {
-            mCdmaDispatcher.sendData(destAddr, scAddr, destPort, data, sentIntent, deliveryIntent);
+            mCdmaDispatcher.sendData(callingPackage, destAddr, scAddr, destPort, data, sentIntent,
+                    deliveryIntent, isForVvm);
         } else {
-            mGsmDispatcher.sendData(destAddr, scAddr, destPort, data, sentIntent, deliveryIntent);
+            mGsmDispatcher.sendData(callingPackage, destAddr, scAddr, destPort, data, sentIntent,
+                    deliveryIntent, isForVvm);
         }
     }
 
@@ -445,23 +626,22 @@ public class SmsDispatchersController extends Handler {
      *  Validity Period(Maximum) -> 635040 mins(i.e.63 weeks).
      *  Any Other values included Negative considered as Invalid Validity Period of the message.
      */
-    public void sendText(String destAddr, String scAddr, String text,
-                            PendingIntent sentIntent, PendingIntent deliveryIntent, Uri messageUri,
-                            String callingPkg, boolean persistMessage, int priority,
-                            boolean expectMore, int validityPeriod) {
-        if (mImsSmsDispatcher.isAvailable()) {
+    public void sendText(String destAddr, String scAddr, String text, PendingIntent sentIntent,
+            PendingIntent deliveryIntent, Uri messageUri, String callingPkg, boolean persistMessage,
+            int priority, boolean expectMore, int validityPeriod, boolean isForVvm) {
+        if (mImsSmsDispatcher.isAvailable() || mImsSmsDispatcher.isEmergencySmsSupport(destAddr)) {
             mImsSmsDispatcher.sendText(destAddr, scAddr, text, sentIntent, deliveryIntent,
                     messageUri, callingPkg, persistMessage, SMS_MESSAGE_PRIORITY_NOT_SPECIFIED,
-                    false /*expectMore*/, SMS_MESSAGE_PERIOD_NOT_SPECIFIED);
+                    false /*expectMore*/, SMS_MESSAGE_PERIOD_NOT_SPECIFIED, isForVvm);
         } else {
             if (isCdmaMo()) {
                 mCdmaDispatcher.sendText(destAddr, scAddr, text, sentIntent, deliveryIntent,
                         messageUri, callingPkg, persistMessage, priority, expectMore,
-                        validityPeriod);
+                        validityPeriod, isForVvm);
             } else {
                 mGsmDispatcher.sendText(destAddr, scAddr, text, sentIntent, deliveryIntent,
                         messageUri, callingPkg, persistMessage, priority, expectMore,
-                        validityPeriod);
+                        validityPeriod, isForVvm);
             }
         }
     }
@@ -626,5 +806,14 @@ public class SmsDispatchersController extends Handler {
 
     public interface SmsInjectionCallback {
         void onSmsInjectedResult(int result);
+    }
+
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        mGsmInboundSmsHandler.dump(fd, pw, args);
+        mCdmaInboundSmsHandler.dump(fd, pw, args);
+    }
+
+    private void logd(String msg) {
+        Rlog.d(TAG, msg);
     }
 }

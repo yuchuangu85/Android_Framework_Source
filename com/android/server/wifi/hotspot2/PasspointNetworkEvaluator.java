@@ -16,20 +16,31 @@
 
 package com.android.server.wifi.hotspot2;
 
+import static com.android.server.wifi.hotspot2.Utils.isCarrierEapMethod;
+
+import android.annotation.NonNull;
+import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
+import android.net.wifi.hotspot2.PasspointConfiguration;
 import android.os.Process;
+import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.LocalLog;
 import android.util.Pair;
 
+import com.android.server.wifi.CarrierNetworkConfig;
 import com.android.server.wifi.NetworkUpdateResult;
 import com.android.server.wifi.ScanDetail;
 import com.android.server.wifi.WifiConfigManager;
+import com.android.server.wifi.WifiInjector;
 import com.android.server.wifi.WifiNetworkSelector;
 import com.android.server.wifi.util.ScanResultUtil;
+import com.android.server.wifi.util.TelephonyUtil;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * This class is the WifiNetworkSelector.NetworkEvaluator implementation for
@@ -41,7 +52,10 @@ public class PasspointNetworkEvaluator implements WifiNetworkSelector.NetworkEva
     private final PasspointManager mPasspointManager;
     private final WifiConfigManager mWifiConfigManager;
     private final LocalLog mLocalLog;
-
+    private final CarrierNetworkConfig mCarrierNetworkConfig;
+    private final WifiInjector mWifiInjector;
+    private TelephonyManager mTelephonyManager;
+    private SubscriptionManager mSubscriptionManager;
     /**
      * Contained information for a Passpoint network candidate.
      */
@@ -58,10 +72,27 @@ public class PasspointNetworkEvaluator implements WifiNetworkSelector.NetworkEva
     }
 
     public PasspointNetworkEvaluator(PasspointManager passpointManager,
-            WifiConfigManager wifiConfigManager, LocalLog localLog) {
+            WifiConfigManager wifiConfigManager, LocalLog localLog,
+            CarrierNetworkConfig carrierNetworkConfig, WifiInjector wifiInjector,
+            SubscriptionManager subscriptionManager) {
         mPasspointManager = passpointManager;
         mWifiConfigManager = wifiConfigManager;
         mLocalLog = localLog;
+        mCarrierNetworkConfig = carrierNetworkConfig;
+        mWifiInjector = wifiInjector;
+        mSubscriptionManager = subscriptionManager;
+    }
+
+    private TelephonyManager getTelephonyManager() {
+        if (mTelephonyManager == null) {
+            mTelephonyManager = mWifiInjector.makeTelephonyManager();
+        }
+        return mTelephonyManager;
+    }
+
+    @Override
+    public @EvaluatorId int getId() {
+        return EVALUATOR_ID_PASSPOINT;
     }
 
     @Override
@@ -76,23 +107,36 @@ public class PasspointNetworkEvaluator implements WifiNetworkSelector.NetworkEva
     public WifiConfiguration evaluateNetworks(List<ScanDetail> scanDetails,
                     WifiConfiguration currentNetwork, String currentBssid,
                     boolean connected, boolean untrustedNetworkAllowed,
-                    List<Pair<ScanDetail, WifiConfiguration>> connectableNetworks) {
+                    @NonNull OnConnectableListener onConnectableListener) {
         // Sweep the ANQP cache to remove any expired ANQP entries.
         mPasspointManager.sweepCache();
+        List<ScanDetail> filteredScanDetails = scanDetails.stream()
+                .filter(s -> s.getNetworkDetail().isInterworking())
+                .filter(s -> {
+                    if (!mWifiConfigManager.wasEphemeralNetworkDeleted(
+                            ScanResultUtil.createQuotedSSID(s.getScanResult().SSID))) {
+                        return true;
+                    } else {
+                        // If the user previously disconnects this network, don't select it.
+                        mLocalLog.log("Ignoring disabled the SSID of Passpoint AP: "
+                                + WifiNetworkSelector.toScanId(s.getScanResult()));
+                        return false;
+                    }
+                }).collect(Collectors.toList());
+
+        createEphemeralProfileForMatchingAp(filteredScanDetails);
 
         // Go through each ScanDetail and find the best provider for each ScanDetail.
         List<PasspointNetworkCandidate> candidateList = new ArrayList<>();
-        for (ScanDetail scanDetail : scanDetails) {
-            // Skip non-Passpoint APs.
-            if (!scanDetail.getNetworkDetail().isInterworking()) {
-                continue;
-            }
+        for (ScanDetail scanDetail : filteredScanDetails) {
+            ScanResult scanResult = scanDetail.getScanResult();
 
             // Find the best provider for this ScanDetail.
             Pair<PasspointProvider, PasspointMatch> bestProvider =
-                    mPasspointManager.matchProvider(scanDetail.getScanResult());
+                    mPasspointManager.matchProvider(scanResult);
             if (bestProvider != null) {
-                if (bestProvider.first.isSimCredential() && !mWifiConfigManager.isSimPresent()) {
+                if (bestProvider.first.isSimCredential()
+                        && !TelephonyUtil.isSimPresent(mSubscriptionManager)) {
                     // Skip providers backed by SIM credential when SIM is not present.
                     continue;
                 }
@@ -116,22 +160,56 @@ public class PasspointNetworkEvaluator implements WifiNetworkSelector.NetworkEva
                 ScanResultUtil.createQuotedSSID(bestNetwork.mScanDetail.getSSID()))) {
             localLog("Staying with current Passpoint network " + currentNetwork.SSID);
 
-            // Update current network with the latest scan info.
+            // Update current network with the latest scan info. TODO - pull into common code
             mWifiConfigManager.setNetworkCandidateScanResult(currentNetwork.networkId,
                     bestNetwork.mScanDetail.getScanResult(), 0);
             mWifiConfigManager.updateScanDetailForNetwork(currentNetwork.networkId,
                     bestNetwork.mScanDetail);
-
-            connectableNetworks.add(Pair.create(bestNetwork.mScanDetail, currentNetwork));
+            onConnectableListener.onConnectable(bestNetwork.mScanDetail, currentNetwork, 0);
             return currentNetwork;
         }
 
         WifiConfiguration config = createWifiConfigForProvider(bestNetwork);
         if (config != null) {
-            connectableNetworks.add(Pair.create(bestNetwork.mScanDetail, config));
+            onConnectableListener.onConnectable(bestNetwork.mScanDetail, config, 0);
             localLog("Passpoint network to connect to: " + config.SSID);
         }
         return config;
+    }
+
+    /**
+     * Creates an ephemeral Passpoint profile if it finds a matching Passpoint AP for MCC/MNC
+     * of the current MNO carrier on the device.
+     */
+    private void createEphemeralProfileForMatchingAp(List<ScanDetail> filteredScanDetails) {
+        TelephonyManager telephonyManager = getTelephonyManager();
+        if (telephonyManager == null) {
+            return;
+        }
+        if (TelephonyUtil.getCarrierType(telephonyManager) != TelephonyUtil.CARRIER_MNO_TYPE) {
+            return;
+        }
+        if (!mCarrierNetworkConfig.isCarrierEncryptionInfoAvailable()) {
+            return;
+        }
+        String mccMnc = telephonyManager
+                .createForSubscriptionId(SubscriptionManager.getDefaultDataSubscriptionId())
+                .getSimOperator();
+        if (mPasspointManager.hasCarrierProvider(mccMnc)) {
+            return;
+        }
+        int eapMethod =
+                mPasspointManager.findEapMethodFromNAIRealmMatchedWithCarrier(filteredScanDetails);
+        if (!isCarrierEapMethod(eapMethod)) {
+            return;
+        }
+        PasspointConfiguration carrierConfig =
+                mPasspointManager.createEphemeralPasspointConfigForCarrier(eapMethod);
+        if (carrierConfig == null) {
+            return;
+        }
+
+        mPasspointManager.installEphemeralPasspointConfigForCarrier(carrierConfig);
     }
 
     /**
@@ -146,6 +224,23 @@ public class PasspointNetworkEvaluator implements WifiNetworkSelector.NetworkEva
         config.SSID = ScanResultUtil.createQuotedSSID(networkInfo.mScanDetail.getSSID());
         if (networkInfo.mMatchStatus == PasspointMatch.HomeProvider) {
             config.isHomeProviderNetwork = true;
+        }
+
+        WifiConfiguration existingNetwork = mWifiConfigManager.getConfiguredNetwork(
+                config.configKey());
+        if (existingNetwork != null) {
+            WifiConfiguration.NetworkSelectionStatus status =
+                    existingNetwork.getNetworkSelectionStatus();
+            if (!status.isNetworkEnabled()) {
+                boolean isSuccess = mWifiConfigManager.tryEnableNetwork(existingNetwork.networkId);
+                if (isSuccess) {
+                    return existingNetwork;
+                }
+                localLog("Current configuration for the Passpoint AP " + config.SSID
+                        + " is disabled, skip this candidate");
+                return null;
+            }
+            return existingNetwork;
         }
 
         // Add the newly created WifiConfiguration to WifiConfigManager.

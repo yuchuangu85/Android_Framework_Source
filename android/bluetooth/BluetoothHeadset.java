@@ -22,6 +22,7 @@ import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.os.Binder;
@@ -110,6 +111,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * @hide
      */
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+    @UnsupportedAppUsage
     public static final String ACTION_ACTIVE_DEVICE_CHANGED =
             "android.bluetooth.headset.profile.action.ACTIVE_DEVICE_CHANGED";
 
@@ -335,19 +337,9 @@ public final class BluetoothHeadset implements BluetoothProfile {
                 public void onBluetoothStateChange(boolean up) {
                     if (DBG) Log.d(TAG, "onBluetoothStateChange: up=" + up);
                     if (!up) {
-                        if (VDBG) Log.d(TAG, "Unbinding service...");
                         doUnbind();
                     } else {
-                        synchronized (mConnection) {
-                            try {
-                                if (mService == null) {
-                                    if (VDBG) Log.d(TAG, "Binding service...");
-                                    doBind();
-                                }
-                            } catch (Exception re) {
-                                Log.e(TAG, "", re);
-                            }
-                        }
+                        doBind();
                     }
                 }
             };
@@ -372,24 +364,32 @@ public final class BluetoothHeadset implements BluetoothProfile {
         doBind();
     }
 
-    boolean doBind() {
-        try {
-            return mAdapter.getBluetoothManager().bindBluetoothProfileService(
-                    BluetoothProfile.HEADSET, mConnection);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Unable to bind HeadsetService", e);
+    private boolean doBind() {
+        synchronized (mConnection) {
+            if (mService == null) {
+                if (VDBG) Log.d(TAG, "Binding service...");
+                try {
+                    return mAdapter.getBluetoothManager().bindBluetoothProfileService(
+                            BluetoothProfile.HEADSET, mConnection);
+                } catch (RemoteException e) {
+                    Log.e(TAG, "Unable to bind HeadsetService", e);
+                }
+            }
         }
         return false;
     }
 
-    void doUnbind() {
+    private void doUnbind() {
         synchronized (mConnection) {
             if (mService != null) {
+                if (VDBG) Log.d(TAG, "Unbinding service...");
                 try {
                     mAdapter.getBluetoothManager().unbindBluetoothProfileService(
                             BluetoothProfile.HEADSET, mConnection);
                 } catch (RemoteException e) {
                     Log.e(TAG, "Unable to unbind HeadsetService", e);
+                } finally {
+                    mService = null;
                 }
             }
         }
@@ -401,6 +401,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * results once close() has been called. Multiple invocations of close()
      * are ok.
      */
+    @UnsupportedAppUsage
     /*package*/ void close() {
         if (VDBG) log("close()");
 
@@ -408,8 +409,8 @@ public final class BluetoothHeadset implements BluetoothProfile {
         if (mgr != null) {
             try {
                 mgr.unregisterStateChangeCallback(mBluetoothStateChangeCallback);
-            } catch (Exception e) {
-                Log.e(TAG, "", e);
+            } catch (RemoteException re) {
+                Log.e(TAG, "", re);
             }
         }
         mServiceListener = null;
@@ -602,6 +603,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * @return priority of the device
      * @hide
      */
+    @UnsupportedAppUsage
     public int getPriority(BluetoothDevice device) {
         if (VDBG) log("getPriority(" + device + ")");
         final IBluetoothHeadset service = mService;
@@ -719,6 +721,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public int getAudioState(BluetoothDevice device) {
         if (VDBG) log("getAudioState");
         final IBluetoothHeadset service = mService;
@@ -846,6 +849,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * @return false if there was some error such as there is no active headset
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean connectAudio() {
         final IBluetoothHeadset service = mService;
         if (service != null && isEnabled()) {
@@ -872,6 +876,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * @return false if audio is not connected, or on error, true otherwise
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean disconnectAudio() {
         final IBluetoothHeadset service = mService;
         if (service != null && isEnabled()) {
@@ -909,6 +914,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * @hide
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH_ADMIN)
+    @UnsupportedAppUsage
     public boolean startScoUsingVirtualVoiceCall() {
         if (DBG) log("startScoUsingVirtualVoiceCall()");
         final IBluetoothHeadset service = mService;
@@ -938,6 +944,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * @hide
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH_ADMIN)
+    @UnsupportedAppUsage
     public boolean stopScoUsingVirtualVoiceCall() {
         if (DBG) log("stopScoUsingVirtualVoiceCall()");
         final IBluetoothHeadset service = mService;
@@ -962,12 +969,13 @@ public final class BluetoothHeadset implements BluetoothProfile {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void phoneStateChanged(int numActive, int numHeld, int callState, String number,
-            int type) {
+            int type, String name) {
         final IBluetoothHeadset service = mService;
         if (service != null && isEnabled()) {
             try {
-                service.phoneStateChanged(numActive, numHeld, callState, number, type);
+                service.phoneStateChanged(numActive, numHeld, callState, number, type, name);
             } catch (RemoteException e) {
                 Log.e(TAG, e.toString());
             }
@@ -1060,6 +1068,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADMIN)
+    @UnsupportedAppUsage
     public boolean setActiveDevice(@Nullable BluetoothDevice device) {
         if (DBG) {
             Log.d(TAG, "setActiveDevice: " + device);
@@ -1089,6 +1098,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.BLUETOOTH)
+    @UnsupportedAppUsage
     public BluetoothDevice getActiveDevice() {
         if (VDBG) {
             Log.d(TAG, "getActiveDevice");
@@ -1157,12 +1167,13 @@ public final class BluetoothHeadset implements BluetoothProfile {
         @Override
         public void onServiceDisconnected(ComponentName className) {
             if (DBG) Log.d(TAG, "Proxy object disconnected");
-            mService = null;
+            doUnbind();
             mHandler.sendMessage(mHandler.obtainMessage(
                     MESSAGE_HEADSET_SERVICE_DISCONNECTED));
         }
     };
 
+    @UnsupportedAppUsage
     private boolean isEnabled() {
         return mAdapter.getState() == BluetoothAdapter.STATE_ON;
     }

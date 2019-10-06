@@ -41,14 +41,36 @@ public class BlockChecker {
      * @return {@code true} if the number is blocked. {@code false} otherwise.
      */
     public static boolean isBlocked(Context context, String phoneNumber, Bundle extras) {
-        boolean isBlocked = false;
+        return getBlockStatus(context, phoneNumber, extras)
+                != BlockedNumberContract.STATUS_NOT_BLOCKED;
+    }
+
+    /**
+     * Returns the call blocking status for the {@code phoneNumber}.
+     * <p>
+     * This method catches all underlying exceptions to ensure that this method never throws any
+     * exception.
+     *
+     * @param context the context of the caller.
+     * @param phoneNumber the number to check.
+     * @param extras the extra attribute of the number.
+     * @return result code indicating if the number should be blocked, and if so why.
+     *         Valid values are: {@link BlockedNumberContract#STATUS_NOT_BLOCKED},
+     *         {@link BlockedNumberContract#STATUS_BLOCKED_IN_LIST},
+     *         {@link BlockedNumberContract#STATUS_BLOCKED_NOT_IN_CONTACTS},
+     *         {@link BlockedNumberContract#STATUS_BLOCKED_PAYPHONE},
+     *         {@link BlockedNumberContract#STATUS_BLOCKED_RESTRICTED},
+     *         {@link BlockedNumberContract#STATUS_BLOCKED_UNKNOWN_NUMBER}.
+     */
+    public static int getBlockStatus(Context context, String phoneNumber, Bundle extras) {
+        int blockStatus = BlockedNumberContract.STATUS_NOT_BLOCKED;
         long startTimeNano = System.nanoTime();
 
         try {
-            if (BlockedNumberContract.SystemContract.shouldSystemBlockNumber(
-                    context, phoneNumber, extras)) {
+            blockStatus = BlockedNumberContract.SystemContract.shouldSystemBlockNumber(
+                    context, phoneNumber, extras);
+            if (blockStatus != BlockedNumberContract.STATUS_NOT_BLOCKED) {
                 Rlog.d(TAG, phoneNumber + " is blocked.");
-                isBlocked = true;
             }
         } catch (Exception e) {
             Rlog.e(TAG, "Exception checking for blocked number: " + e);
@@ -58,6 +80,6 @@ public class BlockChecker {
         if (durationMillis > 500 || VDBG) {
             Rlog.d(TAG, "Blocked number lookup took: " + durationMillis + " ms.");
         }
-        return isBlocked;
+        return blockStatus;
     }
 }

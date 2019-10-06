@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.IntDef;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.AsyncResult;
 import android.os.Handler;
@@ -23,18 +25,22 @@ import android.os.Message;
 import android.os.Registrant;
 import android.os.RegistrantList;
 import android.telephony.Rlog;
-import android.telephony.ServiceState;
 import android.telephony.SubscriptionInfo;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 
 import com.android.internal.telephony.CommandsInterface;
+import com.android.internal.telephony.MccTable;
+import com.android.internal.util.ArrayUtils;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -45,27 +51,60 @@ public abstract class IccRecords extends Handler implements IccConstants {
     protected static final boolean DBG = true;
     protected static final boolean VDBG = false; // STOPSHIP if true
 
+    // Lookup table for carriers known to produce SIMs which incorrectly indicate MNC length.
+    private static final String[] MCCMNC_CODES_HAVING_3DIGITS_MNC = {
+        "302370", "302720", "310260",
+        "405025", "405026", "405027", "405028", "405029", "405030", "405031", "405032",
+        "405033", "405034", "405035", "405036", "405037", "405038", "405039", "405040",
+        "405041", "405042", "405043", "405044", "405045", "405046", "405047", "405750",
+        "405751", "405752", "405753", "405754", "405755", "405756", "405799", "405800",
+        "405801", "405802", "405803", "405804", "405805", "405806", "405807", "405808",
+        "405809", "405810", "405811", "405812", "405813", "405814", "405815", "405816",
+        "405817", "405818", "405819", "405820", "405821", "405822", "405823", "405824",
+        "405825", "405826", "405827", "405828", "405829", "405830", "405831", "405832",
+        "405833", "405834", "405835", "405836", "405837", "405838", "405839", "405840",
+        "405841", "405842", "405843", "405844", "405845", "405846", "405847", "405848",
+        "405849", "405850", "405851", "405852", "405853", "405854", "405855", "405856",
+        "405857", "405858", "405859", "405860", "405861", "405862", "405863", "405864",
+        "405865", "405866", "405867", "405868", "405869", "405870", "405871", "405872",
+        "405873", "405874", "405875", "405876", "405877", "405878", "405879", "405880",
+        "405881", "405882", "405883", "405884", "405885", "405886", "405908", "405909",
+        "405910", "405911", "405912", "405913", "405914", "405915", "405916", "405917",
+        "405918", "405919", "405920", "405921", "405922", "405923", "405924", "405925",
+        "405926", "405927", "405928", "405929", "405930", "405931", "405932", "502142",
+        "502143", "502145", "502146", "502147", "502148"
+    };
+
     // ***** Instance Variables
+    @UnsupportedAppUsage
     protected AtomicBoolean mDestroyed = new AtomicBoolean(false);
     protected AtomicBoolean mLoaded = new AtomicBoolean(false);
+    @UnsupportedAppUsage
     protected Context mContext;
+    @UnsupportedAppUsage
     protected CommandsInterface mCi;
+    @UnsupportedAppUsage
     protected IccFileHandler mFh;
+    @UnsupportedAppUsage
     protected UiccCardApplication mParentApp;
+    @UnsupportedAppUsage
     protected TelephonyManager mTelephonyManager;
 
     protected RegistrantList mRecordsLoadedRegistrants = new RegistrantList();
     protected RegistrantList mLockedRecordsLoadedRegistrants = new RegistrantList();
     protected RegistrantList mNetworkLockedRecordsLoadedRegistrants = new RegistrantList();
     protected RegistrantList mImsiReadyRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mRecordsEventsRegistrants = new RegistrantList();
     protected RegistrantList mNewSmsRegistrants = new RegistrantList();
     protected RegistrantList mNetworkSelectionModeAutomaticRegistrants = new RegistrantList();
     protected RegistrantList mSpnUpdatedRegistrants = new RegistrantList();
     protected RegistrantList mRecordsOverrideRegistrants = new RegistrantList();
 
+    @UnsupportedAppUsage
     protected int mRecordsToLoad;  // number of pending load requests
 
+    @UnsupportedAppUsage
     protected AdnRecordCache mAdnCache;
 
     // ***** Cached SIM State; cleared on channel close
@@ -80,6 +119,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
     protected boolean mRecordsRequested = false; // true if we've made requests for the sim records
     protected int mLockedRecordsReqReason = LOCKED_RECORDS_REQ_REASON_NONE;
 
+    @UnsupportedAppUsage
     protected String mIccId;  // Includes only decimals (no hex)
 
     protected String mFullIccId;  // Includes hex characters in ICCID
@@ -87,19 +127,26 @@ public abstract class IccRecords extends Handler implements IccConstants {
     protected String mMsisdnTag = null;
     protected String mNewMsisdn = null;
     protected String mNewMsisdnTag = null;
+    @UnsupportedAppUsage
     protected String mVoiceMailNum = null;
     protected String mVoiceMailTag = null;
     protected String mNewVoiceMailNum = null;
     protected String mNewVoiceMailTag = null;
+    @UnsupportedAppUsage
     protected boolean mIsVoiceMailFixed = false;
-    protected String mImsi;
+    @UnsupportedAppUsage
+    protected String mImsi; // IMSI must be only valid numeric characters 0-9 without padding 'f's
+    @UnsupportedAppUsage
     private IccIoResult auth_rsp;
 
+    @UnsupportedAppUsage
     protected int mMncLength = UNINITIALIZED;
     protected int mMailboxIndex = 0; // 0 is no mailbox dailing number associated
 
+    @UnsupportedAppUsage
     private String mSpn;
 
+    @UnsupportedAppUsage
     protected String mGid1;
     protected String mGid2;
 
@@ -111,9 +158,19 @@ public abstract class IccRecords extends Handler implements IccConstants {
     protected PlmnActRecord[] mOplmnActRecords;
     protected PlmnActRecord[] mPlmnActRecords;
 
+    // A list of PLMN in which the SPN shall be displayed.
+    // Reference: 3GPP TS 31.102 Section 4.2.66
+    protected String[] mSpdi;
+
+
+    // Carrier name display condition bitmask
+    // Reference: 3GPP TS 131.102 section 4.2.12 EF_SPN Display Condition
+    protected int mCarrierNameDisplayCondition;
+
     protected String[] mEhplmns;
     protected String[] mFplmns;
 
+    @UnsupportedAppUsage
     private final Object mLock = new Object();
 
     CarrierTestOverride mCarrierTestOverride;
@@ -131,9 +188,23 @@ public abstract class IccRecords extends Handler implements IccConstants {
     protected static final int UNINITIALIZED = -1;
     protected static final int UNKNOWN = 0;
 
-    // Bitmasks for SPN display rules.
-    public static final int SPN_RULE_SHOW_SPN  = 0x01;
-    public static final int SPN_RULE_SHOW_PLMN = 0x02;
+    // Bitmask for carrier name display condition.
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = {"CARRIER_NAME_DISPLAY_CONDITION_BITMASK_"},
+            value = {CARRIER_NAME_DISPLAY_CONDITION_BITMASK_PLMN,
+                    CARRIER_NAME_DISPLAY_CONDITION_BITMASK_SPN},
+            flag = true)
+    public @interface CarrierNameDisplayConditionBitmask {}
+    public static final int CARRIER_NAME_DISPLAY_CONDITION_BITMASK_PLMN = 1;
+    public static final int CARRIER_NAME_DISPLAY_CONDITION_BITMASK_SPN = 2;
+
+
+    // See {@link CarrierConfigManager#KEY_SPN_DISPLAY_CONDITION_OVERRIDE_INT}.
+    public static final int INVALID_CARRIER_NAME_DISPLAY_CONDITION_BITMASK = -1;
+
+    // Display SPN only and only if registered to Home PLMNs.
+    // Display PLMN only and only if registered to Non-Home PLMNs.
+    public static final int DEFAULT_CARRIER_NAME_DISPLAY_CONDITION = 0;
 
     // ***** Event Constants
     public static final int EVENT_MWI = 0; // Message Waiting indication
@@ -281,6 +352,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
      * hex digits.
      * @return ICC ID without hex digits
      */
+    @UnsupportedAppUsage
     public String getIccId() {
         if (mCarrierTestOverride.isInTestMode() && mCarrierTestOverride.getFakeIccid() != null) {
             return mCarrierTestOverride.getFakeIccid();
@@ -297,6 +369,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
         return mFullIccId;
     }
 
+    @UnsupportedAppUsage
     public void registerForRecordsLoaded(Handler h, int what, Object obj) {
         if (mDestroyed.get()) {
             return;
@@ -309,7 +382,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
             r.notifyRegistrant(new AsyncResult(null, null, null));
         }
     }
-
+    @UnsupportedAppUsage
     public void unregisterForRecordsLoaded(Handler h) {
         mRecordsLoadedRegistrants.remove(h);
     }
@@ -409,6 +482,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
         mSpnUpdatedRegistrants.remove(h);
     }
 
+    @UnsupportedAppUsage
     public void registerForRecordsEvents(Handler h, int what, Object obj) {
         Registrant r = new Registrant (h, what, obj);
         mRecordsEventsRegistrants.add(r);
@@ -418,23 +492,28 @@ public abstract class IccRecords extends Handler implements IccConstants {
         r.notifyResult(EVENT_MWI);
         r.notifyResult(EVENT_CFI);
     }
+    @UnsupportedAppUsage
     public void unregisterForRecordsEvents(Handler h) {
         mRecordsEventsRegistrants.remove(h);
     }
 
+    @UnsupportedAppUsage
     public void registerForNewSms(Handler h, int what, Object obj) {
         Registrant r = new Registrant (h, what, obj);
         mNewSmsRegistrants.add(r);
     }
+    @UnsupportedAppUsage
     public void unregisterForNewSms(Handler h) {
         mNewSmsRegistrants.remove(h);
     }
 
+    @UnsupportedAppUsage
     public void registerForNetworkSelectionModeAutomatic(
             Handler h, int what, Object obj) {
         Registrant r = new Registrant (h, what, obj);
         mNetworkSelectionModeAutomaticRegistrants.add(r);
     }
+    @UnsupportedAppUsage
     public void unregisterForNetworkSelectionModeAutomatic(Handler h) {
         mNetworkSelectionModeAutomaticRegistrants.remove(h);
     }
@@ -446,6 +525,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
      *
      * @return null if SIM is not yet ready or unavailable
      */
+    @UnsupportedAppUsage
     public String getIMSI() {
         if (mCarrierTestOverride.isInTestMode() && mCarrierTestOverride.getFakeIMSI() != null) {
             return mCarrierTestOverride.getFakeIMSI();
@@ -455,12 +535,79 @@ public abstract class IccRecords extends Handler implements IccConstants {
     }
 
     /**
-     * Imsi could be set by ServiceStateTrackers in case of cdma
-     * @param imsi
+     * Update IMSI record and try to extract the PLMN information and notify registrants.
+     * @param inImsi the IMSI value
      */
-    public void setImsi(String imsi) {
-        mImsi = imsi;
+    public void setImsi(String inImsi) {
+        // Remove trailing F's if present in IMSI.
+        mImsi = IccUtils.stripTrailingFs(inImsi);
+        if (!Objects.equals(mImsi, inImsi)) {
+            loge("Invalid IMSI padding digits received.");
+        }
+
+        if (TextUtils.isEmpty(mImsi)) mImsi = null;
+
+        if (mImsi != null && !mImsi.matches("[0-9]+")) {
+            loge("Invalid non-numeric IMSI digits received.");
+            mImsi = null;
+        }
+
+        // IMSI (MCC+MNC+MSIN) is at least 6 digits, but not more
+        // than 15 (and usually 15).
+        // This will also handle un-set IMSI records (all Fs)
+        if (mImsi != null && (mImsi.length() < 6 || mImsi.length() > 15)) {
+            loge("invalid IMSI " + mImsi);
+            mImsi = null;
+        }
+
+        log("IMSI: mMncLength=" + mMncLength);
+
+        if (mImsi != null && mImsi.length() >= 6) {
+            log("IMSI: " + mImsi.substring(0, 6) + Rlog.pii(VDBG, mImsi.substring(6)));
+        }
+
+        // IMSI has changed so the PLMN might have changed as well
+        updateOperatorPlmn();
+
         mImsiReadyRegistrants.notifyRegistrants();
+    }
+
+    protected void updateOperatorPlmn() {
+        // In case of a test override, use the test IMSI
+        String imsi = getIMSI();
+
+        if (imsi != null) {
+            // First try to guess the length based on a table of known 3-digit MNCs.
+            if (((mMncLength == UNKNOWN) || (mMncLength == 2)) && imsi.length() >= 6) {
+                String mccmncCode = imsi.substring(0, 6);
+                for (String mccmnc : MCCMNC_CODES_HAVING_3DIGITS_MNC) {
+                    if (mccmnc.equals(mccmncCode)) {
+                        mMncLength = 3;
+                        log("IMSI: setting1 mMncLength=" + mMncLength);
+                        break;
+                    }
+                }
+            }
+
+            // If still unknown, guess using the MCC.
+            if (mMncLength == UNKNOWN) {
+                try {
+                    int mcc = Integer.parseInt(imsi.substring(0, 3));
+                    mMncLength = MccTable.smallestDigitsMccForMnc(mcc);
+                    log("setting2 mMncLength=" + mMncLength);
+                } catch (NumberFormatException e) {
+                    loge("Corrupt IMSI! setting3 mMncLength=" + mMncLength);
+                }
+            }
+
+            if (mMncLength != UNKNOWN && mMncLength != UNINITIALIZED
+                    && imsi.length() >= 3 + mMncLength) {
+                log("update mccmnc=" + imsi.substring(0, 3 + mMncLength));
+                // finally have both the imsi and the mncLength and
+                // can parse the imsi properly
+                MccTable.updateMccMncConfiguration(mContext, imsi.substring(0, 3 + mMncLength));
+            }
+        }
     }
 
     /**
@@ -473,6 +620,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
         return null;
     }
 
+    @UnsupportedAppUsage
     public String getMsisdnNumber() {
         return mMsisdn;
     }
@@ -481,6 +629,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
      * Get the Group Identifier Level 1 (GID1) on a SIM for GSM.
      * @return null if SIM is not yet ready
      */
+    @UnsupportedAppUsage
     public String getGid1() {
         if (mCarrierTestOverride.isInTestMode() && mCarrierTestOverride.getFakeGid1() != null) {
             return mCarrierTestOverride.getFakeGid1();
@@ -514,6 +663,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
         }
     }
 
+    @UnsupportedAppUsage
     public void setMsisdnNumber(String alphaTag, String number,
             Message onComplete) {
         loge("setMsisdn() should not be invoked on base IccRecords");
@@ -536,38 +686,18 @@ public abstract class IccRecords extends Handler implements IccConstants {
      *
      * @return null if SIM is not yet ready or no RUIM entry
      */
+    @UnsupportedAppUsage
     public String getServiceProviderName() {
         if (mCarrierTestOverride.isInTestMode() && mCarrierTestOverride.getFakeSpn() != null) {
             return mCarrierTestOverride.getFakeSpn();
         }
-        String providerName = mSpn;
-
-        // Check for null pointers, mParentApp can be null after dispose,
-        // which did occur after removing a SIM.
-        UiccCardApplication parentApp = mParentApp;
-        if (parentApp != null) {
-            UiccProfile profile = parentApp.getUiccProfile();
-            if (profile != null) {
-                String brandOverride = profile.getOperatorBrandOverride();
-                if (brandOverride != null) {
-                    log("getServiceProviderName: override, providerName=" + providerName);
-                    providerName = brandOverride;
-                } else {
-                    log("getServiceProviderName: no brandOverride, providerName=" + providerName);
-                }
-            } else {
-                log("getServiceProviderName: card is null, providerName=" + providerName);
-            }
-        } else {
-            log("getServiceProviderName: mParentApp is null, providerName=" + providerName);
-        }
-        return providerName;
+        return mSpn;
     }
 
     protected void setServiceProviderName(String spn) {
         if (!TextUtils.equals(mSpn, spn)) {
+            mSpn = spn != null ? spn.trim() : null;
             mSpnUpdatedRegistrants.notifyRegistrants();
-            mSpn = spn;
         }
     }
 
@@ -623,6 +753,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
      */
     public abstract void onRefresh(boolean fileChanged, int[] fileList);
 
+    @UnsupportedAppUsage
     public boolean getRecordsLoaded() {
         return mRecordsToLoad == 0 && mRecordsRequested;
     }
@@ -743,6 +874,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
 
     protected abstract void handleFileUpdate(int efid);
 
+    @UnsupportedAppUsage
     protected void handleRefresh(IccRefreshResponse refreshResponse){
         if (refreshResponse == null) {
             if (DBG) log("handleRefresh received without input");
@@ -772,20 +904,63 @@ public abstract class IccRecords extends Handler implements IccConstants {
     protected abstract void onAllRecordsLoaded();
 
     /**
-     * Returns the SpnDisplayRule based on settings on the SIM and the
-     * current service state. See TS 22.101 Annex A and TS 51.011 10.3.11
-     * for details.
+     * Retrieves the SPN/PLMN display condition from UICC.
      *
-     * If the SPN is not found on the SIM, the rule is always PLMN_ONLY.
-     * Generally used for GSM/UMTS and the like SIMs.
+     * Display of service provider name is required when registered PLMN is neither HPLMN nor a PLMN
+     * in the service provider PLMN list(EF_SPDI).
      *
-     * @param serviceState Service state
-     * @return the display rule
+     * Display of PLMN network name is required when registered PLMN is either HPLMN or a PLMN in
+     * the service provider PLMN list(EF_SPDI).
      *
-     * @see #SPN_RULE_SHOW_SPN
-     * @see #SPN_RULE_SHOW_PLMN
+     * Reference: 3GPP TS 131.102 section 4.2.12 EF_SPN Display Condition
+     *
+     * @return a bitmask represent the carrier name display condition.
      */
-    public abstract int getDisplayRule(ServiceState serviceState);
+    @CarrierNameDisplayConditionBitmask
+    public int getCarrierNameDisplayCondition() {
+        return mCarrierNameDisplayCondition;
+    }
+
+    /**
+     * Retrieves the service provider display information. This is a list of PLMNs in which the
+     * service provider name shall be displayed.
+     *
+     * Reference: 3GPP TS 131.102 section 4.2.66 EF_SPDI
+     *
+     * @return a list of PLMN(mcc+mnc) if EF_SPDI is existed, otherwise return null.
+     */
+    public String[] getServiceProviderDisplayInformation() {
+        return mSpdi;
+    }
+
+    /**
+     * Get home PLMN list.
+     *
+     * @see #getEhplmns()
+     * @see #getServiceProviderDisplayInformation()
+     *
+     * @return a list of HPLMN if existed, otherwise return null.
+     */
+    public String[] getHomePlmns() {
+        // hplmn from imsi.
+        String hplmn = getOperatorNumeric();
+
+        // hplmn from ehplmn list.
+        String[] hplmns = getEhplmns();
+
+        // plmn from ef_spdi.
+        String[] spdi = getServiceProviderDisplayInformation();
+
+        // Use the plmn from imsi as the hplmn if Ehplmn not present.
+        if (ArrayUtils.isEmpty(hplmns)) {
+            hplmns = new String[] {hplmn};
+        }
+
+        if (!ArrayUtils.isEmpty(spdi)) {
+            hplmns = ArrayUtils.concatElements(String.class, hplmns, spdi);
+        }
+        return hplmns;
+    }
 
     /**
      * Return true if "Restriction of menu options for manual PLMN selection"
@@ -802,6 +977,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
      * or is not valid for the type of IccCard. Generally used for
      * GSM/UMTS and the like SIMS
      */
+    @UnsupportedAppUsage
     public String getOperatorNumeric() {
         return null;
     }
@@ -822,6 +998,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
      * @param enable
      * @param number to which CFU is enabled
      */
+    @UnsupportedAppUsage
     public void setVoiceCallForwardingFlag(int line, boolean enable, String number) {
     }
 
@@ -849,6 +1026,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
      *
      * @param s is the string to write
      */
+    @UnsupportedAppUsage
     protected abstract void log(String s);
 
     /**
@@ -859,6 +1037,25 @@ public abstract class IccRecords extends Handler implements IccConstants {
     protected abstract void loge(String s);
 
     /**
+     * @return String array containing EHPLMNs associated with the card.
+     */
+    public String[] getEhplmns() {
+        return mEhplmns;
+    }
+
+    /**
+     * @return String array containing PLMN from HplmnActRecord.
+     */
+    public String[] getPlmnsFromHplmnActRecord() {
+        if (mHplmnActRecords == null) return null;
+        String[] hplmns = new String[mHplmnActRecords.length];
+        for (int i = 0; i < mHplmnActRecords.length; i++) {
+            hplmns[i] = mHplmnActRecords[i].plmn;
+        }
+        return hplmns;
+    }
+
+    /**
      * Return an interface to retrieve the ISIM records for IMS, if available.
      * @return the interface to retrieve the ISIM records, or null if not supported
      */
@@ -866,6 +1063,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
         return null;
     }
 
+    @UnsupportedAppUsage
     public UsimServiceTable getUsimServiceTable() {
         return null;
     }
@@ -886,6 +1084,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
      * @param data authentication challenge data
      * @return challenge response
      */
+    @UnsupportedAppUsage
     public String getIccSimChallengeResponse(int authContext, String data) {
         if (DBG) log("getIccSimChallengeResponse:");
 
@@ -924,6 +1123,44 @@ public abstract class IccRecords extends Handler implements IccConstants {
         if (DBG) log("getIccSimChallengeResponse: return auth_rsp");
 
         return android.util.Base64.encodeToString(auth_rsp.payload, android.util.Base64.NO_WRAP);
+    }
+
+    /**
+     * Convert the spn display condition to a bitmask
+     * {@link com.android.internal.telephony.uicc.IccRecords.CarrierNameDisplayConditionBitmask}.
+     *
+     * b1 is the last bit of the display condition which is used to determine whether display of
+     * PLMN network name is required when registered PLMN is **either** HPLMN or a PLMN in the
+     * service provider PLMN list.
+     *
+     * b2 is the second last bit of the display condtion which is used to determine
+     * whether display of Service Provider Name is required when registered PLMN is
+     * **neither** HPLMN nor PLMN in the service provider PLMN list.
+     *
+     * Reference: 3GPP TS 31.102 section 4.2.12 EF_SPN
+     *
+     * @return a carrier name display condtion bitmask.
+     */
+    @CarrierNameDisplayConditionBitmask
+    public static int convertSpnDisplayConditionToBitmask(int condition) {
+        int carrierNameDisplayCondition = 0;
+        // b1 = 0: display of registered PLMN name not required when registered PLMN is
+        // either HPLMN or a PLMN in the service provider PLMN list.
+        // b1 = 1: display of registered PLMN name required when registered PLMN is
+        // either HPLMN or a PLMN in the service provider PLMN list.
+        if ((condition & 0x1) == 0x1) {
+            carrierNameDisplayCondition |= CARRIER_NAME_DISPLAY_CONDITION_BITMASK_PLMN;
+        }
+
+        // b2 = 0: display of the service provider name is **required** when registered
+        // PLMN is neither HPLMN nor a PLMN in the service provider PLMN list.
+        // b2 = 1: display of the servier provider name is **not required** when
+        // registered PLMN is neither HPLMN nor PLMN in the service provider PLMN list.
+        if ((condition & 0x2) == 0) {
+            carrierNameDisplayCondition |= CARRIER_NAME_DISPLAY_CONDITION_BITMASK_SPN;
+        }
+
+        return carrierNameDisplayCondition;
     }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
@@ -996,5 +1233,56 @@ public abstract class IccRecords extends Handler implements IccConstants {
             pw.println(" mFakeSpn=" + mCarrierTestOverride.getFakeSpn());
         }
         pw.flush();
+    }
+
+    /**
+     * Operator PLMN information. This contains the location area information or tracking area
+     * that are used to associate a specific name contained in EF_PNN.
+     *
+     * Reference: 3GPP TS 31.102 section 4.2.59 EF_OPL
+     */
+    public static final class OperatorPlmnInfo {
+        // PLMN numeric that may contains wildcard character ".".
+        // For example, the pattern "123..." could match all PLMN which mcc is 123.
+        public final String plmnNumericPattern;
+
+        public final int lacTacStart;
+        public final int lacTacEnd;
+
+        public final int plmnNetworkNameIndex;
+        public OperatorPlmnInfo(String plmnNumericPattern, int lacTacStart, int lacTacEnd,
+                                int plmnNetworkNameIndex) {
+            this.plmnNumericPattern = plmnNumericPattern;
+            this.lacTacStart = lacTacStart;
+            this.lacTacEnd = lacTacEnd;
+            this.plmnNetworkNameIndex = plmnNetworkNameIndex;
+        }
+
+        @Override
+        public String toString() {
+            return "{ plmnNumericPattern = " + plmnNumericPattern
+                    + "lacTacStart = " + lacTacStart
+                    + "lacTacEnd = " + lacTacEnd
+                    + "plmnNetworkNameIndex = " + plmnNetworkNameIndex
+                    + " }";
+        }
+    }
+
+    /**
+     * Full and short version of PLMN network name.
+     */
+    public static final class PlmnNetworkName {
+        public final String fullName;
+        public final String shortName;
+
+        public PlmnNetworkName(String fullName, String shortName) {
+            this.fullName = fullName;
+            this.shortName = shortName;
+        }
+
+        @Override
+        public String toString() {
+            return "{ fullName = " + fullName + " shortName = " + shortName + " }";
+        }
     }
 }

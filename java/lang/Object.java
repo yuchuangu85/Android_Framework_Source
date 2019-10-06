@@ -39,6 +39,13 @@ import dalvik.annotation.optimization.FastNative;
  */
 public class Object {
 
+    // Android-removed: registerNatives() not used on Android
+    // private static native void registerNatives();
+    // static {
+    //     registerNatives();
+    // }
+
+    // Android-added: Use Android specific fields for Class and monitor.
     private transient Class<?> shadow$_klass_;
     private transient int shadow$_monitor_;
 
@@ -61,6 +68,8 @@ public class Object {
      *         class of this object.
      * @jls 15.8.2 Class Literals
      */
+    // Android-changed: Use Android specific fields for Class and monitor.
+    // public final native Class<?> getClass();
     public final Class<?> getClass() {
       return shadow$_klass_;
     }
@@ -100,11 +109,12 @@ public class Object {
      * @see     java.lang.Object#equals(java.lang.Object)
      * @see     java.lang.System#identityHashCode
      */
+    // BEGIN Android-changed: Added a local helper for identityHashCode.
+    // public native int hashCode();
     public int hashCode() {
         return identityHashCode(this);
     }
 
-    // Android-changed: add a local helper for identityHashCode.
     // Package-private to be used by j.l.System. We do the implementation here
     // to avoid Object.hashCode doing a clinit check on j.l.System, and also
     // to avoid leaking shadow$_monitor_ outside of this class.
@@ -119,8 +129,13 @@ public class Object {
         return identityHashCodeNative(obj);
     }
 
+    /**
+     * Return the identity hash code when the information in the monitor field
+     * is not sufficient.
+     */
     @FastNative
     private static native int identityHashCodeNative(Object obj);
+    // END Android-changed: Added a local helper for identityHashCode.
 
     /**
      * Indicates whether some other object is "equal to" this one.
@@ -232,6 +247,9 @@ public class Object {
      *               be cloned.
      * @see java.lang.Cloneable
      */
+    // BEGIN Android-changed: Use native local helper for clone()
+    // Checks whether cloning is allowed before calling native local helper.
+    // protected native Object clone() throws CloneNotSupportedException;
     protected Object clone() throws CloneNotSupportedException {
         if (!(this instanceof Cloneable)) {
             throw new CloneNotSupportedException("Class " + getClass().getName() +
@@ -246,7 +264,7 @@ public class Object {
      */
     @FastNative
     private native Object internalClone();
-
+    // END Android-changed: Use native local helper for clone()
 
     /**
      * Returns a string representation of the object. In general, the
@@ -405,7 +423,7 @@ public class Object {
      * description of the ways in which a thread can become the owner of
      * a monitor.
      *
-     * @param      millis   the maximum time to wait in milliseconds.
+     * @param      timeout   the maximum time to wait in milliseconds.
      * @throws  IllegalArgumentException      if the value of timeout is
      *               negative.
      * @throws  IllegalMonitorStateException  if the current thread is not
@@ -418,8 +436,10 @@ public class Object {
      * @see        java.lang.Object#notify()
      * @see        java.lang.Object#notifyAll()
      */
-    public final void wait(long millis) throws InterruptedException {
-        wait(millis, 0);
+    // Android-changed: Implement wait(long) non-natively.
+    // public final native void wait(long timeout) throws InterruptedException;
+    public final void wait(long timeout) throws InterruptedException {
+        wait(timeout, 0);
     }
 
     /**
@@ -470,7 +490,7 @@ public class Object {
      * description of the ways in which a thread can become the owner of
      * a monitor.
      *
-     * @param      millis   the maximum time to wait in milliseconds.
+     * @param      timeout   the maximum time to wait in milliseconds.
      * @param      nanos      additional time, in nanoseconds range
      *                       0-999999.
      * @throws  IllegalArgumentException      if the value of timeout is
@@ -484,8 +504,27 @@ public class Object {
      *             status</i> of the current thread is cleared when
      *             this exception is thrown.
      */
+    // Android-changed: Implement wait(long, int) natively.
+    /*
+    public final void wait(long timeout, int nanos) throws InterruptedException {
+        if (timeout < 0) {
+            throw new IllegalArgumentException("timeout value is negative");
+        }
+
+        if (nanos < 0 || nanos > 999999) {
+            throw new IllegalArgumentException(
+                                "nanosecond timeout value out of range");
+        }
+
+        if (nanos > 0) {
+            timeout++;
+        }
+
+        wait(timeout);
+    }
+    */
     @FastNative
-    public final native void wait(long millis, int nanos) throws InterruptedException;
+    public final native void wait(long timeout, int nanos) throws InterruptedException;
 
     /**
      * Causes the current thread to wait until another thread invokes the
@@ -525,8 +564,9 @@ public class Object {
      * @see        java.lang.Object#notify()
      * @see        java.lang.Object#notifyAll()
      */
-    @FastNative
-    public final native void wait() throws InterruptedException;
+    public final void wait() throws InterruptedException {
+        wait(0);
+    }
 
     /**
      * Called by the garbage collector on an object when garbage collection

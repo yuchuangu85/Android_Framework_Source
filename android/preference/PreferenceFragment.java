@@ -17,6 +17,7 @@
 package android.preference;
 
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.annotation.XmlRes;
 import android.app.Activity;
 import android.app.Fragment;
@@ -87,25 +88,14 @@ import android.widget.TextView;
  * guide.</p>
  * </div>
  *
- * <a name="SampleCode"></a>
- * <h3>Sample Code</h3>
- *
- * <p>The following sample code shows a simple preference fragment that is
- * populated from a resource.  The resource it loads is:</p>
- *
- * {@sample development/samples/ApiDemos/res/xml/preferences.xml preferences}
- *
- * <p>The fragment implementation itself simply populates the preferences
- * when created.  Note that the preferences framework takes care of loading
- * the current values out of the app preferences and writing them when changed:</p>
- *
- * {@sample development/samples/ApiDemos/src/com/example/android/apis/preference/FragmentPreferences.java
- *      fragment}
- *
  * @see Preference
  * @see PreferenceScreen
  *
- * @deprecated Use {@link android.support.v7.preference.PreferenceFragmentCompat}
+ * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+ *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+ *      Preference Library</a> for consistent behavior across all devices. For more information on
+ *      using the AndroidX Preference Library see
+ *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
  */
 @Deprecated
 public abstract class PreferenceFragment extends Fragment implements
@@ -113,6 +103,7 @@ public abstract class PreferenceFragment extends Fragment implements
 
     private static final String PREFERENCES_TAG = "android:preferences";
 
+    @UnsupportedAppUsage
     private PreferenceManager mPreferenceManager;
     private ListView mList;
     private boolean mHavePrefs;
@@ -402,6 +393,7 @@ public abstract class PreferenceFragment extends Fragment implements
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public ListView getListView() {
         ensureList();
         return mList;

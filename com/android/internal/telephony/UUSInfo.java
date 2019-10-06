@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
+
 public class UUSInfo {
 
     /*
@@ -74,6 +76,7 @@ public class UUSInfo {
         mUusData = uusData;
     }
 
+    @UnsupportedAppUsage
     public int getDcs() {
         return mUusDcs;
     }
@@ -82,6 +85,7 @@ public class UUSInfo {
         mUusDcs = uusDcs;
     }
 
+    @UnsupportedAppUsage
     public int getType() {
         return mUusType;
     }
@@ -90,6 +94,7 @@ public class UUSInfo {
         mUusType = uusType;
     }
 
+    @UnsupportedAppUsage
     public byte[] getUserData() {
         return mUusData;
     }

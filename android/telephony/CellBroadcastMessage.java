@@ -16,6 +16,7 @@
 
 package android.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
@@ -74,6 +75,7 @@ public class CellBroadcastMessage implements Parcelable {
         return mSubId;
     }
 
+    @UnsupportedAppUsage
     public CellBroadcastMessage(SmsCbMessage message) {
         mSmsCbMessage = message;
         mDeliveryTime = System.currentTimeMillis();
@@ -126,6 +128,7 @@ public class CellBroadcastMessage implements Parcelable {
      * @return the new CellBroadcastMessage
      * @throws IllegalArgumentException if one of the required columns is missing
      */
+    @UnsupportedAppUsage
     public static CellBroadcastMessage createFromCursor(Cursor cursor) {
         int geoScope = cursor.getInt(
                 cursor.getColumnIndexOrThrow(Telephony.CellBroadcasts.GEOGRAPHICAL_SCOPE));
@@ -250,6 +253,7 @@ public class CellBroadcastMessage implements Parcelable {
      * Return a ContentValues object for insertion into the database.
      * @return a new ContentValues object containing this object's data
      */
+    @UnsupportedAppUsage
     public ContentValues getContentValues() {
         ContentValues cv = new ContentValues(16);
         SmsCbMessage msg = mSmsCbMessage;
@@ -299,26 +303,32 @@ public class CellBroadcastMessage implements Parcelable {
         mIsRead = isRead;
     }
 
+    @UnsupportedAppUsage
     public String getLanguageCode() {
         return mSmsCbMessage.getLanguageCode();
     }
 
+    @UnsupportedAppUsage
     public int getServiceCategory() {
         return mSmsCbMessage.getServiceCategory();
     }
 
+    @UnsupportedAppUsage
     public long getDeliveryTime() {
         return mDeliveryTime;
     }
 
+    @UnsupportedAppUsage
     public String getMessageBody() {
         return mSmsCbMessage.getMessageBody();
     }
 
+    @UnsupportedAppUsage
     public boolean isRead() {
         return mIsRead;
     }
 
+    @UnsupportedAppUsage
     public int getSerialNumber() {
         return mSmsCbMessage.getSerialNumber();
     }
@@ -327,6 +337,7 @@ public class CellBroadcastMessage implements Parcelable {
         return mSmsCbMessage.getCmasWarningInfo();
     }
 
+    @UnsupportedAppUsage
     public SmsCbEtwsInfo getEtwsWarningInfo() {
         return mSmsCbMessage.getEtwsWarningInfo();
     }
@@ -350,6 +361,7 @@ public class CellBroadcastMessage implements Parcelable {
      *
      * @return true if the message is PWS type (ETWS or CMAS)
      */
+    @UnsupportedAppUsage
     public boolean isEmergencyAlertMessage() {
         return mSmsCbMessage.isEmergencyMessage();
     }
@@ -358,6 +370,7 @@ public class CellBroadcastMessage implements Parcelable {
      * Return whether the broadcast is an ETWS emergency message type.
      * @return true if the message is ETWS emergency type; false otherwise
      */
+    @UnsupportedAppUsage
     public boolean isEtwsMessage() {
         return mSmsCbMessage.isEtwsMessage();
     }
@@ -366,6 +379,7 @@ public class CellBroadcastMessage implements Parcelable {
      * Return whether the broadcast is a CMAS emergency message type.
      * @return true if the message is CMAS emergency type; false otherwise
      */
+    @UnsupportedAppUsage
     public boolean isCmasMessage() {
         return mSmsCbMessage.isCmasMessage();
     }
@@ -430,6 +444,7 @@ public class CellBroadcastMessage implements Parcelable {
      * @param context the context object
      * @return a String for populating the list item AccessibilityEvent for TTS
      */
+    @UnsupportedAppUsage
     public String getSpokenDateString(Context context) {
         int flags = DateUtils.FORMAT_SHOW_TIME | DateUtils.FORMAT_SHOW_DATE;
         return DateUtils.formatDateTime(context, mDeliveryTime, flags);

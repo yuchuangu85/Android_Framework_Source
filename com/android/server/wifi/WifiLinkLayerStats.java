@@ -16,6 +16,8 @@
 
 package com.android.server.wifi;
 
+import android.util.SparseArray;
+
 import java.util.Arrays;
 
 /**
@@ -26,6 +28,11 @@ import java.util.Arrays;
  * {@hide}
  */
 public class WifiLinkLayerStats {
+    public static final String V1_0 = "V1_0";
+    public static final String V1_3 = "V1_3";
+
+    /** The version of hal StaLinkLayerStats **/
+    public String version;
 
     /** Number of beacons received from our own AP */
     public int beacon_rx;
@@ -91,6 +98,47 @@ public class WifiLinkLayerStats {
      * Cumulative milliseconds when radio is awake due to scan
      */
     public int on_time_scan;
+    /**
+     * Cumulative milliseconds when radio is awake due to nan scan
+     */
+    public int on_time_nan_scan = -1;
+    /**
+     * Cumulative milliseconds when radio is awake due to background scan
+     */
+    public int on_time_background_scan = -1;
+    /**
+     * Cumulative milliseconds when radio is awake due to roam scan
+     */
+    public int on_time_roam_scan = -1;
+    /**
+     * Cumulative milliseconds when radio is awake due to pno scan
+     */
+    public int on_time_pno_scan = -1;
+    /**
+     * Cumulative milliseconds when radio is awake due to hotspot 2.0 scan amd GAS exchange
+     */
+    public int on_time_hs20_scan = -1;
+    /**
+     * channel stats
+     */
+    public static class ChannelStats {
+        /**
+         * Channel frequency in MHz;
+         */
+        public int frequency;
+        /**
+         * Cumulative milliseconds radio is awake on this channel
+         */
+        public int radioOnTimeMs;
+        /**
+         * Cumulative milliseconds CCA is held busy on this channel
+         */
+        public int ccaBusyTimeMs;
+    }
+    /**
+     * Channel stats list
+     */
+    public final SparseArray<ChannelStats> channelStatsMap = new SparseArray<>();
 
     /**
      * TimeStamp - absolute milliseconds from boot when these stats were sampled.
@@ -102,6 +150,7 @@ public class WifiLinkLayerStats {
         StringBuilder sbuf = new StringBuilder();
         sbuf.append(" WifiLinkLayerStats: ").append('\n');
 
+        sbuf.append(" version of StaLinkLayerStats: ").append(version).append('\n');
         sbuf.append(" my bss beacon rx: ").append(Integer.toString(this.beacon_rx)).append('\n');
         sbuf.append(" RSSI mgmt: ").append(Integer.toString(this.rssi_mgmt)).append('\n');
         sbuf.append(" BE : ").append(" rx=").append(Long.toString(this.rxmpdu_be))
@@ -121,10 +170,28 @@ public class WifiLinkLayerStats {
                 .append(" lost=").append(Long.toString(this.lostmpdu_vo))
                 .append(" retries=").append(Long.toString(this.retries_vo)).append('\n');
         sbuf.append(" on_time : ").append(Integer.toString(this.on_time))
+                .append(" tx_time=").append(Integer.toString(this.tx_time))
                 .append(" rx_time=").append(Integer.toString(this.rx_time))
                 .append(" scan_time=").append(Integer.toString(this.on_time_scan)).append('\n')
-                .append(" tx_time=").append(Integer.toString(this.tx_time))
-                .append(" tx_time_per_level=" + Arrays.toString(tx_time_per_level));
+                .append(" nan_scan_time=")
+                .append(Integer.toString(this.on_time_nan_scan)).append('\n')
+                .append(" g_scan_time=")
+                .append(Integer.toString(this.on_time_background_scan)).append('\n')
+                .append(" roam_scan_time=")
+                .append(Integer.toString(this.on_time_roam_scan)).append('\n')
+                .append(" pno_scan_time=")
+                .append(Integer.toString(this.on_time_pno_scan)).append('\n')
+                .append(" hs2.0_scan_time=")
+                .append(Integer.toString(this.on_time_hs20_scan)).append('\n')
+                .append(" tx_time_per_level=" + Arrays.toString(tx_time_per_level)).append('\n');
+        int numChanStats = this.channelStatsMap.size();
+        sbuf.append(" Number of channel stats=").append(numChanStats).append('\n');
+        for (int i = 0; i < numChanStats; ++i) {
+            ChannelStats channelStatsEntry = this.channelStatsMap.valueAt(i);
+            sbuf.append(" Frequency=").append(channelStatsEntry.frequency)
+                    .append(" radioOnTimeMs=").append(channelStatsEntry.radioOnTimeMs)
+                    .append(" ccaBusyTimeMs=").append(channelStatsEntry.ccaBusyTimeMs).append('\n');
+        }
         sbuf.append(" ts=" + timeStampInMs);
         return sbuf.toString();
     }

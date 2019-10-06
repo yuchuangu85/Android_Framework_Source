@@ -17,6 +17,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.AsyncResult;
 import android.os.Handler;
@@ -30,8 +31,10 @@ import android.telephony.TelephonyManager;
  */
 public abstract class BaseCommands implements CommandsInterface {
     //***** Instance Variables
+    @UnsupportedAppUsage
     protected Context mContext;
-    protected RadioState mState = RadioState.RADIO_UNAVAILABLE;
+    protected int mState = TelephonyManager.RADIO_POWER_UNAVAILABLE;
+    @UnsupportedAppUsage
     protected Object mStateMonitor = new Object();
 
     protected RegistrantList mRadioStateChangedRegistrants = new RegistrantList();
@@ -39,17 +42,24 @@ public abstract class BaseCommands implements CommandsInterface {
     protected RegistrantList mAvailRegistrants = new RegistrantList();
     protected RegistrantList mOffOrNotAvailRegistrants = new RegistrantList();
     protected RegistrantList mNotAvailRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mCallStateRegistrants = new RegistrantList();
     protected RegistrantList mNetworkStateRegistrants = new RegistrantList();
     protected RegistrantList mDataCallListChangedRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mVoiceRadioTechChangedRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mImsNetworkStateChangedRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mIccStatusChangedRegistrants = new RegistrantList();
     protected RegistrantList mIccSlotStatusChangedRegistrants = new RegistrantList();
     protected RegistrantList mVoicePrivacyOnRegistrants = new RegistrantList();
     protected RegistrantList mVoicePrivacyOffRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected Registrant mUnsolOemHookRawRegistrant;
+    @UnsupportedAppUsage
     protected RegistrantList mOtaProvisionRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mCallWaitingInfoRegistrants = new RegistrantList();
     protected RegistrantList mDisplayInfoRegistrants = new RegistrantList();
     protected RegistrantList mSignalInfoRegistrants = new RegistrantList();
@@ -58,17 +68,28 @@ public abstract class BaseCommands implements CommandsInterface {
     protected RegistrantList mLineControlInfoRegistrants = new RegistrantList();
     protected RegistrantList mT53ClirInfoRegistrants = new RegistrantList();
     protected RegistrantList mT53AudCntrlInfoRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mRingbackToneRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mResendIncallMuteRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mCdmaSubscriptionChangedRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mCdmaPrlChangedRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mExitEmergencyCallbackModeRegistrants = new RegistrantList();
     protected RegistrantList mRilConnectedRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mIccRefreshRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mRilCellInfoListRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mSubscriptionStatusRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mSrvccStateRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mHardwareConfigChangeRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mPhoneRadioCapabilityChangedRegistrants =
             new RegistrantList();
     protected RegistrantList mPcoDataRegistrants = new RegistrantList();
@@ -78,34 +99,56 @@ public abstract class BaseCommands implements CommandsInterface {
     protected RegistrantList mNattKeepaliveStatusRegistrants = new RegistrantList();
     protected RegistrantList mPhysicalChannelConfigurationRegistrants = new RegistrantList();
     protected RegistrantList mLceInfoRegistrants = new RegistrantList();
+    protected RegistrantList mEmergencyNumberListRegistrants = new RegistrantList();
 
+    @UnsupportedAppUsage
     protected Registrant mGsmSmsRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mCdmaSmsRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mNITZTimeRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mSignalStrengthRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mUSSDRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mSmsOnSimRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mSmsStatusRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mSsnRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mCatSessionEndRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mCatProCmdRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mCatEventRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mCatCallSetUpRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mIccSmsFullRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mEmergencyCallbackModeRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mRingRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mRestrictedStateRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mGsmBroadcastSmsRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mCatCcAlphaRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mSsRegistrant;
 
     // Preferred network type received from PhoneFactory.
     // This is used when establishing a connection to the
     // vendor ril so it starts up in the correct mode.
+    @UnsupportedAppUsage
     protected int mPreferredNetworkType;
     // CDMA subscription received from PhoneFactory
     protected int mCdmaSubscription;
     // Type of Phone, GSM or CDMA. Set by GsmCdmaPhone.
+    @UnsupportedAppUsage
     protected int mPhoneType;
     // RIL Version
     protected int mRilVersion = -1;
@@ -117,7 +160,7 @@ public abstract class BaseCommands implements CommandsInterface {
     //***** CommandsInterface implementation
 
     @Override
-    public RadioState getRadioState() {
+    public @TelephonyManager.RadioPowerState int getRadioState() {
         return mState;
     }
 
@@ -154,7 +197,7 @@ public abstract class BaseCommands implements CommandsInterface {
         synchronized (mStateMonitor) {
             mOnRegistrants.add(r);
 
-            if (mState.isOn()) {
+            if (mState == TelephonyManager.RADIO_POWER_ON) {
                 r.notifyRegistrant(new AsyncResult(null, null, null));
             }
         }
@@ -174,7 +217,7 @@ public abstract class BaseCommands implements CommandsInterface {
         synchronized (mStateMonitor) {
             mAvailRegistrants.add(r);
 
-            if (mState.isAvailable()) {
+            if (mState != TelephonyManager.RADIO_POWER_UNAVAILABLE) {
                 r.notifyRegistrant(new AsyncResult(null, null, null));
             }
         }
@@ -194,7 +237,7 @@ public abstract class BaseCommands implements CommandsInterface {
         synchronized (mStateMonitor) {
             mNotAvailRegistrants.add(r);
 
-            if (!mState.isAvailable()) {
+            if (mState == TelephonyManager.RADIO_POWER_UNAVAILABLE) {
                 r.notifyRegistrant(new AsyncResult(null, null, null));
             }
         }
@@ -214,7 +257,8 @@ public abstract class BaseCommands implements CommandsInterface {
         synchronized (mStateMonitor) {
             mOffOrNotAvailRegistrants.add(r);
 
-            if (mState == RadioState.RADIO_OFF || !mState.isAvailable()) {
+            if (mState == TelephonyManager.RADIO_POWER_OFF
+                    || mState == TelephonyManager.RADIO_POWER_UNAVAILABLE) {
                 r.notifyRegistrant(new AsyncResult(null, null, null));
             }
         }
@@ -782,6 +826,17 @@ public abstract class BaseCommands implements CommandsInterface {
         mSubscriptionStatusRegistrants.remove(h);
     }
 
+    @Override
+    public void registerForEmergencyNumberList(Handler h, int what, Object obj) {
+        Registrant r = new Registrant(h, what, obj);
+        mEmergencyNumberListRegistrants.add(r);
+    }
+
+    @Override
+    public void unregisterForEmergencyNumberList(Handler h) {
+        mEmergencyNumberListRegistrants.remove(h);
+    }
+
     //***** Protected Methods
     /**
      * Store new RadioState and send notification based on the changes
@@ -792,36 +847,41 @@ public abstract class BaseCommands implements CommandsInterface {
      * RadioState has 3 values : RADIO_OFF, RADIO_UNAVAILABLE, RADIO_ON.
      *
      * @param newState new RadioState decoded from RIL_UNSOL_RADIO_STATE_CHANGED
+     * @param forceNotifyRegistrants boolean indicating if registrants should be notified even if
+     * there is no change in state
      */
-    protected void setRadioState(RadioState newState) {
-        RadioState oldState;
+    protected void setRadioState(int newState, boolean forceNotifyRegistrants) {
+        int oldState;
 
         synchronized (mStateMonitor) {
             oldState = mState;
             mState = newState;
 
-            if (oldState == mState) {
+            if (oldState == mState && !forceNotifyRegistrants) {
                 // no state transition
                 return;
             }
 
             mRadioStateChangedRegistrants.notifyRegistrants();
 
-            if (mState.isAvailable() && !oldState.isAvailable()) {
+            if (mState != TelephonyManager.RADIO_POWER_UNAVAILABLE
+                    && oldState == TelephonyManager.RADIO_POWER_UNAVAILABLE) {
                 mAvailRegistrants.notifyRegistrants();
             }
 
-            if (!mState.isAvailable() && oldState.isAvailable()) {
+            if (mState == TelephonyManager.RADIO_POWER_UNAVAILABLE
+                    && oldState != TelephonyManager.RADIO_POWER_UNAVAILABLE) {
                 mNotAvailRegistrants.notifyRegistrants();
             }
 
-            if (mState.isOn() && !oldState.isOn()) {
+            if (mState == TelephonyManager.RADIO_POWER_ON
+                    && oldState != TelephonyManager.RADIO_POWER_ON) {
                 mOnRegistrants.notifyRegistrants();
             }
 
-            if ((!mState.isOn() || !mState.isAvailable())
-                && !((!oldState.isOn() || !oldState.isAvailable()))
-            ) {
+            if ((mState == TelephonyManager.RADIO_POWER_OFF
+                    || mState == TelephonyManager.RADIO_POWER_UNAVAILABLE)
+                    && (oldState == TelephonyManager.RADIO_POWER_ON)) {
                 mOffOrNotAvailRegistrants.notifyRegistrants();
             }
         }

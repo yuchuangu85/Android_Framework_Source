@@ -26,7 +26,7 @@ import android.view.WindowManager;
 
 import com.android.systemui.R;
 import com.android.systemui.recents.events.ui.focus.NavigateTaskViewEvent.Direction;
-import com.android.systemui.shared.recents.utilities.Utilities;
+import com.android.systemui.recents.utilities.Utilities;
 import com.android.systemui.shared.recents.model.Task;
 import com.android.systemui.recents.views.TaskStackLayoutAlgorithm;
 import com.android.systemui.recents.views.TaskViewTransform;

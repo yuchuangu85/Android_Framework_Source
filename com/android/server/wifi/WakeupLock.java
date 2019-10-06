@@ -39,7 +39,7 @@ public class WakeupLock {
     private static final String TAG = WakeupLock.class.getSimpleName();
 
     @VisibleForTesting
-    static final int CONSECUTIVE_MISSED_SCANS_REQUIRED_TO_EVICT = 3;
+    static final int CONSECUTIVE_MISSED_SCANS_REQUIRED_TO_EVICT = 5;
     @VisibleForTesting
     static final long MAX_LOCK_TIME_MILLIS = 10 * DateUtils.MINUTE_IN_MILLIS;
 

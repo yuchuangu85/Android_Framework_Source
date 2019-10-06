@@ -45,39 +45,24 @@ public class LastMileLogger {
 
     /**
      * Informs LastMileLogger that a connection event has occurred.
-     * @param connectionId A non-negative connection identifier, or -1 to indicate unknown
      * @param event an event defined in BaseWifiDiagnostics
      */
-    public void reportConnectionEvent(long connectionId, byte event) {
-        if (connectionId < 0) {
-            mLog.warn("Ignoring negative connection id: %").c(connectionId).flush();
-            return;
-        }
-
+    public void reportConnectionEvent(byte event) {
         switch (event) {
             case BaseWifiDiagnostics.CONNECTION_EVENT_STARTED:
-                mPendingConnectionId = connectionId;
                 enableTracing();
                 return;
             case BaseWifiDiagnostics.CONNECTION_EVENT_SUCCEEDED:
-                mPendingConnectionId = -1;
                 disableTracing();
                 return;
             case BaseWifiDiagnostics.CONNECTION_EVENT_FAILED:
-                if (connectionId >= mPendingConnectionId) {
-                    mPendingConnectionId = -1;
-                    disableTracing();
-                    mLastMileLogForLastFailure = readTrace();
-                    return;
-                } else {
-                    // Spurious failure message. Here's one scenario where this might happen:
-                    // t=00sec      start first connection attempt
-                    // t=30sec      start second connection attempt
-                    // t=60sec      timeout first connection attempt
-                    // We should not stop tracing in this case, since the second connection attempt
-                    // is still in progress.
-                    return;
-                }
+                disableTracing();
+                mLastMileLogForLastFailure = readTrace();
+                return;
+            case BaseWifiDiagnostics.CONNECTION_EVENT_TIMEOUT:
+                disableTracing();
+                mLastMileLogForLastFailure = readTrace();
+                return;
         }
     }
 
@@ -88,7 +73,6 @@ public class LastMileLogger {
     public void dump(PrintWriter pw) {
         dumpInternal(pw, "Last failed last-mile log", mLastMileLogForLastFailure);
         dumpInternal(pw, "Latest last-mile log", readTrace());
-        mLastMileLogForLastFailure = null;
     }
 
     private static final String TAG = "LastMileLogger";
@@ -105,7 +89,6 @@ public class LastMileLogger {
     private WifiLog mLog;
     private byte[] mLastMileLogForLastFailure;
     private FileInputStream mLastMileTraceHandle;
-    private long mPendingConnectionId = -1;
 
     private void enableTracing() {
         if (!ensureFailSafeIsArmed()) {

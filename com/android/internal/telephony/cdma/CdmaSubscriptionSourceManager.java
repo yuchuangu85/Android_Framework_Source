@@ -18,6 +18,7 @@ package com.android.internal.telephony.cdma;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import android.annotation.UnsupportedAppUsage;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.Phone;
 import android.content.Context;
@@ -74,6 +75,7 @@ public class CdmaSubscriptionSourceManager extends Handler {
      *
      * @return object of type CdmaSubscriptionSourceManager
      */
+    @UnsupportedAppUsage
     public static CdmaSubscriptionSourceManager getInstance(Context context,
             CommandsInterface ci, Handler h, int what, Object obj) {
         synchronized (sReferenceCountMonitor) {
@@ -149,6 +151,7 @@ public class CdmaSubscriptionSourceManager extends Handler {
      * Returns the current CDMA subscription source value
      * @return CDMA subscription source value
      */
+    @UnsupportedAppUsage
     public int getCdmaSubscriptionSource() {
         log("getcdmasubscriptionSource: " + mCdmaSubscriptionSource.get());
         return mCdmaSubscriptionSource.get();

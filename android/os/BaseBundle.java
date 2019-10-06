@@ -18,6 +18,7 @@ package android.os;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.util.MathUtils;
@@ -82,6 +83,7 @@ public class BaseBundle {
     // Invariant - exactly one of mMap / mParcelledData will be null
     // (except inside a call to unparcel)
 
+    @UnsupportedAppUsage
     ArrayMap<String, Object> mMap = null;
 
     /*
@@ -89,6 +91,7 @@ public class BaseBundle {
      * data are stored as a Parcel containing a Bundle.  When the data
      * are unparcelled, mParcelledData willbe set to null.
      */
+    @UnsupportedAppUsage
     Parcel mParcelledData = null;
 
     /**
@@ -225,6 +228,7 @@ public class BaseBundle {
      * If the underlying data are stored as a Parcel, unparcel them
      * using the currently assigned class loader.
      */
+    @UnsupportedAppUsage
     /* package */ void unparcel() {
         synchronized (this) {
             final Parcel source = mParcelledData;
@@ -311,6 +315,7 @@ public class BaseBundle {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean isParcelled() {
         return mParcelledData != null;
     }
@@ -1601,12 +1606,13 @@ public class BaseBundle {
     private void readFromParcelInner(Parcel parcel, int length) {
         if (length < 0) {
             throw new RuntimeException("Bad length in parcel: " + length);
-
         } else if (length == 0) {
             // Empty Bundle or end of data.
             mParcelledData = NoImagePreloadHolder.EMPTY_PARCEL;
             mParcelledByNative = false;
             return;
+        } else if (length % 4 != 0) {
+            throw new IllegalStateException("Bundle length is not aligned by 4: " + length);
         }
 
         final int magic = parcel.readInt();

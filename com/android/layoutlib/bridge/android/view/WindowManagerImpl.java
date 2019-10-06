@@ -78,4 +78,19 @@ public class WindowManagerImpl implements WindowManager {
     public Region getCurrentImeTouchRegion() {
         return null;
     }
+
+    @Override
+    public void setShouldShowWithInsecureKeyguard(int displayId, boolean shouldShow) {
+        // pass
+    }
+
+    @Override
+    public void setShouldShowSystemDecors(int displayId, boolean shouldShow) {
+        // pass
+    }
+
+    @Override
+    public void setShouldShowIme(int displayId, boolean shouldShow) {
+        // pass
+    }
 }

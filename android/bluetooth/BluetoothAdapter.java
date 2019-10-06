@@ -19,10 +19,13 @@ package android.bluetooth;
 
 import android.Manifest;
 import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.app.ActivityThread;
 import android.bluetooth.le.BluetoothLeAdvertiser;
 import android.bluetooth.le.BluetoothLeScanner;
@@ -58,6 +61,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -80,7 +84,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * {@link #getBondedDevices()}; start device discovery with
  * {@link #startDiscovery()}; or create a {@link BluetoothServerSocket} to
  * listen for incoming RFComm connection requests with {@link
- * #listenUsingRfcommWithServiceRecord(String, UUID)}; or start a scan for
+ * #listenUsingRfcommWithServiceRecord(String, UUID)}; listen for incoming L2CAP Connection-oriented
+ * Channels (CoC) connection requests with {@link #listenUsingL2capChannel()}; or start a scan for
  * Bluetooth LE devices with {@link #startLeScan(LeScanCallback callback)}.
  * </p>
  * <p>This class is thread safe.</p>
@@ -394,6 +399,64 @@ public final class BluetoothAdapter {
     public static final int SCAN_MODE_CONNECTABLE_DISCOVERABLE = 23;
 
     /**
+     * Device only has a display.
+     *
+     * @hide
+     */
+    public static final int IO_CAPABILITY_OUT = 0;
+
+    /**
+     * Device has a display and the ability to input Yes/No.
+     *
+     * @hide
+     */
+    public static final int IO_CAPABILITY_IO = 1;
+
+    /**
+     * Device only has a keyboard for entry but no display.
+     *
+     * @hide
+     */
+    public static final int IO_CAPABILITY_IN = 2;
+
+    /**
+     * Device has no Input or Output capability.
+     *
+     * @hide
+     */
+    public static final int IO_CAPABILITY_NONE = 3;
+
+    /**
+     * Device has a display and a full keyboard.
+     *
+     * @hide
+     */
+    public static final int IO_CAPABILITY_KBDISP = 4;
+
+    /**
+     * Maximum range value for Input/Output capabilities.
+     *
+     * <p>This should be updated when adding a new Input/Output capability. Other code
+     * like validation depends on this being accurate.
+     *
+     * @hide
+     */
+    public static final int IO_CAPABILITY_MAX = 5;
+
+    /**
+     * The Input/Output capability of the device is unknown.
+     *
+     * @hide
+     */
+    public static final int IO_CAPABILITY_UNKNOWN = 255;
+
+    /** @hide */
+    @IntDef({IO_CAPABILITY_OUT, IO_CAPABILITY_IO, IO_CAPABILITY_IN, IO_CAPABILITY_NONE,
+            IO_CAPABILITY_KBDISP})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface IoCapability {}
+
+    /**
      * Broadcast Action: The local Bluetooth adapter has started the remote
      * device discovery process.
      * <p>This usually involves an inquiry scan of about 12 seconds, followed
@@ -581,11 +644,40 @@ public final class BluetoothAdapter {
     private static PeriodicAdvertisingManager sPeriodicAdvertisingManager;
 
     private final IBluetoothManager mManagerService;
+    @UnsupportedAppUsage
     private IBluetooth mService;
+    private Context mContext;
     private final ReentrantReadWriteLock mServiceLock = new ReentrantReadWriteLock();
 
     private final Object mLock = new Object();
     private final Map<LeScanCallback, ScanCallback> mLeScanClients;
+    private static final Map<BluetoothDevice, List<Pair<OnMetadataChangedListener, Executor>>>
+                sMetadataListeners = new HashMap<>();
+
+    /**
+     * Bluetooth metadata listener. Overrides the default BluetoothMetadataListener
+     * implementation.
+     */
+    private static final IBluetoothMetadataListener sBluetoothMetadataListener =
+            new IBluetoothMetadataListener.Stub() {
+        @Override
+        public void onMetadataChanged(BluetoothDevice device, int key, byte[] value) {
+            synchronized (sMetadataListeners) {
+                if (sMetadataListeners.containsKey(device)) {
+                    List<Pair<OnMetadataChangedListener, Executor>> list =
+                            sMetadataListeners.get(device);
+                    for (Pair<OnMetadataChangedListener, Executor> pair : list) {
+                        OnMetadataChangedListener listener = pair.first;
+                        Executor executor = pair.second;
+                        executor.execute(() -> {
+                            listener.onMetadataChanged(device, key, value);
+                        });
+                    }
+                }
+            }
+            return;
+        }
+    };
 
     /**
      * Get a handle to the default local Bluetooth adapter.
@@ -936,6 +1028,7 @@ public final class BluetoothAdapter {
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH)
     @AdapterState
+    @UnsupportedAppUsage
     public int getLeState() {
         int state = BluetoothAdapter.STATE_OFF;
 
@@ -1046,6 +1139,7 @@ public final class BluetoothAdapter {
      * @return true to indicate adapter shutdown has begun, or false on immediate error
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean disable(boolean persist) {
 
         try {
@@ -1097,6 +1191,7 @@ public final class BluetoothAdapter {
      * @return true to indicate that the config file was successfully cleared
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean factoryReset() {
         try {
             mServiceLock.readLock().lock();
@@ -1120,6 +1215,7 @@ public final class BluetoothAdapter {
      * @return the UUIDs supported by the local Bluetooth Adapter.
      * @hide
      */
+    @UnsupportedAppUsage
     public ParcelUuid[] getUuids() {
         if (getState() != STATE_ON) {
             return null;
@@ -1225,6 +1321,108 @@ public final class BluetoothAdapter {
     }
 
     /**
+     * Returns the Input/Output capability of the device for classic Bluetooth.
+     *
+     * @return Input/Output capability of the device. One of {@link #IO_CAPABILITY_OUT},
+     *         {@link #IO_CAPABILITY_IO}, {@link #IO_CAPABILITY_IN}, {@link #IO_CAPABILITY_NONE},
+     *         {@link #IO_CAPABILITY_KBDISP} or {@link #IO_CAPABILITY_UNKNOWN}.
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.BLUETOOTH_ADMIN)
+    @IoCapability
+    public int getIoCapability() {
+        if (getState() != STATE_ON) return BluetoothAdapter.IO_CAPABILITY_UNKNOWN;
+        try {
+            mServiceLock.readLock().lock();
+            if (mService != null) return mService.getIoCapability();
+        } catch (RemoteException e) {
+            Log.e(TAG, e.getMessage(), e);
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+        return BluetoothAdapter.IO_CAPABILITY_UNKNOWN;
+    }
+
+    /**
+     * Sets the Input/Output capability of the device for classic Bluetooth.
+     *
+     * <p>Changing the Input/Output capability of a device only takes effect on restarting the
+     * Bluetooth stack. You would need to restart the stack using {@link BluetoothAdapter#disable()}
+     * and {@link BluetoothAdapter#enable()} to see the changes.
+     *
+     * @param capability Input/Output capability of the device. One of {@link #IO_CAPABILITY_OUT},
+     *                   {@link #IO_CAPABILITY_IO}, {@link #IO_CAPABILITY_IN},
+     *                   {@link #IO_CAPABILITY_NONE} or {@link #IO_CAPABILITY_KBDISP}.
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
+    public boolean setIoCapability(@IoCapability int capability) {
+        if (getState() != STATE_ON) return false;
+        try {
+            mServiceLock.readLock().lock();
+            if (mService != null) return mService.setIoCapability(capability);
+        } catch (RemoteException e) {
+            Log.e(TAG, e.getMessage(), e);
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+        return false;
+    }
+
+    /**
+     * Returns the Input/Output capability of the device for BLE operations.
+     *
+     * @return Input/Output capability of the device. One of {@link #IO_CAPABILITY_OUT},
+     *         {@link #IO_CAPABILITY_IO}, {@link #IO_CAPABILITY_IN}, {@link #IO_CAPABILITY_NONE},
+     *         {@link #IO_CAPABILITY_KBDISP} or {@link #IO_CAPABILITY_UNKNOWN}.
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.BLUETOOTH_ADMIN)
+    @IoCapability
+    public int getLeIoCapability() {
+        if (getState() != STATE_ON) return BluetoothAdapter.IO_CAPABILITY_UNKNOWN;
+        try {
+            mServiceLock.readLock().lock();
+            if (mService != null) return mService.getLeIoCapability();
+        } catch (RemoteException e) {
+            Log.e(TAG, e.getMessage(), e);
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+        return BluetoothAdapter.IO_CAPABILITY_UNKNOWN;
+    }
+
+    /**
+     * Sets the Input/Output capability of the device for BLE operations.
+     *
+     * <p>Changing the Input/Output capability of a device only takes effect on restarting the
+     * Bluetooth stack. You would need to restart the stack using {@link BluetoothAdapter#disable()}
+     * and {@link BluetoothAdapter#enable()} to see the changes.
+     *
+     * @param capability Input/Output capability of the device. One of {@link #IO_CAPABILITY_OUT},
+     *                   {@link #IO_CAPABILITY_IO}, {@link #IO_CAPABILITY_IN},
+     *                   {@link #IO_CAPABILITY_NONE} or {@link #IO_CAPABILITY_KBDISP}.
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
+    public boolean setLeIoCapability(@IoCapability int capability) {
+        if (getState() != STATE_ON) return false;
+        try {
+            mServiceLock.readLock().lock();
+            if (mService != null) return mService.setLeIoCapability(capability);
+        } catch (RemoteException e) {
+            Log.e(TAG, e.getMessage(), e);
+        } finally {
+            mServiceLock.readLock().unlock();
+        }
+        return false;
+    }
+
+    /**
      * Get the current Bluetooth scan mode of the local Bluetooth adapter.
      * <p>The Bluetooth scan mode determines if the local adapter is
      * connectable and/or discoverable from remote Bluetooth devices.
@@ -1286,6 +1484,7 @@ public final class BluetoothAdapter {
      * @return true if the scan mode was set, false otherwise
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean setScanMode(@ScanMode int mode, int duration) {
         if (getState() != STATE_ON) {
             return false;
@@ -1304,6 +1503,7 @@ public final class BluetoothAdapter {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public boolean setScanMode(int mode) {
         if (getState() != STATE_ON) {
             return false;
@@ -1313,6 +1513,7 @@ public final class BluetoothAdapter {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public int getDiscoverableTimeout() {
         if (getState() != STATE_ON) {
             return -1;
@@ -1331,6 +1532,7 @@ public final class BluetoothAdapter {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setDiscoverableTimeout(int timeout) {
         if (getState() != STATE_ON) {
             return;
@@ -1370,6 +1572,23 @@ public final class BluetoothAdapter {
     }
 
     /**
+     * Set the context for this BluetoothAdapter (only called from BluetoothManager)
+     * @hide
+     */
+    public void setContext(Context context) {
+        mContext = context;
+    }
+
+    private String getOpPackageName() {
+        // Workaround for legacy API for getting a BluetoothAdapter not
+        // passing a context
+        if (mContext != null) {
+            return mContext.getOpPackageName();
+        }
+        return ActivityThread.currentOpPackageName();
+    }
+
+    /**
      * Start the remote device discovery process.
      * <p>The discovery process usually involves an inquiry scan of about 12
      * seconds, followed by a page scan of each new device to retrieve its
@@ -1406,7 +1625,7 @@ public final class BluetoothAdapter {
         try {
             mServiceLock.readLock().lock();
             if (mService != null) {
-                return mService.startDiscovery();
+                return mService.startDiscovery(getOpPackageName());
             }
         } catch (RemoteException e) {
             Log.e(TAG, "", e);
@@ -1684,6 +1903,20 @@ public final class BluetoothAdapter {
     }
 
     /**
+     * Return true if Hearing Aid Profile is supported.
+     *
+     * @return true if phone supports Hearing Aid Profile
+     */
+    private boolean isHearingAidProfileSupported() {
+        try {
+            return mManagerService.isHearingAidProfileSupported();
+        } catch (RemoteException e) {
+            Log.e(TAG, "remote expection when calling isHearingAidProfileSupported", e);
+            return false;
+        }
+    }
+
+    /**
      * Get the maximum number of connected audio devices.
      *
      * @return the maximum number of connected audio devices
@@ -1835,6 +2068,11 @@ public final class BluetoothAdapter {
                             supportedProfiles.add(i);
                         }
                     }
+                } else {
+                    // Bluetooth is disabled. Just fill in known supported Profiles
+                    if (isHearingAidProfileSupported()) {
+                        supportedProfiles.add(BluetoothProfile.HEARING_AID);
+                    }
                 }
             }
         } catch (RemoteException e) {
@@ -1855,6 +2093,7 @@ public final class BluetoothAdapter {
      * #STATE_CONNECTING} or {@link #STATE_DISCONNECTED}
      * @hide
      */
+    @UnsupportedAppUsage
     public int getConnectionState() {
         if (getState() != STATE_ON) {
             return BluetoothAdapter.STATE_DISCONNECTED;
@@ -1876,8 +2115,7 @@ public final class BluetoothAdapter {
      * Get the current connection state of a profile.
      * This function can be used to check whether the local Bluetooth adapter
      * is connected to any remote device for a specific profile.
-     * Profile can be one of {@link BluetoothProfile#HEALTH}, {@link BluetoothProfile#HEADSET},
-     * {@link BluetoothProfile#A2DP}.
+     * Profile can be one of {@link BluetoothProfile#HEADSET}, {@link BluetoothProfile#A2DP}.
      *
      * <p> Return value can be one of
      * {@link BluetoothProfile#STATE_DISCONNECTED},
@@ -1942,6 +2180,7 @@ public final class BluetoothAdapter {
      * permissions, or channel in use.
      * @hide
      */
+    @UnsupportedAppUsage
     public BluetoothServerSocket listenUsingRfcommOn(int channel, boolean mitm,
             boolean min16DigitPin) throws IOException {
         BluetoothServerSocket socket =
@@ -2054,6 +2293,7 @@ public final class BluetoothAdapter {
      * permissions, or channel in use.
      * @hide
      */
+    @UnsupportedAppUsage
     public BluetoothServerSocket listenUsingEncryptedRfcommWithServiceRecord(String name, UUID uuid)
             throws IOException {
         return createNewRfcommSocketAndRecord(name, uuid, false, true);
@@ -2249,17 +2489,17 @@ public final class BluetoothAdapter {
     /**
      * Get the profile proxy object associated with the profile.
      *
-     * <p>Profile can be one of {@link BluetoothProfile#HEALTH}, {@link BluetoothProfile#HEADSET},
-     * {@link BluetoothProfile#A2DP}, {@link BluetoothProfile#GATT}, or
-     * {@link BluetoothProfile#GATT_SERVER}. Clients must implement
-     * {@link BluetoothProfile.ServiceListener} to get notified of
-     * the connection status and to get the proxy object.
+     * <p>Profile can be one of {@link BluetoothProfile#HEADSET}, {@link BluetoothProfile#A2DP},
+     * {@link BluetoothProfile#GATT}, {@link BluetoothProfile#HEARING_AID}, or {@link
+     * BluetoothProfile#GATT_SERVER}. Clients must implement {@link
+     * BluetoothProfile.ServiceListener} to get notified of the connection status and to get the
+     * proxy object.
      *
      * @param context Context of the application
      * @param listener The service Listener for connection callbacks.
-     * @param profile The Bluetooth profile; either {@link BluetoothProfile#HEALTH}, {@link
-     * BluetoothProfile#HEADSET}, {@link BluetoothProfile#A2DP}. {@link BluetoothProfile#GATT} or
-     * {@link BluetoothProfile#GATT_SERVER}.
+     * @param profile The Bluetooth profile; either {@link BluetoothProfile#HEADSET},
+     * {@link BluetoothProfile#A2DP}, {@link BluetoothProfile#GATT}, {@link
+     * BluetoothProfile#HEARING_AID} or {@link BluetoothProfile#GATT_SERVER}.
      * @return true on success, false on error
      */
     public boolean getProfileProxy(Context context, BluetoothProfile.ServiceListener listener,
@@ -2287,8 +2527,8 @@ public final class BluetoothAdapter {
             BluetoothPan pan = new BluetoothPan(context, listener);
             return true;
         } else if (profile == BluetoothProfile.HEALTH) {
-            BluetoothHealth health = new BluetoothHealth(context, listener);
-            return true;
+            Log.e(TAG, "getProfileProxy(): BluetoothHealth is deprecated");
+            return false;
         } else if (profile == BluetoothProfile.MAP) {
             BluetoothMap map = new BluetoothMap(context, listener);
             return true;
@@ -2308,8 +2548,11 @@ public final class BluetoothAdapter {
             BluetoothHidDevice hidDevice = new BluetoothHidDevice(context, listener);
             return true;
         } else if (profile == BluetoothProfile.HEARING_AID) {
-            BluetoothHearingAid hearingAid = new BluetoothHearingAid(context, listener);
-            return true;
+            if (isHearingAidProfileSupported()) {
+                BluetoothHearingAid hearingAid = new BluetoothHearingAid(context, listener);
+                return true;
+            }
+            return false;
         } else {
             return false;
         }
@@ -2320,8 +2563,7 @@ public final class BluetoothAdapter {
      *
      * <p> Clients should call this when they are no longer using
      * the proxy obtained from {@link #getProfileProxy}.
-     * Profile can be one of  {@link BluetoothProfile#HEALTH}, {@link BluetoothProfile#HEADSET} or
-     * {@link BluetoothProfile#A2DP}
+     * Profile can be one of  {@link BluetoothProfile#HEADSET} or {@link BluetoothProfile#A2DP}
      *
      * @param profile
      * @param proxy Profile proxy object
@@ -2355,10 +2597,6 @@ public final class BluetoothAdapter {
             case BluetoothProfile.PAN:
                 BluetoothPan pan = (BluetoothPan) proxy;
                 pan.close();
-                break;
-            case BluetoothProfile.HEALTH:
-                BluetoothHealth health = (BluetoothHealth) proxy;
-                health.close();
                 break;
             case BluetoothProfile.GATT:
                 BluetoothGatt gatt = (BluetoothGatt) proxy;
@@ -2421,6 +2659,16 @@ public final class BluetoothAdapter {
                                 Log.e(TAG, "", e);
                             }
                         }
+                    }
+                    synchronized (sMetadataListeners) {
+                        sMetadataListeners.forEach((device, pair) -> {
+                            try {
+                                mService.registerMetadataListener(sBluetoothMetadataListener,
+                                        device);
+                            } catch (RemoteException e) {
+                                Log.e(TAG, "Failed to register metadata listener", e);
+                            }
+                        });
                     }
                 }
 
@@ -2597,6 +2845,7 @@ public final class BluetoothAdapter {
         return true;
     }
 
+    @UnsupportedAppUsage
     /*package*/ IBluetoothManager getBluetoothManager() {
         return mManagerService;
     }
@@ -2604,6 +2853,7 @@ public final class BluetoothAdapter {
     private final ArrayList<IBluetoothManagerCallback> mProxyServiceStateCallbacks =
             new ArrayList<IBluetoothManagerCallback>();
 
+    @UnsupportedAppUsage
     /*package*/ IBluetooth getBluetoothService(IBluetoothManagerCallback cb) {
         synchronized (mProxyServiceStateCallbacks) {
             if (cb == null) {
@@ -2792,31 +3042,26 @@ public final class BluetoothAdapter {
     /**
      * Create a secure L2CAP Connection-oriented Channel (CoC) {@link BluetoothServerSocket} and
      * assign a dynamic protocol/service multiplexer (PSM) value. This socket can be used to listen
-     * for incoming connections.
+     * for incoming connections. The supported Bluetooth transport is LE only.
      * <p>A remote device connecting to this socket will be authenticated and communication on this
      * socket will be encrypted.
      * <p>Use {@link BluetoothServerSocket#accept} to retrieve incoming connections from a listening
      * {@link BluetoothServerSocket}.
-     * <p>The system will assign a dynamic PSM value. This PSM value can be read from the {#link
+     * <p>The system will assign a dynamic PSM value. This PSM value can be read from the {@link
      * BluetoothServerSocket#getPsm()} and this value will be released when this server socket is
      * closed, Bluetooth is turned off, or the application exits unexpectedly.
      * <p>The mechanism of disclosing the assigned dynamic PSM value to the initiating peer is
      * defined and performed by the application.
-     * <p>Use {@link BluetoothDevice#createL2capCocSocket(int, int)} to connect to this server
+     * <p>Use {@link BluetoothDevice#createL2capChannel(int)} to connect to this server
      * socket from another Android device that is given the PSM value.
      *
-     * @param transport Bluetooth transport to use, must be {@link BluetoothDevice#TRANSPORT_LE}
      * @return an L2CAP CoC BluetoothServerSocket
      * @throws IOException on error, for example Bluetooth not available, or insufficient
      * permissions, or unable to start this CoC
-     * @hide
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH)
-    public BluetoothServerSocket listenUsingL2capCoc(int transport)
+    public @NonNull BluetoothServerSocket listenUsingL2capChannel()
             throws IOException {
-        if (transport != BluetoothDevice.TRANSPORT_LE) {
-            throw new IllegalArgumentException("Unsupported transport: " + transport);
-        }
         BluetoothServerSocket socket =
                             new BluetoothServerSocket(BluetoothSocket.TYPE_L2CAP_LE, true, true,
                                       SOCKET_CHANNEL_AUTO_STATIC_NO_SDP, false, false);
@@ -2830,7 +3075,7 @@ public final class BluetoothAdapter {
             throw new IOException("Error: Unable to assign PSM value");
         }
         if (DBG) {
-            Log.d(TAG, "listenUsingL2capCoc: set assigned PSM to "
+            Log.d(TAG, "listenUsingL2capChannel: set assigned PSM to "
                     + assignedPsm);
         }
         socket.setChannel(assignedPsm);
@@ -2839,34 +3084,42 @@ public final class BluetoothAdapter {
     }
 
     /**
+     * TODO: Remove this hidden method once all the SL4A and other tests are updated to use the new
+     * API name, listenUsingL2capChannel.
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.BLUETOOTH)
+    public BluetoothServerSocket listenUsingL2capCoc(int transport)
+            throws IOException {
+        Log.e(TAG, "listenUsingL2capCoc: PLEASE USE THE OFFICIAL API, listenUsingL2capChannel");
+        return listenUsingL2capChannel();
+    }
+
+    /**
      * Create an insecure L2CAP Connection-oriented Channel (CoC) {@link BluetoothServerSocket} and
-     * assign a dynamic PSM value. This socket can be used to listen for incoming connections.
+     * assign a dynamic PSM value. This socket can be used to listen for incoming connections. The
+     * supported Bluetooth transport is LE only.
      * <p>The link key is not required to be authenticated, i.e the communication may be vulnerable
-     * to man-in-the-middle attacks. Use {@link #listenUsingL2capCoc}, if an encrypted and
+     * to man-in-the-middle attacks. Use {@link #listenUsingL2capChannel}, if an encrypted and
      * authenticated communication channel is desired.
      * <p>Use {@link BluetoothServerSocket#accept} to retrieve incoming connections from a listening
      * {@link BluetoothServerSocket}.
      * <p>The system will assign a dynamic protocol/service multiplexer (PSM) value. This PSM value
-     * can be read from the {#link BluetoothServerSocket#getPsm()} and this value will be released
+     * can be read from the {@link BluetoothServerSocket#getPsm()} and this value will be released
      * when this server socket is closed, Bluetooth is turned off, or the application exits
      * unexpectedly.
      * <p>The mechanism of disclosing the assigned dynamic PSM value to the initiating peer is
      * defined and performed by the application.
-     * <p>Use {@link BluetoothDevice#createInsecureL2capCocSocket(int, int)} to connect to this
-     * server socket from another Android device that is given the PSM value.
+     * <p>Use {@link BluetoothDevice#createInsecureL2capChannel(int)} to connect to this server
+     * socket from another Android device that is given the PSM value.
      *
-     * @param transport Bluetooth transport to use, must be {@link BluetoothDevice#TRANSPORT_LE}
      * @return an L2CAP CoC BluetoothServerSocket
      * @throws IOException on error, for example Bluetooth not available, or insufficient
      * permissions, or unable to start this CoC
-     * @hide
      */
     @RequiresPermission(Manifest.permission.BLUETOOTH)
-    public BluetoothServerSocket listenUsingInsecureL2capCoc(int transport)
+    public @NonNull BluetoothServerSocket listenUsingInsecureL2capChannel()
             throws IOException {
-        if (transport != BluetoothDevice.TRANSPORT_LE) {
-            throw new IllegalArgumentException("Unsupported transport: " + transport);
-        }
         BluetoothServerSocket socket =
                             new BluetoothServerSocket(BluetoothSocket.TYPE_L2CAP_LE, false, false,
                                       SOCKET_CHANNEL_AUTO_STATIC_NO_SDP, false, false);
@@ -2880,11 +3133,174 @@ public final class BluetoothAdapter {
             throw new IOException("Error: Unable to assign PSM value");
         }
         if (DBG) {
-            Log.d(TAG, "listenUsingInsecureL2capOn: set assigned PSM to "
+            Log.d(TAG, "listenUsingInsecureL2capChannel: set assigned PSM to "
                     + assignedPsm);
         }
         socket.setChannel(assignedPsm);
 
         return socket;
+    }
+
+    /**
+     * TODO: Remove this hidden method once all the SL4A and other tests are updated to use the new
+     * API name, listenUsingInsecureL2capChannel.
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.BLUETOOTH)
+    public BluetoothServerSocket listenUsingInsecureL2capCoc(int transport)
+            throws IOException {
+        Log.e(TAG, "listenUsingInsecureL2capCoc: PLEASE USE THE OFFICIAL API, "
+                    + "listenUsingInsecureL2capChannel");
+        return listenUsingInsecureL2capChannel();
+    }
+
+    /**
+     * Register a {@link #OnMetadataChangedListener} to receive update about metadata
+     * changes for this {@link BluetoothDevice}.
+     * Registration must be done when Bluetooth is ON and will last until
+     * {@link #removeOnMetadataChangedListener(BluetoothDevice)} is called, even when Bluetooth
+     * restarted in the middle.
+     * All input parameters should not be null or {@link NullPointerException} will be triggered.
+     * The same {@link BluetoothDevice} and {@link #OnMetadataChangedListener} pair can only be
+     * registered once, double registration would cause {@link IllegalArgumentException}.
+     *
+     * @param device {@link BluetoothDevice} that will be registered
+     * @param executor the executor for listener callback
+     * @param listener {@link #OnMetadataChangedListener} that will receive asynchronous callbacks
+     * @return true on success, false on error
+     * @throws NullPointerException If one of {@code listener}, {@code device} or {@code executor}
+     * is null.
+     * @throws IllegalArgumentException The same {@link #OnMetadataChangedListener} and
+     * {@link BluetoothDevice} are registered twice.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
+    public boolean addOnMetadataChangedListener(@NonNull BluetoothDevice device,
+            @NonNull Executor executor, @NonNull OnMetadataChangedListener listener) {
+        if (DBG) Log.d(TAG, "addOnMetadataChangedListener()");
+
+        final IBluetooth service = mService;
+        if (service == null) {
+            Log.e(TAG, "Bluetooth is not enabled. Cannot register metadata listener");
+            return false;
+        }
+        if (listener == null) {
+            throw new NullPointerException("listener is null");
+        }
+        if (device == null) {
+            throw new NullPointerException("device is null");
+        }
+        if (executor == null) {
+            throw new NullPointerException("executor is null");
+        }
+
+        synchronized (sMetadataListeners) {
+            List<Pair<OnMetadataChangedListener, Executor>> listenerList =
+                    sMetadataListeners.get(device);
+            if (listenerList == null) {
+                // Create new listener/executor list for registeration
+                listenerList = new ArrayList<>();
+                sMetadataListeners.put(device, listenerList);
+            } else {
+                // Check whether this device was already registed by the lisenter
+                if (listenerList.stream().anyMatch((pair) -> (pair.first.equals(listener)))) {
+                    throw new IllegalArgumentException("listener was already regestered"
+                            + " for the device");
+                }
+            }
+
+            Pair<OnMetadataChangedListener, Executor> listenerPair = new Pair(listener, executor);
+            listenerList.add(listenerPair);
+
+            boolean ret = false;
+            try {
+                ret = service.registerMetadataListener(sBluetoothMetadataListener, device);
+            } catch (RemoteException e) {
+                Log.e(TAG, "registerMetadataListener fail", e);
+            } finally {
+                if (!ret) {
+                    // Remove listener registered earlier when fail.
+                    listenerList.remove(listenerPair);
+                    if (listenerList.isEmpty()) {
+                        // Remove the device if its listener list is empty
+                        sMetadataListeners.remove(device);
+                    }
+                }
+            }
+            return ret;
+        }
+    }
+
+    /**
+     * Unregister a {@link #OnMetadataChangedListener} from a registered {@link BluetoothDevice}.
+     * Unregistration can be done when Bluetooth is either ON or OFF.
+     * {@link #addOnMetadataChangedListener(OnMetadataChangedListener, BluetoothDevice, Executor)}
+     * must be called before unregisteration.
+     *
+     * @param device {@link BluetoothDevice} that will be unregistered. It
+     * should not be null or {@link NullPointerException} will be triggered.
+     * @param listener {@link OnMetadataChangedListener} that will be unregistered. It
+     * should not be null or {@link NullPointerException} will be triggered.
+     * @return true on success, false on error
+     * @throws NullPointerException If {@code listener} or {@code device} is null.
+     * @throws IllegalArgumentException If {@code device} has not been registered before.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
+    public boolean removeOnMetadataChangedListener(@NonNull BluetoothDevice device,
+            @NonNull OnMetadataChangedListener listener) {
+        if (DBG) Log.d(TAG, "removeOnMetadataChangedListener()");
+        if (device == null) {
+            throw new NullPointerException("device is null");
+        }
+        if (listener == null) {
+            throw new NullPointerException("listener is null");
+        }
+
+        synchronized (sMetadataListeners) {
+            if (!sMetadataListeners.containsKey(device)) {
+                throw new IllegalArgumentException("device was not registered");
+            }
+            // Remove issued listener from the registered device
+            sMetadataListeners.get(device).removeIf((pair) -> (pair.first.equals(listener)));
+
+            if (sMetadataListeners.get(device).isEmpty()) {
+                // Unregister to Bluetooth service if all listeners are removed from
+                // the registered device
+                sMetadataListeners.remove(device);
+                final IBluetooth service = mService;
+                if (service == null) {
+                    // Bluetooth is OFF, do nothing to Bluetooth service.
+                    return true;
+                }
+                try {
+                    return service.unregisterMetadataListener(device);
+                } catch (RemoteException e) {
+                    Log.e(TAG, "unregisterMetadataListener fail", e);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * This interface is used to implement {@link BluetoothAdapter} metadata listener.
+     * @hide
+     */
+    @SystemApi
+    public interface OnMetadataChangedListener {
+        /**
+         * Callback triggered if the metadata of {@link BluetoothDevice} registered in
+         * {@link #addOnMetadataChangedListener}.
+         *
+         * @param device changed {@link BluetoothDevice}.
+         * @param key changed metadata key, one of BluetoothDevice.METADATA_*.
+         * @param value the new value of metadata as byte array.
+         */
+        void onMetadataChanged(@NonNull BluetoothDevice device, int key,
+                @Nullable byte[] value);
     }
 }

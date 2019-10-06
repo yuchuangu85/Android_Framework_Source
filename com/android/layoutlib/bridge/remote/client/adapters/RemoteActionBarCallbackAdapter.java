@@ -18,6 +18,7 @@ package com.android.layoutlib.bridge.remote.client.adapters;
 
 import com.android.ide.common.rendering.api.ActionBarCallback;
 import com.android.ide.common.rendering.api.ActionBarCallback.HomeButtonStyle;
+import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.layout.remote.api.RemoteActionBarCallback;
 import com.android.tools.layoutlib.annotations.NotNull;
 
@@ -39,8 +40,8 @@ class RemoteActionBarCallbackAdapter implements RemoteActionBarCallback {
     }
 
     @Override
-    public List<String> getMenuIdNames() {
-        return mDelegate.getMenuIdNames();
+    public List<ResourceReference> getMenuIds() {
+        return mDelegate.getMenuIds();
     }
 
     @Override

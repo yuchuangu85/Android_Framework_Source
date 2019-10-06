@@ -16,8 +16,10 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.ContentValues;
 import android.database.Cursor;
+import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.HexDump;
@@ -39,6 +41,7 @@ public class InboundSmsTracker {
     private final boolean mIs3gpp2;
     private final boolean mIs3gpp2WapPdu;
     private final String mMessageBody;
+    private final boolean mIsClass0;
 
     // Fields for concatenating multi-part SMS messages
     private final String mAddress;
@@ -88,19 +91,6 @@ public class InboundSmsTracker {
             + "AND count=? AND (destination_port & "
             + DEST_PORT_FLAG_3GPP2_WAP_PDU + "=" + DEST_PORT_FLAG_3GPP2_WAP_PDU + ") AND deleted=0";
 
-    @VisibleForTesting
-    public static final String SELECT_BY_DUPLICATE_REFERENCE = "address=? AND "
-            + "reference_number=? AND count=? AND sequence=? AND "
-            + "((date=? AND message_body=?) OR deleted=0) AND (destination_port & "
-            + DEST_PORT_FLAG_3GPP2_WAP_PDU + "=0)";
-
-    @VisibleForTesting
-    public static final String SELECT_BY_DUPLICATE_REFERENCE_3GPP2WAP = "address=? AND "
-            + "reference_number=? " + "AND count=? AND sequence=? AND "
-            + "((date=? AND message_body=?) OR deleted=0) AND "
-            + "(destination_port & " + DEST_PORT_FLAG_3GPP2_WAP_PDU + "="
-            + DEST_PORT_FLAG_3GPP2_WAP_PDU + ")";
-
     /**
      * Create a tracker for a single-part SMS.
      *
@@ -114,7 +104,8 @@ public class InboundSmsTracker {
      *                       as originating address
      */
     public InboundSmsTracker(byte[] pdu, long timestamp, int destPort, boolean is3gpp2,
-            boolean is3gpp2WapPdu, String address, String displayAddress, String messageBody) {
+            boolean is3gpp2WapPdu, String address, String displayAddress, String messageBody,
+            boolean isClass0) {
         mPdu = pdu;
         mTimestamp = timestamp;
         mDestPort = destPort;
@@ -123,6 +114,7 @@ public class InboundSmsTracker {
         mMessageBody = messageBody;
         mAddress = address;
         mDisplayAddress = displayAddress;
+        mIsClass0 = isClass0;
         // fields for multi-part SMS
         mReferenceNumber = -1;
         mSequenceNumber = getIndexOffset();     // 0 or 1, depending on type
@@ -150,13 +142,14 @@ public class InboundSmsTracker {
      */
     public InboundSmsTracker(byte[] pdu, long timestamp, int destPort, boolean is3gpp2,
             String address, String displayAddress, int referenceNumber, int sequenceNumber,
-            int messageCount, boolean is3gpp2WapPdu, String messageBody) {
+            int messageCount, boolean is3gpp2WapPdu, String messageBody, boolean isClass0) {
         mPdu = pdu;
         mTimestamp = timestamp;
         mDestPort = destPort;
         mIs3gpp2 = is3gpp2;
         mIs3gpp2WapPdu = is3gpp2WapPdu;
         mMessageBody = messageBody;
+        mIsClass0 = isClass0;
         // fields used for check blocking message
         mDisplayAddress = displayAddress;
         // fields for multi-part SMS
@@ -173,6 +166,9 @@ public class InboundSmsTracker {
      */
     public InboundSmsTracker(Cursor cursor, boolean isCurrentFormat3gpp2) {
         mPdu = HexDump.hexStringToByteArray(cursor.getString(InboundSmsHandler.PDU_COLUMN));
+
+        // TODO: add a column to raw db to store this
+        mIsClass0 = false;
 
         if (cursor.isNull(InboundSmsHandler.DESTINATION_PORT_COLUMN)) {
             mDestPort = -1;
@@ -284,13 +280,15 @@ public class InboundSmsTracker {
         builder.append(new Date(mTimestamp));
         builder.append(" destPort=").append(mDestPort);
         builder.append(" is3gpp2=").append(mIs3gpp2);
-        if (mAddress != null) {
+        if (InboundSmsHandler.VDBG) {
             builder.append(" address=").append(mAddress);
-            builder.append(" display_originating_addr=").append(mDisplayAddress);
-            builder.append(" refNumber=").append(mReferenceNumber);
-            builder.append(" seqNumber=").append(mSequenceNumber);
-            builder.append(" msgCount=").append(mMessageCount);
+            builder.append(" timestamp=").append(mTimestamp);
+            builder.append(" messageBody=").append(mMessageBody);
         }
+        builder.append(" display_originating_addr=").append(mDisplayAddress);
+        builder.append(" refNumber=").append(mReferenceNumber);
+        builder.append(" seqNumber=").append(mSequenceNumber);
+        builder.append(" msgCount=").append(mMessageCount);
         if (mDeleteWhere != null) {
             builder.append(" deleteWhere(").append(mDeleteWhere);
             builder.append(") deleteArgs=(").append(Arrays.toString(mDeleteWhereArgs));
@@ -316,6 +314,11 @@ public class InboundSmsTracker {
         return mIs3gpp2;
     }
 
+    public boolean isClass0() {
+        return mIsClass0;
+    }
+
+    @UnsupportedAppUsage
     public String getFormat() {
         return mIs3gpp2 ? SmsConstants.FORMAT_3GPP2 : SmsConstants.FORMAT_3GPP;
     }
@@ -324,9 +327,62 @@ public class InboundSmsTracker {
         return mIs3gpp2WapPdu ? SELECT_BY_REFERENCE_3GPP2WAP : SELECT_BY_REFERENCE;
     }
 
-    public String getQueryForMultiPartDuplicates() {
-        return mIs3gpp2WapPdu ? SELECT_BY_DUPLICATE_REFERENCE_3GPP2WAP :
-                SELECT_BY_DUPLICATE_REFERENCE;
+    /**
+     * Get the query to find the exact same message/message segment in the db.
+     * @return Pair with where as Pair.first and whereArgs as Pair.second
+     */
+    public Pair<String, String[]> getExactMatchDupDetectQuery() {
+        // convert to strings for query
+        String address = getAddress();
+        String refNumber = Integer.toString(getReferenceNumber());
+        String count = Integer.toString(getMessageCount());
+        String seqNumber = Integer.toString(getSequenceNumber());
+        String date = Long.toString(getTimestamp());
+        String messageBody = getMessageBody();
+
+        String where = "address=? AND reference_number=? AND count=? AND sequence=? AND "
+                + "date=? AND message_body=?";
+        where = addDestPortQuery(where);
+        String[] whereArgs = new String[]{address, refNumber, count, seqNumber, date, messageBody};
+
+        return new Pair<>(where, whereArgs);
+    }
+
+    /**
+     * The key differences here compared to exact match are:
+     * - this is applicable only for multi-part message segments
+     * - this does not match date or message_body
+     * - this matches deleted=0 (undeleted segments)
+     * The only difference as compared to getQueryForSegments() is that this checks for sequence as
+     * well.
+     * @return Pair with where as Pair.first and whereArgs as Pair.second
+     */
+    public Pair<String, String[]> getInexactMatchDupDetectQuery() {
+        if (getMessageCount() == 1) return null;
+
+        // convert to strings for query
+        String address = getAddress();
+        String refNumber = Integer.toString(getReferenceNumber());
+        String count = Integer.toString(getMessageCount());
+        String seqNumber = Integer.toString(getSequenceNumber());
+
+        String where = "address=? AND reference_number=? AND count=? AND sequence=? AND "
+                + "deleted=0";
+        where = addDestPortQuery(where);
+        String[] whereArgs = new String[]{address, refNumber, count, seqNumber};
+
+        return new Pair<>(where, whereArgs);
+    }
+
+    private String addDestPortQuery(String where) {
+        String whereDestPort;
+        if (mIs3gpp2WapPdu) {
+            whereDestPort = "destination_port & " + DEST_PORT_FLAG_3GPP2_WAP_PDU + "="
+                + DEST_PORT_FLAG_3GPP2_WAP_PDU;
+        } else {
+            whereDestPort = "destination_port & " + DEST_PORT_FLAG_3GPP2_WAP_PDU + "=0";
+        }
+        return where + " AND (" + whereDestPort + ")";
     }
 
     /**
@@ -334,6 +390,7 @@ public class InboundSmsTracker {
      * messages, which use a 0-based index.
      * @return the offset to use to convert between mIndex and the sequence number
      */
+    @UnsupportedAppUsage
     public int getIndexOffset() {
         return (mIs3gpp2 && mIs3gpp2WapPdu) ? 0 : 1;
     }

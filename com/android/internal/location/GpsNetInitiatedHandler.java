@@ -16,8 +16,6 @@
 
 package com.android.internal.location;
 
-import java.io.UnsupportedEncodingException;
-
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -25,21 +23,22 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.location.LocationManager;
 import android.location.INetInitiatedListener;
-import android.telephony.TelephonyManager;
+import android.location.LocationManager;
+import android.os.RemoteException;
+import android.os.SystemClock;
+import android.os.UserHandle;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.PhoneStateListener;
-import android.os.Bundle;
-import android.os.RemoteException;
-import android.os.UserHandle;
-import android.os.SystemProperties;
+import android.telephony.TelephonyManager;
 import android.util.Log;
 
-import com.android.internal.notification.SystemNotificationChannels;
 import com.android.internal.R;
+import com.android.internal.notification.SystemNotificationChannels;
 import com.android.internal.telephony.GsmAlphabet;
-import com.android.internal.telephony.TelephonyProperties;
+
+import java.io.UnsupportedEncodingException;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A GPS Network-initiated Handler class used by LocationManager.
@@ -50,8 +49,7 @@ public class GpsNetInitiatedHandler {
 
     private static final String TAG = "GpsNetInitiatedHandler";
 
-    private static final boolean DEBUG = true;
-    private static final boolean VERBOSE = false;
+    private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
     // NI verify activity for bringing up UI (not used yet)
     public static final String ACTION_NI_VERIFY = "android.intent.action.NETWORK_INITIATED_VERIFY";
@@ -109,7 +107,7 @@ public class GpsNetInitiatedHandler {
     private volatile boolean mIsSuplEsEnabled;
 
     // Set to true if the phone is having emergency call.
-    private volatile boolean mIsInEmergency;
+    private volatile boolean mIsInEmergencyCall;
 
     // If Location function is enabled.
     private volatile boolean mIsLocationEnabled = false;
@@ -118,6 +116,10 @@ public class GpsNetInitiatedHandler {
 
     // Set to true if string from HAL is encoded as Hex, e.g., "3F0039"
     static private boolean mIsHexInput = true;
+
+    // End time of emergency call, and extension, if set
+    private volatile long mCallEndElapsedRealtimeMillis = 0;
+    private volatile long mEmergencyExtensionMillis = 0;
 
     public static class GpsNiNotification
     {
@@ -146,16 +148,12 @@ public class GpsNetInitiatedHandler {
             if (action.equals(Intent.ACTION_NEW_OUTGOING_CALL)) {
                 String phoneNumber = intent.getStringExtra(Intent.EXTRA_PHONE_NUMBER);
                 /*
-                   Emergency Mode is when during emergency call or in emergency call back mode.
-                   For checking if it is during emergency call:
-                       mIsInEmergency records if the phone is in emergency call or not. It will
+                   Tracks the emergency call:
+                       mIsInEmergencyCall records if the phone is in emergency call or not. It will
                        be set to true when the phone is having emergency call, and then will
                        be set to false by mPhoneStateListener when the emergency call ends.
-                   For checking if it is in emergency call back mode:
-                       Emergency call back mode will be checked by reading system properties
-                       when necessary: SystemProperties.get(TelephonyProperties.PROPERTY_INECM_MODE)
                 */
-                setInEmergency(PhoneNumberUtils.isEmergencyNumber(phoneNumber));
+                mIsInEmergencyCall = PhoneNumberUtils.isEmergencyNumber(phoneNumber);
                 if (DEBUG) Log.v(TAG, "ACTION_NEW_OUTGOING_CALL - " + getInEmergency());
             } else if (action.equals(LocationManager.MODE_CHANGED_ACTION)) {
                 updateLocationMode();
@@ -195,7 +193,10 @@ public class GpsNetInitiatedHandler {
                 if (DEBUG) Log.d(TAG, "onCallStateChanged(): state is "+ state);
                 // listening for emergency call ends
                 if (state == TelephonyManager.CALL_STATE_IDLE) {
-                    setInEmergency(false);
+                    if (mIsInEmergencyCall) {
+                        mCallEndElapsedRealtimeMillis = SystemClock.elapsedRealtime();
+                        mIsInEmergencyCall = false;
+                    }
                 }
             }
         };
@@ -229,24 +230,32 @@ public class GpsNetInitiatedHandler {
         return mIsLocationEnabled;
     }
 
-    // Note: Currently, there are two mechanisms involved to determine if a
-    // phone is in emergency mode:
-    // 1. If the user is making an emergency call, this is provided by activly
-    //    monitoring the outgoing phone number;
-    // 2. If the device is in a emergency callback state, this is provided by
-    //    system properties.
-    // If either one of above exists, the phone is considered in an emergency
-    // mode. Because of this complexity, we need to be careful about how to set
-    // and clear the emergency state.
-    public void setInEmergency(boolean isInEmergency) {
-        mIsInEmergency = isInEmergency;
-    }
-
+    /**
+     * Determines whether device is in user-initiated emergency session based on the following
+     * 1. If the user is making an emergency call, this is provided by actively
+     *    monitoring the outgoing phone number;
+     * 2. If the user has recently ended an emergency call, and the device is in a configured time
+     *    window after the end of that call.
+     * 3. If the device is in a emergency callback state, this is provided by querying
+     *    TelephonyManager.
+     * 4. If the user has recently sent an Emergency SMS and telephony reports that it is in
+     *    emergency SMS mode, this is provided by querying TelephonyManager.
+     * @return true if is considered in user initiated emergency mode for NI purposes
+     */
     public boolean getInEmergency() {
+        boolean isInEmergencyExtension =
+                (mCallEndElapsedRealtimeMillis > 0)
+                && ((SystemClock.elapsedRealtime() - mCallEndElapsedRealtimeMillis)
+                        < mEmergencyExtensionMillis);
         boolean isInEmergencyCallback = mTelephonyManager.getEmergencyCallbackMode();
-        return mIsInEmergency || isInEmergencyCallback;
+        boolean isInEmergencySmsMode = mTelephonyManager.isInEmergencySmsMode();
+        return mIsInEmergencyCall || isInEmergencyCallback || isInEmergencyExtension
+                || isInEmergencySmsMode;
     }
 
+    public void setEmergencyExtensionSeconds(int emergencyExtensionSeconds) {
+        mEmergencyExtensionMillis = TimeUnit.SECONDS.toMillis(emergencyExtensionSeconds);
+    }
 
     // Handles NI events from HAL
     public void handleNiNotification(GpsNiNotification notif) {
@@ -348,7 +357,9 @@ public class GpsNetInitiatedHandler {
         }
     }
 
-    // Sets the NI notification.
+    /**
+     * Posts a notification in the status bar using the contents in {@code notif} object.
+     */
     private synchronized void setNiNotification(GpsNiNotification notif) {
         NotificationManager notificationManager = (NotificationManager) mContext
                 .getSystemService(Context.NOTIFICATION_SERVICE);
@@ -530,35 +541,26 @@ public class GpsNetInitiatedHandler {
      */
     static private String decodeString(String original, boolean isHex, int coding)
     {
-        String decoded = original;
+        if (coding == GPS_ENC_NONE || coding == GPS_ENC_UNKNOWN) {
+            return original;
+        }
+
         byte[] input = stringToByteArray(original, isHex);
 
         switch (coding) {
-        case GPS_ENC_NONE:
-            decoded = original;
-            break;
+            case GPS_ENC_SUPL_GSM_DEFAULT:
+                return decodeGSMPackedString(input);
 
-        case GPS_ENC_SUPL_GSM_DEFAULT:
-            decoded = decodeGSMPackedString(input);
-            break;
+            case GPS_ENC_SUPL_UTF8:
+                return decodeUTF8String(input);
 
-        case GPS_ENC_SUPL_UTF8:
-            decoded = decodeUTF8String(input);
-            break;
+            case GPS_ENC_SUPL_UCS2:
+                return decodeUCS2String(input);
 
-        case GPS_ENC_SUPL_UCS2:
-            decoded = decodeUCS2String(input);
-            break;
-
-        case GPS_ENC_UNKNOWN:
-            decoded = original;
-            break;
-
-        default:
-            Log.e(TAG, "Unknown encoding " + coding + " for NI text " + original);
-            break;
+            default:
+                Log.e(TAG, "Unknown encoding " + coding + " for NI text " + original);
+                return original;
         }
-        return decoded;
     }
 
     // change this to configure notification display

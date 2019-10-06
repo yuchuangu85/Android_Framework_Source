@@ -23,6 +23,7 @@ import libcore.util.Objects;
  *
  * @hide
  */
+@libcore.api.CorePlatformApi
 public final class StructCapUserHeader {
     /**
      * Version of the header. Note this is not final as capget() may mutate the field when an
@@ -37,6 +38,7 @@ public final class StructCapUserHeader {
     /**
      * Constructs an instance with the given field values.
      */
+    @libcore.api.CorePlatformApi
     public StructCapUserHeader(int version, int pid) {
         this.version = version;
         this.pid = pid;

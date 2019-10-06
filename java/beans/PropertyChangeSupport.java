@@ -32,6 +32,8 @@ import java.io.IOException;
 import java.util.Hashtable;
 import java.util.Map.Entry;
 
+// Android-changed: Removed @see tag (target does not exist on Android):
+// @see VetoableChangeSupport
 /**
  * This is a utility class that can be used by beans that support bound
  * properties.  It manages a list of listeners and dispatches
@@ -75,8 +77,6 @@ import java.util.Map.Entry;
  * This class is serializable.  When it is serialized it will save
  * (and restore) any listeners that are themselves serializable.  Any
  * non-serializable listeners will be skipped during serialization.
- *
- * @see VetoableChangeSupport
  */
 public class PropertyChangeSupport implements Serializable {
     private PropertyChangeListenerMap map = new PropertyChangeListenerMap();

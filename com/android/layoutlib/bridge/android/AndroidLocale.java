@@ -18,23 +18,19 @@ package com.android.layoutlib.bridge.android;
 
 import com.android.layoutlib.bridge.impl.RenderAction;
 
-import android.icu.util.ULocale;
+import android.os.LocaleList;
 
 import java.util.Locale;
 
 /**
- * This class provides an alternate implementation for {@code java.util.Locale#toLanguageTag}
- * which is only available after Java 6.
+ * This class provides an alternate implementation for {@code java.util.Locale#adjustLanguageCode}
+ * which is not available in openJDK. It also overrides the getDefault method.
  *
  * The create tool re-writes references to the above mentioned method to this one. Hence it's
  * imperative that this class is not deleted unless the create tool is modified.
  */
 @SuppressWarnings("UnusedDeclaration")
 public class AndroidLocale {
-
-    public static String toLanguageTag(Locale locale)  {
-        return ULocale.forLocale(locale).toLanguageTag();
-    }
 
     public static String adjustLanguageCode(String languageCode) {
         String adjusted = languageCode.toLowerCase(Locale.US);
@@ -51,20 +47,12 @@ public class AndroidLocale {
         return adjusted;
     }
 
-    public static Locale forLanguageTag(String tag) {
-        return ULocale.forLanguageTag(tag).toLocale();
-    }
-
-    public static String getScript(Locale locale) {
-        return ULocale.forLocale(locale).getScript();
-    }
-
     public static Locale getDefault() {
         BridgeContext context = RenderAction.getCurrentContext();
         if (context != null) {
-            Locale locale = context.getConfiguration().locale;
-            if (locale != null) {
-                return locale;
+            LocaleList localeList = context.getConfiguration().getLocales();
+            if (!localeList.isEmpty()) {
+                return localeList.get(0);
             }
         }
         return Locale.getDefault();

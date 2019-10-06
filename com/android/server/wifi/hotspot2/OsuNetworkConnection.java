@@ -16,6 +16,8 @@
 
 package com.android.server.wifi.hotspot2;
 
+import static android.net.NetworkCapabilities.NET_CAPABILITY_TRUSTED;
+
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -26,6 +28,7 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
 import android.net.wifi.WifiConfiguration;
+import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.net.wifi.WifiSsid;
 import android.os.Handler;
@@ -36,7 +39,7 @@ import android.util.Log;
  * Responsible for setup/monitor on Wi-Fi state and connection to the OSU AP.
  */
 public class OsuNetworkConnection {
-    private static final String TAG = "OsuNetworkConnection";
+    private static final String TAG = "PasspointOsuNetworkConnection";
     private static final int TIMEOUT_MS = 10000;
 
     private final Context mContext;
@@ -69,7 +72,7 @@ public class OsuNetworkConnection {
         void onDisconnected();
 
         /**
-         * Invoked when a timer tracking connection request is not reset by successfull connection.
+         * Invoked when a timer tracking connection request is not reset by successful connection.
          */
         void onTimeOut();
 
@@ -84,10 +87,6 @@ public class OsuNetworkConnection {
         void onWifiDisabled();
     }
 
-    /**
-     * Create an instance of {@link NetworkConnection} for the specified Wi-Fi network.
-     * @param context The application context
-     */
     public OsuNetworkConnection(Context context) {
         mContext = context;
     }
@@ -138,6 +137,7 @@ public class OsuNetworkConnection {
             }
             return;
         }
+        mConnectivityManager.unregisterNetworkCallback(mConnectivityCallbacks);
         mWifiManager.removeNetwork(mNetworkId);
         mNetworkId = -1;
         mNetwork = null;
@@ -146,6 +146,7 @@ public class OsuNetworkConnection {
 
     /**
      * Register for network and Wifi state events
+     *
      * @param callbacks The callbacks to be invoked on network change events
      */
     public void setEventCallback(Callbacks callbacks) {
@@ -159,10 +160,11 @@ public class OsuNetworkConnection {
      *
      * @param ssid The SSID to connect to
      * @param nai Network access identifier of the network
+     * @param friendlyName a friendly name of service provider
      *
      * @return boolean true if connection was successfully initiated
      */
-    public boolean connect(WifiSsid ssid, String nai) {
+    public boolean connect(WifiSsid ssid, String nai, String friendlyName) {
         if (mConnected) {
             if (mVerboseLoggingEnabled) {
                 // Already connected
@@ -176,6 +178,17 @@ public class OsuNetworkConnection {
         }
         WifiConfiguration config = new WifiConfiguration();
         config.SSID = "\"" + ssid.toString() + "\"";
+
+        // To suppress Wi-Fi has no internet access notification.
+        config.noInternetAccessExpected = true;
+
+        // To suppress Wi-Fi Sign-in notification for captive portal.
+        config.osu = true;
+
+        // Do not save this network
+        config.ephemeral = true;
+        config.providerFriendlyName = friendlyName;
+
         if (TextUtils.isEmpty(nai)) {
             config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
         } else {
@@ -188,16 +201,25 @@ public class OsuNetworkConnection {
             Log.e(TAG, "Unable to add network");
             return false;
         }
-        NetworkRequest networkRequest = null;
-        networkRequest = new NetworkRequest.Builder()
-                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build();
+
+        // NET_CAPABILITY_TRUSTED is added by builder by default.
+        // But for ephemeral network, the capability needs to be removed
+        // as wifi stack creates network agent without the capability.
+        // That could cause connectivity service not to find the matching agent.
+        NetworkRequest networkRequest = new NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .removeCapability(NET_CAPABILITY_TRUSTED)
+                .build();
         mConnectivityManager.requestNetwork(networkRequest, mConnectivityCallbacks, mHandler,
                 TIMEOUT_MS);
+
+        // TODO(b/112195429): replace it with new connectivity API.
         if (!mWifiManager.enableNetwork(mNetworkId, true)) {
             Log.e(TAG, "Unable to enable network " + mNetworkId);
             disconnectIfNeeded();
             return false;
         }
+
         if (mVerboseLoggingEnabled) {
             Log.v(TAG, "Current network ID " + mNetworkId);
         }
@@ -206,6 +228,7 @@ public class OsuNetworkConnection {
 
     /**
      * Method to update logging level in this class
+     *
      * @param verbose more than 0 enables verbose logging
      */
     public void enableVerboseLogging(int verbose) {
@@ -214,14 +237,32 @@ public class OsuNetworkConnection {
 
     private class ConnectivityCallbacks extends ConnectivityManager.NetworkCallback {
         @Override
+        public void onAvailable(Network network) {
+            WifiInfo wifiInfo = mWifiManager.getConnectionInfo();
+            if (wifiInfo == null) {
+                Log.w(TAG, "wifiInfo is not valid");
+                return;
+            }
+            if (mNetworkId < 0 || mNetworkId != wifiInfo.getNetworkId()) {
+                Log.w(TAG, "Irrelevant network available notification for netId: "
+                        + wifiInfo.getNetworkId());
+                return;
+            }
+            mNetwork = network;
+            mConnected = true;
+        }
+
+        @Override
         public void onLinkPropertiesChanged(Network network, LinkProperties linkProperties) {
             if (mVerboseLoggingEnabled) {
                 Log.v(TAG, "onLinkPropertiesChanged for network=" + network
-                        + " isProvisioned?" + linkProperties.isProvisioned());
+                                + " isProvisioned?" + linkProperties.isProvisioned());
             }
-            if (linkProperties.isProvisioned() && mNetwork == null) {
-                mNetwork = network;
-                mConnected = true;
+            if (mNetwork == null) {
+                Log.w(TAG, "ignore onLinkPropertyChanged event for null network");
+                return;
+            }
+            if (linkProperties.isProvisioned()) {
                 if (mCallbacks != null) {
                     mCallbacks.onConnected(network);
                 }

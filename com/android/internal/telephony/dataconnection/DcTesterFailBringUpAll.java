@@ -22,6 +22,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Build;
 import android.os.Handler;
+import android.telephony.DataFailCause;
 import android.telephony.Rlog;
 
 import com.android.internal.telephony.Phone;
@@ -35,7 +36,7 @@ import com.android.internal.telephony.Phone;
  * Also you can add a suggested retry time if desired:
  *     --ei suggested_retry_time 5000
  *
- * The fail_cause is one of {@link DcFailCause}
+ * The fail_cause is one of {@link DataFailCause}
  */
 public class DcTesterFailBringUpAll {
     private static final String LOG_TAG = "DcTesterFailBrinupAll";
@@ -61,12 +62,12 @@ public class DcTesterFailBringUpAll {
                 // Counter is MAX, bringUp/retry will always fail
                 log("simulate detaching");
                 mFailBringUp.saveParameters(Integer.MAX_VALUE,
-                        DcFailCause.LOST_CONNECTION.getErrorCode(),
+                        DataFailCause.LOST_CONNECTION,
                         DcFailBringUp.DEFAULT_SUGGESTED_RETRY_TIME);
             } else if (action.equals(mPhone.getActionAttached())) {
                 // Counter is 0 next bringUp/retry will succeed
                 log("simulate attaching");
-                mFailBringUp.saveParameters(0, DcFailCause.NONE.getErrorCode(),
+                mFailBringUp.saveParameters(0, DataFailCause.NONE,
                         DcFailBringUp.DEFAULT_SUGGESTED_RETRY_TIME);
             } else {
                 if (DBG) log("onReceive: unknown action=" + action);

@@ -21,7 +21,7 @@ import android.net.wifi.WifiSsid;
 
 /**
  * Stores supplicant state change information passed from WifiMonitor to
- * a state machine. WifiStateMachine, SupplicantStateTracker and WpsStateMachine
+ * a state machine. ClientModeImpl, SupplicantStateTracker and WpsStateMachine
  * are example state machines that handle it.
  * @hide
  */

@@ -16,6 +16,9 @@
 
 package android.bluetooth;
 
+import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -63,6 +66,7 @@ public final class BluetoothClass implements Parcelable {
     private final int mClass;
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public BluetoothClass(int classInt) {
         mClass = classInt;
     }
@@ -90,7 +94,7 @@ public final class BluetoothClass implements Parcelable {
         return 0;
     }
 
-    public static final Parcelable.Creator<BluetoothClass> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<BluetoothClass> CREATOR =
             new Parcelable.Creator<BluetoothClass>() {
                 public BluetoothClass createFromParcel(Parcel in) {
                     return new BluetoothClass(in.readInt());
@@ -291,6 +295,7 @@ public final class BluetoothClass implements Parcelable {
      *
      * @hide
      */
+    @TestApi
     public int getClassOfDevice() {
         return mClass;
     }
@@ -322,8 +327,10 @@ public final class BluetoothClass implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public static final int PROFILE_HEADSET = 0;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int PROFILE_A2DP = 1;
     /** @hide */
     public static final int PROFILE_OPP = 2;
@@ -346,6 +353,7 @@ public final class BluetoothClass implements Parcelable {
      * @return True if this device might support specified profile.
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean doesClassMatch(int profile) {
         if (profile == PROFILE_A2DP) {
             if (hasService(Service.RENDER)) {

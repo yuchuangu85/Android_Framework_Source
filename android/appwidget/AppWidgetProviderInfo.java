@@ -18,6 +18,7 @@ package android.appwidget;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
@@ -270,6 +271,7 @@ public class AppWidgetProviderInfo implements Parcelable {
     public int widgetFeatures;
 
     /** @hide */
+    @UnsupportedAppUsage
     public ActivityInfo providerInfo;
 
     public AppWidgetProviderInfo() {
@@ -398,7 +400,7 @@ public class AppWidgetProviderInfo implements Parcelable {
         that.initialLayout = this.initialLayout;
         that.initialKeyguardLayout = this.initialKeyguardLayout;
         that.configure = this.configure == null ? null : this.configure.clone();
-        that.label = this.label == null ? null : this.label.substring(0);
+        that.label = this.label;
         that.icon = this.icon;
         that.previewImage = this.previewImage;
         that.autoAdvanceViewId = this.autoAdvanceViewId;
@@ -444,7 +446,7 @@ public class AppWidgetProviderInfo implements Parcelable {
     /**
      * Parcelable.Creator that instantiates AppWidgetProviderInfo objects
      */
-    public static final Parcelable.Creator<AppWidgetProviderInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<AppWidgetProviderInfo> CREATOR
             = new Parcelable.Creator<AppWidgetProviderInfo>()
     {
         public AppWidgetProviderInfo createFromParcel(Parcel parcel)

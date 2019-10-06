@@ -258,13 +258,13 @@ public class BootReceiver extends BroadcastReceiver {
 
         // Start watching for new tombstone files; will record them as they occur.
         // This gets registered with the singleton file observer thread.
-        sTombstoneObserver = new FileObserver(TOMBSTONE_DIR.getPath(), FileObserver.CLOSE_WRITE) {
+        sTombstoneObserver = new FileObserver(TOMBSTONE_DIR.getPath(), FileObserver.CREATE) {
             @Override
             public void onEvent(int event, String path) {
                 HashMap<String, Long> timestamps = readTimestamps();
                 try {
                     File file = new File(TOMBSTONE_DIR, path);
-                    if (file.isFile()) {
+                    if (file.isFile() && file.getName().startsWith("tombstone_")) {
                         addFileToDropBox(db, timestamps, headers, file.getPath(), LOG_SIZE,
                                 TAG_TOMBSTONE);
                     }
@@ -306,6 +306,9 @@ public class BootReceiver extends BroadcastReceiver {
         // Create an additional report for system server native crashes, with a special tag.
         if (tag.equals(TAG_TOMBSTONE) && fileContents.contains(">>> system_server <<<")) {
             addTextToDropBox(db, "system_server_native_crash", text, filename, maxSize);
+        }
+        if (tag.equals(TAG_TOMBSTONE)) {
+            StatsLog.write(StatsLog.TOMB_STONE_OCCURRED);
         }
         addTextToDropBox(db, tag, text, filename, maxSize);
     }

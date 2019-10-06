@@ -17,6 +17,8 @@
 package android.widget;
 
 import android.annotation.IdRes;
+import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.util.AttributeSet;
@@ -60,9 +62,11 @@ public class RadioGroup extends LinearLayout {
     // holds the checked id; the selection is empty by default
     private int mCheckedId = -1;
     // tracks children radio buttons checked state
+    @UnsupportedAppUsage
     private CompoundButton.OnCheckedChangeListener mChildOnCheckedChangeListener;
     // when true, mOnCheckedChangeListener discards events
     private boolean mProtectFromCheckedChange = false;
+    @UnsupportedAppUsage
     private OnCheckedChangeListener mOnCheckedChangeListener;
     private PassThroughHierarchyChangeListener mPassThroughListener;
 
@@ -94,6 +98,8 @@ public class RadioGroup extends LinearLayout {
         // XML layout file
         TypedArray attributes = context.obtainStyledAttributes(
                 attrs, com.android.internal.R.styleable.RadioGroup, com.android.internal.R.attr.radioButtonStyle, 0);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.RadioGroup,
+                attrs, attributes, com.android.internal.R.attr.radioButtonStyle, 0);
 
         int value = attributes.getResourceId(R.styleable.RadioGroup_checkedButton, View.NO_ID);
         if (value != View.NO_ID) {
@@ -421,10 +427,15 @@ public class RadioGroup extends LinearLayout {
         }
     }
 
+    /** @hide */
     @Override
-    public void onProvideAutofillStructure(ViewStructure structure, int flags) {
-        super.onProvideAutofillStructure(structure, flags);
-        structure.setDataIsSensitive(mCheckedId != mInitialCheckedId);
+    protected void onProvideStructure(@NonNull ViewStructure structure,
+            @ViewStructureType int viewFor, int flags) {
+        super.onProvideStructure(structure, viewFor, flags);
+
+        if (viewFor == VIEW_STRUCTURE_FOR_AUTOFILL) {
+            structure.setDataIsSensitive(mCheckedId != mInitialCheckedId);
+        }
     }
 
     @Override

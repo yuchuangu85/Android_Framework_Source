@@ -96,7 +96,7 @@ import java.beans.PropertyChangeListener;
  * The deployment applications can use "Accept-Encoding=pack200-gzip". This
  * indicates to the server that the client application desires a version of
  * the file encoded with Pack200 and further compressed with gzip. Please
- * refer to  <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/deployment/deployment-guide/pack200.html">Java Deployment Guide</a> for more details and
+ * refer to  <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/deployment/deployment-guide/pack200.html">Java Deployment Guide</a> for more details and
  * techniques.
  * <p>
  * Unless otherwise noted, passing a <tt>null</tt> argument to a constructor or

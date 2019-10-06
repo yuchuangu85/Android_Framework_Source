@@ -124,10 +124,12 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
         if ((entry = readLOC()) == null) {
             return null;
         }
-        // BEGIN Android-changed
+        // Android-changed: Return more accurate value from available().
+        // Initialize the remaining field with the number of bytes that can be read from the entry
+        // for both uncompressed and compressed entries so that it can be used to provide a more
+        // accurate return value for available().
         // if (entry.method == STORED) {
         if (entry.method == STORED || entry.method == DEFLATED) {
-        // END Android-changed
             remaining = entry.size;
         }
         entryEOF = false;
@@ -159,10 +161,14 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
      */
     public int available() throws IOException {
         ensureOpen();
-        // BEGIN Android-changed
+        // Android-changed: Return more accurate value from available().
+        // Tracks the remaining bytes in order to return a more accurate value for the available
+        // bytes. Given an entry of size N both Android and upstream will return 1 until N bytes
+        // have been read at which point Android will return 0 and upstream will return 1.
+        // Upstream will only return 0 after an attempt to read a byte fails because the EOF has
+        // been reached. See http://b/111439440 for more details.
         // if (entryEOF) {
         if (entryEOF || (entry != null && remaining == 0)) {
-        // END Android-changed
             return 0;
         } else {
             return 1;
@@ -206,9 +212,10 @@ class ZipInputStream extends InflaterInputStream implements ZipConstants {
                 entry = null;
             } else {
                 crc.update(b, off, len);
-                // BEGIN Android-changed
+                // Android-added: Return more accurate value from available().
+                // Update the remaining field so it is an accurate count of the number of bytes
+                // remaining in this stream, after deflation.
                 remaining -= len;
-                // END Android-changed
             }
             return len;
         case STORED:

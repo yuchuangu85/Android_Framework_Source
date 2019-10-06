@@ -19,13 +19,11 @@ package com.android.setupwizardlib.test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 
-import android.support.test.filters.SmallTest;
-import android.support.test.runner.AndroidJUnit4;
 import android.text.Annotation;
 import android.text.SpannableStringBuilder;
-
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import com.android.setupwizardlib.span.SpanHelper;
-
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -33,17 +31,17 @@ import org.junit.runner.RunWith;
 @SmallTest
 public class SpanHelperTest {
 
-    @Test
-    public void testReplaceSpan() {
-        SpannableStringBuilder ssb = new SpannableStringBuilder("Hello world");
-        Annotation oldSpan = new Annotation("key", "value");
-        Annotation newSpan = new Annotation("newkey", "newvalue");
-        ssb.setSpan(oldSpan, 2, 5, 0 /* flags */);
+  @Test
+  public void testReplaceSpan() {
+    SpannableStringBuilder ssb = new SpannableStringBuilder("Hello world");
+    Annotation oldSpan = new Annotation("key", "value");
+    Annotation newSpan = new Annotation("newkey", "newvalue");
+    ssb.setSpan(oldSpan, 2, 5, 0 /* flags */);
 
-        SpanHelper.replaceSpan(ssb, oldSpan, newSpan);
+    SpanHelper.replaceSpan(ssb, oldSpan, newSpan);
 
-        final Object[] spans = ssb.getSpans(0, ssb.length(), Object.class);
-        assertEquals("There should be one span in the builder", 1, spans.length);
-        assertSame("The span should be newSpan", newSpan, spans[0]);
-    }
+    final Object[] spans = ssb.getSpans(0, ssb.length(), Object.class);
+    assertEquals("There should be one span in the builder", 1, spans.length);
+    assertSame("The span should be newSpan", newSpan, spans[0]);
+  }
 }

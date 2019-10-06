@@ -17,10 +17,12 @@
 package com.android.layoutlib.bridge.bars;
 
 import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ResourceNamespace;
 import com.android.layoutlib.bridge.Bridge;
 import com.android.layoutlib.bridge.android.BridgeContext;
 import com.android.layoutlib.bridge.android.BridgeXmlBlockParser;
 import com.android.layoutlib.bridge.impl.ParserFactory;
+import com.android.layoutlib.bridge.resources.IconLoader;
 import com.android.resources.Density;
 
 import org.xmlpull.v1.XmlPullParserException;
@@ -37,6 +39,8 @@ import android.widget.TextView;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
 
 public class StatusBar extends CustomBar {
 
@@ -64,8 +68,7 @@ public class StatusBar extends CustomBar {
     public StatusBar(BridgeContext context, Density density, boolean isRtl, boolean rtlEnabled,
             int simulatedPlatformVersion) {
         // FIXME: if direction is RTL but it's not enabled in application manifest, mirror this bar.
-        super(context, LinearLayout.HORIZONTAL, "/bars/status_bar.xml", "status_bar.xml",
-                simulatedPlatformVersion);
+        super(context, LinearLayout.HORIZONTAL, "status_bar.xml", simulatedPlatformVersion);
         mSimulatedPlatformVersion = simulatedPlatformVersion;
 
         // FIXME: use FILL_H?
@@ -74,46 +77,65 @@ public class StatusBar extends CustomBar {
         int color = getBarColor(ATTR_COLOR, ATTR_TRANSLUCENT);
         setBackgroundColor(color == 0 ? Config.getStatusBarColor(simulatedPlatformVersion) : color);
 
+        List<ImageView> icons = new ArrayList<>(2);
+        TextView clockView = null;
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+
+            if (child instanceof ImageView) {
+                icons.add((ImageView) child);
+            } else if (child instanceof TextView) {
+                clockView = (TextView) child;
+            }
+        }
+
+        if (icons.size() != 2 || clockView == null) {
+            Bridge.getLog().error(LayoutLog.TAG_BROKEN, "Unable to initialize statusbar", null,
+                    null);
+            return;
+        }
+
         // Cannot access the inside items through id because no R.id values have been
         // created for them.
         // We do know the order though.
         // 0 is the spacer
-        loadIcon(1, "stat_sys_wifi_signal_4_fully."
+        loadIcon(icons.get(0), "stat_sys_wifi_signal_4_fully."
                         + Config.getWifiIconType(simulatedPlatformVersion), density);
-        loadIcon(2, "stat_sys_battery_100.png", density);
-        setText(3, Config.getTime(simulatedPlatformVersion), false)
-                .setTextColor(Config.getTimeColor(simulatedPlatformVersion));
+        loadIcon(icons.get(1), "stat_sys_battery_100.png", density);
+        clockView.setText(Config.getTime(simulatedPlatformVersion));
+        clockView.setTextColor(Config.getTimeColor(simulatedPlatformVersion));
     }
 
     @Override
-    protected void loadIcon(int index, String iconName, Density density) {
+    protected ImageView loadIcon(ImageView imageView, String iconName, Density density) {
         if (!iconName.endsWith(".xml")) {
-            super.loadIcon(index, iconName, density);
-            return;
+            return super.loadIcon(imageView, iconName, density);
         }
-        View child = getChildAt(index);
-        if (child instanceof ImageView) {
-            ImageView imageView = (ImageView) child;
-            // The xml is stored only in xhdpi.
-            IconLoader iconLoader = new IconLoader(iconName, Density.XHIGH,
-                    mSimulatedPlatformVersion, null);
-            InputStream stream = iconLoader.getIcon();
 
-            if (stream != null) {
-                try {
-                    BridgeXmlBlockParser parser = new BridgeXmlBlockParser(
-                            ParserFactory.create(stream, null), (BridgeContext) mContext, true);
-                    imageView.setImageDrawable(
-                            Drawable.createFromXml(mContext.getResources(), parser));
-                } catch (XmlPullParserException e) {
-                    Bridge.getLog().error(LayoutLog.TAG_BROKEN, "Unable to draw wifi icon", e,
-                            null);
-                } catch (IOException e) {
-                    Bridge.getLog().error(LayoutLog.TAG_BROKEN, "Unable to draw wifi icon", e,
-                            null);
-                }
+        // The xml is stored only in xhdpi.
+        IconLoader iconLoader = new IconLoader(iconName, Density.XHIGH,
+                mSimulatedPlatformVersion, null);
+        InputStream stream = iconLoader.getIcon();
+
+        if (stream != null) {
+            try {
+                BridgeXmlBlockParser parser =
+                        new BridgeXmlBlockParser(
+                                ParserFactory.create(stream, iconName),
+                                (BridgeContext) mContext,
+                                ResourceNamespace.ANDROID);
+                imageView.setImageDrawable(
+                        Drawable.createFromXml(mContext.getResources(), parser));
+            } catch (XmlPullParserException e) {
+                Bridge.getLog().error(LayoutLog.TAG_BROKEN, "Unable to draw wifi icon", e,
+                        null);
+            } catch (IOException e) {
+                Bridge.getLog().error(LayoutLog.TAG_BROKEN, "Unable to draw wifi icon", e,
+                        null);
             }
         }
+
+        return imageView;
     }
 
     @Override

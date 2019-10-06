@@ -17,7 +17,11 @@
 package android.os;
 
 import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 
 import libcore.util.NativeAllocationRegistry;
 
@@ -28,6 +32,7 @@ import java.util.Arrays;
 
 /** @hide */
 @SystemApi
+@TestApi
 public class HwParcel {
     private static final String TAG = "HwParcel";
 
@@ -45,6 +50,7 @@ public class HwParcel {
 
     private static final NativeAllocationRegistry sNativeRegistry;
 
+    @UnsupportedAppUsage
     private HwParcel(boolean allocate) {
         native_setup(allocate);
 
@@ -115,6 +121,13 @@ public class HwParcel {
      * @param val to write
      */
     public native final void writeString(String val);
+    /**
+     * Writes a native handle (without duplicating the underlying
+     * file descriptors) to the end of the parcel.
+     *
+     * @param val to write
+     */
+    public native final void writeNativeHandle(@Nullable NativeHandle val);
 
     /**
      * Writes an array of boolean values to the end of the parcel.
@@ -159,6 +172,14 @@ public class HwParcel {
      * @param val to write
      */
     private native final void writeStringVector(String[] val);
+    /**
+     * Writes an array of native handles to the end of the parcel.
+     *
+     * Individual elements may be null but not the whole array.
+     *
+     * @param val array of {@link NativeHandle} objects to write
+     */
+    private native final void writeNativeHandleVector(NativeHandle[] val);
 
     /**
      * Helper method to write a list of Booleans to val.
@@ -267,6 +288,14 @@ public class HwParcel {
     }
 
     /**
+     * Helper method to write a list of native handles to the end of the parcel.
+     * @param val list of {@link NativeHandle} objects to write
+     */
+    public final void writeNativeHandleVector(@NonNull ArrayList<NativeHandle> val) {
+        writeNativeHandleVector(val.toArray(new NativeHandle[val.size()]));
+    }
+
+    /**
      * Write a hwbinder object to the end of the parcel.
      * @param binder value to write
      */
@@ -328,6 +357,30 @@ public class HwParcel {
      * @throws IllegalArgumentException if the parcel has no more data
      */
     public native final String readString();
+    /**
+     * Reads a native handle (without duplicating the underlying file
+     * descriptors) from the parcel. These file descriptors will only
+     * be open for the duration that the binder window is open. If they
+     * are needed further, you must call {@link NativeHandle#dup()}.
+     *
+     * @return a {@link NativeHandle} instance parsed from the parcel
+     * @throws IllegalArgumentException if the parcel has no more data
+     */
+    public native final @Nullable NativeHandle readNativeHandle();
+    /**
+     * Reads an embedded native handle (without duplicating the underlying
+     * file descriptors) from the parcel. These file descriptors will only
+     * be open for the duration that the binder window is open. If they
+     * are needed further, you must call {@link NativeHandle#dup()}. You
+     * do not need to call close on the NativeHandle returned from this.
+     *
+     * @param parentHandle handle from which to read the embedded object
+     * @param offset offset into parent
+     * @return a {@link NativeHandle} instance parsed from the parcel
+     * @throws IllegalArgumentException if the parcel has no more data
+     */
+    public native final @Nullable NativeHandle readEmbeddedNativeHandle(
+            long parentHandle, long offset);
 
     /**
      * Reads an array of boolean values from the parcel.
@@ -377,6 +430,12 @@ public class HwParcel {
      * @throws IllegalArgumentException if the parcel has no more data
      */
     private native final String[] readStringVectorAsArray();
+    /**
+     * Reads an array of native handles from the parcel.
+     * @return array of {@link NativeHandle} objects
+     * @throws IllegalArgumentException if the parcel has no more data
+     */
+    private native final NativeHandle[] readNativeHandleAsArray();
 
     /**
      * Convenience method to read a Boolean vector as an ArrayList.
@@ -462,6 +521,15 @@ public class HwParcel {
      */
     public final ArrayList<String> readStringVector() {
         return new ArrayList<String>(Arrays.asList(readStringVectorAsArray()));
+    }
+
+    /**
+     * Convenience method to read a vector of native handles as an ArrayList.
+     * @return array of {@link NativeHandle} objects.
+     * @throws IllegalArgumentException if the parcel has no more data
+     */
+    public final @NonNull ArrayList<NativeHandle> readNativeHandleVector() {
+        return new ArrayList<NativeHandle>(Arrays.asList(readNativeHandleAsArray()));
     }
 
     /**

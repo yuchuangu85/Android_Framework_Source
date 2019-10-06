@@ -16,6 +16,7 @@
 package android.telephony.euicc;
 
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -29,7 +30,7 @@ import android.os.Parcelable;
 // own APIs guarded with appropriate permission checks.
 public final class EuiccInfo implements Parcelable {
 
-    public static final Creator<EuiccInfo> CREATOR =
+    public static final @android.annotation.NonNull Creator<EuiccInfo> CREATOR =
             new Creator<EuiccInfo>() {
                 @Override
                 public EuiccInfo createFromParcel(Parcel in) {
@@ -43,6 +44,7 @@ public final class EuiccInfo implements Parcelable {
             };
 
     @Nullable
+    @UnsupportedAppUsage
     private final String osVersion;
 
     /**

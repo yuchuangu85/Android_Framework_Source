@@ -6,9 +6,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -17,11 +17,9 @@ import static org.mockito.Mockito.when;
 import android.content.Context;
 import android.net.LinkProperties;
 import android.net.NetworkAgent;
-import android.net.NetworkAgentHelper; // Testable helper
+import android.net.NetworkAgentHelper;
 import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
-import android.os.RemoteException;
-import com.android.clockwork.WearRobolectricTestRunner;
 import com.android.internal.util.IndentingPrintWriter;
 import java.lang.reflect.Field;
 import java.util.Hashtable;
@@ -30,46 +28,42 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
-import org.robolectric.shadows.ShadowApplication;
 
 /** Test for {@link ProxyNetworkAgent} */
-@RunWith(WearRobolectricTestRunner.class)
-@Config(manifest = Config.NONE,
-        shadows = {ShadowNetworkInfo.class, ShadowConnectivityManager.class },
-        sdk = 26)
+@RunWith(RobolectricTestRunner.class)
+@Config(shadows = {ShadowNetworkInfo.class, ShadowConnectivityManager.class })
 public class ProxyNetworkAgentTest {
-    final ShadowApplication shadowApplication = ShadowApplication.getInstance();
-
     private static final int NETWORK_SCORE = 123;
     private static final String COMPANION_NAME = "Companion Name";
     private static final String REASON = "Reason";
 
-    @Mock IndentingPrintWriter mockIndentingPrintWriter;
-    @Mock LinkProperties mockLinkProperties;
-    @Mock NetworkAgent mockNetworkAgent;
-    @Mock NetworkCapabilities mockCapabilities;
-    @Mock NetworkInfo mockNetworkInfo;
-    @Mock ProxyLinkProperties mockProxyLinkProperties;
+    private @Mock IndentingPrintWriter mockIndentingPrintWriter;
+    private @Mock NetworkAgent mockNetworkAgent;
+    private @Mock NetworkCapabilities mockCapabilities;
+    private @Mock NetworkInfo mockNetworkInfo;
+    private @Mock ProxyLinkProperties mockProxyLinkProperties;
 
     private ProxyNetworkAgent mProxyNetworkAgent;
 
     @Before
-    public void setUp() throws RemoteException {
+    public void setUp() {
         MockitoAnnotations.initMocks(this);
 
-        when(mockProxyLinkProperties.getLinkProperties()).thenReturn(mockLinkProperties);
-        Hashtable<String, LinkProperties> stackedLinks = new Hashtable<String, LinkProperties>();
+        LinkProperties linkProperties = new LinkProperties();
+        when(mockProxyLinkProperties.getLinkProperties()).thenReturn(linkProperties);
+        Hashtable<String, LinkProperties> stackedLinks = new Hashtable<>();
         try {
             Field field = LinkProperties.class.getDeclaredField("mStackedLinks");
             field.setAccessible(true);
-            field.set(mockLinkProperties, stackedLinks);
-
+            field.set(linkProperties, stackedLinks);
         } catch (NoSuchFieldException | IllegalAccessException e) {
             fail();
         }
 
-        final Context context = ShadowApplication.getInstance().getApplicationContext();
+        final Context context = RuntimeEnvironment.application;
         mProxyNetworkAgent = new ProxyNetworkAgent(
                 context,
                 mockCapabilities,
@@ -226,7 +220,6 @@ public class ProxyNetworkAgentTest {
         verify(mockNetworkAgent).sendNetworkScore(NETWORK_SCORE);
     }
 
-
     @Test
     public void testDump_NoAgent() {
         mProxyNetworkAgent.mCurrentNetworkAgent = null;
@@ -245,5 +238,4 @@ public class ProxyNetworkAgentTest {
         mProxyNetworkAgent.mCurrentNetworkAgent = mockNetworkAgent;
         mProxyNetworkAgent.mNetworkAgents.put(mockNetworkAgent, mockNetworkInfo);
     }
-
 }

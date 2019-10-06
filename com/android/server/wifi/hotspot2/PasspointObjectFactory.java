@@ -23,6 +23,7 @@ import com.android.org.conscrypt.TrustManagerImpl;
 import com.android.server.wifi.Clock;
 import com.android.server.wifi.SIMAccessor;
 import com.android.server.wifi.WifiKeyStore;
+import com.android.server.wifi.WifiMetrics;
 import com.android.server.wifi.WifiNative;
 
 import java.security.KeyStore;
@@ -53,24 +54,37 @@ public class PasspointObjectFactory{
      * @param keyStore Instance of {@link WifiKeyStore}
      * @param config Configuration for the provider
      * @param providerId Unique identifier for the provider
+     * @param packageName Package name of app adding/updating the {@code config}
      * @return {@link PasspointProvider}
      */
     public PasspointProvider makePasspointProvider(PasspointConfiguration config,
-            WifiKeyStore keyStore, SIMAccessor simAccessor, long providerId, int creatorUid) {
-        return new PasspointProvider(config, keyStore, simAccessor, providerId, creatorUid);
+            WifiKeyStore keyStore, SIMAccessor simAccessor, long providerId, int creatorUid,
+            String packageName) {
+        return new PasspointProvider(config, keyStore, simAccessor, providerId, creatorUid,
+                packageName);
     }
 
     /**
-     * Create a {@link PasspointConfigStoreData} instance.
+     * Create a {@link PasspointConfigUserStoreData} instance.
      *
      * @param keyStore Instance of {@link WifiKeyStore}
      * @param simAccessor Instance of {@link SIMAccessor}
      * @param dataSource Passpoint configuration data source
-     * @return {@link PasspointConfigStoreData}
+     * @return {@link PasspointConfigUserStoreData}
      */
-    public PasspointConfigStoreData makePasspointConfigStoreData(WifiKeyStore keyStore,
-            SIMAccessor simAccessor, PasspointConfigStoreData.DataSource dataSource) {
-        return new PasspointConfigStoreData(keyStore, simAccessor, dataSource);
+    public PasspointConfigUserStoreData makePasspointConfigUserStoreData(WifiKeyStore keyStore,
+            SIMAccessor simAccessor, PasspointConfigUserStoreData.DataSource dataSource) {
+        return new PasspointConfigUserStoreData(keyStore, simAccessor, dataSource);
+    }
+
+    /**
+     * Create a {@link PasspointConfigSharedStoreData} instance.
+     * @param dataSource Passpoint configuration data source
+     * @return {@link PasspointConfigSharedStoreData}
+     */
+    public PasspointConfigSharedStoreData makePasspointConfigSharedStoreData(
+            PasspointConfigSharedStoreData.DataSource dataSource) {
+        return new PasspointConfigSharedStoreData(dataSource);
     }
 
     /**
@@ -106,11 +120,14 @@ public class PasspointObjectFactory{
     /**
      * Create an instance of {@link PasspointProvisioner}.
      *
-     * @param context
+     * @param context Instance of {@link Context}
+     * @param wifiNative Instance of {@link WifiNative}
+     * @param passpointManager Instance of {@link PasspointManager}
      * @return {@link PasspointProvisioner}
      */
-    public PasspointProvisioner makePasspointProvisioner(Context context) {
-        return new PasspointProvisioner(context, this);
+    public PasspointProvisioner makePasspointProvisioner(Context context, WifiNative wifiNative,
+            PasspointManager passpointManager, WifiMetrics wifiMetrics) {
+        return new PasspointProvisioner(context, wifiNative, this, passpointManager, wifiMetrics);
     }
 
     /**
@@ -129,7 +146,7 @@ public class PasspointObjectFactory{
      * @return {@link OsuServerConnection}
      */
     public OsuServerConnection makeOsuServerConnection() {
-        return new OsuServerConnection();
+        return new OsuServerConnection(null);
     }
 
 
@@ -166,5 +183,16 @@ public class PasspointObjectFactory{
      */
     public TrustManagerImpl getTrustManagerImpl(KeyStore ks) {
         return new TrustManagerImpl(ks);
+    }
+
+    /**
+     * Create an instance of {@link SystemInfo}.
+     *
+     * @param context Instance of {@link Context}
+     * @param wifiNative Instance of {@link WifiNative}
+     * @return {@Link Systeminfo} that is used for getting system related info.
+     */
+    public SystemInfo getSystemInfo(Context context, WifiNative wifiNative) {
+        return SystemInfo.getInstance(context, wifiNative);
     }
 }

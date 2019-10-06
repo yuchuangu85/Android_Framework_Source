@@ -16,7 +16,7 @@
 
 package com.android.systemui.recents.views;
 
-import static android.app.ActivityManager.SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT;
+import static android.app.ActivityTaskManager.SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT;
 
 import static com.android.systemui.statusbar.phone.StatusBar.SYSTEM_DIALOG_REASON_RECENT_APPS;
 
@@ -34,7 +34,6 @@ import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
-import android.os.IRemoteCallback;
 import android.util.ArraySet;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -50,13 +49,13 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 
 import com.android.internal.colorextraction.ColorExtractor;
-import com.android.internal.colorextraction.drawable.GradientDrawable;
+import com.android.internal.colorextraction.drawable.ScrimDrawable;
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.settingslib.Utils;
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
-import com.android.systemui.recents.Recents;
+import com.android.systemui.recents.LegacyRecentsImpl;
 import com.android.systemui.recents.RecentsActivity;
 import com.android.systemui.recents.RecentsActivityLaunchState;
 import com.android.systemui.recents.RecentsConfiguration;
@@ -87,9 +86,9 @@ import com.android.systemui.recents.events.ui.dragndrop.DragEndEvent;
 import com.android.systemui.recents.events.ui.dragndrop.DragStartEvent;
 import com.android.systemui.recents.misc.ReferenceCountedTrigger;
 import com.android.systemui.recents.misc.SystemServicesProxy;
+import com.android.systemui.recents.model.TaskStack;
+import com.android.systemui.recents.utilities.Utilities;
 import com.android.systemui.shared.recents.model.Task;
-import com.android.systemui.shared.recents.model.TaskStack;
-import com.android.systemui.shared.recents.utilities.Utilities;
 import com.android.systemui.shared.recents.view.AppTransitionAnimationSpecCompat;
 import com.android.systemui.shared.recents.view.AppTransitionAnimationSpecsFuture;
 import com.android.systemui.shared.recents.view.RecentsTransition;
@@ -134,7 +133,7 @@ public class RecentsView extends FrameLayout {
     private int mDividerSize;
 
     private float mBusynessFactor;
-    private GradientDrawable mBackgroundScrim;
+    private ScrimDrawable mBackgroundScrim;
     private ColorDrawable mMultiWindowBackgroundScrim;
     private ValueAnimator mBackgroundScrimAnimator;
     private Point mTmpDisplaySize = new Point();
@@ -166,13 +165,13 @@ public class RecentsView extends FrameLayout {
         super(context, attrs, defStyleAttr, defStyleRes);
         setWillNotDraw(false);
 
-        SystemServicesProxy ssp = Recents.getSystemServices();
+        SystemServicesProxy ssp = LegacyRecentsImpl.getSystemServices();
         mHandler = new Handler();
         mTransitionHelper = new RecentsTransitionComposer(getContext());
         mDividerSize = ssp.getDockedDividerSize(context);
         mTouchHandler = new RecentsViewTouchHandler(this);
         mFlingAnimationUtils = new FlingAnimationUtils(context, 0.3f);
-        mBackgroundScrim = new GradientDrawable(context);
+        mBackgroundScrim = new ScrimDrawable();
         mMultiWindowBackgroundScrim = new ColorDrawable();
 
         LayoutInflater inflater = LayoutInflater.from(context);
@@ -182,7 +181,7 @@ public class RecentsView extends FrameLayout {
         if (mStackActionButton != null) {
             removeView(mStackActionButton);
         }
-        mStackActionButton = (TextView) inflater.inflate(Recents.getConfiguration()
+        mStackActionButton = (TextView) inflater.inflate(LegacyRecentsImpl.getConfiguration()
                         .isLowRamDevice
                     ? R.layout.recents_low_ram_stack_action_button
                     : R.layout.recents_stack_action_button,
@@ -198,7 +197,7 @@ public class RecentsView extends FrameLayout {
     }
 
     public void reevaluateStyles() {
-        int textColor = Utils.getColorAttr(mContext, R.attr.wallpaperTextColor);
+        int textColor = Utils.getColorAttrDefaultColor(mContext, R.attr.wallpaperTextColor);
         boolean usingDarkText = Color.luminance(textColor) < 0.5f;
 
         mEmptyView.setTextColor(textColor);
@@ -231,7 +230,7 @@ public class RecentsView extends FrameLayout {
      * Called from RecentsActivity when it is relaunched.
      */
     public void onReload(TaskStack stack, boolean isResumingFromVisible) {
-        final RecentsConfiguration config = Recents.getConfiguration();
+        final RecentsConfiguration config = LegacyRecentsImpl.getConfiguration();
         final RecentsActivityLaunchState launchState = config.getLaunchState();
         final boolean isTaskStackEmpty = stack.getTaskCount() == 0;
 
@@ -350,7 +349,7 @@ public class RecentsView extends FrameLayout {
 
     /** Launches the task that recents was launched from if possible */
     public boolean launchPreviousTask() {
-        if (Recents.getConfiguration().getLaunchState().launchedFromPipApp) {
+        if (LegacyRecentsImpl.getConfiguration().getLaunchState().launchedFromPipApp) {
             // If the app auto-entered PiP on the way to Recents, then just re-expand it
             EventBus.getDefault().send(new ExpandPipEvent());
             return true;
@@ -395,7 +394,7 @@ public class RecentsView extends FrameLayout {
      * @param animated Interpolate colors if true.
      */
     public void setScrimColors(ColorExtractor.GradientColors scrimColors, boolean animated) {
-        mBackgroundScrim.setColors(scrimColors, animated);
+        mBackgroundScrim.setColor(scrimColors.getMainColor(), animated);
         int alpha = mMultiWindowBackgroundScrim.getAlpha();
         mMultiWindowBackgroundScrim.setColor(scrimColors.getMainColor());
         mMultiWindowBackgroundScrim.setAlpha(alpha);
@@ -467,7 +466,6 @@ public class RecentsView extends FrameLayout {
         // Needs to know the screen size since the gradient never scales up or down
         // even when bounds change.
         mContext.getDisplay().getRealSize(mTmpDisplaySize);
-        mBackgroundScrim.setScreenSize(mTmpDisplaySize.x, mTmpDisplaySize.y);
         mBackgroundScrim.setBounds(left, top, right, bottom);
         mMultiWindowBackgroundScrim.setBounds(0, 0, mTmpDisplaySize.x, mTmpDisplaySize.y);
 
@@ -481,14 +479,14 @@ public class RecentsView extends FrameLayout {
             mAwaitingFirstLayout = false;
             // If launched via dragging from the nav bar, then we should translate the whole view
             // down offscreen
-            RecentsActivityLaunchState launchState = Recents.getConfiguration().getLaunchState();
+            RecentsActivityLaunchState launchState = LegacyRecentsImpl.getConfiguration().getLaunchState();
             if (launchState.launchedViaDragGesture) {
                 setTranslationY(getMeasuredHeight());
             } else {
                 setTranslationY(0f);
             }
 
-            if (Recents.getConfiguration().isLowRamDevice
+            if (LegacyRecentsImpl.getConfiguration().isLowRamDevice
                     && mEmptyView.getVisibility() == View.VISIBLE) {
                 animateEmptyView(true /* show */, null /* postAnimationTrigger */);
             }
@@ -497,7 +495,7 @@ public class RecentsView extends FrameLayout {
 
     @Override
     public WindowInsets onApplyWindowInsets(WindowInsets insets) {
-        mSystemInsets.set(insets.getSystemWindowInsets());
+        mSystemInsets.set(insets.getSystemWindowInsetsAsRect());
         mTaskStackView.setSystemInsets(mSystemInsets);
         requestLayout();
         return insets;
@@ -540,7 +538,7 @@ public class RecentsView extends FrameLayout {
     public final void onBusEvent(LaunchTaskEvent event) {
         launchTaskFromRecents(getStack(), event.task, mTaskStackView, event.taskView,
                 event.screenPinningRequested, event.targetWindowingMode, event.targetActivityType);
-        if (Recents.getConfiguration().isLowRamDevice) {
+        if (LegacyRecentsImpl.getConfiguration().isLowRamDevice) {
             EventBus.getDefault().send(new HideStackActionButtonEvent(false /* translate */));
         }
     }
@@ -551,13 +549,13 @@ public class RecentsView extends FrameLayout {
         EventBus.getDefault().send(new HideStackActionButtonEvent());
         animateBackgroundScrim(0f, taskViewExitToHomeDuration);
 
-        if (Recents.getConfiguration().isLowRamDevice) {
+        if (LegacyRecentsImpl.getConfiguration().isLowRamDevice) {
             animateEmptyView(false /* show */, event.getAnimationTrigger());
         }
     }
 
     public final void onBusEvent(DragStartEvent event) {
-        updateVisibleDockRegions(Recents.getConfiguration().getDockStatesForCurrentOrientation(),
+        updateVisibleDockRegions(LegacyRecentsImpl.getConfiguration().getDockStatesForCurrentOrientation(),
                 true /* isDefaultDockState */, DockState.NONE.viewState.dockAreaAlpha,
                 DockState.NONE.viewState.hintTextAlpha,
                 true /* animateAlpha */, false /* animateBounds */);
@@ -575,7 +573,7 @@ public class RecentsView extends FrameLayout {
     public final void onBusEvent(DragDropTargetChangedEvent event) {
         if (event.dropTarget == null || !(event.dropTarget instanceof DockState)) {
             updateVisibleDockRegions(
-                    Recents.getConfiguration().getDockStatesForCurrentOrientation(),
+                    LegacyRecentsImpl.getConfiguration().getDockStatesForCurrentOrientation(),
                     true /* isDefaultDockState */, DockState.NONE.viewState.dockAreaAlpha,
                     DockState.NONE.viewState.hintTextAlpha,
                     true /* animateAlpha */, true /* animateBounds */);
@@ -631,7 +629,8 @@ public class RecentsView extends FrameLayout {
                     }
                 };
                 WindowManagerWrapper.getInstance().overridePendingAppTransitionMultiThumbFuture(
-                        future, animStartedListener, getHandler(), true /* scaleUp */);
+                        future, animStartedListener, getHandler(), true /* scaleUp */,
+                        getContext().getDisplayId());
                 MetricsLogger.action(mContext, MetricsEvent.ACTION_WINDOW_DOCK_DRAG_DROP,
                         event.task.getTopComponent().flattenToShortString());
             } else {
@@ -695,7 +694,7 @@ public class RecentsView extends FrameLayout {
     }
 
     public final void onBusEvent(EnterRecentsWindowAnimationCompletedEvent event) {
-        RecentsActivityLaunchState launchState = Recents.getConfiguration().getLaunchState();
+        RecentsActivityLaunchState launchState = LegacyRecentsImpl.getConfiguration().getLaunchState();
         if (!launchState.launchedViaDockGesture && !launchState.launchedFromApp
                 && getStack().getTaskCount() > 0) {
             animateBackgroundScrim(getOpaqueScrimAlpha(),
@@ -708,7 +707,7 @@ public class RecentsView extends FrameLayout {
     }
 
     public final void onBusEvent(DismissAllTaskViewsEvent event) {
-        SystemServicesProxy ssp = Recents.getSystemServices();
+        SystemServicesProxy ssp = LegacyRecentsImpl.getSystemServices();
         if (!ssp.hasDockedTask()) {
             // Animate the background away only if we are dismissing Recents to home
             animateBackgroundScrim(0f, DEFAULT_UPDATE_SCRIM_DURATION);
@@ -741,7 +740,7 @@ public class RecentsView extends FrameLayout {
             mStackActionButton.setAlpha(0f);
             if (translate) {
                 mStackActionButton.setTranslationY(mStackActionButton.getMeasuredHeight() *
-                        (Recents.getConfiguration().isLowRamDevice ? 1 : -0.25f));
+                        (LegacyRecentsImpl.getConfiguration().isLowRamDevice ? 1 : -0.25f));
             } else {
                 mStackActionButton.setTranslationY(0f);
             }
@@ -780,7 +779,7 @@ public class RecentsView extends FrameLayout {
         if (mStackActionButton.getVisibility() == View.VISIBLE) {
             if (translate) {
                 mStackActionButton.animate().translationY(mStackActionButton.getMeasuredHeight()
-                        * (Recents.getConfiguration().isLowRamDevice ? 1 : -0.25f));
+                        * (LegacyRecentsImpl.getConfiguration().isLowRamDevice ? 1 : -0.25f));
             }
             mStackActionButton.animate()
                     .alpha(0f)
@@ -896,8 +895,8 @@ public class RecentsView extends FrameLayout {
         Rect actionButtonRect = new Rect(
                 mTaskStackView.mLayoutAlgorithm.getStackActionButtonRect());
         int left, top;
-        if (Recents.getConfiguration().isLowRamDevice) {
-            Rect windowRect = Recents.getSystemServices().getWindowRect();
+        if (LegacyRecentsImpl.getConfiguration().isLowRamDevice) {
+            Rect windowRect = LegacyRecentsImpl.getSystemServices().getWindowRect();
             int spaceLeft = windowRect.width() - mSystemInsets.left - mSystemInsets.right;
             left = (spaceLeft - mStackActionButton.getMeasuredWidth()) / 2 + mSystemInsets.left;
             top = windowRect.height() - (mStackActionButton.getMeasuredHeight()
@@ -932,7 +931,7 @@ public class RecentsView extends FrameLayout {
 
             // Fetch window rect here already in order not to be blocked on lock contention in WM
             // when the future calls it.
-            final Rect windowRect = Recents.getSystemServices().getWindowRect();
+            final Rect windowRect = LegacyRecentsImpl.getSystemServices().getWindowRect();
             transitionFuture = new AppTransitionAnimationSpecsFuture(stackView.getHandler()) {
                 @Override
                 public List<AppTransitionAnimationSpecCompat> composeSpecs() {
@@ -964,7 +963,7 @@ public class RecentsView extends FrameLayout {
                         }, 350);
                     }
 
-                    if (!Recents.getConfiguration().isLowRamDevice) {
+                    if (!LegacyRecentsImpl.getConfiguration().isLowRamDevice) {
                         // Reset the state where we are waiting for the transition to start
                         EventBus.getDefault().send(new SetWaitingForTransitionStartEvent(false));
                     }
@@ -989,7 +988,7 @@ public class RecentsView extends FrameLayout {
                     EventBus.getDefault().send(new ExitRecentsWindowFirstAnimationFrameEvent());
                     stackView.cancelAllTaskViewAnimations();
 
-                    if (!Recents.getConfiguration().isLowRamDevice) {
+                    if (!LegacyRecentsImpl.getConfiguration().isLowRamDevice) {
                         // Reset the state where we are waiting for the transition to start
                         EventBus.getDefault().send(new SetWaitingForTransitionStartEvent(false));
                     }

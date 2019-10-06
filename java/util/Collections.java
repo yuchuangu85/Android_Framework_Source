@@ -70,7 +70,7 @@ import dalvik.system.VMRuntime;
  * already sorted may or may not throw <tt>UnsupportedOperationException</tt>.
  *
  * <p>This class is a member of the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
+ * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/collections/index.html">
  * Java Collections Framework</a>.
  *
  * @author  Josh Bloch
@@ -112,8 +112,10 @@ public class Collections {
     private static final int REPLACEALL_THRESHOLD     =   11;
     private static final int INDEXOFSUBLIST_THRESHOLD =   35;
 
-    // Android-changed: Warn about Collections.sort() being built on top
-    // of List.sort() when it used to be the other way round in Nougat.
+    // Android-added: List.sort() vs. Collections.sort() app compat.
+    // Added a warning in the documentation.
+    // Collections.sort() calls List.sort() for apps targeting API version >= 26
+    // (Android Oreo) but the other way around for app targeting <= 25 (Nougat).
     /**
      * Sorts the specified list into ascending order, according to the
      * {@linkplain Comparable natural ordering} of its elements.
@@ -150,14 +152,17 @@ public class Collections {
      */
     @SuppressWarnings("unchecked")
     public static <T extends Comparable<? super T>> void sort(List<T> list) {
-        // Android-changed: Call sort(list, null) here to be consistent
-        // with that method's (Android changed) behavior.
+        // Android-changed: List.sort() vs. Collections.sort() app compat.
+        // Call sort(list, null) here to be consistent with that method's
+        // (changed on Android) behavior.
         // list.sort(null);
         sort(list, null);
     }
 
-    // Android-changed: Warn about Collections.sort() being built on top
-    // of List.sort() when it used to be the other way round in Nougat.
+    // Android-added: List.sort() vs. Collections.sort() app compat.
+    // Added a warning in the documentation.
+    // Collections.sort() calls List.sort() for apps targeting API version >= 26
+    // (Android Oreo) but the other way around for app targeting <= 25 (Nougat).
     /**
      * Sorts the specified list according to the order induced by the
      * specified comparator.  All elements in the list must be <i>mutually
@@ -194,7 +199,7 @@ public class Collections {
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static <T> void sort(List<T> list, Comparator<? super T> c) {
-        // BEGIN Android-changed: Compat behavior for apps targeting APIs <= 25.
+        // BEGIN Android-changed: List.sort() vs. Collections.sort() app compat.
         // list.sort(c);
         int targetSdkVersion = VMRuntime.getRuntime().getTargetSdkVersion();
         if (targetSdkVersion > 25) {
@@ -214,7 +219,7 @@ public class Collections {
                 i.set((T) a[j]);
             }
         }
-        // END Android-changed: Compat behavior for apps targeting APIs <= 25.
+        // END Android-changed: List.sort() vs. Collections.sort() app compat.
     }
 
 
@@ -1705,8 +1710,10 @@ public class Collections {
                     public void remove() {
                         throw new UnsupportedOperationException();
                     }
-                    // Android-note: This seems pretty inconsistent. Unlike other subclasses, we aren't
-                    // delegating to the subclass iterator here. Seems like an oversight.
+                    // Android-note: Oversight of Iterator.forEachRemaining().
+                    // This seems pretty inconsistent. Unlike other subclasses,
+                    // we aren't delegating to the subclass iterator here.
+                    // Seems like an oversight. http://b/110351017
                 };
             }
 
@@ -3119,7 +3126,8 @@ public class Collections {
                 public boolean hasNext() { return it.hasNext(); }
                 public E next()          { return it.next(); }
                 public void remove()     {        it.remove(); }};
-            // Android-note: Should we delegate to it for forEachRemaining ?
+            // Android-note: Oversight of Iterator.forEachRemaining().
+            // http://b/110351017
         }
 
         public boolean add(E e)          { return c.add(typeCheck(e)); }
@@ -3804,7 +3812,8 @@ public class Collections {
                     public Map.Entry<K,V> next() {
                         return checkedEntry(i.next(), valueType);
                     }
-                    // Android-note: forEachRemaining is missing checks.
+                    // Android-note: Oversight of Iterator.forEachRemaining().
+                    // http://b/110351017
                 };
             }
 

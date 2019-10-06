@@ -20,18 +20,17 @@ import android.net.KeepalivePacketData;
 import android.net.LinkProperties;
 import android.os.Handler;
 import android.os.Message;
-import android.service.carrier.CarrierIdentifier;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.NetworkScanRequest;
+import android.telephony.TelephonyManager;
 import android.telephony.data.DataProfile;
+import android.telephony.emergency.EmergencyNumber;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.RadioCapability;
 import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
-
-import java.util.List;
 
 public class SimulatedCommandsVerifier implements CommandsInterface {
     private static SimulatedCommandsVerifier sInstance;
@@ -48,8 +47,8 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
-    public RadioState getRadioState() {
-        return null;
+    public int getRadioState() {
+        return TelephonyManager.RADIO_POWER_UNAVAILABLE;
     }
 
     @Override
@@ -674,13 +673,14 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
-    public void dial(String address, int clirMode, Message result) {
-
+    public void dial(String address, boolean isEmergencyCall, EmergencyNumber emergencyNumberInfo,
+                     boolean hasKnownUserIntentEmergency, int clirMode, Message result) {
     }
 
     @Override
-    public void dial(String address, int clirMode, UUSInfo uusInfo, Message result) {
-
+    public void dial(String address, boolean isEmergencyCall, EmergencyNumber emergencyNumberInfo,
+                     boolean hasKnownUserIntentEmergency, int clirMode, UUSInfo uusInfo,
+                     Message result) {
     }
 
     @Override
@@ -1278,16 +1278,6 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
-    public void nvReadItem(int itemID, Message response) {
-
-    }
-
-    @Override
-    public void nvWriteItem(int itemID, String itemValue, Message response) {
-
-    }
-
-    @Override
     public void nvWriteCdmaPrl(byte[] preferredRoamingList, Message response) {
 
     }
@@ -1369,23 +1359,8 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
-    public void getModemActivityInfo(Message result) {
-
-    }
-
-    @Override
     public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo,
                                                 Message result) {
-
-    }
-
-    @Override
-    public void setAllowedCarriers(List<CarrierIdentifier> carriers, Message result) {
-
-    }
-
-    @Override
-    public void getAllowedCarriers(Message result) {
 
     }
 
@@ -1425,10 +1400,6 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
-    public void setSimCardPower(int state, Message result) {
-    }
-
-    @Override
     public void registerForCarrierInfoForImsiEncryption(Handler h, int what, Object obj) {
     }
 
@@ -1450,6 +1421,14 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
 
     @Override
     public void unregisterForNattKeepaliveStatus(Handler h) {
+    }
+
+    @Override
+    public void registerForEmergencyNumberList(Handler h, int what, Object obj) {
+    }
+
+    @Override
+    public void unregisterForEmergencyNumberList(Handler h) {
     }
 
     @Override

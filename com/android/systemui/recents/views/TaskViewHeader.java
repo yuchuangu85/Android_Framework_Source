@@ -36,7 +36,7 @@ import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.CountDownTimer;
-import android.support.v4.graphics.ColorUtils;
+import androidx.core.graphics.ColorUtils;
 import android.util.AttributeSet;
 import android.util.IconDrawableFactory;
 import android.view.Gravity;
@@ -53,14 +53,14 @@ import com.android.internal.logging.MetricsLogger;
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
 import com.android.systemui.recents.Constants;
-import com.android.systemui.recents.Recents;
+import com.android.systemui.recents.LegacyRecentsImpl;
 import com.android.systemui.recents.events.EventBus;
 import com.android.systemui.recents.events.activity.LaunchTaskEvent;
 import com.android.systemui.recents.events.ui.ShowApplicationInfoEvent;
 import com.android.systemui.recents.misc.SystemServicesProxy;
 import com.android.systemui.shared.system.ActivityManagerWrapper;
 import com.android.systemui.shared.system.PackageManagerWrapper;
-import com.android.systemui.shared.recents.utilities.Utilities;
+import com.android.systemui.recents.utilities.Utilities;
 import com.android.systemui.shared.recents.model.Task;
 
 /* The task bar view */
@@ -212,7 +212,7 @@ public class TaskViewHeader extends FrameLayout
         Resources res = context.getResources();
         mLightDismissDrawable = context.getDrawable(R.drawable.recents_dismiss_light);
         mDarkDismissDrawable = context.getDrawable(R.drawable.recents_dismiss_dark);
-        mCornerRadius = Recents.getConfiguration().isGridEnabled ?
+        mCornerRadius = LegacyRecentsImpl.getConfiguration().isGridEnabled ?
                 res.getDimensionPixelSize(R.dimen.recents_grid_task_view_rounded_corners_radius) :
                 res.getDimensionPixelSize(R.dimen.recents_task_view_rounded_corners_radius);
         mHighlightHeight = res.getDimensionPixelSize(R.dimen.recents_task_view_highlight);
@@ -246,7 +246,7 @@ public class TaskViewHeader extends FrameLayout
 
     @Override
     protected void onFinishInflate() {
-        SystemServicesProxy ssp = Recents.getSystemServices();
+        SystemServicesProxy ssp = LegacyRecentsImpl.getSystemServices();
 
         // Initialize the icon and description views
         mIconView = findViewById(R.id.icon);
@@ -605,7 +605,7 @@ public class TaskViewHeader extends FrameLayout
      */
     private void showAppOverlay() {
         // Skip early if the task is invalid
-        SystemServicesProxy ssp = Recents.getSystemServices();
+        SystemServicesProxy ssp = LegacyRecentsImpl.getSystemServices();
         ComponentName cn = mTask.key.getComponent();
         int userId = mTask.key.userId;
         ActivityInfo activityInfo = PackageManagerWrapper.getInstance().getActivityInfo(cn, userId);

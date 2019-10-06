@@ -16,6 +16,7 @@
 
 package android.nfc;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Parcel;
@@ -279,6 +280,7 @@ public final class NdefRecord implements Parcelable {
 
     private final short mTnf;
     private final byte[] mType;
+    @UnsupportedAppUsage
     private final byte[] mId;
     private final byte[] mPayload;
 
@@ -990,7 +992,7 @@ public final class NdefRecord implements Parcelable {
         dest.writeByteArray(mPayload);
     }
 
-    public static final Parcelable.Creator<NdefRecord> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<NdefRecord> CREATOR =
             new Parcelable.Creator<NdefRecord>() {
         @Override
         public NdefRecord createFromParcel(Parcel in) {

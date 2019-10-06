@@ -1,19 +1,19 @@
 package com.android.clockwork.wifi;
 
 import android.content.ContentResolver;
+import android.net.Uri;
 import android.provider.Settings;
 
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.runner.RunWith;
 import org.junit.Test;
 
-import org.mockito.Matchers;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RuntimeEnvironment;
-import org.robolectric.annotation.Config;
+import org.robolectric.Shadows;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.shadows.ShadowContentResolver;
 
 import static com.android.clockwork.wifi.WearWifiMediatorSettings.DISABLE_WIFI_MEDIATOR_KEY;
 import static com.android.clockwork.wifi.WearWifiMediatorSettings.ENABLE_WIFI_WHEN_CHARGING_KEY;
@@ -24,17 +24,20 @@ import static com.android.clockwork.wifi.WearWifiMediatorSettings.WIFI_SETTING_O
 import static com.android.clockwork.wifi.WearWifiMediatorSettings.WIFI_SETTING_OFF_AIRPLANE;
 import static com.android.clockwork.wifi.WearWifiMediatorSettings.WIFI_SETTING_ON;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
 public class WearWifiMediatorSettingsTest {
-    ContentResolver cr;
+    private ContentResolver cr;
 
-    @Mock WearWifiMediatorSettings.Listener mockListener;
-    WearWifiMediatorSettings mWifiSettings;
+    private @Mock WearWifiMediatorSettings.Listener mockListener;
+    private WearWifiMediatorSettings mWifiSettings;
 
     @Before
     public void setup() {
@@ -44,55 +47,52 @@ public class WearWifiMediatorSettingsTest {
         mWifiSettings.addListener(mockListener);
     }
 
-    // Shadows.shadowOf currently won't build in our tree for some really
-    // weird reason.  This test should work otherwise. (b/34975736)
-    // @Test
-    // public void testContentObserverRegistered() {
-    //    WearWifiMediatorSettings.SettingsObserver obs = mWifiSettings.getSettingsObserver();
-    //     mWifiSettings.
-    //     ShadowContentResolver scr = Shadows.shadowOf(cr);
-    //     for (Uri uri : mWifiSettings.getObservedUris()) {
-    //         Assert.assertEquals(1, scr.getContentObservers(uri).size());
-    //         Assert.assertEquals(obs, scr.getContentObservers(uri).get(0));
-    //     }
-    // }
+    @Test
+    public void testContentObserverRegistered() {
+        WearWifiMediatorSettings.SettingsObserver obs = mWifiSettings.getSettingsObserver();
+        ShadowContentResolver scr = Shadows.shadowOf(cr);
+        for (Uri uri : mWifiSettings.getObservedUris()) {
+            assertEquals(1, scr.getContentObservers(uri).size());
+            assertEquals(obs, scr.getContentObservers(uri).iterator().next());
+        }
+    }
 
     @Test
     public void testGettersDefaultReturnValues() {
         // settings which default to ON
-        Assert.assertEquals(WIFI_SETTING_ON, mWifiSettings.getWifiSetting());
-        Assert.assertTrue(mWifiSettings.getEnableWifiWhileCharging());
-        Assert.assertTrue(mWifiSettings.getWifiOnWhenProxyDisconnected());
+        assertEquals(WIFI_SETTING_ON, mWifiSettings.getWifiSetting());
+        assertTrue(mWifiSettings.getEnableWifiWhileCharging());
+        assertTrue(mWifiSettings.getWifiOnWhenProxyDisconnected());
 
         // settings which default to OFF
-        Assert.assertFalse(mWifiSettings.getDisableWifiMediator());
-        Assert.assertFalse(mWifiSettings.getInWifiSettings());
-        Assert.assertFalse(mWifiSettings.getHardwareLowPowerMode());
-        Assert.assertFalse(mWifiSettings.getIsInAirplaneMode());
+        assertFalse(mWifiSettings.getDisableWifiMediator());
+        assertFalse(mWifiSettings.getInWifiSettings());
+        assertFalse(mWifiSettings.getHardwareLowPowerMode());
+        assertFalse(mWifiSettings.getIsInAirplaneMode());
     }
 
     @Test
     public void testGettersForNonDefaultValues() {
         Settings.System.putInt(cr, ENABLE_WIFI_WHEN_CHARGING_KEY, 0);
-        Assert.assertFalse(mWifiSettings.getEnableWifiWhileCharging());
+        assertFalse(mWifiSettings.getEnableWifiWhileCharging());
 
         Settings.Global.putInt(cr, DISABLE_WIFI_MEDIATOR_KEY, 1);
-        Assert.assertTrue(mWifiSettings.getDisableWifiMediator());
+        assertTrue(mWifiSettings.getDisableWifiMediator());
 
         Settings.System.putInt(cr, IN_WIFI_SETTINGS_KEY, 1);
-        Assert.assertTrue(mWifiSettings.getInWifiSettings());
+        assertTrue(mWifiSettings.getInWifiSettings());
 
         Settings.System.putString(cr, WIFI_SETTING_KEY, WIFI_SETTING_OFF);
-        Assert.assertEquals(WIFI_SETTING_OFF, mWifiSettings.getWifiSetting());
+        assertEquals(WIFI_SETTING_OFF, mWifiSettings.getWifiSetting());
 
         Settings.Global.putInt(cr, HW_LOW_POWER_MODE_KEY, 1);
-        Assert.assertTrue(mWifiSettings.getHardwareLowPowerMode());
+        assertTrue(mWifiSettings.getHardwareLowPowerMode());
 
         Settings.Global.putInt(cr, Settings.Global.AIRPLANE_MODE_ON, 1);
-        Assert.assertTrue(mWifiSettings.getIsInAirplaneMode());
+        assertTrue(mWifiSettings.getIsInAirplaneMode());
 
         Settings.Global.putInt(cr, Settings.Global.WIFI_ON_WHEN_PROXY_DISCONNECTED, 0);
-        Assert.assertFalse(mWifiSettings.getWifiOnWhenProxyDisconnected());
+        assertFalse(mWifiSettings.getWifiOnWhenProxyDisconnected());
     }
 
     @Test
@@ -134,16 +134,16 @@ public class WearWifiMediatorSettingsTest {
     @Test
     public void testGetAndPutWifiSetting() {
         mWifiSettings.putWifiSetting(WIFI_SETTING_OFF_AIRPLANE);
-        Assert.assertEquals(WIFI_SETTING_OFF_AIRPLANE, mWifiSettings.getWifiSetting());
+        assertEquals(WIFI_SETTING_OFF_AIRPLANE, mWifiSettings.getWifiSetting());
 
         mWifiSettings.putWifiSetting(WIFI_SETTING_OFF);
-        Assert.assertEquals(WIFI_SETTING_OFF, mWifiSettings.getWifiSetting());
+        assertEquals(WIFI_SETTING_OFF, mWifiSettings.getWifiSetting());
 
         mWifiSettings.putWifiSetting(WIFI_SETTING_ON);
-        Assert.assertEquals(WIFI_SETTING_ON, mWifiSettings.getWifiSetting());
+        assertEquals(WIFI_SETTING_ON, mWifiSettings.getWifiSetting());
 
         mWifiSettings.putWifiSetting(WIFI_SETTING_OFF_AIRPLANE);
-        Assert.assertEquals(WIFI_SETTING_OFF_AIRPLANE, mWifiSettings.getWifiSetting());
+        assertEquals(WIFI_SETTING_OFF_AIRPLANE, mWifiSettings.getWifiSetting());
     }
 
     @Test
@@ -155,8 +155,8 @@ public class WearWifiMediatorSettingsTest {
         Settings.Global.putInt(cr, Settings.Global.AIRPLANE_MODE_ON, 1);
         obs.onChange(false, Settings.Global.getUriFor(Settings.Global.AIRPLANE_MODE_ON));
 
-        Assert.assertTrue(mWifiSettings.getIsInAirplaneMode());
-        Assert.assertEquals(WIFI_SETTING_OFF, mWifiSettings.getWifiSetting());
+        assertTrue(mWifiSettings.getIsInAirplaneMode());
+        assertEquals(WIFI_SETTING_OFF, mWifiSettings.getWifiSetting());
         verify(mockListener).onWifiSettingChanged(WIFI_SETTING_OFF);
         reset(mockListener);
 
@@ -164,8 +164,8 @@ public class WearWifiMediatorSettingsTest {
         Settings.Global.putInt(cr, Settings.Global.AIRPLANE_MODE_ON, 0);
         obs.onChange(false, Settings.Global.getUriFor(Settings.Global.AIRPLANE_MODE_ON));
 
-        Assert.assertFalse(mWifiSettings.getIsInAirplaneMode());
-        Assert.assertEquals(WIFI_SETTING_ON, mWifiSettings.getWifiSetting());
+        assertFalse(mWifiSettings.getIsInAirplaneMode());
+        assertEquals(WIFI_SETTING_ON, mWifiSettings.getWifiSetting());
         verify(mockListener).onWifiSettingChanged(WIFI_SETTING_ON);
 
         // now set WiFi Setting to be OFF before we turn on airplane mode again
@@ -176,8 +176,8 @@ public class WearWifiMediatorSettingsTest {
         Settings.Global.putInt(cr, Settings.Global.AIRPLANE_MODE_ON, 1);
         obs.onChange(false, Settings.Global.getUriFor(Settings.Global.AIRPLANE_MODE_ON));
 
-        Assert.assertTrue(mWifiSettings.getIsInAirplaneMode());
-        Assert.assertEquals(WIFI_SETTING_OFF_AIRPLANE, mWifiSettings.getWifiSetting());
+        assertTrue(mWifiSettings.getIsInAirplaneMode());
+        assertEquals(WIFI_SETTING_OFF_AIRPLANE, mWifiSettings.getWifiSetting());
         verify(mockListener).onWifiSettingChanged(WIFI_SETTING_OFF_AIRPLANE);
         reset(mockListener);
 
@@ -185,8 +185,8 @@ public class WearWifiMediatorSettingsTest {
         Settings.Global.putInt(cr, Settings.Global.AIRPLANE_MODE_ON, 0);
         obs.onChange(false, Settings.Global.getUriFor(Settings.Global.AIRPLANE_MODE_ON));
 
-        Assert.assertFalse(mWifiSettings.getIsInAirplaneMode());
-        Assert.assertEquals(WIFI_SETTING_OFF, mWifiSettings.getWifiSetting());
+        assertFalse(mWifiSettings.getIsInAirplaneMode());
+        assertEquals(WIFI_SETTING_OFF, mWifiSettings.getWifiSetting());
         verify(mockListener).onWifiSettingChanged(WIFI_SETTING_OFF);
         reset(mockListener);
     }
@@ -199,23 +199,23 @@ public class WearWifiMediatorSettingsTest {
         // now turn airplane mode ON and verify that WiFi goes to OFF
         Settings.Global.putInt(cr, Settings.Global.AIRPLANE_MODE_ON, 1);
         obs.onChange(false, Settings.Global.getUriFor(Settings.Global.AIRPLANE_MODE_ON));
-        Assert.assertTrue(mWifiSettings.getIsInAirplaneMode());
-        Assert.assertEquals(WIFI_SETTING_OFF, mWifiSettings.getWifiSetting());
+        assertTrue(mWifiSettings.getIsInAirplaneMode());
+        assertEquals(WIFI_SETTING_OFF, mWifiSettings.getWifiSetting());
         verify(mockListener).onWifiSettingChanged(WIFI_SETTING_OFF);
         reset(mockListener);
 
         // now toggle WiFi to ON while inside airplane mode
         Settings.System.putString(cr, WIFI_SETTING_KEY, WIFI_SETTING_ON);
         obs.onChange(false, Settings.System.getUriFor(WIFI_SETTING_KEY));
-        Assert.assertEquals(WIFI_SETTING_ON, mWifiSettings.getWifiSetting());
+        assertEquals(WIFI_SETTING_ON, mWifiSettings.getWifiSetting());
         verify(mockListener).onWifiSettingChanged(WIFI_SETTING_ON);
         reset(mockListener);
 
         // toggling airplane mode back OFF should keep WiFi ON
         Settings.Global.putInt(cr, Settings.Global.AIRPLANE_MODE_ON, 0);
         obs.onChange(false, Settings.Global.getUriFor(Settings.Global.AIRPLANE_MODE_ON));
-        Assert.assertEquals(WIFI_SETTING_ON, mWifiSettings.getWifiSetting());
-        verify(mockListener, never()).onWifiSettingChanged(Matchers.anyString());
+        assertEquals(WIFI_SETTING_ON, mWifiSettings.getWifiSetting());
+        verify(mockListener, never()).onWifiSettingChanged(anyString());
 
         // now get back to Airplane Mode and toggle WiFi to OFF_AIRPLANE
         // (WifiSettings will set to OFF_AIRPLANE if user turns WiFi off while
@@ -227,15 +227,15 @@ public class WearWifiMediatorSettingsTest {
         obs.onChange(false, Settings.System.getUriFor(WIFI_SETTING_KEY));
 
         // at this point WiFi should be in OFF_AIRPLANE
-        Assert.assertEquals(WIFI_SETTING_OFF_AIRPLANE, mWifiSettings.getWifiSetting());
+        assertEquals(WIFI_SETTING_OFF_AIRPLANE, mWifiSettings.getWifiSetting());
         verify(mockListener).onWifiSettingChanged(WIFI_SETTING_OFF_AIRPLANE);
         reset(mockListener);
 
         // exiting Airplane Mode should keep WiFi set to OFF
         Settings.Global.putInt(cr, Settings.Global.AIRPLANE_MODE_ON, 0);
         obs.onChange(false, Settings.Global.getUriFor(Settings.Global.AIRPLANE_MODE_ON));
-        Assert.assertFalse(mWifiSettings.getIsInAirplaneMode());
-        Assert.assertEquals(WIFI_SETTING_OFF, mWifiSettings.getWifiSetting());
+        assertFalse(mWifiSettings.getIsInAirplaneMode());
+        assertEquals(WIFI_SETTING_OFF, mWifiSettings.getWifiSetting());
         verify(mockListener).onWifiSettingChanged(WIFI_SETTING_OFF);
     }
 
@@ -246,14 +246,14 @@ public class WearWifiMediatorSettingsTest {
         Settings.Global.putInt(cr, Settings.Global.WIFI_ON_WHEN_PROXY_DISCONNECTED, 0);
         obs.onChange(false, Settings.Global.getUriFor(
                 Settings.Global.WIFI_ON_WHEN_PROXY_DISCONNECTED));
-        Assert.assertFalse(mWifiSettings.getWifiOnWhenProxyDisconnected());
+        assertFalse(mWifiSettings.getWifiOnWhenProxyDisconnected());
         verify(mockListener).onWifiOnWhenProxyDisconnectedChanged(false);
         reset(mockListener);
 
         Settings.Global.putInt(cr, Settings.Global.WIFI_ON_WHEN_PROXY_DISCONNECTED, 1);
         obs.onChange(false, Settings.Global.getUriFor(
                 Settings.Global.WIFI_ON_WHEN_PROXY_DISCONNECTED));
-        Assert.assertTrue(mWifiSettings.getWifiOnWhenProxyDisconnected());
+        assertTrue(mWifiSettings.getWifiOnWhenProxyDisconnected());
         verify(mockListener).onWifiOnWhenProxyDisconnectedChanged(true);
         reset(mockListener);
     }

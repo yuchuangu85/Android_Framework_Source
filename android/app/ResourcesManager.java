@@ -20,7 +20,9 @@ import static android.app.ActivityThread.DEBUG_CONFIGURATION;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
 import android.content.res.ApkAssets;
 import android.content.res.AssetManager;
 import android.content.res.CompatResources;
@@ -31,6 +33,7 @@ import android.content.res.ResourcesImpl;
 import android.content.res.ResourcesKey;
 import android.hardware.display.DisplayManagerGlobal;
 import android.os.IBinder;
+import android.os.Process;
 import android.os.Trace;
 import android.util.ArrayMap;
 import android.util.DisplayMetrics;
@@ -76,18 +79,21 @@ public class ResourcesManager {
      * The global configuration upon which all Resources are based. Multi-window Resources
      * apply their overrides to this configuration.
      */
+    @UnsupportedAppUsage
     private final Configuration mResConfiguration = new Configuration();
 
     /**
      * A mapping of ResourceImpls and their configurations. These are heavy weight objects
      * which should be reused as much as possible.
      */
+    @UnsupportedAppUsage
     private final ArrayMap<ResourcesKey, WeakReference<ResourcesImpl>> mResourceImpls =
             new ArrayMap<>();
 
     /**
      * A list of Resource references that can be reused.
      */
+    @UnsupportedAppUsage
     private final ArrayList<WeakReference<Resources>> mResourceReferences = new ArrayList<>();
 
     private static class ApkKey {
@@ -121,10 +127,13 @@ public class ResourcesManager {
         }
     }
 
+    private static final boolean ENABLE_APK_ASSETS_CACHE = false;
+
     /**
      * The ApkAssets we are caching and intend to hold strong references to.
      */
-    private final LruCache<ApkKey, ApkAssets> mLoadedApkAssets = new LruCache<>(3);
+    private final LruCache<ApkKey, ApkAssets> mLoadedApkAssets =
+            (ENABLE_APK_ASSETS_CACHE) ? new LruCache<>(3) : null;
 
     /**
      * The ApkAssets that are being referenced in the wild that we can reuse, even if they aren't
@@ -144,6 +153,7 @@ public class ResourcesManager {
      * Each Activity may has a base override configuration that is applied to each Resources object,
      * which in turn may have their own override configuration specified.
      */
+    @UnsupportedAppUsage
     private final WeakHashMap<IBinder, ActivityResources> mActivityResourceReferences =
             new WeakHashMap<>();
 
@@ -153,6 +163,7 @@ public class ResourcesManager {
     private final ArrayMap<Pair<Integer, DisplayAdjustments>, WeakReference<Display>>
             mAdjustedDisplays = new ArrayMap<>();
 
+    @UnsupportedAppUsage
     public static ResourcesManager getInstance() {
         synchronized (ResourcesManager.class) {
             if (sResourcesManager == null) {
@@ -225,7 +236,7 @@ public class ResourcesManager {
             config.screenLayout = Configuration.reduceScreenLayout(sl,
                     config.screenHeightDp, config.screenWidthDp);
         }
-        config.smallestScreenWidthDp = config.screenWidthDp; // assume screen does not rotate
+        config.smallestScreenWidthDp = Math.min(config.screenWidthDp, config.screenHeightDp);
         config.compatScreenWidthDp = config.screenWidthDp;
         config.compatScreenHeightDp = config.screenHeightDp;
         config.compatSmallestScreenWidthDp = config.smallestScreenWidthDp;
@@ -310,9 +321,12 @@ public class ResourcesManager {
     private @NonNull ApkAssets loadApkAssets(String path, boolean sharedLib, boolean overlay)
             throws IOException {
         final ApkKey newKey = new ApkKey(path, sharedLib, overlay);
-        ApkAssets apkAssets = mLoadedApkAssets.get(newKey);
-        if (apkAssets != null) {
-            return apkAssets;
+        ApkAssets apkAssets = null;
+        if (mLoadedApkAssets != null) {
+            apkAssets = mLoadedApkAssets.get(newKey);
+            if (apkAssets != null) {
+                return apkAssets;
+            }
         }
 
         // Optimistically check if this ApkAssets exists somewhere else.
@@ -320,7 +334,10 @@ public class ResourcesManager {
         if (apkAssetsRef != null) {
             apkAssets = apkAssetsRef.get();
             if (apkAssets != null) {
-                mLoadedApkAssets.put(newKey, apkAssets);
+                if (mLoadedApkAssets != null) {
+                    mLoadedApkAssets.put(newKey, apkAssets);
+                }
+
                 return apkAssets;
             } else {
                 // Clean up the reference.
@@ -335,7 +352,11 @@ public class ResourcesManager {
         } else {
             apkAssets = ApkAssets.loadFromPath(path, false /*system*/, sharedLib);
         }
-        mLoadedApkAssets.put(newKey, apkAssets);
+
+        if (mLoadedApkAssets != null) {
+            mLoadedApkAssets.put(newKey, apkAssets);
+        }
+
         mCachedApkAssets.put(newKey, new WeakReference<>(apkAssets));
         return apkAssets;
     }
@@ -349,6 +370,7 @@ public class ResourcesManager {
      * @return a new AssetManager.
     */
     @VisibleForTesting
+    @UnsupportedAppUsage
     protected @Nullable AssetManager createAssetManager(@NonNull final ResourcesKey key) {
         final AssetManager.Builder builder = new AssetManager.Builder();
 
@@ -434,18 +456,22 @@ public class ResourcesManager {
 
             pw.println("ResourcesManager:");
             pw.increaseIndent();
-            pw.print("cached apks: total=");
-            pw.print(mLoadedApkAssets.size());
-            pw.print(" created=");
-            pw.print(mLoadedApkAssets.createCount());
-            pw.print(" evicted=");
-            pw.print(mLoadedApkAssets.evictionCount());
-            pw.print(" hit=");
-            pw.print(mLoadedApkAssets.hitCount());
-            pw.print(" miss=");
-            pw.print(mLoadedApkAssets.missCount());
-            pw.print(" max=");
-            pw.print(mLoadedApkAssets.maxSize());
+            if (mLoadedApkAssets != null) {
+                pw.print("cached apks: total=");
+                pw.print(mLoadedApkAssets.size());
+                pw.print(" created=");
+                pw.print(mLoadedApkAssets.createCount());
+                pw.print(" evicted=");
+                pw.print(mLoadedApkAssets.evictionCount());
+                pw.print(" hit=");
+                pw.print(mLoadedApkAssets.hitCount());
+                pw.print(" miss=");
+                pw.print(mLoadedApkAssets.missCount());
+                pw.print(" max=");
+                pw.print(mLoadedApkAssets.maxSize());
+            } else {
+                pw.print("cached apks: 0 [cache disabled]");
+            }
             pw.println();
 
             pw.print("total apks: ");
@@ -1065,7 +1091,18 @@ public class ResourcesManager {
      * @param assetPath The main asset path for which to add the library asset path.
      * @param libAsset The library asset path to add.
      */
+    @UnsupportedAppUsage
     public void appendLibAssetForMainAssetPath(String assetPath, String libAsset) {
+        appendLibAssetsForMainAssetPath(assetPath, new String[] { libAsset });
+    }
+
+    /**
+     * Appends the library asset paths to any ResourcesImpl object that contains the main
+     * assetPath.
+     * @param assetPath The main asset path for which to add the library asset path.
+     * @param libAssets The library asset paths to add.
+     */
+    public void appendLibAssetsForMainAssetPath(String assetPath, String[] libAssets) {
         synchronized (this) {
             // Record which ResourcesImpl need updating
             // (and what ResourcesKey they should update to).
@@ -1077,15 +1114,13 @@ public class ResourcesManager {
                 final WeakReference<ResourcesImpl> weakImplRef = mResourceImpls.valueAt(i);
                 final ResourcesImpl impl = weakImplRef != null ? weakImplRef.get() : null;
                 if (impl != null && Objects.equals(key.mResDir, assetPath)) {
-                    if (!ArrayUtils.contains(key.mLibDirs, libAsset)) {
-                        final int newLibAssetCount = 1 +
-                                (key.mLibDirs != null ? key.mLibDirs.length : 0);
-                        final String[] newLibAssets = new String[newLibAssetCount];
-                        if (key.mLibDirs != null) {
-                            System.arraycopy(key.mLibDirs, 0, newLibAssets, 0, key.mLibDirs.length);
-                        }
-                        newLibAssets[newLibAssetCount - 1] = libAsset;
+                    String[] newLibAssets = key.mLibDirs;
+                    for (String libAsset : libAssets) {
+                        newLibAssets =
+                                ArrayUtils.appendElement(String.class, newLibAssets, libAsset);
+                    }
 
+                    if (newLibAssets != key.mLibDirs) {
                         updatedResourceKeys.put(impl, new ResourcesKey(
                                 key.mResDir,
                                 key.mSplitResDirs,
@@ -1103,11 +1138,22 @@ public class ResourcesManager {
     }
 
     // TODO(adamlesinski): Make this accept more than just overlay directories.
-    final void applyNewResourceDirsLocked(@NonNull final String baseCodePath,
-            @Nullable final String[] newResourceDirs) {
+    final void applyNewResourceDirsLocked(@NonNull final ApplicationInfo appInfo,
+            @Nullable final String[] oldPaths) {
         try {
             Trace.traceBegin(Trace.TRACE_TAG_RESOURCES,
                     "ResourcesManager#applyNewResourceDirsLocked");
+
+            String baseCodePath = appInfo.getBaseCodePath();
+
+            final int myUid = Process.myUid();
+            String[] newSplitDirs = appInfo.uid == myUid
+                    ? appInfo.splitSourceDirs
+                    : appInfo.splitPublicSourceDirs;
+
+            // ApplicationInfo is mutable, so clone the arrays to prevent outside modification
+            String[] copiedSplitDirs = ArrayUtils.cloneOrNull(newSplitDirs);
+            String[] copiedResourceDirs = ArrayUtils.cloneOrNull(appInfo.resourceDirs);
 
             final ArrayMap<ResourcesImpl, ResourcesKey> updatedResourceKeys = new ArrayMap<>();
             final int implCount = mResourceImpls.size();
@@ -1115,15 +1161,23 @@ public class ResourcesManager {
                 final ResourcesKey key = mResourceImpls.keyAt(i);
                 final WeakReference<ResourcesImpl> weakImplRef = mResourceImpls.valueAt(i);
                 final ResourcesImpl impl = weakImplRef != null ? weakImplRef.get() : null;
-                if (impl != null && (key.mResDir == null || key.mResDir.equals(baseCodePath))) {
+
+                if (impl == null) {
+                    continue;
+                }
+
+                if (key.mResDir == null
+                        || key.mResDir.equals(baseCodePath)
+                        || ArrayUtils.contains(oldPaths, key.mResDir)) {
                     updatedResourceKeys.put(impl, new ResourcesKey(
-                            key.mResDir,
-                            key.mSplitResDirs,
-                            newResourceDirs,
+                            baseCodePath,
+                            copiedSplitDirs,
+                            copiedResourceDirs,
                             key.mLibDirs,
                             key.mDisplayId,
                             key.mOverrideConfiguration,
-                            key.mCompatInfo));
+                            key.mCompatInfo
+                    ));
                 }
             }
 

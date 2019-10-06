@@ -16,20 +16,24 @@
 
 package com.android.internal.telephony.cat;
 
+import android.annotation.UnsupportedAppUsage;
 import android.graphics.Bitmap;
 import android.os.Parcel;
 import android.os.Parcelable;
 
 public class TextMessage implements Parcelable {
     public String title = "";
+    @UnsupportedAppUsage
     public String text = null;
     public Bitmap icon = null;
+    @UnsupportedAppUsage
     public boolean iconSelfExplanatory = false;
     public boolean isHighPriority = false;
     public boolean responseNeeded = true;
     public boolean userClear = false;
     public Duration duration = null;
 
+    @UnsupportedAppUsage
     TextMessage() {
     }
 

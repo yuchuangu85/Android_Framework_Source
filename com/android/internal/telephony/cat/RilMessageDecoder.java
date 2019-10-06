@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.cat;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Handler;
 import android.os.Message;
 import android.telephony.SubscriptionManager;
@@ -38,13 +39,16 @@ class RilMessageDecoder extends StateMachine {
     private static final int CMD_PARAMS_READY = 2;
 
     // members
+    @UnsupportedAppUsage
     private CommandParamsFactory mCmdParamsFactory = null;
     private RilMessage mCurrentRilMessage = null;
     private Handler mCaller = null;
     private static int mSimCount = 0;
+    @UnsupportedAppUsage
     private static RilMessageDecoder[] mInstance = null;
 
     // States
+    @UnsupportedAppUsage
     private StateStart mStateStart = new StateStart();
     private StateCmdParamsReady mStateCmdParamsReady = new StateCmdParamsReady();
 
@@ -55,6 +59,7 @@ class RilMessageDecoder extends StateMachine {
      * @param fh
      * @return RilMesssageDecoder
      */
+    @UnsupportedAppUsage
     public static synchronized RilMessageDecoder getInstance(Handler caller, IccFileHandler fh,
             int slotId) {
         if (null == mInstance) {

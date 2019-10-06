@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.layoutlib.bridge.remote.client.adapters;
 
 import com.android.ide.common.rendering.api.RenderResources;
@@ -21,14 +20,17 @@ import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.ide.common.rendering.api.StyleResourceValue;
 import com.android.layout.remote.api.RemoteRenderResources;
-import com.android.resources.ResourceType;
+import com.android.layout.remote.api.RemoteResourceValue;
 import com.android.tools.layoutlib.annotations.NotNull;
+import com.android.tools.layoutlib.annotations.Nullable;
 
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class RemoteRenderResourcesAdapter implements RemoteRenderResources {
+
     private final RenderResources mDelegate;
 
     private RemoteRenderResourcesAdapter(@NotNull RenderResources delegate) {
@@ -42,13 +44,13 @@ public class RemoteRenderResourcesAdapter implements RemoteRenderResources {
     }
 
     @Override
-    public StyleResourceValue getDefaultTheme() {
-        return mDelegate.getDefaultTheme();
+    public RemoteResourceValue<StyleResourceValue> getDefaultTheme() {
+        return RemoteResourceValue.fromResourceValue(mDelegate.getDefaultTheme());
     }
 
     @Override
-    public void applyStyle(StyleResourceValue theme, boolean useAsPrimary) {
-        mDelegate.applyStyle(theme, useAsPrimary);
+    public void applyStyle(RemoteResourceValue<StyleResourceValue> theme, boolean useAsPrimary) {
+        mDelegate.applyStyle(theme.toResourceValue(), useAsPrimary);
     }
 
     @Override
@@ -57,68 +59,58 @@ public class RemoteRenderResourcesAdapter implements RemoteRenderResources {
     }
 
     @Override
-    public List<StyleResourceValue> getAllThemes() {
-        return mDelegate.getAllThemes();
+    public List<RemoteResourceValue<StyleResourceValue>> getAllThemes() {
+        return mDelegate.getAllThemes().stream().map(
+                RemoteResourceValue::fromResourceValue).collect(Collectors.toList());
     }
 
     @Override
-    public StyleResourceValue getTheme(String name, boolean frameworkTheme) {
-        return mDelegate.getTheme(name, frameworkTheme);
+    @Nullable
+    public RemoteResourceValue<ResourceValue> getResolvedResource(
+            @NotNull ResourceReference reference) {
+        return RemoteResourceValue.fromResourceValue(mDelegate.getResolvedResource(reference));
     }
 
     @Override
-    public boolean themeIsParentOf(StyleResourceValue parentTheme, StyleResourceValue childTheme) {
-        return mDelegate.themeIsParentOf(parentTheme, childTheme);
+    public RemoteResourceValue<ResourceValue> findItemInTheme(ResourceReference attr) {
+        return RemoteResourceValue.fromResourceValue(mDelegate.findItemInTheme(attr));
     }
 
     @Override
-    public ResourceValue getFrameworkResource(ResourceType resourceType, String resourceName) {
-        return mDelegate.getFrameworkResource(resourceType, resourceName);
+    public RemoteResourceValue<ResourceValue> findItemInStyle(
+            RemoteResourceValue<StyleResourceValue> style, ResourceReference attr) {
+        return RemoteResourceValue.fromResourceValue(
+                mDelegate.findItemInStyle(style.toResourceValue(), attr));
     }
 
     @Override
-    public ResourceValue getProjectResource(ResourceType resourceType, String resourceName) {
-        return mDelegate.getProjectResource(resourceType, resourceName);
+    public RemoteResourceValue<ResourceValue> resolveValue(
+            RemoteResourceValue<ResourceValue> value) {
+        return RemoteResourceValue.fromResourceValue(
+                mDelegate.resolveResValue(value.toResourceValue()));
     }
 
     @Override
-    public ResourceValue findItemInTheme(ResourceReference attr) {
-        return mDelegate.findItemInTheme(attr);
+    public RemoteResourceValue<StyleResourceValue> getParent(
+            RemoteResourceValue<StyleResourceValue> style) {
+        return RemoteResourceValue.fromResourceValue(mDelegate.getParent(style.toResourceValue()));
     }
 
     @Override
-    public ResourceValue findItemInStyle(StyleResourceValue style, ResourceReference attr) {
-        return mDelegate.findItemInStyle(style, attr);
+    @Nullable
+    public RemoteResourceValue<StyleResourceValue> getStyle(@NotNull ResourceReference reference) {
+        return RemoteResourceValue.fromResourceValue(mDelegate.getStyle(reference));
     }
 
     @Override
-    public ResourceValue resolveValue(ResourceValue value) {
-        return mDelegate.resolveResValue(value);
+    public RemoteResourceValue<ResourceValue> dereference(
+            RemoteResourceValue<ResourceValue> resourceValue) {
+        return RemoteResourceValue.fromResourceValue(
+                mDelegate.dereference(resourceValue.toResourceValue()));
     }
 
     @Override
-    public ResourceValue resolveValue(ResourceType type, String name, String value,
-            boolean isFrameworkValue) {
-        return mDelegate.resolveValue(type, name, value, isFrameworkValue);
-    }
-
-    @Override
-    public StyleResourceValue getParent(StyleResourceValue style) {
-        return mDelegate.getParent(style);
-    }
-
-    @Override
-    public StyleResourceValue getStyle(String styleName, boolean isFramework) {
-        return mDelegate.getStyle(styleName, isFramework);
-    }
-
-    @Override
-    public ResourceValue dereference(ResourceValue resourceValue) {
-        return mDelegate.dereference(resourceValue);
-    }
-
-    @Override
-    public ResourceValue getUnresolvedResource(ResourceReference reference) {
-        return mDelegate.getUnresolvedResource(reference);
+    public RemoteResourceValue<ResourceValue> getUnresolvedResource(ResourceReference reference) {
+        return RemoteResourceValue.fromResourceValue(mDelegate.getUnresolvedResource(reference));
     }
 }

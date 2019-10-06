@@ -16,19 +16,26 @@
 
 package android.provider;
 
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.SystemApi;
 import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.app.job.JobService;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
-import android.database.Cursor;
 import android.database.ContentObserver;
+import android.database.Cursor;
 import android.database.sqlite.SqliteWrapper;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Parcel;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.SmsMessage;
@@ -40,7 +47,8 @@ import android.util.Patterns;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.SmsApplication;
 
-
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -274,6 +282,70 @@ public final class Telephony {
     }
 
     /**
+     * Columns in sms_changes table.
+     * @hide
+     */
+    public interface TextBasedSmsChangesColumns {
+        /**
+         * The {@code content://} style URL for this table.
+         * @hide
+         */
+        public static final Uri CONTENT_URI = Uri.parse("content://sms-changes");
+
+        /**
+         * Primary key.
+         * <P>Type: INTEGER (long)</P>
+         * @hide
+         */
+        public static final String ID = "_id";
+
+        /**
+         * Triggers on sms table create a row in this table for each update/delete.
+         * This column is the "_id" of the row from sms table that was updated/deleted.
+         * <P>Type: INTEGER (long)</P>
+         * @hide
+         */
+        public static final String ORIG_ROW_ID = "orig_rowid";
+
+        /**
+         * Triggers on sms table create a row in this table for each update/delete.
+         * This column is the "sub_id" of the row from sms table that was updated/deleted.
+         * @hide
+         * <P>Type: INTEGER (long)</P>
+         */
+        public static final String SUB_ID = "sub_id";
+
+        /**
+         * The type of operation that created this row.
+         *    {@link #TYPE_UPDATE} = update op
+         *    {@link #TYPE_DELETE} = delete op
+         * @hide
+         * <P>Type: INTEGER (long)</P>
+         */
+        public static final String TYPE = "type";
+
+        /**
+         * One of the possible values for the above column "type". Indicates it is an update op.
+         * @hide
+         */
+        public static final int TYPE_UPDATE = 0;
+
+        /**
+         * One of the possible values for the above column "type". Indicates it is a delete op.
+         * @hide
+         */
+        public static final int TYPE_DELETE = 1;
+
+        /**
+         * This column contains a non-null value only if the operation on sms table is an update op
+         * and the column "read" is changed by the update op.
+         * <P>Type: INTEGER (boolean)</P>
+         * @hide
+         */
+        public static final String NEW_READ_STATUS = "new_read_status";
+    }
+
+    /**
      * Contains all text-based SMS messages.
      */
     public static final class Sms implements BaseColumns, TextBasedSmsColumns {
@@ -310,6 +382,7 @@ public final class Telephony {
          * Return cursor for table query.
          * @hide
          */
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
         public static Cursor query(ContentResolver cr, String[] projection,
                 String where, String orderBy) {
             return cr.query(CONTENT_URI, projection, where,
@@ -340,6 +413,7 @@ public final class Telephony {
          * @return the URI for the new message
          * @hide
          */
+        @UnsupportedAppUsage
         public static Uri addMessageToUri(ContentResolver resolver,
                 Uri uri, String address, String body, String subject,
                 Long date, boolean read, boolean deliveryReport) {
@@ -362,6 +436,7 @@ public final class Telephony {
          * @return the URI for the new message
          * @hide
          */
+        @UnsupportedAppUsage
         public static Uri addMessageToUri(int subId, ContentResolver resolver,
                 Uri uri, String address, String body, String subject,
                 Long date, boolean read, boolean deliveryReport) {
@@ -384,6 +459,7 @@ public final class Telephony {
          * @return the URI for the new message
          * @hide
          */
+        @UnsupportedAppUsage
         public static Uri addMessageToUri(ContentResolver resolver,
                 Uri uri, String address, String body, String subject,
                 Long date, boolean read, boolean deliveryReport, long threadId) {
@@ -408,6 +484,7 @@ public final class Telephony {
          * @return the URI for the new message
          * @hide
          */
+        @UnsupportedAppUsage
         public static Uri addMessageToUri(int subId, ContentResolver resolver,
                 Uri uri, String address, String body, String subject,
                 Long date, boolean read, boolean deliveryReport, long threadId) {
@@ -440,6 +517,7 @@ public final class Telephony {
          * @return true if the operation succeeded
          * @hide
          */
+        @UnsupportedAppUsage
         public static boolean moveMessageToFolder(Context context,
                 Uri uri, int folder, int error) {
             if (uri == null) {
@@ -483,6 +561,7 @@ public final class Telephony {
          * outgoing message.
          * @hide
          */
+        @UnsupportedAppUsage
         public static boolean isOutgoingFolder(int messageType) {
             return  (messageType == MESSAGE_TYPE_FAILED)
                     || (messageType == MESSAGE_TYPE_OUTBOX)
@@ -524,6 +603,7 @@ public final class Telephony {
              * @return the URI for the new message
              * @hide
              */
+            @UnsupportedAppUsage
             public static Uri addMessage(ContentResolver resolver,
                     String address, String body, String subject, Long date,
                     boolean read) {
@@ -544,6 +624,7 @@ public final class Telephony {
              * @return the URI for the new message
              * @hide
              */
+            @UnsupportedAppUsage
             public static Uri addMessage(int subId, ContentResolver resolver,
                     String address, String body, String subject, Long date, boolean read) {
                 return addMessageToUri(subId, resolver, CONTENT_URI, address, body,
@@ -584,6 +665,7 @@ public final class Telephony {
              * @return the URI for the new message
              * @hide
              */
+            @UnsupportedAppUsage
             public static Uri addMessage(ContentResolver resolver,
                     String address, String body, String subject, Long date) {
                 return addMessageToUri(SubscriptionManager.getDefaultSmsSubscriptionId(),
@@ -602,6 +684,7 @@ public final class Telephony {
              * @return the URI for the new message
              * @hide
              */
+            @UnsupportedAppUsage
             public static Uri addMessage(int subId, ContentResolver resolver,
                     String address, String body, String subject, Long date) {
                 return addMessageToUri(subId, resolver, CONTENT_URI, address, body,
@@ -629,6 +712,7 @@ public final class Telephony {
            /**
             * @hide
             */
+            @UnsupportedAppUsage
             public static Uri addMessage(ContentResolver resolver,
                     String address, String body, String subject, Long date) {
                 return addMessageToUri(SubscriptionManager.getDefaultSmsSubscriptionId(),
@@ -647,6 +731,7 @@ public final class Telephony {
              * @return the URI for the new message
              * @hide
              */
+            @UnsupportedAppUsage
             public static Uri addMessage(int subId, ContentResolver resolver,
                     String address, String body, String subject, Long date) {
                 return addMessageToUri(subId, resolver, CONTENT_URI, address, body,
@@ -693,6 +778,7 @@ public final class Telephony {
              * @return the URI for the new message
              * @hide
              */
+            @UnsupportedAppUsage
             public static Uri addMessage(ContentResolver resolver,
                     String address, String body, String subject, Long date,
                     boolean deliveryReport, long threadId) {
@@ -806,6 +892,10 @@ public final class Telephony {
              * user whether they want to replace the current default
              * SMS application with the one specified in
              * {@link #EXTRA_PACKAGE_NAME}.
+             * <p>
+             * This is no longer supported since Q, please use
+             * {@link android.app.role.RoleManager#createRequestRoleIntent(String)} with
+             * {@link android.app.role.RoleManager#ROLE_SMS} instead.
              */
             @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
             public static final String ACTION_CHANGE_DEFAULT =
@@ -816,6 +906,10 @@ public final class Telephony {
              * extra for {@link #ACTION_CHANGE_DEFAULT}
              *
              * @see #ACTION_CHANGE_DEFAULT
+             * <p>
+             * This is no longer supported since Q, please use
+             * {@link android.app.role.RoleManager#createRequestRoleIntent(String)} with
+             * {@link android.app.role.RoleManager#ROLE_SMS} instead.
              */
             public static final String EXTRA_PACKAGE_NAME = "package";
 
@@ -1106,13 +1200,16 @@ public final class Telephony {
              * Broadcast Action: A debug code has been entered in the dialer. This intent is
              * broadcast by the system and OEM telephony apps may need to receive these broadcasts.
              * These "secret codes" are used to activate developer menus by dialing certain codes.
-             * And they are of the form {@code *#*#&lt;code&gt;#*#*}. The intent will have the data
-             * URI: {@code android_secret_code://&lt;code&gt;}. It is possible that a manifest
+             * And they are of the form {@code *#*#<code>#*#*}. The intent will have the data
+             * URI: {@code android_secret_code://<code>}. It is possible that a manifest
              * receiver would be woken up even if it is not currently running.
              *
              * <p>Requires {@code android.Manifest.permission#CONTROL_INCALL_EXPERIENCE} to
              * send and receive.</p>
+             * @deprecated it is no longer supported, use {@link
+             * TelephonyManager#ACTION_SECRET_CODE} instead
              */
+            @Deprecated
             @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
             public static final String SECRET_CODE_ACTION =
                     "android.provider.Telephony.SECRET_CODE";
@@ -1149,6 +1246,69 @@ public final class Telephony {
             @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
             public static final String ACTION_EXTERNAL_PROVIDER_CHANGE =
                           "android.provider.action.EXTERNAL_PROVIDER_CHANGE";
+
+            /**
+             * Same as {@link #ACTION_DEFAULT_SMS_PACKAGE_CHANGED} but it's implicit (e.g. sent to
+             * all apps) and requires
+             * {@link android.Manifest.permission#MONITOR_DEFAULT_SMS_PACKAGE} to receive.
+             *
+             * @hide
+             */
+            @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+            public static final String ACTION_DEFAULT_SMS_PACKAGE_CHANGED_INTERNAL =
+                    "android.provider.action.DEFAULT_SMS_PACKAGE_CHANGED_INTERNAL";
+
+            /**
+             * Broadcast action: When SMS-MMS db is being created. If file-based encryption is
+             * supported, this broadcast indicates creation of the db in credential-encrypted
+             * storage. A boolean is specified in {@link #EXTRA_IS_INITIAL_CREATE} to indicate if
+             * this is the initial create of the db. Requires
+             * {@link android.Manifest.permission#READ_SMS} to receive.
+             *
+             * @see #EXTRA_IS_INITIAL_CREATE
+             *
+             * @hide
+             */
+            @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+            public static final String ACTION_SMS_MMS_DB_CREATED =
+                    "android.provider.action.SMS_MMS_DB_CREATED";
+
+            /**
+             * Boolean flag passed as an extra with {@link #ACTION_SMS_MMS_DB_CREATED} to indicate
+             * whether the DB creation is the initial creation on the device, that is it is after a
+             * factory-data reset or a new device. Any subsequent creations of the DB (which
+             * happens only in error scenarios) will have this flag set to false.
+             *
+             * @see #ACTION_SMS_MMS_DB_CREATED
+             *
+             * @hide
+             */
+            public static final String EXTRA_IS_INITIAL_CREATE =
+                    "android.provider.extra.IS_INITIAL_CREATE";
+
+            /**
+             * Broadcast intent action indicating that the telephony provider SMS MMS database is
+             * corrupted. A boolean is specified in {@link #EXTRA_IS_CORRUPTED} to indicate if the
+             * database is corrupted. Requires the
+             * {@link android.Manifest.permission#READ_PRIVILEGED_PHONE_STATE permission.
+             *
+             * @hide
+             */
+            @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+            @RequiresPermission(android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE)
+            public static final String ACTION_SMS_MMS_DB_LOST =
+                    "android.provider.action.SMS_MMS_DB_LOST";
+
+            /**
+             * Boolean flag passed as an extra with {@link #ACTION_SMS_MMS_DB_LOST} to indicate
+             * whether the DB got corrupted or not.
+             *
+             * @see #ACTION_SMS_MMS_DB_LOST
+             *
+             * @hide
+             */
+            public static final String EXTRA_IS_CORRUPTED =
+                    "android.provider.extra.IS_CORRUPTED";
 
             /**
              * Read the PDUs out of an {@link #SMS_RECEIVED_ACTION} or a
@@ -1869,15 +2029,23 @@ public final class Telephony {
 
     /**
      * Helper functions for the "threads" table used by MMS and SMS.
+     *
+     * Thread IDs are determined by the participants in a conversation and can be used to match
+     * both SMS and MMS messages.
+     *
+     * To avoid issues where applications might cache a thread ID, the thread ID of a deleted thread
+     * must not be reused to point at a new thread.
      */
     public static final class Threads implements ThreadsColumns {
 
+        @UnsupportedAppUsage
         private static final String[] ID_PROJECTION = { BaseColumns._ID };
 
         /**
          * Private {@code content://} style URL for this table. Used by
          * {@link #getOrCreateThreadId(android.content.Context, java.util.Set)}.
          */
+        @UnsupportedAppUsage
         private static final Uri THREAD_ID_CONTENT_URI = Uri.parse(
                 "content://mms-sms/threadID");
 
@@ -1920,14 +2088,10 @@ public final class Telephony {
         }
 
         /**
-         * Given the recipients list and subject of an unsaved message,
-         * return its thread ID.  If the message starts a new thread,
-         * allocate a new thread ID.  Otherwise, use the appropriate
-         * existing thread ID.
-         *
-         * <p>Find the thread ID of the same set of recipients (in any order,
-         * without any additions). If one is found, return it. Otherwise,
-         * return a unique thread ID.</p>
+         * Given a set of recipients return its thread ID.
+         * <p>
+         * If a thread exists containing the provided participants, return its thread ID. Otherwise,
+         * this will create a new thread containing the provided participants and return its ID.
          */
         public static long getOrCreateThreadId(
                 Context context, Set<String> recipients) {
@@ -1960,6 +2124,651 @@ public final class Telephony {
 
             Rlog.e(TAG, "getOrCreateThreadId failed with " + recipients.size() + " recipients");
             throw new IllegalArgumentException("Unable to find or allocate a thread ID.");
+        }
+    }
+
+    /**
+     * Columns for the "rcs_*" tables used by {@link android.telephony.ims.RcsMessageStore} classes.
+     *
+     * @hide - not meant for public use
+     */
+    public interface RcsColumns {
+        // TODO(sahinc): Turn this to true once the schema finalizes, so that people can update
+        //  their messaging databases. NOTE: move the switch/case update in MmsSmsDatabaseHelper to
+        //  the latest version of the database before turning this flag to true.
+        boolean IS_RCS_TABLE_SCHEMA_CODE_COMPLETE = false;
+
+        /**
+         * The authority for the content provider
+         */
+        String AUTHORITY = "rcs";
+
+        /**
+         * The URI to start building upon to use {@link com.android.providers.telephony.RcsProvider}
+         */
+        Uri CONTENT_AND_AUTHORITY = Uri.parse("content://" + AUTHORITY);
+
+        /**
+         * The value to be used whenever a transaction that expects an integer to be returned
+         * failed.
+         */
+        int TRANSACTION_FAILED = Integer.MIN_VALUE;
+
+        /**
+         * The value that denotes a timestamp was not set before (e.g. a message that is not
+         * delivered yet will not have a DELIVERED_TIMESTAMP)
+         */
+        long TIMESTAMP_NOT_SET = 0;
+
+        /**
+         * The table that {@link android.telephony.ims.RcsThread} gets persisted to
+         */
+        interface RcsThreadColumns {
+            /**
+             * The path that should be used for referring to
+             * {@link android.telephony.ims.RcsThread}s in
+             * {@link com.android.providers.telephony.RcsProvider} URIs.
+             */
+            String RCS_THREAD_URI_PART = "thread";
+
+            /**
+             * The URI to query or modify {@link android.telephony.ims.RcsThread} via the content
+             * provider.
+             */
+            Uri RCS_THREAD_URI = Uri.withAppendedPath(CONTENT_AND_AUTHORITY, RCS_THREAD_URI_PART);
+
+            /**
+             * The unique identifier of an {@link android.telephony.ims.RcsThread}
+             */
+            String RCS_THREAD_ID_COLUMN = "rcs_thread_id";
+        }
+
+        /**
+         * The table that {@link android.telephony.ims.Rcs1To1Thread} gets persisted to
+         */
+        interface Rcs1To1ThreadColumns extends RcsThreadColumns {
+            /**
+             * The path that should be used for referring to
+             * {@link android.telephony.ims.Rcs1To1Thread}s in
+             * {@link com.android.providers.telephony.RcsProvider} URIs.
+             */
+            String RCS_1_TO_1_THREAD_URI_PART = "p2p_thread";
+
+            /**
+             * The URI to query or modify {@link android.telephony.ims.Rcs1To1Thread}s via the
+             * content provider. Can also insert to this URI to create a new 1-to-1 thread. When
+             * performing an insert, ensure that the provided content values contain the other
+             * participant's ID under the key
+             * {@link RcsParticipantColumns.RCS_PARTICIPANT_ID_COLUMN}
+             */
+            Uri RCS_1_TO_1_THREAD_URI = Uri.withAppendedPath(CONTENT_AND_AUTHORITY,
+                    RCS_1_TO_1_THREAD_URI_PART);
+
+            /**
+             * The SMS/MMS thread to fallback to in case of an RCS outage
+             */
+            String FALLBACK_THREAD_ID_COLUMN = "rcs_fallback_thread_id";
+        }
+
+        /**
+         * The table that {@link android.telephony.ims.RcsGroupThread} gets persisted to
+         */
+        interface RcsGroupThreadColumns extends RcsThreadColumns {
+            /**
+             * The path that should be used for referring to
+             * {@link android.telephony.ims.RcsGroupThread}s in
+             * {@link com.android.providers.telephony.RcsProvider} URIs.
+             */
+            String RCS_GROUP_THREAD_URI_PART = "group_thread";
+
+            /**
+             * The URI to query or modify {@link android.telephony.ims.RcsGroupThread}s via the
+             * content provider
+             */
+            Uri RCS_GROUP_THREAD_URI = Uri.withAppendedPath(CONTENT_AND_AUTHORITY,
+                    RCS_GROUP_THREAD_URI_PART);
+
+            /**
+             * The owner/admin of the {@link android.telephony.ims.RcsGroupThread}
+             */
+            String OWNER_PARTICIPANT_COLUMN = "owner_participant";
+
+            /**
+             * The user visible name of the group
+             */
+            String GROUP_NAME_COLUMN = "group_name";
+
+            /**
+             * The user visible icon of the group
+             */
+            String GROUP_ICON_COLUMN = "group_icon";
+
+            /**
+             * The RCS conference URI for this group
+             */
+            String CONFERENCE_URI_COLUMN = "conference_uri";
+        }
+
+        /**
+         * The view that enables polling from all types of RCS threads at once
+         */
+        interface RcsUnifiedThreadColumns extends RcsThreadColumns, Rcs1To1ThreadColumns,
+                RcsGroupThreadColumns {
+            /**
+             * The type of this {@link android.telephony.ims.RcsThread}
+             */
+            String THREAD_TYPE_COLUMN = "thread_type";
+
+            /**
+             * Integer returned as a result from a database query that denotes the thread is 1 to 1
+             */
+            int THREAD_TYPE_1_TO_1 = 0;
+
+            /**
+             * Integer returned as a result from a database query that denotes the thread is 1 to 1
+             */
+            int THREAD_TYPE_GROUP = 1;
+        }
+
+        /**
+         * The table that {@link android.telephony.ims.RcsParticipant} gets persisted to
+         */
+        interface RcsParticipantColumns {
+            /**
+             * The path that should be used for referring to
+             * {@link android.telephony.ims.RcsParticipant}s in
+             * {@link com.android.providers.telephony.RcsProvider} URIs.
+             */
+            String RCS_PARTICIPANT_URI_PART = "participant";
+
+            /**
+             * The URI to query or modify {@link android.telephony.ims.RcsParticipant}s via the
+             * content provider
+             */
+            Uri RCS_PARTICIPANT_URI = Uri.withAppendedPath(CONTENT_AND_AUTHORITY,
+                    RCS_PARTICIPANT_URI_PART);
+
+            /**
+             * The unique identifier of the entry in the database
+             */
+            String RCS_PARTICIPANT_ID_COLUMN = "rcs_participant_id";
+
+            /**
+             * A foreign key on canonical_address table, also used by SMS/MMS
+             */
+            String CANONICAL_ADDRESS_ID_COLUMN = "canonical_address_id";
+
+            /**
+             * The user visible RCS alias for this participant.
+             */
+            String RCS_ALIAS_COLUMN = "rcs_alias";
+        }
+
+        /**
+         * Additional constants to enable access to {@link android.telephony.ims.RcsParticipant}
+         * related data
+         */
+        interface RcsParticipantHelpers extends RcsParticipantColumns {
+            /**
+             * The view that unifies "rcs_participant" and "canonical_addresses" tables for easy
+             * access to participant address.
+             */
+            String RCS_PARTICIPANT_WITH_ADDRESS_VIEW = "rcs_participant_with_address_view";
+
+            /**
+             * The view that unifies "rcs_participant", "canonical_addresses" and
+             * "rcs_thread_participant" junction table to get full information on participants that
+             * contribute to threads.
+             */
+            String RCS_PARTICIPANT_WITH_THREAD_VIEW = "rcs_participant_with_thread_view";
+        }
+
+        /**
+         * The table that {@link android.telephony.ims.RcsMessage} gets persisted to
+         */
+        interface RcsMessageColumns {
+            /**
+             * Denotes the type of this message (i.e.
+             * {@link android.telephony.ims.RcsIncomingMessage} or
+             * {@link android.telephony.ims.RcsOutgoingMessage}
+             */
+            String MESSAGE_TYPE_COLUMN = "rcs_message_type";
+
+            /**
+             * The unique identifier for the message in the database - i.e. the primary key.
+             */
+            String MESSAGE_ID_COLUMN = "rcs_message_row_id";
+
+            /**
+             * The globally unique RCS identifier for the message. Please see 4.4.5.2 - GSMA
+             * RCC.53 (RCS Device API 1.6 Specification)
+             */
+            String GLOBAL_ID_COLUMN = "rcs_message_global_id";
+
+            /**
+             * The subscription where this message was sent from/to.
+             */
+            String SUB_ID_COLUMN = "sub_id";
+
+            /**
+             * The sending status of the message.
+             * @see android.telephony.ims.RcsMessage.RcsMessageStatus
+             */
+            String STATUS_COLUMN = "status";
+
+            /**
+             * The creation timestamp of the message.
+             */
+            String ORIGINATION_TIMESTAMP_COLUMN = "origination_timestamp";
+
+            /**
+             * The text content of the message.
+             */
+            String MESSAGE_TEXT_COLUMN = "rcs_text";
+
+            /**
+             * The latitude content of the message, if it contains a location.
+             */
+            String LATITUDE_COLUMN = "latitude";
+
+            /**
+             * The longitude content of the message, if it contains a location.
+             */
+            String LONGITUDE_COLUMN = "longitude";
+        }
+
+        /**
+         * The table that additional information of {@link android.telephony.ims.RcsIncomingMessage}
+         * gets persisted to.
+         */
+        interface RcsIncomingMessageColumns extends RcsMessageColumns {
+            /**
+             The path that should be used for referring to
+             * {@link android.telephony.ims.RcsIncomingMessage}s in
+             * {@link com.android.providers.telephony.RcsProvider} URIs.
+             */
+            String INCOMING_MESSAGE_URI_PART = "incoming_message";
+
+            /**
+             * The URI to query incoming messages through
+             * {@link com.android.providers.telephony.RcsProvider}
+             */
+            Uri INCOMING_MESSAGE_URI = Uri.withAppendedPath(CONTENT_AND_AUTHORITY,
+                    INCOMING_MESSAGE_URI_PART);
+
+            /**
+             * The ID of the {@link android.telephony.ims.RcsParticipant} that sent this message
+             */
+            String SENDER_PARTICIPANT_ID_COLUMN = "sender_participant";
+
+            /**
+             * The timestamp of arrival for this message.
+             */
+            String ARRIVAL_TIMESTAMP_COLUMN = "arrival_timestamp";
+
+            /**
+             * The time when the recipient has read this message.
+             */
+            String SEEN_TIMESTAMP_COLUMN = "seen_timestamp";
+        }
+
+        /**
+         * The table that additional information of {@link android.telephony.ims.RcsOutgoingMessage}
+         * gets persisted to.
+         */
+        interface RcsOutgoingMessageColumns extends RcsMessageColumns {
+            /**
+             * The path that should be used for referring to
+             * {@link android.telephony.ims.RcsOutgoingMessage}s in
+             * {@link com.android.providers.telephony.RcsProvider} URIs.
+             */
+            String OUTGOING_MESSAGE_URI_PART = "outgoing_message";
+
+            /**
+             * The URI to query or modify {@link android.telephony.ims.RcsOutgoingMessage}s via the
+             * content provider
+             */
+            Uri OUTGOING_MESSAGE_URI = Uri.withAppendedPath(CONTENT_AND_AUTHORITY,
+                    OUTGOING_MESSAGE_URI_PART);
+        }
+
+        /**
+         * The delivery information of an {@link android.telephony.ims.RcsOutgoingMessage}
+         */
+        interface RcsMessageDeliveryColumns extends RcsOutgoingMessageColumns {
+            /**
+             * The path that should be used for referring to
+             * {@link android.telephony.ims.RcsOutgoingMessageDelivery}s in
+             * {@link com.android.providers.telephony.RcsProvider} URIs.
+             */
+            String DELIVERY_URI_PART = "delivery";
+
+            /**
+             * The timestamp of delivery of this message.
+             */
+            String DELIVERED_TIMESTAMP_COLUMN = "delivered_timestamp";
+
+            /**
+             * The time when the recipient has read this message.
+             */
+            String SEEN_TIMESTAMP_COLUMN = "seen_timestamp";
+        }
+
+        /**
+         * The views that allow querying {@link android.telephony.ims.RcsIncomingMessage} and
+         * {@link android.telephony.ims.RcsOutgoingMessage} at the same time.
+         */
+        interface RcsUnifiedMessageColumns extends RcsIncomingMessageColumns,
+                RcsOutgoingMessageColumns {
+            /**
+             * The path that is used to query all {@link android.telephony.ims.RcsMessage} in
+             * {@link com.android.providers.telephony.RcsProvider} URIs.
+             */
+            String UNIFIED_MESSAGE_URI_PART = "message";
+
+            /**
+             * The URI to query all types of {@link android.telephony.ims.RcsMessage}s
+             */
+            Uri UNIFIED_MESSAGE_URI = Uri.withAppendedPath(CONTENT_AND_AUTHORITY,
+                    UNIFIED_MESSAGE_URI_PART);
+
+            /**
+             * The name of the view that unites rcs_message and rcs_incoming_message tables.
+             */
+            String UNIFIED_INCOMING_MESSAGE_VIEW = "unified_incoming_message_view";
+
+            /**
+             * The name of the view that unites rcs_message and rcs_outgoing_message tables.
+             */
+            String UNIFIED_OUTGOING_MESSAGE_VIEW = "unified_outgoing_message_view";
+
+            /**
+             * The column that shows from which table the message entry came from.
+             */
+            String MESSAGE_TYPE_COLUMN = "message_type";
+
+            /**
+             * Integer returned as a result from a database query that denotes that the message is
+             * an incoming message
+             */
+            int MESSAGE_TYPE_INCOMING = 1;
+
+            /**
+             * Integer returned as a result from a database query that denotes that the message is
+             * an outgoing message
+             */
+            int MESSAGE_TYPE_OUTGOING = 0;
+        }
+
+        /**
+         * The table that {@link android.telephony.ims.RcsFileTransferPart} gets persisted to.
+         */
+        interface RcsFileTransferColumns {
+            /**
+             * The path that should be used for referring to
+             * {@link android.telephony.ims.RcsFileTransferPart}s in
+             * {@link com.android.providers.telephony.RcsProvider} URIs.
+             */
+            String FILE_TRANSFER_URI_PART = "file_transfer";
+
+            /**
+             * The URI to query or modify {@link android.telephony.ims.RcsFileTransferPart}s via the
+             * content provider
+             */
+            Uri FILE_TRANSFER_URI = Uri.withAppendedPath(CONTENT_AND_AUTHORITY,
+                    FILE_TRANSFER_URI_PART);
+
+            /**
+             * The globally unique file transfer ID for this RCS file transfer.
+             */
+            String FILE_TRANSFER_ID_COLUMN = "rcs_file_transfer_id";
+
+            /**
+             * The RCS session ID for this file transfer. The ID is implementation dependent but
+             * should be unique.
+             */
+            String SESSION_ID_COLUMN = "session_id";
+
+            /**
+             * The URI that points to the content of this file transfer
+             */
+            String CONTENT_URI_COLUMN = "content_uri";
+
+            /**
+             * The file type of this file transfer in bytes. The validity of types is not enforced
+             * in {@link android.telephony.ims.RcsMessageStore} APIs.
+             */
+            String CONTENT_TYPE_COLUMN = "content_type";
+
+            /**
+             * The size of the file transfer in bytes.
+             */
+            String FILE_SIZE_COLUMN = "file_size";
+
+            /**
+             * Number of bytes that was successfully transmitted for this file transfer
+             */
+            String SUCCESSFULLY_TRANSFERRED_BYTES = "transfer_offset";
+
+            /**
+             * The status of this file transfer
+             * @see android.telephony.ims.RcsFileTransferPart.RcsFileTransferStatus
+             */
+            String TRANSFER_STATUS_COLUMN = "transfer_status";
+
+            /**
+             * The on-screen width of the file transfer, if it contains multi-media
+             */
+            String WIDTH_COLUMN = "width";
+
+            /**
+             * The on-screen height of the file transfer, if it contains multi-media
+             */
+            String HEIGHT_COLUMN = "height";
+
+            /**
+             * The duration of the content in milliseconds if this file transfer contains
+             * multi-media
+             */
+            String DURATION_MILLIS_COLUMN = "duration";
+
+            /**
+             * The URI to the preview of the content of this file transfer
+             */
+            String PREVIEW_URI_COLUMN = "preview_uri";
+
+            /**
+             * The type of the preview of the content of this file transfer. The validity of types
+             * is not enforced in {@link android.telephony.ims.RcsMessageStore} APIs.
+             */
+            String PREVIEW_TYPE_COLUMN = "preview_type";
+        }
+
+        /**
+         * The table that holds the information for
+         * {@link android.telephony.ims.RcsGroupThreadEvent} and its subclasses.
+         */
+        interface RcsThreadEventColumns {
+            /**
+             * The string used in the {@link com.android.providers.telephony.RcsProvider} URI to
+             * refer to participant joined events (example URI:
+             * {@code content://rcs/group_thread/3/participant_joined_event})
+             */
+            String PARTICIPANT_JOINED_URI_PART = "participant_joined_event";
+
+            /**
+             * The string used in the {@link com.android.providers.telephony.RcsProvider} URI to
+             * refer to participant left events. (example URI:
+             * {@code content://rcs/group_thread/3/participant_left_event/4})
+             */
+            String PARTICIPANT_LEFT_URI_PART = "participant_left_event";
+
+            /**
+             * The string used in the {@link com.android.providers.telephony.RcsProvider} URI to
+             * refer to name changed events. (example URI:
+             * {@code content://rcs/group_thread/3/name_changed_event})
+             */
+            String NAME_CHANGED_URI_PART = "name_changed_event";
+
+            /**
+             * The string used in the {@link com.android.providers.telephony.RcsProvider} URI to
+             * refer to icon changed events. (example URI:
+             * {@code content://rcs/group_thread/3/icon_changed_event})
+             */
+            String ICON_CHANGED_URI_PART = "icon_changed_event";
+
+            /**
+             * The unique ID of this event in the database, i.e. the primary key
+             */
+            String EVENT_ID_COLUMN = "event_id";
+
+            /**
+             * The type of this event
+             *
+             * @see RcsEventTypes
+             */
+            String EVENT_TYPE_COLUMN = "event_type";
+
+            /**
+             * The timestamp in milliseconds of when this event happened
+             */
+            String TIMESTAMP_COLUMN = "origination_timestamp";
+
+            /**
+             * The participant that generated this event
+             */
+            String SOURCE_PARTICIPANT_ID_COLUMN = "source_participant";
+
+            /**
+             * The receiving participant of this event if this was an
+             * {@link android.telephony.ims.RcsGroupThreadParticipantJoinedEvent} or
+             * {@link android.telephony.ims.RcsGroupThreadParticipantLeftEvent}
+             */
+            String DESTINATION_PARTICIPANT_ID_COLUMN = "destination_participant";
+
+            /**
+             * The URI for the new icon of the group thread if this was an
+             * {@link android.telephony.ims.RcsGroupThreadIconChangedEvent}
+             */
+            String NEW_ICON_URI_COLUMN = "new_icon_uri";
+
+            /**
+             * The URI for the new name of the group thread if this was an
+             * {@link android.telephony.ims.RcsGroupThreadNameChangedEvent}
+             */
+            String NEW_NAME_COLUMN = "new_name";
+        }
+
+        /**
+         * The table that {@link android.telephony.ims.RcsParticipantAliasChangedEvent} gets
+         * persisted to
+         */
+        interface RcsParticipantEventColumns {
+            /**
+             * The path that should be used for referring to
+             * {@link android.telephony.ims.RcsParticipantAliasChangedEvent}s in
+             * {@link com.android.providers.telephony.RcsProvider} URIs.
+             */
+            String ALIAS_CHANGE_EVENT_URI_PART = "alias_change_event";
+
+            /**
+             * The new alias of the participant
+             */
+            String NEW_ALIAS_COLUMN = "new_alias";
+        }
+
+        /**
+         * These values are used in {@link com.android.providers.telephony.RcsProvider} to determine
+         * what kind of event is present in the storage.
+         */
+        interface RcsEventTypes {
+            /**
+             * Integer constant that is stored in the
+             * {@link com.android.providers.telephony.RcsProvider} database that denotes the event
+             * is of type {@link android.telephony.ims.RcsParticipantAliasChangedEvent}
+             */
+            int PARTICIPANT_ALIAS_CHANGED_EVENT_TYPE = 1;
+
+            /**
+             * Integer constant that is stored in the
+             * {@link com.android.providers.telephony.RcsProvider} database that denotes the event
+             * is of type {@link android.telephony.ims.RcsGroupThreadParticipantJoinedEvent}
+             */
+            int PARTICIPANT_JOINED_EVENT_TYPE = 2;
+
+            /**
+             * Integer constant that is stored in the
+             * {@link com.android.providers.telephony.RcsProvider} database that denotes the event
+             * is of type {@link android.telephony.ims.RcsGroupThreadParticipantLeftEvent}
+             */
+            int PARTICIPANT_LEFT_EVENT_TYPE = 4;
+
+            /**
+             * Integer constant that is stored in the
+             * {@link com.android.providers.telephony.RcsProvider} database that denotes the event
+             * is of type {@link android.telephony.ims.RcsGroupThreadIconChangedEvent}
+             */
+            int ICON_CHANGED_EVENT_TYPE = 8;
+
+            /**
+             * Integer constant that is stored in the
+             * {@link com.android.providers.telephony.RcsProvider} database that denotes the event
+             * is of type {@link android.telephony.ims.RcsGroupThreadNameChangedEvent}
+             */
+            int NAME_CHANGED_EVENT_TYPE = 16;
+        }
+
+        /**
+         * The view that allows unified querying across all events
+         */
+        interface RcsUnifiedEventHelper extends RcsParticipantEventColumns, RcsThreadEventColumns {
+            /**
+             * The path that should be used for referring to
+             * {@link android.telephony.ims.RcsEvent}s in
+             * {@link com.android.providers.telephony.RcsProvider} URIs.
+             */
+            String RCS_EVENT_QUERY_URI_PATH = "event";
+
+            /**
+             * The URI to query {@link android.telephony.ims.RcsEvent}s via the content provider.
+             */
+            Uri RCS_EVENT_QUERY_URI = Uri.withAppendedPath(CONTENT_AND_AUTHORITY,
+                    RCS_EVENT_QUERY_URI_PATH);
+        }
+
+        /**
+         * Allows RCS specific canonical address handling.
+         */
+        interface RcsCanonicalAddressHelper {
+            /**
+             * Returns the canonical address ID for a canonical address, if now row exists, this
+             * will add a row and return its ID. This helper works against the same table used by
+             * the SMS and MMS threads, but is accessible only by the phone process for use by RCS
+             * message storage.
+             *
+             * @throws IllegalArgumentException if unable to retrieve or create the canonical
+             *                                  address entry.
+             */
+            static long getOrCreateCanonicalAddressId(
+                    ContentResolver contentResolver, String canonicalAddress) {
+
+                Uri.Builder uriBuilder = CONTENT_AND_AUTHORITY.buildUpon();
+                uriBuilder.appendPath("canonical-address");
+                uriBuilder.appendQueryParameter("address", canonicalAddress);
+                Uri uri = uriBuilder.build();
+
+                try (Cursor cursor = contentResolver.query(uri, null, null, null)) {
+                    if (cursor != null && cursor.moveToFirst()) {
+                        return cursor.getLong(cursor.getColumnIndex(CanonicalAddressesColumns._ID));
+                    } else {
+                        Rlog.e(TAG, "getOrCreateCanonicalAddressId returned no rows");
+                    }
+                }
+
+                Rlog.e(TAG, "getOrCreateCanonicalAddressId failed");
+                throw new IllegalArgumentException(
+                        "Unable to find or allocate a canonical address ID");
+            }
         }
     }
 
@@ -2006,6 +2815,7 @@ public final class Telephony {
          * </ul>
          * @hide
          */
+        @UnsupportedAppUsage
         public static final Pattern NAME_ADDR_EMAIL_PATTERN =
                 Pattern.compile("\\s*(\"[^\"]*\"|[^<>\"]+)\\s*<([^<>]+)>\\s*");
 
@@ -2033,6 +2843,7 @@ public final class Telephony {
          * Helper method to extract email address from address string.
          * @hide
          */
+        @UnsupportedAppUsage
         public static String extractAddrSpec(String address) {
             Matcher match = NAME_ADDR_EMAIL_PATTERN.matcher(address);
 
@@ -2049,6 +2860,7 @@ public final class Telephony {
          * @return true if address is an email address; false otherwise.
          * @hide
          */
+        @UnsupportedAppUsage
         public static boolean isEmailAddress(String address) {
             if (TextUtils.isEmpty(address)) {
                 return false;
@@ -2066,6 +2878,7 @@ public final class Telephony {
          * @return true if number is a phone number; false otherwise.
          * @hide
          */
+        @UnsupportedAppUsage
         public static boolean isPhoneNumber(String number) {
             if (TextUtils.isEmpty(number)) {
                 return false;
@@ -2217,6 +3030,9 @@ public final class Telephony {
 
         /**
          * Contains message parts.
+         *
+         * To avoid issues where applications might cache a part ID, the ID of a deleted part must
+         * not be reused to point at a new part.
          */
         public static final class Part implements BaseColumns {
 
@@ -2226,6 +3042,13 @@ public final class Telephony {
              */
             private Part() {
             }
+
+            /**
+             * The {@code content://} style URL for this table. Can be appended with a part ID to
+             * address individual parts.
+             */
+            @NonNull
+            public static final Uri CONTENT_URI = Uri.withAppendedPath(Mms.CONTENT_URI, "part");
 
             /**
              * The identifier of the message which this part belongs to.
@@ -2576,8 +3399,26 @@ public final class Telephony {
 
         /**
          * The {@code content://} style URL for this table.
+         * For MSIM, this will return APNs for the default subscription
+         * {@link SubscriptionManager#getDefaultSubscriptionId()}. To specify subId for MSIM,
+         * use {@link Uri#withAppendedPath(Uri, String)} to append with subscription id.
          */
+        @NonNull
         public static final Uri CONTENT_URI = Uri.parse("content://telephony/carriers");
+
+        /**
+         * The {@code content://} style URL for this table. Used for APN query based on current
+         * subscription. Instead of specifying carrier matching information in the selection,
+         * this API will return all matching APNs from current subscription carrier and queries
+         * will be applied on top of that. If there is no match for MVNO (Mobile Virtual Network
+         * Operator) APNs, return APNs from its MNO (based on mccmnc) instead. For MSIM, this will
+         * return APNs for the default subscription
+         * {@link SubscriptionManager#getDefaultSubscriptionId()}. To specify subId for MSIM,
+         * use {@link Uri#withAppendedPath(Uri, String)} to append with subscription id.
+         */
+        @NonNull
+        public static final Uri SIM_APN_URI = Uri.parse(
+                "content://telephony/carriers/sim_apn_list");
 
         /**
          * The {@code content://} style URL to be called from DevicePolicyManagerService,
@@ -2589,7 +3430,9 @@ public final class Telephony {
         /**
          * The {@code content://} style URL to be called from Telephony to query APNs.
          * When DPC-owned APNs are enforced, only DPC-owned APNs are returned, otherwise only
-         * non-DPC-owned APNs are returned.
+         * non-DPC-owned APNs are returned. For MSIM, this will return APNs for the default
+         * subscription {@link SubscriptionManager#getDefaultSubscriptionId()}. To specify subId
+         * for MSIM, use {@link Uri#withAppendedPath(Uri, String)} to append with subscription id.
          * @hide
          */
         public static final Uri FILTERED_URI = Uri.parse("content://telephony/carriers/filtered");
@@ -2676,18 +3519,30 @@ public final class Telephony {
         /**
          * Mobile Country Code (MCC).
          * <P>Type: TEXT</P>
+         * @deprecated Use {@link #SIM_APN_URI} to query APN instead, this API will return
+         * matching APNs based on current subscription carrier, thus no need to specify MCC and
+         * other carrier matching information. In the future, Android will not support MCC for
+         * APN query.
          */
         public static final String MCC = "mcc";
 
         /**
          * Mobile Network Code (MNC).
          * <P>Type: TEXT</P>
+         * @deprecated Use {@link #SIM_APN_URI} to query APN instead, this API will return
+         * matching APNs based on current subscription carrier, thus no need to specify MNC and
+         * other carrier matching information. In the future, Android will not support MNC for
+         * APN query.
          */
         public static final String MNC = "mnc";
 
         /**
          * Numeric operator ID (as String). Usually {@code MCC + MNC}.
          * <P>Type: TEXT</P>
+         * @deprecated Use {@link #SIM_APN_URI} to query APN instead, this API will return
+         * matching APNs based on current subscription carrier, thus no need to specify Numeric
+         * and other carrier matching information. In the future, Android will not support Numeric
+         * for APN query.
          */
         public static final String NUMERIC = "numeric";
 
@@ -2768,6 +3623,10 @@ public final class Telephony {
          * MVNO type:
          * {@code SPN (Service Provider Name), IMSI, GID (Group Identifier Level 1)}.
          * <P>Type: TEXT</P>
+         * @deprecated Use {@link #SIM_APN_URI} to query APN instead, this API will return
+         * matching APNs based on current subscription carrier, thus no need to specify MVNO_TYPE
+         * and other carrier matching information. In the future, Android will not support MVNO_TYPE
+         * for APN query.
          */
         public static final String MVNO_TYPE = "mvno_type";
 
@@ -2780,6 +3639,10 @@ public final class Telephony {
          *     <li>GID: 4E, 33, ...</li>
          * </ul>
          * <P>Type: TEXT</P>
+         * @deprecated Use {@link #SIM_APN_URI} to query APN instead, this API will return
+         * matching APNs based on current subscription carrier, thus no need to specify
+         * MVNO_MATCH_DATA and other carrier matching information. In the future, Android will not
+         * support MVNO_MATCH_DATA for APN query.
          */
         public static final String MVNO_MATCH_DATA = "mvno_match_data";
 
@@ -2790,100 +3653,143 @@ public final class Telephony {
         public static final String SUBSCRIPTION_ID = "sub_id";
 
         /**
-         * The profile_id to which the APN saved in modem
+         * The profile_id to which the APN saved in modem.
          * <p>Type: INTEGER</p>
          *@hide
          */
         public static final String PROFILE_ID = "profile_id";
 
         /**
-         * Is the apn setting to be set in modem
-         * <P>Type: INTEGER (boolean)</P>
+         * If set to {@code true}, then the APN setting will persist to the modem.
+         * <p>Type: INTEGER (boolean)</p>
          *@hide
          */
-        public static final String MODEM_COGNITIVE = "modem_cognitive";
+        @SystemApi
+        public static final String MODEM_PERSIST = "modem_cognitive";
 
         /**
-         * The max connections of this apn
+         * The max number of connections of this APN.
          * <p>Type: INTEGER</p>
          *@hide
          */
-        public static final String MAX_CONNS = "max_conns";
+        @SystemApi
+        public static final String MAX_CONNECTIONS = "max_conns";
 
         /**
-         * The wait time for retry of the apn
+         * The wait time for retrying the APN, in milliseconds.
          * <p>Type: INTEGER</p>
          *@hide
          */
-        public static final String WAIT_TIME = "wait_time";
+        @SystemApi
+        public static final String WAIT_TIME_RETRY = "wait_time";
 
         /**
-         * The time to limit max connection for the apn
+         * The max number of seconds this APN will support its maximum number of connections
+         * as defined in {@link #MAX_CONNECTIONS}.
          * <p>Type: INTEGER</p>
          *@hide
          */
-        public static final String MAX_CONNS_TIME = "max_conns_time";
+        @SystemApi
+        public static final String TIME_LIMIT_FOR_MAX_CONNECTIONS = "max_conns_time";
 
         /**
-         * The MTU size of the mobile interface to  which the APN connected
+         * The MTU (maximum transmit unit) size of the mobile interface to which the APN is
+         * connected, in bytes.
          * <p>Type: INTEGER </p>
          * @hide
          */
+        @SystemApi
         public static final String MTU = "mtu";
 
         /**
-         * Is this APN added/edited/deleted by a user or carrier?
+         * APN edit status. APN could be added/edited/deleted by a user or carrier.
+         * see all possible returned APN edit status.
+         * <ul>
+         *     <li>{@link #UNEDITED}</li>
+         *     <li>{@link #USER_EDITED}</li>
+         *     <li>{@link #USER_DELETED}</li>
+         *     <li>{@link #CARRIER_EDITED}</li>
+         *     <li>{@link #CARRIER_DELETED}</li>
+         * </ul>
          * <p>Type: INTEGER </p>
          * @hide
          */
-        public static final String EDITED = "edited";
+        @SystemApi
+        public static final String EDITED_STATUS = "edited";
 
         /**
-         * Is this APN visible to the user?
-         * <p>Type: INTEGER (boolean) </p>
+         * {@code true} if this APN visible to the user, {@code false} otherwise.
+         * <p>Type: INTEGER (boolean)</p>
          * @hide
          */
+        @SystemApi
         public static final String USER_VISIBLE = "user_visible";
 
         /**
-         * Is the user allowed to edit this APN?
-         * <p>Type: INTEGER (boolean) </p>
+         * {@code true} if the user allowed to edit this APN, {@code false} otherwise.
+         * <p>Type: INTEGER (boolean)</p>
          * @hide
          */
+        @SystemApi
         public static final String USER_EDITABLE = "user_editable";
 
         /**
-         * Following are possible values for the EDITED field
+         * {@link #EDITED_STATUS APN edit status} indicates that this APN has not been edited or
+         * fails to edit.
+         * <p>Type: INTEGER </p>
          * @hide
          */
-        public static final int UNEDITED = 0;
+        @SystemApi
+        public static final @EditStatus int UNEDITED = 0;
+
         /**
-         *  @hide
+         * {@link #EDITED_STATUS APN edit status} indicates that this APN has been edited by users.
+         * <p>Type: INTEGER </p>
+         * @hide
          */
-        public static final int USER_EDITED = 1;
+        @SystemApi
+        public static final @EditStatus int USER_EDITED = 1;
+
         /**
-         *  @hide
+         * {@link #EDITED_STATUS APN edit status} indicates that this APN has been deleted by users.
+         * <p>Type: INTEGER </p>
+         * @hide
          */
-        public static final int USER_DELETED = 2;
+        @SystemApi
+        public static final @EditStatus int USER_DELETED = 2;
+
         /**
-         * DELETED_BUT_PRESENT is an intermediate value used to indicate that an entry deleted
-         * by the user is still present in the new APN database and therefore must remain tagged
-         * as user deleted rather than completely removed from the database
+         * {@link #EDITED_STATUS APN edit status} is an intermediate value used to indicate that an
+         * entry deleted by the user is still present in the new APN database and therefore must
+         * remain tagged as user deleted rather than completely removed from the database.
          * @hide
          */
         public static final int USER_DELETED_BUT_PRESENT_IN_XML = 3;
+
         /**
-         *  @hide
-         */
-        public static final int CARRIER_EDITED = 4;
-        /**
-         * CARRIER_DELETED values are currently not used as there is no usecase. If they are used,
-         * delete() will have to change accordingly. Currently it is hardcoded to USER_DELETED.
+         * {@link #EDITED_STATUS APN edit status} indicates that this APN has been edited by
+         * carriers.
+         * <p>Type: INTEGER </p>
          * @hide
          */
-        public static final int CARRIER_DELETED = 5;
+        @SystemApi
+        public static final @EditStatus int CARRIER_EDITED = 4;
+
         /**
-         *  @hide
+         * {@link #EDITED_STATUS APN edit status} indicates that this APN has been deleted by
+         * carriers. CARRIER_DELETED values are currently not used as there is no use case.
+         * If they are used, delete() will have to change accordingly. Currently it is hardcoded to
+         * USER_DELETED.
+         * <p>Type: INTEGER </p>
+         * @hide
+         */
+        public static final @EditStatus int CARRIER_DELETED = 5;
+
+        /**
+         * {@link #EDITED_STATUS APN edit status} is an intermediate value used to indicate that an
+         * entry deleted by the carrier is still present in the new APN database and therefore must
+         * remain tagged as user deleted rather than completely removed from the database.
+         * @hide
          */
         public static final int CARRIER_DELETED_BUT_PRESENT_IN_XML = 6;
 
@@ -2912,17 +3818,84 @@ public final class Telephony {
          * The APN set id. When the user manually selects an APN or the framework sets an APN as
          * preferred, all APNs with the same set id as the selected APN should be prioritized over
          * APNs in other sets.
+         * <p>Type: INTEGER</p>
          * @hide
          */
+        @SystemApi
         public static final String APN_SET_ID = "apn_set_id";
 
         /**
-         * Possible value for the APN_SET_ID field. By default APNs will not belong to a set. If the
-         * user manually selects an APN with no set set, there is no need to prioritize any specific
-         * APN set ids.
+         * Possible value for the {@link #APN_SET_ID} field. By default APNs will not belong to a
+         * set. If the user manually selects an APN without apn set id, there is no need to
+         * prioritize any specific APN set ids.
+         * <p>Type: INTEGER</p>
          * @hide
          */
-        public static final int NO_SET_SET = 0;
+        @SystemApi
+        public static final int NO_APN_SET_ID = 0;
+
+        /**
+         * A unique carrier id associated with this APN
+         * {@see TelephonyManager#getSimCarrierId()}
+         * <p>Type: STRING</p>
+         */
+        public static final String CARRIER_ID = "carrier_id";
+
+        /**
+         * The skip 464xlat flag. Flag works as follows.
+         * {@link #SKIP_464XLAT_DEFAULT}: the APN will skip only APN is IMS and no internet.
+         * {@link #SKIP_464XLAT_DISABLE}: the APN will NOT skip 464xlat
+         * {@link #SKIP_464XLAT_ENABLE}: the APN will skip 464xlat
+         * <p>Type: INTEGER</p>
+         *
+         * @hide
+         */
+        public static final String SKIP_464XLAT = "skip_464xlat";
+
+        /**
+         * Possible value for the {@link #SKIP_464XLAT} field.
+         * <p>Type: INTEGER</p>
+         *
+         * @hide
+         */
+        public static final int SKIP_464XLAT_DEFAULT = -1;
+
+        /**
+         * Possible value for the {@link #SKIP_464XLAT} field.
+         * <p>Type: INTEGER</p>
+         *
+         * @hide
+         */
+        public static final int SKIP_464XLAT_DISABLE = 0;
+
+        /**
+         * Possible value for the {@link #SKIP_464XLAT} field.
+         * <p>Type: INTEGER</p>
+         *
+         * @hide
+         */
+        public static final int SKIP_464XLAT_ENABLE = 1;
+
+
+        /** @hide */
+        @IntDef({
+                UNEDITED,
+                USER_EDITED,
+                USER_DELETED,
+                CARRIER_DELETED,
+                CARRIER_EDITED,
+        })
+        @Retention(RetentionPolicy.SOURCE)
+        public @interface EditStatus {}
+
+        /** @hide */
+        @IntDef({
+                SKIP_464XLAT_DEFAULT,
+                SKIP_464XLAT_DISABLE,
+                SKIP_464XLAT_ENABLE,
+        })
+        @Retention(RetentionPolicy.SOURCE)
+        public @interface Skip464XlatStatus {}
 
     }
 
@@ -3169,31 +4142,22 @@ public final class Telephony {
          */
         public static ContentValues getContentValuesForServiceState(ServiceState state) {
             ContentValues values = new ContentValues();
-            values.put(VOICE_REG_STATE, state.getVoiceRegState());
-            values.put(DATA_REG_STATE, state.getDataRegState());
-            values.put(VOICE_ROAMING_TYPE, state.getVoiceRoamingType());
-            values.put(DATA_ROAMING_TYPE, state.getDataRoamingType());
-            values.put(VOICE_OPERATOR_ALPHA_LONG, state.getVoiceOperatorAlphaLong());
-            values.put(VOICE_OPERATOR_ALPHA_SHORT, state.getVoiceOperatorAlphaShort());
-            values.put(VOICE_OPERATOR_NUMERIC, state.getVoiceOperatorNumeric());
-            values.put(DATA_OPERATOR_ALPHA_LONG, state.getDataOperatorAlphaLong());
-            values.put(DATA_OPERATOR_ALPHA_SHORT, state.getDataOperatorAlphaShort());
-            values.put(DATA_OPERATOR_NUMERIC, state.getDataOperatorNumeric());
-            values.put(IS_MANUAL_NETWORK_SELECTION, state.getIsManualSelection());
-            values.put(RIL_VOICE_RADIO_TECHNOLOGY, state.getRilVoiceRadioTechnology());
-            values.put(RIL_DATA_RADIO_TECHNOLOGY, state.getRilDataRadioTechnology());
-            values.put(CSS_INDICATOR, state.getCssIndicator());
-            values.put(NETWORK_ID, state.getCdmaNetworkId());
-            values.put(SYSTEM_ID, state.getCdmaSystemId());
-            values.put(CDMA_ROAMING_INDICATOR, state.getCdmaRoamingIndicator());
-            values.put(CDMA_DEFAULT_ROAMING_INDICATOR, state.getCdmaDefaultRoamingIndicator());
-            values.put(CDMA_ERI_ICON_INDEX, state.getCdmaEriIconIndex());
-            values.put(CDMA_ERI_ICON_MODE, state.getCdmaEriIconMode());
-            values.put(IS_EMERGENCY_ONLY, state.isEmergencyOnly());
-            values.put(IS_DATA_ROAMING_FROM_REGISTRATION, state.getDataRoamingFromRegistration());
-            values.put(IS_USING_CARRIER_AGGREGATION, state.isUsingCarrierAggregation());
+            final Parcel p = Parcel.obtain();
+            state.writeToParcel(p, 0);
+            // Turn the parcel to byte array. Safe to do this because the content values were never
+            // written into a persistent storage. ServiceStateProvider keeps values in the memory.
+            values.put(SERVICE_STATE, p.marshall());
             return values;
         }
+
+        /**
+         * The current service state.
+         *
+         * This is the entire {@link ServiceState} object in byte array.
+         *
+         * @hide
+         */
+        public static final String SERVICE_STATE = "service_state";
 
         /**
          * An integer value indicating the current voice service state.
@@ -3368,11 +4332,26 @@ public final class Telephony {
          * @hide
          */
         public static final String IS_USING_CARRIER_AGGREGATION = "is_using_carrier_aggregation";
+
+        /**
+         * The current registered raw data network operator name in long alphanumeric format.
+         * <p>
+         * This is the same as {@link ServiceState#getOperatorAlphaLongRaw()}.
+         * @hide
+         */
+        public static final String OPERATOR_ALPHA_LONG_RAW = "operator_alpha_long_raw";
+
+        /**
+         * The current registered raw data network operator name in short alphanumeric format.
+         * <p>
+         * This is the same as {@link ServiceState#getOperatorAlphaShortRaw()}.
+         * @hide
+         */
+        public static final String OPERATOR_ALPHA_SHORT_RAW = "operator_alpha_short_raw";
     }
 
     /**
      * Contains carrier identification information for the current subscriptions.
-     * @see SubscriptionManager#getActiveSubscriptionIdList()
      */
     public static final class CarrierId implements BaseColumns {
         /**
@@ -3413,6 +4392,28 @@ public final class Telephony {
         }
 
         /**
+         * Generates a content {@link Uri} used to receive updates on specific carrier identity
+         * change on the given subscriptionId returned by
+         * {@link TelephonyManager#getSimSpecificCarrierId()}.
+         * @see TelephonyManager#ACTION_SUBSCRIPTION_SPECIFIC_CARRIER_IDENTITY_CHANGED
+         * <p>
+         * Use this {@link Uri} with a {@link ContentObserver} to be notified of changes to the
+         * specific carrier identity {@link TelephonyManager#getSimSpecificCarrierId()}
+         * while your app is running. You can also use a {@link JobService} to ensure your app
+         * is notified of changes to the {@link Uri} even when it is not running.
+         * Note, however, that using a {@link JobService} does not guarantee timely delivery of
+         * updates to the {@link Uri}.
+         *
+         * @param subscriptionId the subscriptionId to receive updates on
+         * @return the Uri used to observe specific carrier identity changes
+         */
+        @NonNull
+        public static Uri getSpecificCarrierIdUriForSubscriptionId(int subscriptionId) {
+            return Uri.withAppendedPath(Uri.withAppendedPath(CONTENT_URI, "specific"),
+                    String.valueOf(subscriptionId));
+        }
+
+        /**
          * A user facing carrier name.
          * @see TelephonyManager#getSimCarrierIdName()
          * <P>Type: TEXT </P>
@@ -3425,6 +4426,37 @@ public final class Telephony {
          * <P>Type: INTEGER </P>
          */
         public static final String CARRIER_ID = "carrier_id";
+
+        /**
+         * A fine-grained carrier id.
+         * The specific carrier ID would be used for configuration purposes, but apps wishing to
+         * know about the carrier itself should use the regular carrier ID returned by
+         * {@link TelephonyManager#getSimCarrierId()}.
+         *
+         * @see TelephonyManager#getSimSpecificCarrierId()
+         * This is not a database column, only used to notify content observers for
+         * {@link #getSpecificCarrierIdUriForSubscriptionId(int)}
+         */
+        public static final String SPECIFIC_CARRIER_ID = "specific_carrier_id";
+
+        /**
+         * A user facing carrier name for specific carrier id {@link #SPECIFIC_CARRIER_ID}.
+         * @see TelephonyManager#getSimSpecificCarrierIdName()
+         * This is not a database column, only used to notify content observers for
+         * {@link #getSpecificCarrierIdUriForSubscriptionId(int)}
+         */
+        public static final String SPECIFIC_CARRIER_ID_NAME = "specific_carrier_id_name";
+
+        /**
+         * A unique parent carrier id. The parent-child
+         * relationship can be used to further differentiate a single carrier by different networks,
+         * by prepaid v.s. postpaid. It's an optional field.
+         * A carrier id with a valid parent_carrier_id is considered fine-grained specific carrier
+         * ID, will not be returned as {@link #CARRIER_ID} but {@link #SPECIFIC_CARRIER_ID}.
+         * <P>Type: INTEGER </P>
+         * @hide
+         */
+        public static final String PARENT_CARRIER_ID = "parent_carrier_id";
 
         /**
          * Contains mappings between matching rules with carrier id for all carriers.
@@ -3478,6 +4510,12 @@ public final class Telephony {
              * <P>Type: TEXT </P>
              */
             public static final String ICCID_PREFIX = "iccid_prefix";
+
+            /**
+             * Certificate for carrier privilege access rules.
+             * <P>Type: TEXT in hex string </P>
+             */
+            public static final String PRIVILEGE_ACCESS_RULE = "privilege_access_rule";
 
             /**
              * The {@code content://} URI for this table.

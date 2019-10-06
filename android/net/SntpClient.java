@@ -16,8 +16,11 @@
 
 package android.net;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.SystemClock;
 import android.util.Log;
+
+import com.android.internal.util.TrafficStatsConstants;
 
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -84,24 +87,22 @@ public class SntpClient {
      * @return true if the transaction was successful.
      */
     public boolean requestTime(String host, int timeout, Network network) {
-        // This flag only affects DNS resolution and not other socket semantics,
-        // therefore it's safe to set unilaterally rather than take more
-        // defensive measures like making a copy.
-        network.setPrivateDnsBypass(true);
+        final Network networkForResolv = network.getPrivateDnsBypassingCopy();
         InetAddress address = null;
         try {
-            address = network.getByName(host);
+            address = networkForResolv.getByName(host);
         } catch (Exception e) {
             EventLogTags.writeNtpFailure(host, e.toString());
             if (DBG) Log.d(TAG, "request time failed: " + e);
             return false;
         }
-        return requestTime(address, NTP_PORT, timeout, network);
+        return requestTime(address, NTP_PORT, timeout, networkForResolv);
     }
 
     public boolean requestTime(InetAddress address, int port, int timeout, Network network) {
         DatagramSocket socket = null;
-        final int oldTag = TrafficStats.getAndSetThreadStatsTag(TrafficStats.TAG_SYSTEM_NTP);
+        final int oldTag = TrafficStats.getAndSetThreadStatsTag(
+                TrafficStatsConstants.TAG_SYSTEM_NTP);
         try {
             socket = new DatagramSocket();
             network.bindSocket(socket);
@@ -175,6 +176,7 @@ public class SntpClient {
     }
 
     @Deprecated
+    @UnsupportedAppUsage
     public boolean requestTime(String host, int timeout) {
         Log.w(TAG, "Shame on you for calling the hidden API requestTime()!");
         return false;
@@ -185,6 +187,7 @@ public class SntpClient {
      *
      * @return time value computed from NTP server response.
      */
+    @UnsupportedAppUsage
     public long getNtpTime() {
         return mNtpTime;
     }
@@ -195,6 +198,7 @@ public class SntpClient {
      *
      * @return reference clock corresponding to the NTP time.
      */
+    @UnsupportedAppUsage
     public long getNtpTimeReference() {
         return mNtpTimeReference;
     }
@@ -204,6 +208,7 @@ public class SntpClient {
      *
      * @return round trip time in milliseconds.
      */
+    @UnsupportedAppUsage
     public long getRoundTripTime() {
         return mRoundTripTime;
     }

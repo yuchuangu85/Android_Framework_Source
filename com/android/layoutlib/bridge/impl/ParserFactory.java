@@ -16,6 +16,7 @@
 
 package com.android.layoutlib.bridge.impl;
 
+import com.android.ide.common.rendering.api.XmlParserFactory;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -25,55 +26,34 @@ import android.annotation.Nullable;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 
 /**
  * A factory for {@link XmlPullParser}.
- *
  */
 public class ParserFactory {
-
     public final static boolean LOG_PARSER = false;
 
     // Used to get a new XmlPullParser from the client.
     @Nullable
-    private static com.android.ide.common.rendering.api.ParserFactory sParserFactory;
+    private static XmlParserFactory sParserFactory;
 
-    public static void setParserFactory(
-            @Nullable com.android.ide.common.rendering.api.ParserFactory parserFactory) {
+    public static void setParserFactory(@Nullable XmlParserFactory parserFactory) {
         sParserFactory = parserFactory;
     }
 
-    @NonNull
-    public static XmlPullParser create(@NonNull File f)
-            throws XmlPullParserException, FileNotFoundException {
-        return create(f, false);
+    @Nullable
+    public static XmlPullParser create(@NonNull String filePath)
+            throws XmlPullParserException {
+        return create(filePath, false);
     }
 
-    public static XmlPullParser create(@NonNull File f, boolean isLayout)
-      throws XmlPullParserException, FileNotFoundException {
-        InputStream stream = new FileInputStream(f);
-        return create(stream, f.getName(), f.length(), isLayout);
-    }
-    @NonNull
-    public static XmlPullParser create(@NonNull InputStream stream, @Nullable String name)
-        throws XmlPullParserException {
-        return create(stream, name, -1, false);
-    }
-
-    @NonNull
-    private static XmlPullParser create(@NonNull InputStream stream, @Nullable String name,
-            long size, boolean isLayout) throws XmlPullParserException {
-        XmlPullParser parser = instantiateParser(name);
-
-        stream = readAndClose(stream, name, size);
-
-        parser.setInput(stream, null);
-        if (isLayout) {
+    @Nullable
+    public static XmlPullParser create(@NonNull String filePath, boolean isLayout)
+            throws XmlPullParserException {
+        XmlPullParser parser = sParserFactory.createXmlParserForFile(filePath);
+        if (parser != null && isLayout) {
             try {
                 return new LayoutParserWrapper(parser).peekTillLayoutStart();
             } catch (IOException e) {
@@ -84,46 +64,38 @@ public class ParserFactory {
     }
 
     @NonNull
-    public static XmlPullParser instantiateParser(@Nullable String name)
+    public static XmlPullParser create(@NonNull InputStream stream, @Nullable String name)
             throws XmlPullParserException {
+        XmlPullParser parser = create();
+
+        stream = readAndClose(stream, name);
+
+        parser.setInput(stream, null);
+        return parser;
+    }
+
+    @NonNull
+    public static XmlPullParser create() throws XmlPullParserException {
         if (sParserFactory == null) {
             throw new XmlPullParserException("ParserFactory not initialized.");
         }
-        XmlPullParser parser = sParserFactory.createParser(name);
+        XmlPullParser parser = sParserFactory.createXmlParser();
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true);
         return parser;
     }
 
     @NonNull
-    private static InputStream readAndClose(@NonNull InputStream stream, @Nullable String name,
-            long size) throws XmlPullParserException {
-        // just a sanity check. It's doubtful we'll have such big files!
-        if (size > Integer.MAX_VALUE) {
-            throw new XmlPullParserException("File " + name + " is too big to be parsed");
-        }
-        int intSize = (int) size;
+    private static InputStream readAndClose(@NonNull InputStream stream, @Nullable String name)
+            throws XmlPullParserException {
+        // Create a buffered stream to facilitate reading.
+        try (BufferedInputStream bufferedStream = new BufferedInputStream(stream)) {
+            int avail = bufferedStream.available();
 
-        // create a buffered reader to facilitate reading.
-        BufferedInputStream bufferedStream = new BufferedInputStream(stream);
-        try {
-            int avail;
-            if (intSize != -1) {
-                avail = intSize;
-            } else {
-                // get the size to read.
-                avail = bufferedStream.available();
-            }
-
-            // create the initial buffer and read it.
+            // Create the initial buffer and read it.
             byte[] buffer = new byte[avail];
             int read = stream.read(buffer);
 
-            // this is the easy case.
-            if (read == intSize) {
-                return new ByteArrayInputStream(buffer);
-            }
-
-            // check if there is more to read (read() does not necessarily read all that
+            // Check if there is more to read (read() does not necessarily read all that
             // available() returned!)
             while ((avail = bufferedStream.available()) > 0) {
                 if (read + avail > buffer.length) {
@@ -137,16 +109,10 @@ public class ParserFactory {
                 read += stream.read(buffer, read, avail);
             }
 
-            // return a new stream encapsulating this buffer.
+            // Return a new stream encapsulating this buffer.
             return new ByteArrayInputStream(buffer);
-
         } catch (IOException e) {
             throw new XmlPullParserException("Failed to read " + name, null, e);
-        } finally {
-            try {
-                bufferedStream.close();
-            } catch (IOException ignored) {
-            }
         }
     }
 }

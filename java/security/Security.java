@@ -207,7 +207,7 @@ public final class Security {
     /**
      * Gets a specified property for an algorithm. The algorithm name
      * should be a standard name. See the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
@@ -443,7 +443,7 @@ public final class Security {
      * </ul>
      *
      * <p> See the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard cryptographic service names, standard
      * algorithm names and standard attribute names.
@@ -514,7 +514,7 @@ public final class Security {
      * </ul>
      *
      * <p> See the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html">
+     * "https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard cryptographic service names, standard
      * algorithm names and standard attribute names.
@@ -1016,7 +1016,7 @@ public final class Security {
      * an empty Set if there is no provider that supports the
      * specified service or if serviceName is null. For a complete list
      * of Java cryptographic services, please see the
-     * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/CryptoSpec.html">Java
+     * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html">Java
      * Cryptography Architecture API Specification &amp; Reference</a>.
      * Note: the returned set is immutable.
      *

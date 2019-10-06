@@ -74,8 +74,13 @@ public class I18Name {
         // Read the language string.
         String language = ByteBufferReader.readString(
                 payload, LANGUAGE_CODE_LENGTH, StandardCharsets.US_ASCII).trim();
-        Locale locale = Locale.forLanguageTag(language);
-
+        Locale locale;
+        try {
+            // The language code is a two or three character language code defined in ISO-639.
+            locale = new Locale.Builder().setLanguage(language).build();
+        } catch (Exception e) {
+            throw new ProtocolException("Invalid language: " + language);
+        }
         // Read the text string.
         String text = ByteBufferReader.readString(payload, length - LANGUAGE_CODE_LENGTH,
                 StandardCharsets.UTF_8);

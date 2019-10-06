@@ -4,7 +4,6 @@ import android.content.ContentResolver;
 import android.database.ContentObserver;
 import android.net.Uri;
 import android.provider.Settings;
-import android.util.Log;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -12,9 +11,15 @@ import java.util.Set;
 /**
  * Common functionality for tracking feature flags from Global Settings.
  *
- * Allows for registration of Listeners and takes care of the details of dealing with feature names.
+ * <p>Allows for registration of Listeners and takes care of the details of dealing with feature
+ * names.
+ *
+ * <p>If your feature is controlled by a single flag consider using one of the generic observers in
+ * this package (e.g. {@link com.android.clockwork.flags.BooleanFlag}) or creating a new one.
  */
 public abstract class FeatureFlagsObserver<Listener> extends ContentObserver {
+    public static final String LOG_TAG = "WearFlags";
+
     private final ContentResolver mContentResolver;
     private final Set<Listener> mListeners;
 
@@ -41,8 +46,7 @@ public abstract class FeatureFlagsObserver<Listener> extends ContentObserver {
     }
 
     protected void register(String feature) {
-        mContentResolver.registerContentObserver(Settings.Global.getUriFor(feature),
-                                                 false, this);
+        mContentResolver.registerContentObserver(Settings.Global.getUriFor(feature), false, this);
     }
 
     protected static boolean featureMatchesUri(String feature, Uri uri) {

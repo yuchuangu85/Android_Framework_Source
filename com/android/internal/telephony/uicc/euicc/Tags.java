@@ -44,6 +44,7 @@ class Tags {
     // Universal tags
     static final int TAG_UNI_2 = 0x02;
     static final int TAG_UNI_4 = 0x04;
+    static final int TAG_SEQUENCE = 0x30;
     // Context tags for primitive types
     static final int TAG_CTX_0 = 0x80;
     static final int TAG_CTX_1 = 0x81;

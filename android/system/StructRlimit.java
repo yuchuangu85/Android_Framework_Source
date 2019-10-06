@@ -24,7 +24,9 @@ import libcore.util.Objects;
  *
  * @hide
  */
+@libcore.api.CorePlatformApi
 public final class StructRlimit {
+    @libcore.api.CorePlatformApi
     public final long rlim_cur;
     public final long rlim_max;
 

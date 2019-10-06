@@ -2574,7 +2574,12 @@ public abstract class Calendar implements Serializable, Cloneable, Comparable<Ca
         return style & ~STANDALONE_MASK;
     }
 
-    private int toStandaloneStyle(int style) {
+    // BEGIN Android-changed: Make toStandaloneStyle() public to use in java.text.SimpleDateFormat
+    /**
+     * @hide
+     */
+    public static int toStandaloneStyle(int style) {
+    // END Android-changed: Make toStandaloneStyle() public to use in java.text.SimpleDateFormat
         return style | STANDALONE_MASK;
     }
 

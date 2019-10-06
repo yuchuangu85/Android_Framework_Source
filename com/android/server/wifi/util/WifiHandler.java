@@ -22,7 +22,6 @@ import android.os.Looper;
 import android.os.Message;
 
 import com.android.internal.annotations.VisibleForTesting;
-
 import com.android.server.wifi.WifiInjector;
 import com.android.server.wifi.WifiLog;
 
@@ -50,7 +49,7 @@ public class WifiHandler extends Handler {
 
     @Override
     public void handleMessage(Message msg) {
-        getOrInitLog().trace("Received message=%d sendingUid=%")
+        getOrInitLog().trace("Received message=% sendingUid=%")
                 .c(msg.what)
                 .c(msg.sendingUid)
                 .flush();

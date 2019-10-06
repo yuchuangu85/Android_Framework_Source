@@ -16,6 +16,7 @@
 
 package org.apache.harmony.dalvik.ddmc;
 
+import dalvik.annotation.compat.UnsupportedAppUsage;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -24,26 +25,34 @@ import java.nio.ByteOrder;
  *
  * To handle a chunk type, sub-class ChunkHandler and register your class
  * with DdmServer.
+ *
+ * @hide
  */
+@libcore.api.CorePlatformApi
 public abstract class ChunkHandler {
 
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
     public static final ByteOrder CHUNK_ORDER = ByteOrder.BIG_ENDIAN;
 
     public static final int CHUNK_FAIL = type("FAIL");
 
 
+    @libcore.api.CorePlatformApi
     public ChunkHandler() {}
 
     /**
      * Called when the DDM server connects.  The handler is allowed to
      * send messages to the server.
      */
+    @libcore.api.CorePlatformApi
     public abstract void connected();
 
     /**
      * Called when the DDM server disconnects.  Can be used to disable
      * periodic transmissions or clean up saved state.
      */
+    @libcore.api.CorePlatformApi
     public abstract void disconnected();
 
     /**
@@ -52,12 +61,14 @@ public abstract class ChunkHandler {
      *
      * Returns a response in a Chunk.
      */
+    @libcore.api.CorePlatformApi
     public abstract Chunk handleChunk(Chunk request);
 
     /**
      * Create a FAIL chunk.  The "handleChunk" methods can use this to
      * return an error message when they are not able to process a chunk.
      */
+    @libcore.api.CorePlatformApi
     public static Chunk createFailChunk(int errorCode, String msg) {
         if (msg == null)
             msg = "";
@@ -74,6 +85,7 @@ public abstract class ChunkHandler {
     /**
      * Utility function to wrap a ByteBuffer around a Chunk.
      */
+    @libcore.api.CorePlatformApi
     public static ByteBuffer wrapChunk(Chunk request) {
         ByteBuffer in;
 
@@ -89,6 +101,7 @@ public abstract class ChunkHandler {
      * This is here because multiple chunk handlers can make use of it,
      * and there's nowhere better to put it.
      */
+    @libcore.api.CorePlatformApi
     public static String getString(ByteBuffer buf, int len) {
         char[] data = new char[len];
         for (int i = 0; i < len; i++)
@@ -99,6 +112,7 @@ public abstract class ChunkHandler {
     /**
      * Utility function to copy a String into a ByteBuffer.
      */
+    @libcore.api.CorePlatformApi
     public static void putString(ByteBuffer buf, String str) {
         int len = str.length();
         for (int i = 0; i < len; i++)
@@ -108,6 +122,7 @@ public abstract class ChunkHandler {
     /**
      * Convert a 4-character string to a 32-bit type.
      */
+    @libcore.api.CorePlatformApi
     public static int type(String typeName) {
         if (typeName.length() != 4) {
             throw new IllegalArgumentException("Bad type name: " + typeName);
@@ -122,6 +137,7 @@ public abstract class ChunkHandler {
     /**
      * Convert an integer type to a 4-character string.
      */
+    @libcore.api.CorePlatformApi
     public static String name(int type)
     {
         char[] ascii = new char[4];

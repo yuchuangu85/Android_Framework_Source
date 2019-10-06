@@ -16,11 +16,11 @@
 
 package com.android.settingslib.bluetooth;
 
-import com.android.settingslib.R;
-
 import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothProfile;
+
+import com.android.settingslib.R;
 
 /**
  * OppProfile handles Bluetooth OPP.
@@ -32,7 +32,7 @@ final class OppProfile implements LocalBluetoothProfile {
     // Order of this profile in device profiles list
     private static final int ORDINAL = 2;
 
-    public boolean isConnectable() {
+    public boolean accessProfileEnabled() {
         return false;
     }
 

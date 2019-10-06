@@ -16,10 +16,17 @@
 
 package com.android.systemui.pip.tv;
 
+import static android.app.ActivityTaskManager.INVALID_STACK_ID;
+import static android.app.WindowConfiguration.ACTIVITY_TYPE_UNDEFINED;
+import static android.app.WindowConfiguration.WINDOWING_MODE_PINNED;
+import static android.view.Display.DEFAULT_DISPLAY;
+
 import android.app.ActivityManager;
 import android.app.ActivityManager.RunningTaskInfo;
 import android.app.ActivityManager.StackInfo;
+import android.app.ActivityTaskManager;
 import android.app.IActivityManager;
+import android.app.IActivityTaskManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -35,6 +42,7 @@ import android.media.session.PlaybackState;
 import android.os.Debug;
 import android.os.Handler;
 import android.os.RemoteException;
+import android.os.UserHandle;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Pair;
@@ -43,20 +51,16 @@ import android.view.IPinnedStackListener;
 import android.view.IWindowManager;
 import android.view.WindowManagerGlobal;
 
+import com.android.systemui.Dependency;
 import com.android.systemui.R;
+import com.android.systemui.UiOffloadThread;
 import com.android.systemui.pip.BasePipManager;
-import com.android.systemui.recents.misc.SysUiTaskStackChangeListener;
-import com.android.systemui.recents.misc.SystemServicesProxy;
 import com.android.systemui.shared.system.ActivityManagerWrapper;
+import com.android.systemui.shared.system.TaskStackChangeListener;
+import com.android.systemui.shared.system.WindowManagerWrapper;
 
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
-
-import static android.app.ActivityManager.StackId.INVALID_STACK_ID;
-import static android.app.WindowConfiguration.ACTIVITY_TYPE_UNDEFINED;
-import static android.app.WindowConfiguration.WINDOWING_MODE_PINNED;
-import static android.view.Display.DEFAULT_DISPLAY;
 
 /**
  * Manages the picture-in-picture (PIP) UI and states.
@@ -108,6 +112,7 @@ public class PipManager implements BasePipManager {
 
     private Context mContext;
     private IActivityManager mActivityManager;
+    private IActivityTaskManager mActivityTaskManager;
     private IWindowManager mWindowManager;
     private MediaSessionManager mMediaSessionManager;
     private int mState = STATE_NO_PIP;
@@ -238,11 +243,13 @@ public class PipManager implements BasePipManager {
         mContext = context;
 
         mActivityManager = ActivityManager.getService();
+        mActivityTaskManager = ActivityTaskManager.getService();
         mWindowManager = WindowManagerGlobal.getWindowManagerService();
         ActivityManagerWrapper.getInstance().registerTaskStackListener(mTaskStackListener);
         IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction(Intent.ACTION_MEDIA_RESOURCE_GRANTED);
-        mContext.registerReceiver(mBroadcastReceiver, intentFilter);
+        mContext.registerReceiverAsUser(mBroadcastReceiver, UserHandle.ALL, intentFilter,
+                null, null);
 
         if (sSettingsPackageAndClassNamePairList == null) {
             String[] settings = mContext.getResources().getStringArray(
@@ -258,12 +265,13 @@ public class PipManager implements BasePipManager {
                             entry = Pair.<String, String>create(packageAndClassName[0], null);
                             break;
                         case 2:
-                            if (packageAndClassName[1] != null
-                                    && packageAndClassName[1].startsWith(".")) {
-                                entry = Pair.<String, String>create(
-                                        packageAndClassName[0],
-                                        packageAndClassName[0] + packageAndClassName[1]);
+                            if (packageAndClassName[1] != null) {
+                                entry = Pair.<String, String>create(packageAndClassName[0],
+                                        packageAndClassName[1].startsWith(".")
+                                                ? packageAndClassName[0] + packageAndClassName[1]
+                                                : packageAndClassName[1]);
                             }
+                            break;
                     }
                     if (entry != null) {
                         sSettingsPackageAndClassNamePairList.add(entry);
@@ -343,7 +351,7 @@ public class PipManager implements BasePipManager {
         mMediaSessionManager.removeOnActiveSessionsChangedListener(mActiveMediaSessionListener);
         if (removePipStack) {
             try {
-                mActivityManager.removeStack(mPinnedStackId);
+                mActivityTaskManager.removeStack(mPinnedStackId);
             } catch (RemoteException e) {
                 Log.e(TAG, "removeStack failed", e);
             } finally {
@@ -433,7 +441,7 @@ public class PipManager implements BasePipManager {
         }
         try {
             int animationDurationMs = -1;
-            mActivityManager.resizeStack(mPinnedStackId, mCurrentPipBounds,
+            mActivityTaskManager.resizeStack(mPinnedStackId, mCurrentPipBounds,
                     true, true, true, animationDurationMs);
         } catch (RemoteException e) {
             Log.e(TAG, "resizeStack failed", e);
@@ -511,7 +519,7 @@ public class PipManager implements BasePipManager {
     private StackInfo getPinnedStackInfo() {
         StackInfo stackInfo = null;
         try {
-            stackInfo = mActivityManager.getStackInfo(
+            stackInfo = ActivityTaskManager.getService().getStackInfo(
                     WINDOWING_MODE_PINNED, ACTIVITY_TYPE_UNDEFINED);
         } catch (RemoteException e) {
             Log.e(TAG, "getStackInfo failed", e);
@@ -604,7 +612,7 @@ public class PipManager implements BasePipManager {
     private boolean isSettingsShown() {
         List<RunningTaskInfo> runningTasks;
         try {
-            runningTasks = mActivityManager.getTasks(1);
+            runningTasks = mActivityTaskManager.getTasks(1);
             if (runningTasks.isEmpty()) {
                 return false;
             }
@@ -625,7 +633,7 @@ public class PipManager implements BasePipManager {
         return false;
     }
 
-    private SysUiTaskStackChangeListener mTaskStackListener = new SysUiTaskStackChangeListener() {
+    private TaskStackChangeListener mTaskStackListener = new TaskStackChangeListener() {
         @Override
         public void onTaskStackChanged() {
             if (DEBUG) Log.d(TAG, "onTaskStackChanged()");
@@ -749,11 +757,8 @@ public class PipManager implements BasePipManager {
     }
 
     private void updatePipVisibility(final boolean visible) {
-        SystemServicesProxy.getInstance(mContext).setPipVisibility(visible);
-    }
-
-    @Override
-    public void dump(PrintWriter pw) {
-        // Do nothing
+        Dependency.get(UiOffloadThread.class).submit(() -> {
+            WindowManagerWrapper.getInstance().setPipVisibility(visible);
+        });
     }
 }

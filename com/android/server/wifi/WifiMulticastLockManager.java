@@ -20,6 +20,7 @@ import android.os.Binder;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Slog;
+import android.util.StatsLog;
 
 import com.android.internal.app.IBatteryStats;
 
@@ -78,7 +79,7 @@ public class WifiMulticastLockManager {
             synchronized (mMulticasters) {
                 int i = mMulticasters.indexOf(this);
                 if (i != -1) {
-                    removeMulticasterLocked(i, mUid);
+                    removeMulticasterLocked(i, mUid, mTag);
                 }
             }
         }
@@ -89,6 +90,10 @@ public class WifiMulticastLockManager {
 
         public int getUid() {
             return mUid;
+        }
+
+        public String getTag() {
+            return mTag;
         }
 
         public String toString() {
@@ -146,6 +151,9 @@ public class WifiMulticastLockManager {
         final long ident = Binder.clearCallingIdentity();
         try {
             mBatteryStats.noteWifiMulticastEnabled(uid);
+            StatsLog.write_non_chained(
+                    StatsLog.WIFI_MULTICAST_LOCK_STATE_CHANGED, uid, null,
+                    StatsLog.WIFI_MULTICAST_LOCK_STATE_CHANGED__STATE__ON, tag);
         } catch (RemoteException e) {
         } finally {
             Binder.restoreCallingIdentity(ident);
@@ -153,21 +161,22 @@ public class WifiMulticastLockManager {
     }
 
     /** Releases a multicast lock */
-    public void releaseLock() {
+    public void releaseLock(String tag) {
         int uid = Binder.getCallingUid();
         synchronized (mMulticasters) {
             mMulticastDisabled++;
             int size = mMulticasters.size();
             for (int i = size - 1; i >= 0; i--) {
                 Multicaster m = mMulticasters.get(i);
-                if ((m != null) && (m.getUid() == uid)) {
-                    removeMulticasterLocked(i, uid);
+                if ((m != null) && (m.getUid() == uid) && (m.getTag().equals(tag))) {
+                    removeMulticasterLocked(i, uid, tag);
+                    break;
                 }
             }
         }
     }
 
-    private void removeMulticasterLocked(int i, int uid) {
+    private void removeMulticasterLocked(int i, int uid, String tag) {
         Multicaster removed = mMulticasters.remove(i);
 
         if (removed != null) {
@@ -180,6 +189,9 @@ public class WifiMulticastLockManager {
         final long ident = Binder.clearCallingIdentity();
         try {
             mBatteryStats.noteWifiMulticastDisabled(uid);
+            StatsLog.write_non_chained(
+                    StatsLog.WIFI_MULTICAST_LOCK_STATE_CHANGED, uid, null,
+                    StatsLog.WIFI_MULTICAST_LOCK_STATE_CHANGED__STATE__OFF, tag);
         } catch (RemoteException e) {
         } finally {
             Binder.restoreCallingIdentity(ident);

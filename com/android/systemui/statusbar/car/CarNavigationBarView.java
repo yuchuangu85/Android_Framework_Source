@@ -16,15 +16,13 @@
 
 package com.android.systemui.statusbar.car;
 
-import android.app.UiModeManager;
 import android.content.Context;
+import android.graphics.Rect;
 import android.util.AttributeSet;
-import android.util.Log;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 
-import com.android.keyguard.AlphaOptimizedImageButton;
 import com.android.systemui.Dependency;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.phone.StatusBarIconController;
@@ -37,10 +35,13 @@ import com.android.systemui.statusbar.phone.StatusBarIconController;
  */
 class CarNavigationBarView extends LinearLayout {
     private View mNavButtons;
-    private AlphaOptimizedImageButton mNotificationsButton;
+    private CarNavigationButton mNotificationsButton;
     private CarStatusBar mCarStatusBar;
     private Context mContext;
     private View mLockScreenButtons;
+    // used to wire in open/close gestures for notifications
+    private OnTouchListener mStatusBarWindowTouchListener;
+
 
     public CarNavigationBarView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -66,11 +67,67 @@ class CarNavigationBarView extends LinearLayout {
             mDarkIconManager.setShouldLog(true);
             Dependency.get(StatusBarIconController.class).addIconGroup(mDarkIconManager);
         }
-
+        // needs to be clickable so that it will receive ACTION_MOVE events
+        setClickable(true);
     }
+
+    // Used to forward touch events even if the touch was initiated from a child component
+    @Override
+    public boolean onInterceptTouchEvent(MotionEvent ev) {
+        if (mStatusBarWindowTouchListener != null) {
+            boolean shouldConsumeEvent = shouldConsumeNotificationButtonEvent(ev);
+            // Forward touch events to the status bar window so it can drag
+            // windows if required (Notification shade)
+            mStatusBarWindowTouchListener.onTouch(this, ev);
+            // return true if child views should not receive this event.
+            if (shouldConsumeEvent) {
+                return true;
+            }
+        }
+        return super.onInterceptTouchEvent(ev);
+    }
+
+    /**
+     * If the motion event is over top of the notification button while the notification
+     * panel is open, we need the statusbar touch listeners handle the event instead of the button.
+     * Since the statusbar listener will trigger a close of the notification panel before the
+     * any button click events are fired this will prevent reopening the panel.
+     *
+     * Note: we can't use requestDisallowInterceptTouchEvent because the gesture detector will
+     * always receive the ACTION_DOWN and thus think a longpress happened if no other events are
+     * received
+     *
+     * @return true if the notification button should not receive the event
+     */
+    private boolean shouldConsumeNotificationButtonEvent(MotionEvent ev) {
+        if (mNotificationsButton == null || !mCarStatusBar.isNotificationPanelOpen()) {
+            return false;
+        }
+        Rect notificationButtonLocation = new Rect();
+        mNotificationsButton.getHitRect(notificationButtonLocation);
+        return notificationButtonLocation.contains((int) ev.getX(), (int) ev.getY());
+    }
+
 
     void setStatusBar(CarStatusBar carStatusBar) {
         mCarStatusBar = carStatusBar;
+    }
+
+    /**
+     * Set a touch listener that will be called from onInterceptTouchEvent and onTouchEvent
+     *
+     * @param statusBarWindowTouchListener The listener to call from touch and intercept touch
+     */
+    void setStatusBarWindowTouchListener(OnTouchListener statusBarWindowTouchListener) {
+        mStatusBarWindowTouchListener = statusBarWindowTouchListener;
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        if (mStatusBarWindowTouchListener != null) {
+            mStatusBarWindowTouchListener.onTouch(this, event);
+        }
+        return super.onTouchEvent(event);
     }
 
     protected void onNotificationsClick(View v) {
@@ -94,10 +151,20 @@ class CarNavigationBarView extends LinearLayout {
      * Nav buttons will be shown.
      */
     public void hideKeyguardButtons() {
-        if (mLockScreenButtons == null) {
-            return;
-        }
+        if (mLockScreenButtons == null) return;
+
         mNavButtons.setVisibility(View.VISIBLE);
         mLockScreenButtons.setVisibility(View.GONE);
+    }
+
+    /**
+     * Toggles the notification unseen indicator on/off.
+     *
+     * @param hasUnseen true if the unseen notification count is great than 0.
+     */
+    void toggleNotificationUnseenIndicator(Boolean hasUnseen) {
+        if (mNotificationsButton == null) return;
+
+        mNotificationsButton.setUnseen(hasUnseen);
     }
 }

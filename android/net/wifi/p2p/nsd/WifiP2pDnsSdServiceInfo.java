@@ -16,7 +16,9 @@
 
 package android.net.wifi.p2p.nsd;
 
+import android.annotation.UnsupportedAppUsage;
 import android.net.nsd.DnsSdTxtRecord;
+import android.os.Build;
 import android.text.TextUtils;
 
 import java.util.ArrayList;
@@ -173,6 +175,7 @@ public class WifiP2pDnsSdServiceInfo extends WifiP2pServiceInfo {
      * @param version version number
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     static String createRequest(String dnsName, int dnsType, int version) {
         StringBuffer sb = new StringBuffer();
 

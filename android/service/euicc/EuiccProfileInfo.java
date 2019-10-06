@@ -18,6 +18,7 @@ package android.service.euicc;
 import android.annotation.IntDef;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.service.carrier.CarrierIdentifier;
@@ -125,7 +126,7 @@ public final class EuiccProfileInfo implements Parcelable {
      */
     private final @Nullable UiccAccessRule[] mAccessRules;
 
-    public static final Creator<EuiccProfileInfo> CREATOR = new Creator<EuiccProfileInfo>() {
+    public static final @android.annotation.NonNull Creator<EuiccProfileInfo> CREATOR = new Creator<EuiccProfileInfo>() {
         @Override
         public EuiccProfileInfo createFromParcel(Parcel in) {
             return new EuiccProfileInfo(in);
@@ -143,6 +144,7 @@ public final class EuiccProfileInfo implements Parcelable {
      * @deprecated - Do not use.
      */
     @Deprecated
+    @UnsupportedAppUsage
     public EuiccProfileInfo(String iccid, @Nullable UiccAccessRule[] accessRules,
             @Nullable String nickname) {
         if (!TextUtils.isDigitsOnly(iccid)) {

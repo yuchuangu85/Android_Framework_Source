@@ -23,7 +23,8 @@ import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
 
 import java.io.IOException;
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -35,32 +36,28 @@ public class DeletedEphemeralSsidsStoreData implements WifiConfigStore.StoreData
             "DeletedEphemeralSSIDList";
     private static final String XML_TAG_SSID_LIST = "SSIDList";
 
-    private Set<String> mSsidList;
+    private final Clock mClock;
+    private Map<String, Long> mSsidToTimeMap;
 
-    DeletedEphemeralSsidsStoreData() {}
+    DeletedEphemeralSsidsStoreData(Clock clock) {
+        mClock = clock;
+    }
 
     @Override
-    public void serializeData(XmlSerializer out, boolean shared)
+    public void serializeData(XmlSerializer out)
             throws XmlPullParserException, IOException {
-        if (shared) {
-            throw new XmlPullParserException("Share data not supported");
-        }
-        if (mSsidList != null) {
-            XmlUtil.writeNextValue(out, XML_TAG_SSID_LIST, mSsidList);
+        if (mSsidToTimeMap != null) {
+            XmlUtil.writeNextValue(out, XML_TAG_SSID_LIST, mSsidToTimeMap);
         }
     }
 
     @Override
-    public void deserializeData(XmlPullParser in, int outerTagDepth, boolean shared)
+    public void deserializeData(XmlPullParser in, int outerTagDepth)
             throws XmlPullParserException, IOException {
         // Ignore empty reads.
         if (in == null) {
             return;
         }
-        if (shared) {
-            throw new XmlPullParserException("Share data not supported");
-        }
-
         while (!XmlUtil.isNextSectionEnd(in, outerTagDepth)) {
             String[] valueName = new String[1];
             Object value = XmlUtil.readCurrentValue(in, valueName);
@@ -69,7 +66,17 @@ public class DeletedEphemeralSsidsStoreData implements WifiConfigStore.StoreData
             }
             switch (valueName[0]) {
                 case XML_TAG_SSID_LIST:
-                    mSsidList = (Set<String>) value;
+                    // Backwards compatibility, this used to be a set.
+                    if (value instanceof Set) {
+                        mSsidToTimeMap = new HashMap<>();
+                        for (String ssid : (Set<String>) value) {
+                            // Mark the deleted time as bootup time for existing entries from
+                            // previous releases.
+                            mSsidToTimeMap.put(ssid, mClock.getWallClockMillis());
+                        }
+                    } else if (value instanceof Map) {
+                        mSsidToTimeMap = (Map<String, Long>) value;
+                    }
                     break;
                 default:
                     throw new XmlPullParserException("Unknown tag under "
@@ -80,10 +87,14 @@ public class DeletedEphemeralSsidsStoreData implements WifiConfigStore.StoreData
     }
 
     @Override
-    public void resetData(boolean shared) {
-        if (!shared) {
-            mSsidList = null;
-        }
+    public void resetData() {
+        mSsidToTimeMap = null;
+    }
+
+    @Override
+    public boolean hasNewDataToSerialize() {
+        // always persist.
+        return true;
     }
 
     @Override
@@ -92,24 +103,25 @@ public class DeletedEphemeralSsidsStoreData implements WifiConfigStore.StoreData
     }
 
     @Override
-    public boolean supportShareData() {
-        return false;
+    public @WifiConfigStore.StoreFileId int getStoreFileId() {
+        // Shared general store.
+        return WifiConfigStore.STORE_FILE_USER_GENERAL;
     }
 
     /**
-     * An empty set will be returned for null SSID list.
+     * An empty map will be returned for null SSID list.
      *
-     * @return Set of SSIDs
+     * @return Map of SSIDs
      */
-    public Set<String> getSsidList() {
-        if (mSsidList == null) {
-            return new HashSet<String>();
+    public Map<String, Long> getSsidToTimeMap() {
+        if (mSsidToTimeMap == null) {
+            return new HashMap<String, Long>();
         }
-        return mSsidList;
+        return mSsidToTimeMap;
     }
 
-    public void setSsidList(Set<String> ssidList) {
-        mSsidList = ssidList;
+    public void setSsidToTimeMap(Map<String, Long> ssidMap) {
+        mSsidToTimeMap = ssidMap;
     }
 }
 

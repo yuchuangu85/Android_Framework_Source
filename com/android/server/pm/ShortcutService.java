@@ -41,11 +41,12 @@ import android.content.pm.LauncherApps;
 import android.content.pm.LauncherApps.ShortcutQuery;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageManagerInternal;
 import android.content.pm.PackageManager.NameNotFoundException;
+import android.content.pm.PackageManagerInternal;
 import android.content.pm.ParceledListSlice;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
 import android.content.pm.ShortcutServiceInternal;
 import android.content.pm.ShortcutServiceInternal.ShortcutChangeListener;
 import android.content.res.Resources;
@@ -94,12 +95,13 @@ import android.view.IWindowManager;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.logging.MetricsLogger;
 import com.android.internal.os.BackgroundThread;
 import com.android.internal.util.DumpUtils;
 import com.android.internal.util.FastXmlSerializer;
 import com.android.internal.util.Preconditions;
-import com.android.server.LocalServices;
 import com.android.internal.util.StatLogger;
+import com.android.server.LocalServices;
 import com.android.server.SystemService;
 import com.android.server.pm.ShortcutUser.PackageWithUser;
 
@@ -132,6 +134,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -159,7 +162,7 @@ public class ShortcutService extends IShortcutService.Stub {
     static final int DEFAULT_MAX_UPDATES_PER_INTERVAL = 10;
 
     @VisibleForTesting
-    static final int DEFAULT_MAX_SHORTCUTS_PER_APP = 5;
+    static final int DEFAULT_MAX_SHORTCUTS_PER_APP = 10;
 
     @VisibleForTesting
     static final int DEFAULT_MAX_ICON_DIMENSION_DP = 96;
@@ -410,6 +413,9 @@ public class ShortcutService extends IShortcutService.Stub {
 
     @GuardedBy("mLock")
     private Exception mLastWtfStacktrace;
+
+    @GuardedBy("mLock")
+    private final MetricsLogger mMetricsLogger = new MetricsLogger();
 
     static class InvalidFileFormatException extends Exception {
         public InvalidFileFormatException(String message, Throwable cause) {
@@ -979,6 +985,8 @@ public class ShortcutService extends IShortcutService.Stub {
             Slog.e(TAG, "Failed to write to file " + file.getBaseFile(), e);
             file.failWrite(os);
         }
+
+        getUserShortcutsLocked(userId).logSharingShortcutStats(mMetricsLogger);
     }
 
     @GuardedBy("mLock")
@@ -1171,7 +1179,7 @@ public class ShortcutService extends IShortcutService.Stub {
                 return true;
             }
         }
-        
+
         // If the local copy says the user is locked, check with AM for the actual state, since
         // the user might just have been unlocked.
         // Note we just don't use isUserUnlockingOrUnlocked() here, because it'll return false
@@ -1573,6 +1581,24 @@ public class ShortcutService extends IShortcutService.Stub {
                 "Ephemeral apps can't use ShortcutManager");
     }
 
+    private void verifyShortcutInfoPackage(String callerPackage, ShortcutInfo si) {
+        if (si == null) {
+            return;
+        }
+        if (!Objects.equals(callerPackage, si.getPackage())) {
+            android.util.EventLog.writeEvent(0x534e4554, "109824443", -1, "");
+            throw new SecurityException("Shortcut package name mismatch");
+        }
+    }
+
+    private void verifyShortcutInfoPackages(
+            String callerPackage, List<ShortcutInfo> list) {
+        final int size = list.size();
+        for (int i = 0; i < size; i++) {
+            verifyShortcutInfoPackage(callerPackage, list.get(i));
+        }
+    }
+
     // Overridden in unit tests to execute r synchronously.
     void injectPostToHandler(Runnable r) {
         mHandler.post(r);
@@ -1720,6 +1746,7 @@ public class ShortcutService extends IShortcutService.Stub {
         verifyCaller(packageName, userId);
 
         final List<ShortcutInfo> newShortcuts = (List<ShortcutInfo>) shortcutInfoList.getList();
+        verifyShortcutInfoPackages(packageName, newShortcuts);
         final int size = newShortcuts.size();
 
         final boolean unlimited = injectHasUnlimitedShortcutsApiCallsPermission(
@@ -1774,6 +1801,7 @@ public class ShortcutService extends IShortcutService.Stub {
         verifyCaller(packageName, userId);
 
         final List<ShortcutInfo> newShortcuts = (List<ShortcutInfo>) shortcutInfoList.getList();
+        verifyShortcutInfoPackages(packageName, newShortcuts);
         final int size = newShortcuts.size();
 
         final boolean unlimited = injectHasUnlimitedShortcutsApiCallsPermission(
@@ -1859,6 +1887,7 @@ public class ShortcutService extends IShortcutService.Stub {
         verifyCaller(packageName, userId);
 
         final List<ShortcutInfo> newShortcuts = (List<ShortcutInfo>) shortcutInfoList.getList();
+        verifyShortcutInfoPackages(packageName, newShortcuts);
         final int size = newShortcuts.size();
 
         final boolean unlimited = injectHasUnlimitedShortcutsApiCallsPermission(
@@ -1921,6 +1950,7 @@ public class ShortcutService extends IShortcutService.Stub {
         Preconditions.checkNotNull(shortcut);
         Preconditions.checkArgument(shortcut.isEnabled(), "Shortcut must be enabled");
         verifyCaller(packageName, userId);
+        verifyShortcutInfoPackage(packageName, shortcut);
 
         final Intent ret;
         synchronized (mLock) {
@@ -1942,6 +1972,7 @@ public class ShortcutService extends IShortcutService.Stub {
     private boolean requestPinItem(String packageName, int userId, ShortcutInfo shortcut,
             AppWidgetProviderInfo appWidget, Bundle extras, IntentSender resultIntent) {
         verifyCaller(packageName, userId);
+        verifyShortcutInfoPackage(packageName, shortcut);
 
         final boolean ret;
         synchronized (mLock) {
@@ -2122,6 +2153,39 @@ public class ShortcutService extends IShortcutService.Stub {
             return getShortcutsWithQueryLocked(
                     packageName, userId, ShortcutInfo.CLONE_REMOVE_FOR_CREATOR,
                     ShortcutInfo::isPinnedVisible);
+        }
+    }
+
+    @Override
+    public ParceledListSlice<ShortcutManager.ShareShortcutInfo> getShareTargets(String packageName,
+            IntentFilter filter, @UserIdInt int userId) {
+        verifyCaller(packageName, userId);
+        enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_APP_PREDICTIONS,
+                "getShareTargets");
+
+        synchronized (mLock) {
+            throwIfUserLockedL(userId);
+
+            final List<ShortcutManager.ShareShortcutInfo> shortcutInfoList = new ArrayList<>();
+
+            final ShortcutUser user = getUserShortcutsLocked(userId);
+            user.forAllPackages(p -> shortcutInfoList.addAll(p.getMatchingShareTargets(filter)));
+
+            return new ParceledListSlice<>(shortcutInfoList);
+        }
+    }
+
+    @Override
+    public boolean hasShareTargets(String packageName, String packageToCheck,
+            @UserIdInt int userId) {
+        verifyCaller(packageName, userId);
+        enforceCallingOrSelfPermission(android.Manifest.permission.MANAGE_APP_PREDICTIONS,
+                "hasShareTargets");
+
+        synchronized (mLock) {
+            throwIfUserLockedL(userId);
+
+            return getPackageShortcutsLocked(packageToCheck, userId).hasShareTargets();
         }
     }
 

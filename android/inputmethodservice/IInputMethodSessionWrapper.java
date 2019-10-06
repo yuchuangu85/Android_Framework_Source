@@ -16,6 +16,7 @@
 
 package android.inputmethodservice;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.Bundle;
@@ -41,8 +42,7 @@ import com.android.internal.view.IInputMethodSession;
 class IInputMethodSessionWrapper extends IInputMethodSession.Stub
         implements HandlerCaller.Callback {
     private static final String TAG = "InputMethodWrapper";
-    
-    private static final int DO_FINISH_INPUT = 60;
+
     private static final int DO_DISPLAY_COMPLETIONS = 65;
     private static final int DO_UPDATE_EXTRACTED_TEXT = 67;
     private static final int DO_UPDATE_SELECTION = 90;
@@ -52,7 +52,9 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
     private static final int DO_TOGGLE_SOFT_INPUT = 105;
     private static final int DO_FINISH_SESSION = 110;
     private static final int DO_VIEW_CLICKED = 115;
+    private static final int DO_NOTIFY_IME_HIDDEN = 120;
 
+    @UnsupportedAppUsage
     HandlerCaller mCaller;
     InputMethodSession mInputMethodSession;
     InputChannel mChannel;
@@ -89,9 +91,6 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
         }
 
         switch (msg.what) {
-            case DO_FINISH_INPUT:
-                mInputMethodSession.finishInput();
-                return;
             case DO_DISPLAY_COMPLETIONS:
                 mInputMethodSession.displayCompletions((CompletionInfo[])msg.obj);
                 return;
@@ -133,6 +132,10 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
                 mInputMethodSession.viewClicked(msg.arg1 == 1);
                 return;
             }
+            case DO_NOTIFY_IME_HIDDEN: {
+                mInputMethodSession.notifyImeHidden();
+                return;
+            }
         }
         Log.w(TAG, "Unhandled message code: " + msg.what);
     }
@@ -147,11 +150,6 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
             mChannel.dispose();
             mChannel = null;
         }
-    }
-
-    @Override
-    public void finishInput() {
-        mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_FINISH_INPUT));
     }
 
     @Override
@@ -178,6 +176,11 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
     public void viewClicked(boolean focusChanged) {
         mCaller.executeOrSendMessage(
                 mCaller.obtainMessageI(DO_VIEW_CLICKED, focusChanged ? 1 : 0));
+    }
+
+    @Override
+    public void notifyImeHidden() {
+        mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_NOTIFY_IME_HIDDEN));
     }
 
     @Override
@@ -218,7 +221,7 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
         }
 
         @Override
-        public void onInputEvent(InputEvent event, int displayId) {
+        public void onInputEvent(InputEvent event) {
             if (mInputMethodSession == null) {
                 // The session has been finished.
                 finishInputEvent(event, false);

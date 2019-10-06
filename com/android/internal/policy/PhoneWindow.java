@@ -19,14 +19,57 @@ package com.android.internal.policy;
 import static android.provider.Settings.Global.DEVELOPMENT_FORCE_RESIZABLE_ACTIVITIES;
 import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
 import static android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
-import static android.view.WindowManager.LayoutParams.*;
+import static android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS;
+import static android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN;
+import static android.view.WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR;
+import static android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_OVERSCAN;
+import static android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
+import static android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+import static android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER;
+import static android.view.WindowManager.LayoutParams.FLAG_SPLIT_TOUCH;
+import static android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION;
+import static android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS;
+import static android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
+import static android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER;
+import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_FORCE_DRAW_BAR_BACKGROUNDS;
 
+import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.app.ActivityManager;
+import android.app.KeyguardManager;
 import android.app.SearchManager;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.res.Configuration;
+import android.content.res.Resources.Theme;
+import android.content.res.TypedArray;
+import android.graphics.Color;
+import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
+import android.media.AudioManager;
+import android.media.session.MediaController;
 import android.media.session.MediaSessionManager;
-import android.os.UserHandle;
-
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Parcel;
+import android.os.Parcelable;
+import android.os.RemoteException;
+import android.os.ServiceManager;
+import android.provider.Settings;
 import android.text.TextUtils;
+import android.transition.Scene;
+import android.transition.Transition;
+import android.transition.TransitionInflater;
+import android.transition.TransitionManager;
+import android.transition.TransitionSet;
+import android.util.AndroidRuntimeException;
+import android.util.EventLog;
+import android.util.Log;
+import android.util.SparseArray;
+import android.util.TypedValue;
 import android.view.ContextThemeWrapper;
 import android.view.Gravity;
 import android.view.IRotationWatcher.Stub;
@@ -50,7 +93,15 @@ import android.view.ViewParent;
 import android.view.ViewRootImpl;
 import android.view.ViewRootImpl.ActivityConfigCallback;
 import android.view.Window;
+import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.view.animation.Animation;
+import android.view.animation.AnimationUtils;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
+import android.widget.TextView;
+
 import com.android.internal.R;
 import com.android.internal.view.menu.ContextMenuBuilder;
 import com.android.internal.view.menu.IconMenuPresenter;
@@ -63,45 +114,9 @@ import com.android.internal.view.menu.MenuView;
 import com.android.internal.widget.DecorContentParent;
 import com.android.internal.widget.SwipeDismissLayout;
 
-import android.app.ActivityManager;
-import android.app.KeyguardManager;
-import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.content.res.Configuration;
-import android.content.res.Resources.Theme;
-import android.content.res.TypedArray;
-import android.graphics.Color;
-import android.graphics.drawable.Drawable;
-import android.media.AudioManager;
-import android.media.session.MediaController;
-import android.net.Uri;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.Parcel;
-import android.os.Parcelable;
-import android.os.RemoteException;
-import android.os.ServiceManager;
-import android.provider.Settings;
-import android.transition.Scene;
-import android.transition.Transition;
-import android.transition.TransitionInflater;
-import android.transition.TransitionManager;
-import android.transition.TransitionSet;
-import android.util.AndroidRuntimeException;
-import android.util.EventLog;
-import android.util.Log;
-import android.util.SparseArray;
-import android.util.TypedValue;
-import android.view.animation.Animation;
-import android.view.animation.AnimationUtils;
-import android.widget.FrameLayout;
-import android.widget.ImageView;
-import android.widget.ProgressBar;
-import android.widget.TextView;
-
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Android-specific Window.
@@ -141,7 +156,6 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     TypedValue mFixedHeightMinor;
 
     // This is the top-level view of the window, containing the window decor.
-    // 继承FrameLayout，是窗口顶级视图，也就是Activity显示View的根View，包含一个TitleView和一个ContentView
     private DecorView mDecor;
 
     // When we reuse decor views, we need to recreate the content root. This happens when the decor
@@ -150,8 +164,6 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
     // This is the view in which the window contents are placed. It is either
     // mDecor itself, or a child of mDecor where the contents go.
-    // 根据layout的id加载一个布局，然后通过findViewById(R.id.content)加载出布局中id为content
-    // 的FrameLayout赋值给mContentParent，并且将该view添加到mDecor（DecorView）中
     ViewGroup mContentParent;
     // Whether the client has explicitly set the content view. If false and mContentParent is not
     // null, then the content parent was set due to window preservation.
@@ -220,10 +232,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
     private ProgressBar mHorizontalProgressBar;
 
-    int mBackgroundResource = 0;
-    int mBackgroundFallbackResource = 0;
-
-    private Drawable mBackgroundDrawable;
+    Drawable mBackgroundDrawable = null;
+    Drawable mBackgroundFallbackDrawable = null;
 
     private boolean mLoadElevation = true;
     private float mElevation;
@@ -240,6 +250,10 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     private boolean mForcedStatusBarColor = false;
     private boolean mForcedNavigationBarColor = false;
 
+    boolean mEnsureStatusBarContrastWhenTransparent;
+    boolean mEnsureNavigationBarContrastWhenTransparent;
+
+    @UnsupportedAppUsage
     private CharSequence mTitle = null;
 
     private int mTitleColor = 0;
@@ -303,6 +317,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
     static final RotationWatcher sRotationWatcher = new RotationWatcher();
 
+    @UnsupportedAppUsage
     public PhoneWindow(Context context) {
         super(context);
         mLayoutInflater = LayoutInflater.from(context);
@@ -409,25 +424,19 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         // Note: FEATURE_CONTENT_TRANSITIONS may be set in the process of installing the window
         // decor, when theme attributes and the like are crystalized. Do not check the feature
         // before this happens.
-        // 根据layout的id加载一个布局，然后通过findViewById(R.id.content)加载出布局中id为content
-        // 的FrameLayout赋值给mContentParent，并且将该view添加到mDecor（DecorView）中
-        if (mContentParent == null) {// 第一次是空
+        if (mContentParent == null) {
             installDecor();
         } else if (!hasFeature(FEATURE_CONTENT_TRANSITIONS)) {
-            // 没有过度效果，并且不是第一次setContentView，那么要先移除盛放setContentView传递进来
-            // 的View的父容器中的所有子view
             mContentParent.removeAllViews();
         }
 
-        // 窗口是否需要过度显示
         if (hasFeature(FEATURE_CONTENT_TRANSITIONS)) {
             final Scene newScene = Scene.getSceneForLayout(mContentParent, layoutResID,
                     getContext());
             transitionTo(newScene);
-        } else {// 不需要过度，加载id为layoutResID的视图并且添加到mContentParent中
+        } else {
             mLayoutInflater.inflate(layoutResID, mContentParent);
         }
-        // 绘制视图
         mContentParent.requestApplyInsets();
         final Callback cb = getCallback();
         if (cb != null && !isDestroyed()) {
@@ -446,20 +455,17 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         // Note: FEATURE_CONTENT_TRANSITIONS may be set in the process of installing the window
         // decor, when theme attributes and the like are crystalized. Do not check the feature
         // before this happens.
-        // setContentView方法传递进来的View添加的父布局（FrameLayout）
-        if (mContentParent == null) {// 首次为空
+        if (mContentParent == null) {
             installDecor();
         } else if (!hasFeature(FEATURE_CONTENT_TRANSITIONS)) {
             mContentParent.removeAllViews();
         }
 
-        // 是否有窗口动画
         if (hasFeature(FEATURE_CONTENT_TRANSITIONS)) {
             view.setLayoutParams(params);
             final Scene newScene = new Scene(mContentParent, view);
             transitionTo(newScene);
         } else {
-            // 将Activity中的View添加到mContentParent
             mContentParent.addView(view, params);
         }
         mContentParent.requestApplyInsets();
@@ -1390,7 +1396,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
      */
     private int getOptionsPanelGravity() {
         try {
-            return WindowManagerHolder.sWindowManager.getPreferredOptionsPanelGravity();
+            return WindowManagerHolder.sWindowManager.getPreferredOptionsPanelGravity(
+                    getContext().getDisplayId());
         } catch (RemoteException ex) {
             Log.e(TAG, "Couldn't getOptionsPanelGravity; using default", ex);
             return Gravity.CENTER | Gravity.BOTTOM;
@@ -1483,14 +1490,14 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
     @Override
     public final void setBackgroundDrawable(Drawable drawable) {
-        if (drawable != mBackgroundDrawable || mBackgroundResource != 0) {
-            mBackgroundResource = 0;
+        if (drawable != mBackgroundDrawable) {
             mBackgroundDrawable = drawable;
             if (mDecor != null) {
                 mDecor.setWindowBackground(drawable);
-            }
-            if (mBackgroundFallbackResource != 0) {
-                mDecor.setBackgroundFallback(drawable != null ? 0 : mBackgroundFallbackResource);
+                if (mBackgroundFallbackDrawable != null) {
+                    mDecor.setBackgroundFallback(drawable != null ? null :
+                            mBackgroundFallbackDrawable);
+                }
             }
         }
     }
@@ -1886,7 +1893,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                 // If we have a session send it the volume command, otherwise
                 // use the suggested stream.
                 if (mMediaController != null) {
-                    mMediaController.dispatchVolumeButtonEventAsSystemService(event);
+                    getMediaSessionManager().dispatchVolumeKeyEventAsSystemService(
+                            mMediaController.getSessionToken(), event);
                 } else {
                     getMediaSessionManager().dispatchVolumeKeyEventAsSystemService(event,
                             mVolumeControlStreamType);
@@ -1894,7 +1902,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                 return true;
             }
             // These are all the recognized media key codes in
-            // KeyEvent.isMediaKey()
+            // KeyEvent.isMediaSessionKey()
             case KeyEvent.KEYCODE_MEDIA_PLAY:
             case KeyEvent.KEYCODE_MEDIA_PAUSE:
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
@@ -1907,7 +1915,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             case KeyEvent.KEYCODE_MEDIA_RECORD:
             case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD: {
                 if (mMediaController != null) {
-                    if (mMediaController.dispatchMediaButtonEventAsSystemService(event)) {
+                    if (getMediaSessionManager().dispatchMediaKeyEventAsSystemService(
+                            mMediaController.getSessionToken(), event)) {
                         return true;
                     }
                 }
@@ -1978,7 +1987,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                 // If we have a session send it the volume command, otherwise
                 // use the suggested stream.
                 if (mMediaController != null) {
-                    mMediaController.dispatchVolumeButtonEventAsSystemService(event);
+                    getMediaSessionManager().dispatchVolumeKeyEventAsSystemService(
+                            mMediaController.getSessionToken(), event);
                 } else {
                     getMediaSessionManager().dispatchVolumeKeyEventAsSystemService(
                             event, mVolumeControlStreamType);
@@ -1995,7 +2005,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                 return true;
             }
             // These are all the recognized media key codes in
-            // KeyEvent.isMediaKey()
+            // KeyEvent.isMediaSessionKey()
             case KeyEvent.KEYCODE_MEDIA_PLAY:
             case KeyEvent.KEYCODE_MEDIA_PAUSE:
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
@@ -2008,7 +2018,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             case KeyEvent.KEYCODE_MEDIA_RECORD:
             case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD: {
                 if (mMediaController != null) {
-                    if (mMediaController.dispatchMediaButtonEventAsSystemService(event)) {
+                    if (getMediaSessionManager().dispatchMediaKeyEventAsSystemService(
+                            mMediaController.getSessionToken(), event)) {
                         return true;
                     }
                 }
@@ -2078,7 +2089,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     }
 
     @Override
-    public final View getDecorView() {
+    public final @NonNull View getDecorView() {
         if (mDecor == null || mForceDecorInstall) {
             installDecor();
         }
@@ -2306,14 +2317,13 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         // the context we have. Otherwise we want the application context, so we don't cling to the
         // activity.
         Context context;
-        if (mUseDecorContext) {// 从Activity的setContentView方法调用则为true
+        if (mUseDecorContext) {
             Context applicationContext = getContext().getApplicationContext();
-            if (applicationContext == null) {// 系统进程时没有Application的context，所以就用现有的context
+            if (applicationContext == null) {
                 context = getContext();
-            } else {// 应用有application的Context
+            } else {
                 context = new DecorContext(applicationContext, getContext());
                 if (mTheme != -1) {
-                    // 设置主题
                     context.setTheme(mTheme);
                 }
             }
@@ -2323,25 +2333,6 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         return new DecorView(context, featureId, this, getAttributes());
     }
 
-    /**
-     * 因为setContentView要初始化ActionBar，所以设置NoTittle要在setContentView之前
-     * <p>
-     * 这里返回的是frameworks\base\core\res\res\layout\目录下layout布局中id为content的FrameLayout布局
-     * 用来放置setContentView中传递进来的View
-     * <p>
-     * 可能的Layout：
-     * R.layout.screen_swipe_dismiss
-     * R.layout.screen_title_icons
-     * R.layout.screen_progress
-     * R.layout.screen_custom_title
-     * R.layout.screen_title
-     * R.layout.screen_simple_overlay_action_mode
-     * R.layout.screen_simple
-     *
-     * @param decor
-     *
-     * @return
-     */
     protected ViewGroup generateLayout(DecorView decor) {
         // Apply data from current theme.
 
@@ -2367,7 +2358,6 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             setFlags(FLAG_LAYOUT_IN_SCREEN|FLAG_LAYOUT_INSET_DECOR, flagsToUpdate);
         }
 
-        // 根据Window的属性调用相应的requestFeature
         if (a.getBoolean(R.styleable.Window_windowNoTitle, false)) {
             requestFeature(FEATURE_NO_TITLE);
         } else if (a.getBoolean(R.styleable.Window_windowActionBar, false)) {
@@ -2387,7 +2377,6 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             requestFeature(FEATURE_SWIPE_TO_DISMISS);
         }
 
-        // 获取Window的各种属性来设置flag和参数
         if (a.getBoolean(R.styleable.Window_windowFullscreen, false)) {
             setFlags(FLAG_FULLSCREEN, FLAG_FULLSCREEN & (~getForcedWindowFlags()));
         }
@@ -2456,6 +2445,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         final boolean targetPreHoneycomb = targetSdk < android.os.Build.VERSION_CODES.HONEYCOMB;
         final boolean targetPreIcs = targetSdk < android.os.Build.VERSION_CODES.ICE_CREAM_SANDWICH;
         final boolean targetPreL = targetSdk < android.os.Build.VERSION_CODES.LOLLIPOP;
+        final boolean targetPreQ = targetSdk < Build.VERSION_CODES.Q;
         final boolean targetHcNeedsOptions = context.getResources().getBoolean(
                 R.bool.target_honeycomb_needs_options_menu);
         final boolean noActionBar = !hasFeature(FEATURE_ACTION_BAR) || hasFeature(FEATURE_NO_TITLE);
@@ -2474,6 +2464,12 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             mNavigationBarDividerColor = a.getColor(R.styleable.Window_navigationBarDividerColor,
                     0x00000000);
         }
+        if (!targetPreQ) {
+            mEnsureStatusBarContrastWhenTransparent = a.getBoolean(
+                    R.styleable.Window_enforceStatusBarContrast, false);
+            mEnsureNavigationBarContrastWhenTransparent = a.getBoolean(
+                    R.styleable.Window_enforceNavigationBarContrast, true);
+        }
 
         WindowManager.LayoutParams params = getAttributes();
 
@@ -2486,8 +2482,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                 setFlags(FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS,
                         FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS & ~getForcedWindowFlags());
             }
-            if (mDecor.mForceWindowDrawsStatusBarBackground) {
-                params.privateFlags |= PRIVATE_FLAG_FORCE_DRAW_STATUS_BAR_BACKGROUND;
+            if (mDecor.mForceWindowDrawsBarBackgrounds) {
+                params.privateFlags |= PRIVATE_FLAG_FORCE_DRAW_BAR_BACKGROUNDS;
             }
         }
         if (a.getBoolean(R.styleable.Window_windowLightStatusBar, false)) {
@@ -2544,20 +2540,18 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         // the values are inherited from our container.
         if (getContainer() == null) {
             if (mBackgroundDrawable == null) {
-                if (mBackgroundResource == 0) {
-                    mBackgroundResource = a.getResourceId(
-                            R.styleable.Window_windowBackground, 0);
-                }
+
                 if (mFrameResource == 0) {
                     mFrameResource = a.getResourceId(R.styleable.Window_windowFrame, 0);
                 }
-                mBackgroundFallbackResource = a.getResourceId(
-                        R.styleable.Window_windowBackgroundFallback, 0);
-                if (false) {
-                    System.out.println("Background: "
-                            + Integer.toHexString(mBackgroundResource) + " Frame: "
-                            + Integer.toHexString(mFrameResource));
+
+                if (a.hasValue(R.styleable.Window_windowBackground)) {
+                    mBackgroundDrawable = a.getDrawable(R.styleable.Window_windowBackground);
                 }
+            }
+            if (a.hasValue(R.styleable.Window_windowBackgroundFallback)) {
+                mBackgroundFallbackDrawable =
+                        a.getDrawable(R.styleable.Window_windowBackgroundFallback);
             }
             if (mLoadElevation) {
                 mElevation = a.getDimension(R.styleable.Window_windowElevation, 0);
@@ -2567,8 +2561,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         }
 
         // Inflate the window decor.
-        // 根据之前的flag和feature来加载一个layout资源到DecorView中，并把可以作为容器的View返回
-        // 这个layout布局文件在frameworks\base\core\res\res\layout\目录下
+
         int layoutResource;
         int features = getLocalFeatures();
         // System.out.println("Features: 0x" + Integer.toHexString(features));
@@ -2625,41 +2618,14 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         } else if ((features & (1 << FEATURE_ACTION_MODE_OVERLAY)) != 0) {
             layoutResource = R.layout.screen_simple_overlay_action_mode;
         } else {
-            /**
-             * 这个就是screen_simple.xml布局中的代码，后面的就是id为content的FrameLayout布局
-             *
-             * <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-             *      android:layout_width="match_parent"
-             *      android:layout_height="match_parent"
-             *      android:fitsSystemWindows="true"
-             *      android:orientation="vertical">
-             *      <ViewStub android:id="@+id/action_mode_bar_stub"
-             *          android:inflatedId="@+id/action_mode_bar"
-             *          android:layout="@layout/action_mode_bar"
-             *          android:layout_width="match_parent"
-             *          android:layout_height="wrap_content"
-             *          android:theme="?attr/actionBarTheme" />
-             *      <!---->
-             *      <FrameLayout
-             *          android:id="@android:id/content"
-             *          android:layout_width="match_parent"
-             *          android:layout_height="match_parent"
-             *          android:foregroundInsidePadding="false"
-             *          android:foregroundGravity="fill_horizontal|top"
-             *          android:foreground="?android:attr/windowContentOverlay" />
-             * </LinearLayout>
-             */
             // Embedded, so no decoration is needed.
             layoutResource = R.layout.screen_simple;
             // System.out.println("Simple!");
         }
 
         mDecor.startChanging();
-        // 根据layoutResource（布局id）加载系统中布局文件（Layout）并添加到DecorView中
         mDecor.onResourcesLoaded(mLayoutInflater, layoutResource);
 
-	// contentParent是用来添加Activity中布局的父布局（FrameLayout），并带有相关主题样式，就是上面
-        // 提到的id为content的FrameLayout，返回后会赋值给PhoneWindow中的mContentParent
         ViewGroup contentParent = (ViewGroup)findViewById(ID_ANDROID_CONTENT);
         if (contentParent == null) {
             throw new RuntimeException("Window couldn't find content container view");
@@ -2678,15 +2644,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
         // Remaining setup -- of background and title -- that only applies
         // to top-level windows.
-        // 设置mDecor背景之类
         if (getContainer() == null) {
-            final Drawable background;
-            if (mBackgroundResource != 0) {
-                background = getContext().getDrawable(mBackgroundResource);
-            } else {
-                background = mBackgroundDrawable;
-            }
-            mDecor.setWindowBackground(background);
+            mDecor.setWindowBackground(mBackgroundDrawable);
 
             final Drawable frame;
             if (mFrameResource != 0) {
@@ -2721,9 +2680,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
     private void installDecor() {
         mForceDecorInstall = false;
-        // 继承FrameLayout，是窗口顶级视图，也就是Activity显示View的根View，包含一个TitleView和一个ContentView
-        if (mDecor == null) {// 首次为空
-            // 创建DecorView（FrameLayout）
+        if (mDecor == null) {
             mDecor = generateDecor(-1);
             mDecor.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
             mDecor.setIsRootNamespace(true);
@@ -2733,16 +2690,12 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         } else {
             mDecor.setWindow(this);
         }
-        if (mContentParent == null) {// 第一次setContentView时为空
-            // 这个mContentParent就是后面从系统的frameworks\base\core\res\res\layout\目录下加载出来
-            // 的layout布局（这个Layout布局加载完成后会添加到mDecor（DecorView）中）中的一个id为content的
-            // FrameLayout控件，这个FrameLayout控件用来盛放setContentView传递进来的View
+        if (mContentParent == null) {
             mContentParent = generateLayout(mDecor);
 
             // Set up decor part of UI to ignore fitsSystemWindows if appropriate.
             mDecor.makeOptionalFitsSystemWindows();
 
-            // 判断是否存在id为decor_content_parent的view（我只看到screen_action_bar.xml这个里面有这个id）
             final DecorContentParent decorContentParent = (DecorContentParent) mDecor.findViewById(
                     R.id.decor_content_parent);
 
@@ -2786,11 +2739,8 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                     invalidatePanelMenu(FEATURE_ACTION_BAR);
                 }
             } else {
- 		// 标题视图
                 mTitleView = findViewById(R.id.title);
-		 // 有的布局中是没有id为title的控件的，也就是不显示标题
                 if (mTitleView != null) {
-                    // 判断是否有不显示标题的特性
                     if ((getLocalFeatures() & (1 << FEATURE_NO_TITLE)) != 0) {
                         final View titleContainer = findViewById(R.id.title_container);
                         if (titleContainer != null) {
@@ -2799,19 +2749,18 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                             mTitleView.setVisibility(View.GONE);
                         }
                         mContentParent.setForeground(null);
-                    } else {// 显示标题
+                    } else {
                         mTitleView.setText(mTitle);
                     }
                 }
             }
 
-            // 背景
-            if (mDecor.getBackground() == null && mBackgroundFallbackResource != 0) {
-                mDecor.setBackgroundFallback(mBackgroundFallbackResource);
+            if (mDecor.getBackground() == null && mBackgroundFallbackDrawable != null) {
+                mDecor.setBackgroundFallback(mBackgroundFallbackDrawable);
             }
 
             // Only inflate or create a new TransitionManager if the caller hasn't
-            // already set a custom one.（过度效果）
+            // already set a custom one.
             if (hasFeature(FEATURE_ACTIVITY_TRANSITIONS)) {
                 if (mTransitionManager == null) {
                     final int transitionRes = getWindowStyle().getResourceId(
@@ -3714,7 +3663,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
                 if (!mIsWatching) {
                     try {
                         WindowManagerHolder.sWindowManager.watchRotation(this,
-                                phoneWindow.getContext().getDisplay().getDisplayId());
+                                phoneWindow.getContext().getDisplayId());
                         mHandler = new Handler();
                         mIsWatching = true;
                     } catch (RemoteException ex) {
@@ -3909,6 +3858,32 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         return mNavigationBarDividerColor;
     }
 
+    @Override
+    public void setStatusBarContrastEnforced(boolean ensureContrast) {
+        mEnsureStatusBarContrastWhenTransparent = ensureContrast;
+        if (mDecor != null) {
+            mDecor.updateColorViews(null, false /* animate */);
+        }
+    }
+
+    @Override
+    public boolean isStatusBarContrastEnforced() {
+        return mEnsureStatusBarContrastWhenTransparent;
+    }
+
+    @Override
+    public void setNavigationBarContrastEnforced(boolean enforceContrast) {
+        mEnsureNavigationBarContrastWhenTransparent = enforceContrast;
+        if (mDecor != null) {
+            mDecor.updateColorViews(null, false /* animate */);
+        }
+    }
+
+    @Override
+    public boolean isNavigationBarContrastEnforced() {
+        return mEnsureNavigationBarContrastWhenTransparent;
+    }
+
     public void setIsStartingWindow(boolean isStartingWindow) {
         mIsStartingWindow = isStartingWindow;
     }
@@ -3947,5 +3922,21 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         if (mDecor != null) {
             mDecor.updateLogTag(params);
         }
+    }
+
+    @Override
+    public WindowInsetsController getInsetsController() {
+        return mDecor.getWindowInsetsController();
+    }
+
+    @Override
+    public void setSystemGestureExclusionRects(@NonNull List<Rect> rects) {
+        getViewRootImpl().setRootSystemGestureExclusionRects(rects);
+    }
+
+    @Override
+    @NonNull
+    public List<Rect> getSystemGestureExclusionRects() {
+        return getViewRootImpl().getRootSystemGestureExclusionRects();
     }
 }

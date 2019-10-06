@@ -26,13 +26,13 @@ import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
-import android.support.annotation.AnyRes;
-import android.support.annotation.ColorRes;
-import android.support.annotation.DrawableRes;
-import android.support.annotation.StringRes;
-import android.support.annotation.VisibleForTesting;
+import androidx.annotation.AnyRes;
+import androidx.annotation.ColorRes;
+import androidx.annotation.DrawableRes;
+import androidx.annotation.Nullable;
+import androidx.annotation.StringRes;
+import androidx.annotation.VisibleForTesting;
 import android.util.Log;
-
 import java.util.List;
 
 /**
@@ -45,157 +45,156 @@ import java.util.List;
  */
 public class Partner {
 
-    private static final String TAG = "(SUW) Partner";
+  private static final String TAG = "(SUW) Partner";
 
-    /** Marker action used to discover partner */
-    private static final String ACTION_PARTNER_CUSTOMIZATION =
-            "com.android.setupwizard.action.PARTNER_CUSTOMIZATION";
+  /** Marker action used to discover partner. */
+  private static final String ACTION_PARTNER_CUSTOMIZATION =
+      "com.android.setupwizard.action.PARTNER_CUSTOMIZATION";
 
-    private static boolean sSearched = false;
-    private static Partner sPartner;
+  private static boolean searched = false;
+  @Nullable private static Partner partner;
 
-    /**
-     * Convenience to get a drawable from partner overlay, or if not available, the drawable from
-     * the original context.
-     *
-     * @see #getResourceEntry(android.content.Context, int)
-     */
-    public static Drawable getDrawable(Context context, @DrawableRes int id) {
-        final ResourceEntry entry = getResourceEntry(context, id);
-        return entry.resources.getDrawable(entry.id);
+  /**
+   * Gets a drawable from partner overlay, or if not available, the drawable from the original
+   * context.
+   *
+   * @see #getResourceEntry(android.content.Context, int)
+   */
+  public static Drawable getDrawable(Context context, @DrawableRes int id) {
+    final ResourceEntry entry = getResourceEntry(context, id);
+    return entry.resources.getDrawable(entry.id);
+  }
+
+  /**
+   * Gets a string from partner overlay, or if not available, the string from the original context.
+   *
+   * @see #getResourceEntry(android.content.Context, int)
+   */
+  public static String getString(Context context, @StringRes int id) {
+    final ResourceEntry entry = getResourceEntry(context, id);
+    return entry.resources.getString(entry.id);
+  }
+
+  /**
+   * Gets a color from partner overlay, or if not available, the color from the original context.
+   */
+  public static int getColor(Context context, @ColorRes int id) {
+    final ResourceEntry resourceEntry = getResourceEntry(context, id);
+    return resourceEntry.resources.getColor(resourceEntry.id);
+  }
+
+  /**
+   * Gets a CharSequence from partner overlay, or if not available, the text from the original
+   * context.
+   */
+  public static CharSequence getText(Context context, @StringRes int id) {
+    final ResourceEntry entry = getResourceEntry(context, id);
+    return entry.resources.getText(entry.id);
+  }
+
+  /**
+   * Finds an entry of resource in the overlay package provided by partners. It will first look for
+   * the resource in the overlay package, and if not available, will return the one in the original
+   * context.
+   *
+   * @return a ResourceEntry in the partner overlay's resources, if one is defined. Otherwise the
+   *     resources from the original context is returned. Clients can then get the resource by
+   *     {@code entry.resources.getString(entry.id)}, or other methods available in {@link
+   *     android.content.res.Resources}.
+   */
+  public static ResourceEntry getResourceEntry(Context context, @AnyRes int id) {
+    final Partner partner = Partner.get(context);
+    if (partner != null) {
+      final Resources ourResources = context.getResources();
+      final String name = ourResources.getResourceEntryName(id);
+      final String type = ourResources.getResourceTypeName(id);
+      final int partnerId = partner.getIdentifier(name, type);
+      if (partnerId != 0) {
+        return new ResourceEntry(partner.resources, partnerId, true);
+      }
     }
+    return new ResourceEntry(context.getResources(), id, false);
+  }
 
-    /**
-     * Convenience to get a string from partner overlay, or if not available, the string from the
-     * original context.
-     *
-     * @see #getResourceEntry(android.content.Context, int)
-     */
-    public static String getString(Context context, @StringRes int id) {
-        final ResourceEntry entry = getResourceEntry(context, id);
-        return entry.resources.getString(entry.id);
+  public static class ResourceEntry {
+    public Resources resources;
+    public int id;
+    public boolean isOverlay;
+
+    ResourceEntry(Resources resources, int id, boolean isOverlay) {
+      this.resources = resources;
+      this.id = id;
+      this.isOverlay = isOverlay;
     }
+  }
 
-    /**
-     * Convenience method to get color from partner overlay, or if not available, the color from
-     * the original context.
-     */
-    public static int getColor(Context context, @ColorRes int id) {
-        final ResourceEntry resourceEntry = getResourceEntry(context, id);
-        return resourceEntry.resources.getColor(resourceEntry.id);
-    }
+  /**
+   * Finds and returns partner details, or {@code null} if none exists. A partner package is marked
+   * by a broadcast receiver declared in the manifest that handles the {@code
+   * com.android.setupwizard.action.PARTNER_CUSTOMIZATION} intent action. The overlay package must
+   * also be a system package.
+   */
+  public static synchronized Partner get(Context context) {
+    if (!searched) {
+      PackageManager pm = context.getPackageManager();
+      final Intent intent = new Intent(ACTION_PARTNER_CUSTOMIZATION);
+      List<ResolveInfo> receivers;
+      if (VERSION.SDK_INT >= VERSION_CODES.N) {
+        receivers =
+            pm.queryBroadcastReceivers(
+                intent,
+                PackageManager.MATCH_SYSTEM_ONLY
+                    | PackageManager.MATCH_DIRECT_BOOT_AWARE
+                    | PackageManager.MATCH_DIRECT_BOOT_UNAWARE);
+      } else {
+        // On versions before N, direct boot doesn't exist. And the MATCH_SYSTEM_ONLY flag
+        // doesn't exist so we filter for system apps in code below.
+        receivers = pm.queryBroadcastReceivers(intent, 0);
+      }
 
-    /**
-     * Convenience method to get a CharSequence from partner overlay, or if not available, the text
-     * from the original context.
-     */
-    public static CharSequence getText(Context context, @StringRes int id) {
-        final ResourceEntry entry = getResourceEntry(context, id);
-        return entry.resources.getText(entry.id);
-    }
-
-    /**
-     * Find an entry of resource in the overlay package provided by partners. It will first look for
-     * the resource in the overlay package, and if not available, will return the one in the
-     * original context.
-     *
-     * @return a ResourceEntry in the partner overlay's resources, if one is defined. Otherwise the
-     * resources from the original context is returned. Clients can then get the resource by
-     * {@code entry.resources.getString(entry.id)}, or other methods available in
-     * {@link android.content.res.Resources}.
-     */
-    public static ResourceEntry getResourceEntry(Context context, @AnyRes int id) {
-        final Partner partner = Partner.get(context);
-        if (partner != null) {
-            final Resources ourResources = context.getResources();
-            final String name = ourResources.getResourceEntryName(id);
-            final String type = ourResources.getResourceTypeName(id);
-            final int partnerId = partner.getIdentifier(name, type);
-            if (partnerId != 0) {
-                return new ResourceEntry(partner.mResources, partnerId, true);
-            }
+      for (ResolveInfo info : receivers) {
+        if (info.activityInfo == null) {
+          continue;
         }
-        return new ResourceEntry(context.getResources(), id, false);
-    }
-
-    public static class ResourceEntry {
-        public Resources resources;
-        public int id;
-        public boolean isOverlay;
-
-        ResourceEntry(Resources resources, int id, boolean isOverlay) {
-            this.resources = resources;
-            this.id = id;
-            this.isOverlay = isOverlay;
+        final ApplicationInfo appInfo = info.activityInfo.applicationInfo;
+        if ((appInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
+          try {
+            final Resources res = pm.getResourcesForApplication(appInfo);
+            partner = new Partner(appInfo.packageName, res);
+            break;
+          } catch (NameNotFoundException e) {
+            Log.w(TAG, "Failed to find resources for " + appInfo.packageName);
+          }
         }
+      }
+      searched = true;
     }
+    return partner;
+  }
 
-    /**
-     * Find and return partner details, or {@code null} if none exists. A partner package is marked
-     * by a broadcast receiver declared in the manifest that handles the
-     * {@code com.android.setupwizard.action.PARTNER_CUSTOMIZATION} intent action. The overlay
-     * package must also be a system package.
-     */
-    public static synchronized Partner get(Context context) {
-        if (!sSearched) {
-            PackageManager pm = context.getPackageManager();
-            final Intent intent = new Intent(ACTION_PARTNER_CUSTOMIZATION);
-            List<ResolveInfo> receivers;
-            if (VERSION.SDK_INT >= VERSION_CODES.N) {
-                receivers = pm.queryBroadcastReceivers(
-                        intent,
-                        PackageManager.MATCH_SYSTEM_ONLY
-                                | PackageManager.MATCH_DIRECT_BOOT_AWARE
-                                | PackageManager.MATCH_DIRECT_BOOT_UNAWARE);
-            } else {
-                // On versions before N, direct boot doesn't exist. And the MATCH_SYSTEM_ONLY flag
-                // doesn't exist so we filter for system apps in code below.
-                receivers = pm.queryBroadcastReceivers(intent, 0);
-            }
+  @VisibleForTesting
+  public static synchronized void resetForTesting() {
+    searched = false;
+    partner = null;
+  }
 
-            for (ResolveInfo info : receivers) {
-                if (info.activityInfo == null) {
-                    continue;
-                }
-                final ApplicationInfo appInfo = info.activityInfo.applicationInfo;
-                if ((appInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
-                    try {
-                        final Resources res = pm.getResourcesForApplication(appInfo);
-                        sPartner = new Partner(appInfo.packageName, res);
-                        break;
-                    } catch (NameNotFoundException e) {
-                        Log.w(TAG, "Failed to find resources for " + appInfo.packageName);
-                    }
-                }
-            }
-            sSearched = true;
-        }
-        return sPartner;
-    }
+  private final String packageName;
+  private final Resources resources;
 
-    @VisibleForTesting
-    public static synchronized void resetForTesting() {
-        sSearched = false;
-        sPartner = null;
-    }
+  private Partner(String packageName, Resources res) {
+    this.packageName = packageName;
+    resources = res;
+  }
 
-    private final String mPackageName;
-    private final Resources mResources;
+  public String getPackageName() {
+    return packageName;
+  }
 
-    private Partner(String packageName, Resources res) {
-        mPackageName = packageName;
-        mResources = res;
-    }
+  public Resources getResources() {
+    return resources;
+  }
 
-    public String getPackageName() {
-        return mPackageName;
-    }
-
-    public Resources getResources() {
-        return mResources;
-    }
-
-    public int getIdentifier(String name, String defType) {
-        return mResources.getIdentifier(name, defType, mPackageName);
-    }
+  public int getIdentifier(String name, String defType) {
+    return resources.getIdentifier(name, defType, packageName);
+  }
 }

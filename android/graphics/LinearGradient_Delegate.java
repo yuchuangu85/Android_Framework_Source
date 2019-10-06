@@ -59,20 +59,12 @@ public final class LinearGradient_Delegate extends Gradient_Delegate {
     // ---- native methods ----
 
     @LayoutlibDelegate
-    /*package*/ static long nativeCreate1(LinearGradient thisGradient, long matrix,
-            float x0, float y0, float x1, float y1,
-            int colors[], float positions[], int tileMode) {
+    /*package*/ static long nativeCreate(LinearGradient thisGradient, long matrix,
+            float x0, float y0, float x1, float y1, long[] colors, float[] positions,
+            int tileMode, long colorSpaceHandle) {
         LinearGradient_Delegate newDelegate = new LinearGradient_Delegate(matrix, x0, y0,
                 x1, y1, colors, positions, Shader_Delegate.getTileMode(tileMode));
         return sManager.addNewDelegate(newDelegate);
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static long nativeCreate2(LinearGradient thisGradient, long matrix,
-            float x0, float y0, float x1, float y1,
-            int color0, int color1, int tileMode) {
-        return nativeCreate1(thisGradient, matrix, x0, y0, x1, y1, new int[] { color0, color1},
-                null /*positions*/, tileMode);
     }
 
     // ---- Private delegate/helper methods ----
@@ -92,7 +84,7 @@ public final class LinearGradient_Delegate extends Gradient_Delegate {
      * @param tile The Shader tiling mode
      */
     private LinearGradient_Delegate(long nativeMatrix, float x0, float y0, float x1,
-            float y1, int colors[], float positions[], TileMode tile) {
+            float y1, long[] colors, float[] positions, TileMode tile) {
         super(nativeMatrix, colors, positions);
         mJavaPaint = new LinearGradientPaint(x0, y0, x1, y1, mColors, mPositions, tile);
     }
@@ -111,8 +103,8 @@ public final class LinearGradient_Delegate extends Gradient_Delegate {
         private final float mDy;
         private final float mDSize2;
 
-        public LinearGradientPaint(float x0, float y0, float x1, float y1, int colors[],
-                float positions[], TileMode tile) {
+        public LinearGradientPaint(float x0, float y0, float x1, float y1, int[] colors,
+                float[] positions, TileMode tile) {
             super(colors, positions, tile);
             mX0 = x0;
             mY0 = y0;

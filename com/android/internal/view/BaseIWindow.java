@@ -26,6 +26,8 @@ import android.view.DisplayCutout;
 import android.view.DragEvent;
 import android.view.IWindow;
 import android.view.IWindowSession;
+import android.view.InsetsSourceControl;
+import android.view.InsetsState;
 import android.view.PointerIcon;
 
 import com.android.internal.os.IResultReceiver;
@@ -42,7 +44,7 @@ public class BaseIWindow extends IWindow.Stub {
     public void resized(Rect frame, Rect overscanInsets, Rect contentInsets, Rect visibleInsets,
             Rect stableInsets, Rect outsets, boolean reportDraw,
             MergedConfiguration mergedConfiguration, Rect backDropFrame, boolean forceLayout,
-            boolean alwaysConsumeNavBar, int displayId,
+            boolean alwaysConsumeSystemBars, int displayId,
             DisplayCutout.ParcelableWrapper displayCutout) {
         if (reportDraw) {
             try {
@@ -50,6 +52,15 @@ public class BaseIWindow extends IWindow.Stub {
             } catch (RemoteException e) {
             }
         }
+    }
+
+    @Override
+    public void insetsChanged(InsetsState insetsState) {
+    }
+
+    @Override
+    public void insetsControlChanged(InsetsState insetsState,
+            InsetsSourceControl[] activeControls) throws RemoteException {
     }
 
     @Override

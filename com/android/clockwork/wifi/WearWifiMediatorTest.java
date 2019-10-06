@@ -1,6 +1,7 @@
 package com.android.clockwork.wifi;
 
 import android.app.AlarmManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.NetworkInfo;
@@ -8,7 +9,7 @@ import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiManager;
 
 import com.android.clockwork.bluetooth.CompanionTracker;
-import com.android.clockwork.flags.UserAbsentRadiosOffObserver;
+import com.android.clockwork.flags.BooleanFlag;
 import com.android.clockwork.power.PowerTracker;
 
 import com.android.clockwork.common.RadioToggler;
@@ -20,7 +21,7 @@ import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
-import org.robolectric.annotation.Config;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.shadows.ShadowApplication;
 
@@ -30,9 +31,10 @@ import java.util.Iterator;
 import static com.android.clockwork.wifi.WearWifiMediatorSettings.WIFI_SETTING_OFF;
 import static com.android.clockwork.wifi.WearWifiMediatorSettings.WIFI_SETTING_ON;
 
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.anyLong;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -40,43 +42,45 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 23)
 public class WearWifiMediatorTest {
-    final ShadowApplication shadowApplication = ShadowApplication.getInstance();
+    private final ShadowApplication shadowApplication = ShadowApplication.getInstance();
 
-    @Mock AlarmManager mockAlarmManager;
-    @Mock WearWifiMediatorSettings mockWifiSettings;
-    @Mock CompanionTracker mockCompanionTracker;
-    @Mock PowerTracker mockPowerTracker;
-    @Mock UserAbsentRadiosOffObserver mockUserAbsentRadiosOffObserver;
-    @Mock WifiBackoff mockWifiBackoff;
-    @Mock WifiLogger mockWifiLogger;
+    private @Mock AlarmManager mockAlarmManager;
+    private @Mock WearWifiMediatorSettings mockWifiSettings;
+    private @Mock CompanionTracker mockCompanionTracker;
+    private @Mock PowerTracker mockPowerTracker;
+    private @Mock BooleanFlag mockUserAbsentRadiosOffFlag;
+    private @Mock WifiBackoff mockWifiBackoff;
+    private @Mock WifiLogger mockWifiLogger;
 
-    @Mock WifiManager mockWifiMgr;
-    @Mock RadioToggler mockRadioToggler;
-    @Mock NetworkInfo mockWifiNetworkInfo;
+    private @Mock WifiManager mockWifiMgr;
+    private @Mock RadioToggler mockRadioToggler;
+    private @Mock NetworkInfo mockWifiNetworkInfo;
 
-    @Mock WifiConfiguration mockWifiConfiguration;
+    private @Mock WifiConfiguration mockWifiConfiguration;
 
-    WearWifiMediator mWifiMediator;
+    private Context context;
+    private WearWifiMediator mWifiMediator;
 
     @Before
     public void setup() {
         MockitoAnnotations.initMocks(this);
 
+        context = RuntimeEnvironment.application;
+
         // wifi is initially off for all test cases
         when(mockRadioToggler.getRadioEnabled()).thenReturn(false);
 
         mWifiMediator = new WearWifiMediator(
-                shadowApplication.getApplicationContext(),
-                mockAlarmManager,
-                mockWifiSettings,
-                mockCompanionTracker,
-                mockPowerTracker,
-                mockUserAbsentRadiosOffObserver,
-                mockWifiBackoff,
-                mockWifiMgr,
-                mockWifiLogger);
+            context,
+            mockAlarmManager,
+            mockWifiSettings,
+            mockCompanionTracker,
+            mockPowerTracker,
+            mockUserAbsentRadiosOffFlag,
+            mockWifiBackoff,
+            mockWifiMgr,
+            mockWifiLogger);
         // disable wifi lingering to allow easier testing of when mediator should turn wifi off
         mWifiMediator.setWifiLingerDuration(-999);
         mWifiMediator.overrideRadioTogglerForTest(mockRadioToggler);
@@ -112,7 +116,7 @@ public class WearWifiMediatorTest {
         when(mockPowerTracker.isCharging()).thenReturn(false);
         when(mockPowerTracker.isInPowerSave()).thenReturn(false);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(true);
+        when(mockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(true);
 
         ArrayList<WifiConfiguration> mockWifiConfigs = new ArrayList<>();
         mockWifiConfigs.add(mockWifiConfiguration);
@@ -139,7 +143,7 @@ public class WearWifiMediatorTest {
     public void testConstructorRegistersAppropriateReceiversAndListeners() {
         verify(mockWifiSettings).addListener(mWifiMediator);
         verify(mockPowerTracker).addListener(mWifiMediator);
-        verify(mockUserAbsentRadiosOffObserver).addListener(mWifiMediator);
+        verify(mockUserAbsentRadiosOffFlag).addListener(any());
 
         IntentFilter intentFilter = mWifiMediator.getBroadcastReceiverIntentFilter();
         for (Iterator<String> it = intentFilter.actionsIterator(); it.hasNext(); ) {
@@ -155,12 +159,12 @@ public class WearWifiMediatorTest {
         // mWifiMediator and mRadioToggler for this test
         RadioToggler radioToggler = Mockito.mock(RadioToggler.class);
         WearWifiMediator wifiMediator = new WearWifiMediator(
-                shadowApplication.getApplicationContext(),
+                RuntimeEnvironment.application,
                 mockAlarmManager,
                 mockWifiSettings,
                 mockCompanionTracker,
                 mockPowerTracker,
-                mockUserAbsentRadiosOffObserver,
+                mockUserAbsentRadiosOffFlag,
                 mockWifiBackoff,
                 mockWifiMgr,
                 mockWifiLogger);
@@ -177,7 +181,7 @@ public class WearWifiMediatorTest {
         wifiMediator.onChargingStateChanged();
         final Intent wifiOnIntent = new Intent(WifiManager.WIFI_STATE_CHANGED_ACTION);
         wifiOnIntent.putExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_ENABLED);
-        shadowApplication.sendBroadcast(wifiOnIntent);
+        context.sendBroadcast(wifiOnIntent);
 
         verify(radioToggler, never()).toggleRadio(anyBoolean());
     }
@@ -265,7 +269,7 @@ public class WearWifiMediatorTest {
         mWifiMediator.onDeviceIdleModeChanged();
         verifyWifiWanted(false);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(false);
+        when(mockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(false);
         mWifiMediator.onUserAbsentRadiosOffChanged(false);
         verifyWifiWanted(true);
 
@@ -277,7 +281,7 @@ public class WearWifiMediatorTest {
         mWifiMediator.onDeviceIdleModeChanged();
         verifyWifiWanted(true);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(true);
+        when(mockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(true);
         mWifiMediator.onUserAbsentRadiosOffChanged(true);
         verifyWifiWanted(false);
 
@@ -374,23 +378,20 @@ public class WearWifiMediatorTest {
         mWifiMediator.setWifiLingerDuration(5000L);
 
         // when wifi is off (and not lingering), if the alarm goes off, nothing should happen
-        shadowApplication.getApplicationContext().sendBroadcast(
-                new Intent(WearWifiMediator.ACTION_EXIT_WIFI_LINGER));
+        context.sendBroadcast(new Intent(WearWifiMediator.ACTION_EXIT_WIFI_LINGER));
         verify(mockRadioToggler, never()).toggleRadio(anyBoolean());
 
         // when wifi is on (and not lingering), if the alarm goes off, nothing should happen
         reset(mockWifiMgr);
         mWifiMediator.updateNumWifiRequests(1);
         verifyWifiWanted(true);
-        shadowApplication.getApplicationContext().sendBroadcast(
-                new Intent(WearWifiMediator.ACTION_EXIT_WIFI_LINGER));
+        context.sendBroadcast(new Intent(WearWifiMediator.ACTION_EXIT_WIFI_LINGER));
         verify(mockRadioToggler, never()).toggleRadio(anyBoolean());
 
         // when wifi is on and lingering, if the alarm goes off, wifi should get disabled
         reset(mockWifiMgr);
         mWifiMediator.updateNumWifiRequests(0);
-        shadowApplication.getApplicationContext().sendBroadcast(
-                new Intent(WearWifiMediator.ACTION_EXIT_WIFI_LINGER));
+        context.sendBroadcast(new Intent(WearWifiMediator.ACTION_EXIT_WIFI_LINGER));
         verifyWifiWanted(false);
     }
 
@@ -408,7 +409,7 @@ public class WearWifiMediatorTest {
 
         // plug in the power, get some network requests going, disconnect proxy, and
         // enter wifi settings -- all of these should result in no change to WiFi state
-        shadowApplication.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
+        context.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
         mWifiMediator.updateProxyConnected(false);
         mWifiMediator.updateNumHighBandwidthRequests(3);
         mWifiMediator.updateNumUnmeteredRequests(3);
@@ -514,7 +515,7 @@ public class WearWifiMediatorTest {
 
         // plug in the power, get some network requests going, disconnect proxy, and
         // enter wifi settings -- all of these should result in no change to WiFi state
-        shadowApplication.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
+        context.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
         mWifiMediator.updateProxyConnected(false);
         mWifiMediator.updateNumHighBandwidthRequests(3);
         mWifiMediator.updateNumUnmeteredRequests(3);
@@ -542,7 +543,7 @@ public class WearWifiMediatorTest {
 
         // WiFi Setting is ON; adapter should be OFF;  if we hear that WiFi got turned on,
         // WifiMediator should turn it back off
-        shadowApplication.sendBroadcast(wifiOnIntent);
+        context.sendBroadcast(wifiOnIntent);
 
         // Make sure the radioToggler knows about the change
         verifyWifiWanted(false);
@@ -552,7 +553,7 @@ public class WearWifiMediatorTest {
         mWifiMediator.updateNumWifiRequests(5);
         mWifiMediator.updateProxyConnected(false);
         verifyWifiWanted(true);
-        shadowApplication.sendBroadcast(wifiOffIntent);
+        context.sendBroadcast(wifiOffIntent);
         verifyWifiWanted(true);
 
         // WiFi Setting is OFF; adapter is OFF; if we hear that WiFi got turned on,
@@ -560,7 +561,7 @@ public class WearWifiMediatorTest {
         // is correctly toggled back to ON/AUTO
         mWifiMediator.onWifiSettingChanged(WIFI_SETTING_OFF);
         verifyWifiWanted(false);
-        shadowApplication.sendBroadcast(wifiOnIntent);
+        context.sendBroadcast(wifiOnIntent);
         verify(mockWifiSettings).putWifiSetting(WIFI_SETTING_ON);
     }
 
@@ -570,7 +571,7 @@ public class WearWifiMediatorTest {
 
         // plug in the power, get some network requests going, disconnect proxy, and
         // enter wifi settings -- all of these should result in no change to WiFi state
-        shadowApplication.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
+        context.sendBroadcast(new Intent(Intent.ACTION_POWER_CONNECTED));
         mWifiMediator.updateProxyConnected(false);
         mWifiMediator.updateNumHighBandwidthRequests(3);
         mWifiMediator.updateNumUnmeteredRequests(3);
@@ -600,12 +601,12 @@ public class WearWifiMediatorTest {
         Intent i = new Intent(WifiManager.NETWORK_STATE_CHANGED_ACTION);
         i.putExtra(WifiManager.EXTRA_NETWORK_INFO, mockWifiNetworkInfo);
         when(mockWifiNetworkInfo.isConnected()).thenReturn(true);
-        shadowApplication.sendBroadcast(i);
+        context.sendBroadcast(i);
         verify(mockWifiBackoff).cancelBackoff();
 
         reset(mockWifiBackoff);
         when(mockWifiNetworkInfo.isConnected()).thenReturn(false);
-        shadowApplication.sendBroadcast(i);
+        context.sendBroadcast(i);
         verify(mockWifiBackoff).scheduleBackoff();
     }
 

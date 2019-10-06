@@ -44,8 +44,9 @@ public class DebugService {
      */
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         if (args != null && args.length > 0) {
-            if (TextUtils.equals(args[0], "--metrics") ||
-                    TextUtils.equals(args[0], "--metricsproto"))
+            if (TextUtils.equals(args[0], "--metrics")
+                    || TextUtils.equals(args[0], "--metricsproto")
+                    || TextUtils.equals(args[0], "--metricsprototext"))
             {
                 log("Collecting telephony metrics..");
                 TelephonyMetrics.getInstance().dump(fd, pw, args);

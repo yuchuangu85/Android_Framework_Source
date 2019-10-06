@@ -16,6 +16,20 @@
 
 package android.os.storage;
 
+import static android.Manifest.permission.READ_EXTERNAL_STORAGE;
+import static android.Manifest.permission.WRITE_EXTERNAL_STORAGE;
+import static android.app.AppOpsManager.OP_LEGACY_STORAGE;
+import static android.app.AppOpsManager.OP_READ_EXTERNAL_STORAGE;
+import static android.app.AppOpsManager.OP_READ_MEDIA_AUDIO;
+import static android.app.AppOpsManager.OP_READ_MEDIA_IMAGES;
+import static android.app.AppOpsManager.OP_READ_MEDIA_VIDEO;
+import static android.app.AppOpsManager.OP_WRITE_EXTERNAL_STORAGE;
+import static android.app.AppOpsManager.OP_WRITE_MEDIA_AUDIO;
+import static android.app.AppOpsManager.OP_WRITE_MEDIA_IMAGES;
+import static android.app.AppOpsManager.OP_WRITE_MEDIA_VIDEO;
+import static android.content.ContentResolver.DEPRECATE_DATA_PREFIX;
+import static android.content.pm.PackageManager.PERMISSION_GRANTED;
+
 import android.annotation.BytesLong;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
@@ -25,19 +39,27 @@ import android.annotation.SdkConstant;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
+import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.annotation.WorkerThread;
 import android.app.Activity;
 import android.app.ActivityThread;
+import android.app.AppGlobals;
+import android.app.AppOpsManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.IPackageMoveObserver;
 import android.content.pm.PackageManager;
+import android.content.res.ObbInfo;
+import android.content.res.ObbScanner;
+import android.net.Uri;
 import android.os.Binder;
 import android.os.Environment;
 import android.os.FileUtils;
 import android.os.Handler;
+import android.os.IInstalld;
 import android.os.IVold;
 import android.os.IVoldTaskListener;
 import android.os.Looper;
@@ -50,7 +72,9 @@ import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.ServiceManager.ServiceNotFoundException;
 import android.os.SystemProperties;
+import android.provider.MediaStore;
 import android.provider.Settings;
+import android.sysprop.VoldProperties;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -70,6 +94,8 @@ import com.android.internal.os.FuseUnavailableMountException;
 import com.android.internal.os.RoSystemProperties;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.util.Preconditions;
+
+import dalvik.system.BlockGuard;
 
 import java.io.File;
 import java.io.FileDescriptor;
@@ -107,6 +133,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @SystemService(Context.STORAGE_SERVICE)
 public class StorageManager {
     private static final String TAG = "StorageManager";
+    private static final boolean LOCAL_LOGV = Log.isLoggable(TAG, Log.VERBOSE);
 
     /** {@hide} */
     public static final String PROP_PRIMARY_PHYSICAL = "ro.vold.primary_physical";
@@ -122,6 +149,10 @@ public class StorageManager {
     public static final String PROP_SDCARDFS = "persist.sys.sdcardfs";
     /** {@hide} */
     public static final String PROP_VIRTUAL_DISK = "persist.sys.virtual_disk";
+    /** {@hide} */
+    public static final String PROP_ISOLATED_STORAGE = "persist.sys.isolated_storage";
+    /** {@hide} */
+    public static final String PROP_ISOLATED_STORAGE_SNAPSHOT = "sys.isolated_storage_snapshot";
 
     /** {@hide} */
     public static final String UUID_PRIVATE_INTERNAL = null;
@@ -208,12 +239,17 @@ public class StorageManager {
     public static final int DEBUG_SDCARDFS_FORCE_OFF = 1 << 4;
     /** {@hide} */
     public static final int DEBUG_VIRTUAL_DISK = 1 << 5;
+    /** {@hide} */
+    public static final int DEBUG_ISOLATED_STORAGE_FORCE_ON = 1 << 6;
+    /** {@hide} */
+    public static final int DEBUG_ISOLATED_STORAGE_FORCE_OFF = 1 << 7;
 
-    // NOTE: keep in sync with installd
     /** {@hide} */
-    public static final int FLAG_STORAGE_DE = 1 << 0;
+    public static final int FLAG_STORAGE_DE = IInstalld.FLAG_STORAGE_DE;
     /** {@hide} */
-    public static final int FLAG_STORAGE_CE = 1 << 1;
+    public static final int FLAG_STORAGE_CE = IInstalld.FLAG_STORAGE_CE;
+    /** {@hide} */
+    public static final int FLAG_STORAGE_EXTERNAL = IInstalld.FLAG_STORAGE_EXTERNAL;
 
     /** {@hide} */
     public static final int FLAG_FOR_WRITE = 1 << 8;
@@ -226,6 +262,7 @@ public class StorageManager {
     public static final int FSTRIM_FLAG_DEEP = IVold.FSTRIM_FLAG_DEEP_TRIM;
 
     /** @hide The volume is not encrypted. */
+    @UnsupportedAppUsage
     public static final int ENCRYPTION_STATE_NONE =
             IVold.ENCRYPTION_STATE_NONE;
 
@@ -255,6 +292,7 @@ public class StorageManager {
     private final ContentResolver mResolver;
 
     private final IStorageManager mStorageManager;
+    private final AppOpsManager mAppOps;
     private final Looper mLooper;
     private final AtomicInteger mNextNonce = new AtomicInteger(0);
 
@@ -442,6 +480,7 @@ public class StorageManager {
 
     /** {@hide} */
     @Deprecated
+    @UnsupportedAppUsage
     public static StorageManager from(Context context) {
         return context.getSystemService(StorageManager.class);
     }
@@ -458,11 +497,13 @@ public class StorageManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public StorageManager(Context context, Looper looper) throws ServiceNotFoundException {
         mContext = context;
         mResolver = context.getContentResolver();
         mLooper = looper;
         mStorageManager = IStorageManager.Stub.asInterface(ServiceManager.getServiceOrThrow("mount"));
+        mAppOps = mContext.getSystemService(AppOpsManager.class);
     }
 
     /**
@@ -472,6 +513,7 @@ public class StorageManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void registerListener(StorageEventListener listener) {
         synchronized (mDelegates) {
             final StorageEventListenerDelegate delegate = new StorageEventListenerDelegate(listener,
@@ -492,6 +534,7 @@ public class StorageManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void unregisterListener(StorageEventListener listener) {
         synchronized (mDelegates) {
             for (Iterator<StorageEventListenerDelegate> i = mDelegates.iterator(); i.hasNext();) {
@@ -514,6 +557,7 @@ public class StorageManager {
      * @hide
      */
     @Deprecated
+    @UnsupportedAppUsage
     public void enableUsbMassStorage() {
     }
 
@@ -523,6 +567,7 @@ public class StorageManager {
      * @hide
      */
     @Deprecated
+    @UnsupportedAppUsage
     public void disableUsbMassStorage() {
     }
 
@@ -533,6 +578,7 @@ public class StorageManager {
      * @hide
      */
     @Deprecated
+    @UnsupportedAppUsage
     public boolean isUsbMassStorageConnected() {
         return false;
     }
@@ -544,6 +590,7 @@ public class StorageManager {
      * @hide
      */
     @Deprecated
+    @UnsupportedAppUsage
     public boolean isUsbMassStorageEnabled() {
         return false;
     }
@@ -576,12 +623,22 @@ public class StorageManager {
         try {
             final String canonicalPath = new File(rawPath).getCanonicalPath();
             final int nonce = mObbActionListener.addListener(listener);
-            mStorageManager.mountObb(rawPath, canonicalPath, key, mObbActionListener, nonce);
+            mStorageManager.mountObb(rawPath, canonicalPath, key, mObbActionListener, nonce,
+                    getObbInfo(canonicalPath));
             return true;
         } catch (IOException e) {
             throw new IllegalArgumentException("Failed to resolve path: " + rawPath, e);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
+        }
+    }
+
+    private ObbInfo getObbInfo(String canonicalPath) {
+        try {
+            final ObbInfo obbInfo = ObbScanner.getObbInfo(canonicalPath);
+            return obbInfo;
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Couldn't get OBB info for " + canonicalPath, e);
         }
     }
 
@@ -654,6 +711,7 @@ public class StorageManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public @NonNull List<DiskInfo> getDisks() {
         try {
             return Arrays.asList(mStorageManager.getDisks());
@@ -663,6 +721,7 @@ public class StorageManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public @Nullable DiskInfo findDiskById(String id) {
         Preconditions.checkNotNull(id);
         // TODO; go directly to service to make this faster
@@ -675,6 +734,7 @@ public class StorageManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public @Nullable VolumeInfo findVolumeById(String id) {
         Preconditions.checkNotNull(id);
         // TODO; go directly to service to make this faster
@@ -687,6 +747,7 @@ public class StorageManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public @Nullable VolumeInfo findVolumeByUuid(String fsUuid) {
         Preconditions.checkNotNull(fsUuid);
         // TODO; go directly to service to make this faster
@@ -720,6 +781,7 @@ public class StorageManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public @Nullable VolumeInfo findEmulatedForPrivate(VolumeInfo privateVol) {
         if (privateVol != null) {
             return findVolumeById(privateVol.getId().replace("private", "emulated"));
@@ -759,7 +821,7 @@ public class StorageManager {
         try {
             for (VolumeInfo vol : mStorageManager.getVolumes(0)) {
                 if (vol.path != null && FileUtils.contains(vol.path, pathString)
-                        && vol.type != VolumeInfo.TYPE_PUBLIC) {
+                        && vol.type != VolumeInfo.TYPE_PUBLIC && vol.type != VolumeInfo.TYPE_STUB) {
                     // TODO: verify that emulated adopted devices have UUID of
                     // underlying volume
                     try {
@@ -798,6 +860,7 @@ public class StorageManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public @NonNull List<VolumeInfo> getVolumes() {
         try {
             return Arrays.asList(mStorageManager.getVolumes(0));
@@ -831,6 +894,7 @@ public class StorageManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public @Nullable String getBestVolumeDescription(VolumeInfo vol) {
         if (vol == null) return null;
 
@@ -854,6 +918,7 @@ public class StorageManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public @Nullable VolumeInfo getPrimaryPhysicalVolume() {
         final List<VolumeInfo> vols = getVolumes();
         for (VolumeInfo vol : vols) {
@@ -874,6 +939,7 @@ public class StorageManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public void unmount(String volId) {
         try {
             mStorageManager.unmount(volId);
@@ -883,6 +949,7 @@ public class StorageManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public void format(String volId) {
         try {
             mStorageManager.format(volId);
@@ -924,6 +991,7 @@ public class StorageManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public void partitionPublic(String diskId) {
         try {
             mStorageManager.partitionPublic(diskId);
@@ -1041,10 +1109,30 @@ public class StorageManager {
     }
 
     /**
-     * Return the {@link StorageVolume} that contains the given file, or {@code null} if none.
+     * Return the {@link StorageVolume} that contains the given file, or
+     * {@code null} if none.
      */
     public @Nullable StorageVolume getStorageVolume(File file) {
         return getStorageVolume(getVolumeList(), file);
+    }
+
+    /**
+     * Return the {@link StorageVolume} that contains the given
+     * {@link MediaStore} item.
+     */
+    public @NonNull StorageVolume getStorageVolume(@NonNull Uri uri) {
+        final String volumeName = MediaStore.getVolumeName(uri);
+        switch (volumeName) {
+            case MediaStore.VOLUME_EXTERNAL_PRIMARY:
+                return getPrimaryStorageVolume();
+            default:
+                for (StorageVolume vol : getStorageVolumes()) {
+                    if (Objects.equals(vol.getNormalizedUuid(), volumeName)) {
+                        return vol;
+                    }
+                }
+        }
+        throw new IllegalStateException("Unknown volume for " + uri);
     }
 
     /** {@hide} */
@@ -1053,9 +1141,16 @@ public class StorageManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     private static @Nullable StorageVolume getStorageVolume(StorageVolume[] volumes, File file) {
         if (file == null) {
             return null;
+        }
+        final String path = file.getAbsolutePath();
+        if (path.startsWith(DEPRECATE_DATA_PREFIX)) {
+            final Uri uri = ContentResolver.translateDeprecatedDataPath(path);
+            return AppGlobals.getInitialApplication().getSystemService(StorageManager.class)
+                    .getStorageVolume(uri);
         }
         try {
             file = file.getCanonicalFile();
@@ -1082,6 +1177,7 @@ public class StorageManager {
      * @hide
      */
     @Deprecated
+    @UnsupportedAppUsage
     public @NonNull String getVolumeState(String mountPoint) {
         final StorageVolume vol = getStorageVolume(new File(mountPoint));
         if (vol != null) {
@@ -1131,6 +1227,7 @@ public class StorageManager {
 
     /** {@hide} */
     public void mkdirs(File file) {
+        BlockGuard.getVmPolicy().onPathAccess(file.getAbsolutePath());
         try {
             mStorageManager.mkdirs(mContext.getOpPackageName(), file.getAbsolutePath());
         } catch (RemoteException e) {
@@ -1144,6 +1241,7 @@ public class StorageManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public static @NonNull StorageVolume[] getVolumeList(int userId, int flags) {
         final IStorageManager storageManager = IStorageManager.Stub.asInterface(
                 ServiceManager.getService("mount"));
@@ -1177,6 +1275,7 @@ public class StorageManager {
      * @hide
      */
     @Deprecated
+    @UnsupportedAppUsage
     public @NonNull String[] getVolumePaths() {
         StorageVolume[] volumes = getVolumeList();
         int count = volumes.length;
@@ -1216,6 +1315,7 @@ public class StorageManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public long getStorageBytesUntilLow(File path) {
         return path.getUsableSpace() - getStorageFullBytes(path);
     }
@@ -1226,6 +1326,7 @@ public class StorageManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public long getStorageLowBytes(File path) {
         final long lowPercent = Settings.Global.getInt(mResolver,
                 Settings.Global.SYS_STORAGE_THRESHOLD_PERCENTAGE, DEFAULT_THRESHOLD_PERCENTAGE);
@@ -1269,6 +1370,7 @@ public class StorageManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public long getStorageFullBytes(File path) {
         return Settings.Global.getLong(mResolver, Settings.Global.SYS_STORAGE_FULL_THRESHOLD_BYTES,
                 DEFAULT_FULL_THRESHOLD_BYTES);
@@ -1385,6 +1487,7 @@ public class StorageManager {
      * @return true for file encrypted. (Implies isEncrypted() == true)
      *         false not encrypted or block encrypted
      */
+    @UnsupportedAppUsage
     public static boolean isFileEncryptedNativeOnly() {
         if (!isEncrypted()) {
             return false;
@@ -1436,7 +1539,7 @@ public class StorageManager {
      * framework, so no service needs to check for changes during their lifespan
      */
     public static boolean isBlockEncrypting() {
-        final String state = SystemProperties.get("vold.encrypt_progress", "");
+        final String state = VoldProperties.encrypt_progress().orElse("");
         return !"".equalsIgnoreCase(state);
     }
 
@@ -1452,7 +1555,7 @@ public class StorageManager {
      * framework, so no service needs to check for changes during their lifespan
      */
     public static boolean inCryptKeeperBounce() {
-        final String status = SystemProperties.get("vold.decrypt");
+        final String status = VoldProperties.decrypt().orElse("");
         return "trigger_restart_min_framework".equals(status);
     }
 
@@ -1475,10 +1578,203 @@ public class StorageManager {
         return SystemProperties.getBoolean(PROP_HAS_ADOPTABLE, false);
     }
 
-    /** {@hide} */
+    /**
+     * Return if the currently booted device has the "isolated storage" feature
+     * flag enabled. This will eventually be fully enabled in the final
+     * {@link android.os.Build.VERSION_CODES#Q} release.
+     *
+     * @hide
+     */
+    @SystemApi
+    @TestApi
+    public static boolean hasIsolatedStorage() {
+        // Prefer to use snapshot for current boot when available
+        return SystemProperties.getBoolean(PROP_ISOLATED_STORAGE_SNAPSHOT,
+                SystemProperties.getBoolean(PROP_ISOLATED_STORAGE, true));
+    }
+
+    /**
+     * @deprecated disabled now that FUSE has been replaced by sdcardfs
+     * @hide
+     */
+    @Deprecated
     public static File maybeTranslateEmulatedPathToInternal(File path) {
         // Disabled now that FUSE has been replaced by sdcardfs
         return path;
+    }
+
+    /**
+     * Translate given shared storage path from a path in an app sandbox
+     * namespace to a path in the system namespace.
+     *
+     * @hide
+     */
+    public File translateAppToSystem(File file, int pid, int uid) {
+        return file;
+    }
+
+    /**
+     * Translate given shared storage path from a path in the system namespace
+     * to a path in an app sandbox namespace.
+     *
+     * @hide
+     */
+    public File translateSystemToApp(File file, int pid, int uid) {
+        return file;
+    }
+
+    /**
+     * Check that given app holds both permission and appop.
+     * @hide
+     */
+    public static boolean checkPermissionAndAppOp(Context context, boolean enforce,
+            int pid, int uid, String packageName, String permission, int op) {
+        return checkPermissionAndAppOp(context, enforce, pid, uid, packageName, permission, op,
+                true);
+    }
+
+    /**
+     * Check that given app holds both permission and appop but do not noteOp.
+     * @hide
+     */
+    public static boolean checkPermissionAndCheckOp(Context context, boolean enforce,
+            int pid, int uid, String packageName, String permission, int op) {
+        return checkPermissionAndAppOp(context, enforce, pid, uid, packageName, permission, op,
+                false);
+    }
+
+    /**
+     * Check that given app holds both permission and appop.
+     * @hide
+     */
+    private static boolean checkPermissionAndAppOp(Context context, boolean enforce,
+            int pid, int uid, String packageName, String permission, int op, boolean note) {
+        if (context.checkPermission(permission, pid, uid) != PERMISSION_GRANTED) {
+            if (enforce) {
+                throw new SecurityException(
+                        "Permission " + permission + " denied for package " + packageName);
+            } else {
+                return false;
+            }
+        }
+
+        AppOpsManager appOps = context.getSystemService(AppOpsManager.class);
+        final int mode;
+        if (note) {
+            mode = appOps.noteOpNoThrow(op, uid, packageName);
+        } else {
+            try {
+                appOps.checkPackage(uid, packageName);
+            } catch (SecurityException e) {
+                if (enforce) {
+                    throw e;
+                } else {
+                    return false;
+                }
+            }
+            mode = appOps.checkOpNoThrow(op, uid, packageName);
+        }
+        switch (mode) {
+            case AppOpsManager.MODE_ALLOWED:
+                return true;
+            case AppOpsManager.MODE_DEFAULT:
+            case AppOpsManager.MODE_IGNORED:
+            case AppOpsManager.MODE_ERRORED:
+                if (enforce) {
+                    throw new SecurityException("Op " + AppOpsManager.opToName(op) + " "
+                            + AppOpsManager.modeToName(mode) + " for package " + packageName);
+                } else {
+                    return false;
+                }
+            default:
+                throw new IllegalStateException(
+                        AppOpsManager.opToName(op) + " has unknown mode "
+                                + AppOpsManager.modeToName(mode));
+        }
+    }
+
+    private boolean checkPermissionAndAppOp(boolean enforce,
+            int pid, int uid, String packageName, String permission, int op) {
+        return checkPermissionAndAppOp(mContext, enforce, pid, uid, packageName, permission, op);
+    }
+
+    private boolean noteAppOpAllowingLegacy(boolean enforce,
+            int pid, int uid, String packageName, int op) {
+        final int mode = mAppOps.noteOpNoThrow(op, uid, packageName);
+        switch (mode) {
+            case AppOpsManager.MODE_ALLOWED:
+                return true;
+            case AppOpsManager.MODE_DEFAULT:
+            case AppOpsManager.MODE_IGNORED:
+            case AppOpsManager.MODE_ERRORED:
+                // Legacy apps technically have the access granted by this op,
+                // even when the op is denied
+                if ((mAppOps.checkOpNoThrow(OP_LEGACY_STORAGE, uid,
+                        packageName) == AppOpsManager.MODE_ALLOWED)) return true;
+
+                if (enforce) {
+                    throw new SecurityException("Op " + AppOpsManager.opToName(op) + " "
+                            + AppOpsManager.modeToName(mode) + " for package " + packageName);
+                } else {
+                    return false;
+                }
+            default:
+                throw new IllegalStateException(
+                        AppOpsManager.opToName(op) + " has unknown mode "
+                                + AppOpsManager.modeToName(mode));
+        }
+    }
+
+    // Callers must hold both the old and new permissions, so that we can
+    // handle obscure cases like when an app targets Q but was installed on
+    // a device that was originally running on P before being upgraded to Q.
+
+    /** {@hide} */
+    public boolean checkPermissionReadAudio(boolean enforce,
+            int pid, int uid, String packageName) {
+        if (!checkPermissionAndAppOp(enforce, pid, uid, packageName,
+                READ_EXTERNAL_STORAGE, OP_READ_EXTERNAL_STORAGE)) return false;
+        return noteAppOpAllowingLegacy(enforce, pid, uid, packageName, OP_READ_MEDIA_AUDIO);
+    }
+
+    /** {@hide} */
+    public boolean checkPermissionWriteAudio(boolean enforce,
+            int pid, int uid, String packageName) {
+        if (!checkPermissionAndAppOp(enforce, pid, uid, packageName,
+                WRITE_EXTERNAL_STORAGE, OP_WRITE_EXTERNAL_STORAGE)) return false;
+        return noteAppOpAllowingLegacy(enforce, pid, uid, packageName, OP_WRITE_MEDIA_AUDIO);
+    }
+
+    /** {@hide} */
+    public boolean checkPermissionReadVideo(boolean enforce,
+            int pid, int uid, String packageName) {
+        if (!checkPermissionAndAppOp(enforce, pid, uid, packageName,
+                READ_EXTERNAL_STORAGE, OP_READ_EXTERNAL_STORAGE)) return false;
+        return noteAppOpAllowingLegacy(enforce, pid, uid, packageName, OP_READ_MEDIA_VIDEO);
+    }
+
+    /** {@hide} */
+    public boolean checkPermissionWriteVideo(boolean enforce,
+            int pid, int uid, String packageName) {
+        if (!checkPermissionAndAppOp(enforce, pid, uid, packageName,
+                WRITE_EXTERNAL_STORAGE, OP_WRITE_EXTERNAL_STORAGE)) return false;
+        return noteAppOpAllowingLegacy(enforce, pid, uid, packageName, OP_WRITE_MEDIA_VIDEO);
+    }
+
+    /** {@hide} */
+    public boolean checkPermissionReadImages(boolean enforce,
+            int pid, int uid, String packageName) {
+        if (!checkPermissionAndAppOp(enforce, pid, uid, packageName,
+                READ_EXTERNAL_STORAGE, OP_READ_EXTERNAL_STORAGE)) return false;
+        return noteAppOpAllowingLegacy(enforce, pid, uid, packageName, OP_READ_MEDIA_IMAGES);
+    }
+
+    /** {@hide} */
+    public boolean checkPermissionWriteImages(boolean enforce,
+            int pid, int uid, String packageName) {
+        if (!checkPermissionAndAppOp(enforce, pid, uid, packageName,
+                WRITE_EXTERNAL_STORAGE, OP_WRITE_EXTERNAL_STORAGE)) return false;
+        return noteAppOpAllowingLegacy(enforce, pid, uid, packageName, OP_WRITE_MEDIA_IMAGES);
     }
 
     /** {@hide} */
@@ -1835,7 +2131,6 @@ public class StorageManager {
      * @throws IOException when the storage device isn't present, or when it
      *             doesn't support allocating space, or if the device had
      *             trouble allocating the requested space.
-     * @see #getAllocatableBytes(UUID, int)
      * @see #isAllocationSupported(FileDescriptor)
      * @see Environment#isExternalStorageEmulated(File)
      */
@@ -2016,8 +2311,10 @@ public class StorageManager {
 
     /// Consts to match the password types in cryptfs.h
     /** @hide */
+    @UnsupportedAppUsage
     public static final int CRYPT_TYPE_PASSWORD = IVold.PASSWORD_TYPE_PASSWORD;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int CRYPT_TYPE_DEFAULT = IVold.PASSWORD_TYPE_DEFAULT;
     /** @hide */
     public static final int CRYPT_TYPE_PATTERN = IVold.PASSWORD_TYPE_PATTERN;

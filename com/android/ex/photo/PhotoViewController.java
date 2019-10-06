@@ -12,13 +12,13 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Process;
-import android.support.annotation.IdRes;
-import android.support.annotation.Nullable;
-import android.support.v4.app.Fragment;
-import android.support.v4.app.FragmentManager;
-import android.support.v4.app.LoaderManager;
-import android.support.v4.content.Loader;
-import android.support.v4.view.ViewPager.OnPageChangeListener;
+import androidx.annotation.IdRes;
+import androidx.annotation.Nullable;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
+import androidx.loader.app.LoaderManager;
+import androidx.loader.content.Loader;
+import androidx.viewpager.widget.ViewPager.OnPageChangeListener;
 import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -226,7 +226,7 @@ public class PhotoViewController implements
     }
 
     public PhotoPagerAdapter createPhotoPagerAdapter(Context context,
-            android.support.v4.app.FragmentManager fm, Cursor c, float maxScale) {
+            androidx.fragment.app.FragmentManager fm, Cursor c, float maxScale) {
         return new PhotoPagerAdapter(context, fm, c, maxScale, mDisplayThumbsFullScreen);
     }
 
@@ -656,7 +656,7 @@ public class PhotoViewController implements
     }
 
     @Override
-    public void onLoaderReset(android.support.v4.content.Loader<Cursor> loader) {
+    public void onLoaderReset(androidx.loader.content.Loader<Cursor> loader) {
         // If the loader is reset, remove the reference in the adapter to this cursor
         if (!isDestroyedCompat()) {
             // This will cause a fragment transaction which can't happen if we're destroyed,

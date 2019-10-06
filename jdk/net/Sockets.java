@@ -55,7 +55,8 @@ import sun.net.ExtendedOptionsImpl;
  *
  * @see java.nio.channels.NetworkChannel
  */
-//@jdk.Exported
+// Android-removed: @jdk.Exported, not present on Android.
+// @jdk.Exported
 public class Sockets {
 
     private final static HashMap<Class<?>,Set<SocketOption<?>>>

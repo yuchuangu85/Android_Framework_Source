@@ -16,6 +16,8 @@
 
 package android.preference;
 
+import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -26,6 +28,8 @@ import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
+import android.media.audiopolicy.AudioProductStrategy;
+import android.media.audiopolicy.AudioVolumeGroup;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -40,11 +44,19 @@ import android.widget.SeekBar;
 import android.widget.SeekBar.OnSeekBarChangeListener;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.internal.os.SomeArgs;
 
 /**
  * Turns a {@link SeekBar} into a volume control.
  * @hide
+ *
+ * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+ *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+ *      Preference Library</a> for consistent behavior across all devices. For more information on
+ *      using the AndroidX Preference Library see
+ *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
  */
+@Deprecated
 public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callback {
     private static final String TAG = "SeekBarVolumizer";
 
@@ -54,12 +66,34 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
         void onMuted(boolean muted, boolean zenMuted);
     }
 
+    private static final int MSG_GROUP_VOLUME_CHANGED = 1;
+    private final Handler mVolumeHandler = new VolumeHandler();
+    private AudioAttributes mAttributes;
+    private int mVolumeGroupId;
+
+    private final AudioManager.VolumeGroupCallback mVolumeGroupCallback =
+            new AudioManager.VolumeGroupCallback() {
+        @Override
+        public void onAudioVolumeGroupChanged(int group, int flags) {
+            if (mHandler == null) {
+                return;
+            }
+            SomeArgs args = SomeArgs.obtain();
+            args.arg1 = group;
+            args.arg2 = flags;
+            mVolumeHandler.sendMessage(mHandler.obtainMessage(MSG_GROUP_VOLUME_CHANGED, args));
+        }
+    };
+
+    @UnsupportedAppUsage
     private final Context mContext;
     private final H mUiHandler = new H();
     private final Callback mCallback;
     private final Uri mDefaultUri;
+    @UnsupportedAppUsage
     private final AudioManager mAudioManager;
     private final NotificationManager mNotificationManager;
+    @UnsupportedAppUsage
     private final int mStreamType;
     private final int mMaxStreamVolume;
     private boolean mAffectedByRingerMode;
@@ -68,19 +102,24 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
 
     private Handler mHandler;
     private Observer mVolumeObserver;
+    @UnsupportedAppUsage
     private int mOriginalStreamVolume;
     private int mLastAudibleStreamVolume;
     // When the old handler is destroyed and a new one is created, there could be a situation where
     // this is accessed at the same time in different handlers. So, access to this field needs to be
     // synchronized.
     @GuardedBy("this")
+    @UnsupportedAppUsage
     private Ringtone mRingtone;
+    @UnsupportedAppUsage
     private int mLastProgress = -1;
     private boolean mMuted;
+    @UnsupportedAppUsage
     private SeekBar mSeekBar;
     private int mVolumeBeforeMute = -1;
     private int mRingerMode;
     private int mZenMode;
+    private boolean mPlaySample;
 
     private static final int MSG_SET_STREAM_VOLUME = 0;
     private static final int MSG_START_SAMPLE = 1;
@@ -93,11 +132,21 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
     private boolean mAllowMedia;
     private boolean mAllowRinger;
 
+    @UnsupportedAppUsage
     public SeekBarVolumizer(Context context, int streamType, Uri defaultUri, Callback callback) {
+        this(context, streamType, defaultUri, callback, true /* playSample */);
+    }
+
+    public SeekBarVolumizer(
+            Context context,
+            int streamType,
+            Uri defaultUri,
+            Callback callback,
+            boolean playSample) {
         mContext = context;
         mAudioManager = context.getSystemService(AudioManager.class);
         mNotificationManager = context.getSystemService(NotificationManager.class);
-        mNotificationPolicy = mNotificationManager.getNotificationPolicy();
+        mNotificationPolicy = mNotificationManager.getConsolidatedNotificationPolicy();
         mAllowAlarms = (mNotificationPolicy.priorityCategories & NotificationManager.Policy
                 .PRIORITY_CATEGORY_ALARMS) != 0;
         mAllowMedia = (mNotificationPolicy.priorityCategories & NotificationManager.Policy
@@ -111,11 +160,19 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
             mRingerMode = mAudioManager.getRingerModeInternal();
         }
         mZenMode = mNotificationManager.getZenMode();
+
+        if (hasAudioProductStrategies()) {
+            mVolumeGroupId = getVolumeGroupIdForLegacyStreamType(mStreamType);
+            mAttributes = getAudioAttributesForLegacyStreamType(
+                    mStreamType);
+        }
+
         mMaxStreamVolume = mAudioManager.getStreamMaxVolume(mStreamType);
         mCallback = callback;
         mOriginalStreamVolume = mAudioManager.getStreamVolume(mStreamType);
         mLastAudibleStreamVolume = mAudioManager.getLastAudibleStreamVolume(mStreamType);
         mMuted = mAudioManager.isStreamMute(mStreamType);
+        mPlaySample = playSample;
         if (mCallback != null) {
             mCallback.onMuted(mMuted, isZenMuted());
         }
@@ -129,6 +186,40 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
             }
         }
         mDefaultUri = defaultUri;
+    }
+
+    private boolean hasAudioProductStrategies() {
+        return AudioManager.getAudioProductStrategies().size() > 0;
+    }
+
+    private int getVolumeGroupIdForLegacyStreamType(int streamType) {
+        for (final AudioProductStrategy productStrategy :
+                AudioManager.getAudioProductStrategies()) {
+            int volumeGroupId = productStrategy.getVolumeGroupIdForLegacyStreamType(streamType);
+            if (volumeGroupId != AudioVolumeGroup.DEFAULT_VOLUME_GROUP) {
+                return volumeGroupId;
+            }
+        }
+
+        return AudioManager.getAudioProductStrategies().stream()
+                .map(strategy -> strategy.getVolumeGroupIdForAudioAttributes(
+                        AudioProductStrategy.sDefaultAttributes))
+                .filter(volumeGroupId -> volumeGroupId != AudioVolumeGroup.DEFAULT_VOLUME_GROUP)
+                .findFirst()
+                .orElse(AudioVolumeGroup.DEFAULT_VOLUME_GROUP);
+    }
+
+    private @NonNull AudioAttributes getAudioAttributesForLegacyStreamType(int streamType) {
+        for (final AudioProductStrategy productStrategy :
+                AudioManager.getAudioProductStrategies()) {
+            AudioAttributes aa = productStrategy.getAudioAttributesForLegacyStreamType(streamType);
+            if (aa != null) {
+                return aa;
+            }
+        }
+        return new AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_UNKNOWN)
+                .setUsage(AudioAttributes.USAGE_UNKNOWN).build();
     }
 
     private static boolean isNotificationOrRing(int stream) {
@@ -190,13 +281,19 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
                         AudioManager.FLAG_SHOW_UI_WARNINGS);
                 break;
             case MSG_START_SAMPLE:
-                onStartSample();
+                if (mPlaySample) {
+                    onStartSample();
+                }
                 break;
             case MSG_STOP_SAMPLE:
-                onStopSample();
+                if (mPlaySample) {
+                    onStopSample();
+                }
                 break;
             case MSG_INIT_SAMPLE:
-                onInitSample();
+                if (mPlaySample) {
+                    onInitSample();
+                }
                 break;
             default:
                 Log.e(TAG, "invalid SeekBarVolumizer message: "+msg.what);
@@ -258,11 +355,15 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
         }
     }
 
+    @UnsupportedAppUsage
     public void stop() {
         if (mHandler == null) return;  // already stopped
         postStopSample();
         mContext.getContentResolver().unregisterContentObserver(mVolumeObserver);
         mReceiver.setListening(false);
+        if (hasAudioProductStrategies()) {
+            unregisterVolumeGroupCb();
+        }
         mSeekBar.setOnSeekBarChangeListener(null);
         mHandler.getLooper().quitSafely();
         mHandler = null;
@@ -277,9 +378,12 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
         mHandler.sendEmptyMessage(MSG_INIT_SAMPLE);
         mVolumeObserver = new Observer(mHandler);
         mContext.getContentResolver().registerContentObserver(
-                System.getUriFor(System.VOLUME_SETTINGS[mStreamType]),
+                System.getUriFor(System.VOLUME_SETTINGS_INT[mStreamType]),
                 false, mVolumeObserver);
         mReceiver.setListening(true);
+        if (hasAudioProductStrategies()) {
+            registerVolumeGroupCb();
+        }
     }
 
     public void revertVolume() {
@@ -435,7 +539,9 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
             if (AudioManager.VOLUME_CHANGED_ACTION.equals(action)) {
                 int streamType = intent.getIntExtra(AudioManager.EXTRA_VOLUME_STREAM_TYPE, -1);
                 int streamValue = intent.getIntExtra(AudioManager.EXTRA_VOLUME_STREAM_VALUE, -1);
-                updateVolumeSlider(streamType, streamValue);
+                if (hasAudioProductStrategies()) {
+                    updateVolumeSlider(streamType, streamValue);
+                }
             } else if (AudioManager.INTERNAL_RINGER_MODE_CHANGED_ACTION.equals(action)) {
                 if (mNotificationOrRing) {
                     mRingerMode = mAudioManager.getRingerModeInternal();
@@ -445,13 +551,22 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
                 }
             } else if (AudioManager.STREAM_DEVICES_CHANGED_ACTION.equals(action)) {
                 int streamType = intent.getIntExtra(AudioManager.EXTRA_VOLUME_STREAM_TYPE, -1);
-                int streamVolume = mAudioManager.getStreamVolume(streamType);
-                updateVolumeSlider(streamType, streamVolume);
+                if (hasAudioProductStrategies()) {
+                    int streamVolume = mAudioManager.getStreamVolume(streamType);
+                    updateVolumeSlider(streamType, streamVolume);
+                } else {
+                    int volumeGroup = getVolumeGroupIdForLegacyStreamType(streamType);
+                    if (volumeGroup != AudioVolumeGroup.DEFAULT_VOLUME_GROUP
+                            && volumeGroup == mVolumeGroupId) {
+                        int streamVolume = mAudioManager.getStreamVolume(streamType);
+                        updateVolumeSlider(streamType, streamVolume);
+                    }
+                }
             } else if (NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED.equals(action)) {
                 mZenMode = mNotificationManager.getZenMode();
                 updateSlider();
             } else if (NotificationManager.ACTION_NOTIFICATION_POLICY_CHANGED.equals(action)) {
-                mNotificationPolicy = mNotificationManager.getNotificationPolicy();
+                mNotificationPolicy = mNotificationManager.getConsolidatedNotificationPolicy();
                 mAllowAlarms = (mNotificationPolicy.priorityCategories & NotificationManager.Policy
                         .PRIORITY_CATEGORY_ALARMS) != 0;
                 mAllowMedia = (mNotificationPolicy.priorityCategories
@@ -469,6 +584,36 @@ public class SeekBarVolumizer implements OnSeekBarChangeListener, Handler.Callba
                 final boolean muted = mAudioManager.isStreamMute(mStreamType)
                         || streamValue == 0;
                 mUiHandler.postUpdateSlider(streamValue, mLastAudibleStreamVolume, muted);
+            }
+        }
+    }
+
+    private void registerVolumeGroupCb() {
+        if (mVolumeGroupId != AudioVolumeGroup.DEFAULT_VOLUME_GROUP) {
+            mAudioManager.registerVolumeGroupCallback(Runnable::run, mVolumeGroupCallback);
+            updateSlider();
+        }
+    }
+
+    private void unregisterVolumeGroupCb() {
+        if (mVolumeGroupId != AudioVolumeGroup.DEFAULT_VOLUME_GROUP) {
+            mAudioManager.unregisterVolumeGroupCallback(mVolumeGroupCallback);
+        }
+    }
+
+    private class VolumeHandler extends Handler {
+        @Override
+        public void handleMessage(Message msg) {
+            SomeArgs args = (SomeArgs) msg.obj;
+            switch (msg.what) {
+                case MSG_GROUP_VOLUME_CHANGED:
+                    int group = (int) args.arg1;
+                    if (mVolumeGroupId != group
+                            || mVolumeGroupId == AudioVolumeGroup.DEFAULT_VOLUME_GROUP) {
+                        return;
+                    }
+                    updateSlider();
+                    break;
             }
         }
     }

@@ -16,6 +16,8 @@
 
 package android.net;
 
+import android.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Slog;
@@ -33,6 +35,7 @@ public class NetworkState implements Parcelable {
     public final NetworkInfo networkInfo;
     public final LinkProperties linkProperties;
     public final NetworkCapabilities networkCapabilities;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public final Network network;
     public final String subscriberId;
     public final String networkId;
@@ -58,6 +61,7 @@ public class NetworkState implements Parcelable {
         }
     }
 
+    @UnsupportedAppUsage
     public NetworkState(Parcel in) {
         networkInfo = in.readParcelable(null);
         linkProperties = in.readParcelable(null);
@@ -82,7 +86,8 @@ public class NetworkState implements Parcelable {
         out.writeString(networkId);
     }
 
-    public static final Creator<NetworkState> CREATOR = new Creator<NetworkState>() {
+    @UnsupportedAppUsage
+    public static final @android.annotation.NonNull Creator<NetworkState> CREATOR = new Creator<NetworkState>() {
         @Override
         public NetworkState createFromParcel(Parcel in) {
             return new NetworkState(in);

@@ -17,8 +17,12 @@
 package android.net;
 
 import android.annotation.NonNull;
+import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.net.NetworkCapabilities.NetCapability;
 import android.net.NetworkCapabilities.Transport;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.Process;
@@ -38,6 +42,7 @@ public class NetworkRequest implements Parcelable {
      * The {@link NetworkCapabilities} that define this request.
      * @hide
      */
+    @UnsupportedAppUsage
     public final @NonNull NetworkCapabilities networkCapabilities;
 
     /**
@@ -46,6 +51,7 @@ public class NetworkRequest implements Parcelable {
      * the request.
      * @hide
      */
+    @UnsupportedAppUsage
     public final int requestId;
 
     /**
@@ -53,6 +59,7 @@ public class NetworkRequest implements Parcelable {
      * Causes CONNECTIVITY_ACTION broadcasts to be sent.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public final int legacyType;
 
     /**
@@ -241,6 +248,7 @@ public class NetworkRequest implements Parcelable {
          * @return The builder to facilitate chaining.
          * @hide
          */
+        @UnsupportedAppUsage
         public Builder clearCapabilities() {
             mNetworkCapabilities.clearAll();
             return this;
@@ -336,10 +344,15 @@ public class NetworkRequest implements Parcelable {
          * current value. A value of {@code SIGNAL_STRENGTH_UNSPECIFIED} means no value when
          * received and has no effect when requesting a callback.
          *
+         * <p>This method requires the caller to hold the
+         * {@link android.Manifest.permission#NETWORK_SIGNAL_STRENGTH_WAKEUP} permission
+         *
          * @param signalStrength the bearer-specific signal strength.
          * @hide
          */
-        public Builder setSignalStrength(int signalStrength) {
+        @SystemApi
+        @RequiresPermission(android.Manifest.permission.NETWORK_SIGNAL_STRENGTH_WAKEUP)
+        public @NonNull Builder setSignalStrength(int signalStrength) {
             mNetworkCapabilities.setSignalStrength(signalStrength);
             return this;
         }
@@ -355,7 +368,7 @@ public class NetworkRequest implements Parcelable {
         dest.writeInt(requestId);
         dest.writeString(type.name());
     }
-    public static final Creator<NetworkRequest> CREATOR =
+    public static final @android.annotation.NonNull Creator<NetworkRequest> CREATOR =
         new Creator<NetworkRequest>() {
             public NetworkRequest createFromParcel(Parcel in) {
                 NetworkCapabilities nc = NetworkCapabilities.CREATOR.createFromParcel(in);

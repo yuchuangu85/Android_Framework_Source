@@ -43,7 +43,7 @@ import java.util.List;
  * This class performs serialization and parsing of XML data block that contain the list of WiFi
  * network configurations (XML block data inside <NetworkList> tag).
  */
-public class NetworkListStoreData implements WifiConfigStore.StoreData {
+public abstract class NetworkListStoreData implements WifiConfigStore.StoreData {
     private static final String TAG = "NetworkListStoreData";
 
     private static final String XML_TAG_SECTION_HEADER_NETWORK_LIST = "NetworkList";
@@ -57,50 +57,39 @@ public class NetworkListStoreData implements WifiConfigStore.StoreData {
     private final Context mContext;
 
     /**
-     * List of saved shared networks visible to all the users to be stored in the shared store file.
+     * List of saved shared networks visible to all the users to be stored in the store file.
      */
-    private List<WifiConfiguration> mSharedConfigurations;
-    /**
-     * List of saved private networks only visible to the current user to be stored in the user
-     * specific store file.
-     */
-    private List<WifiConfiguration> mUserConfigurations;
+    private List<WifiConfiguration> mConfigurations;
 
     NetworkListStoreData(Context context) {
         mContext = context;
     }
 
     @Override
-    public void serializeData(XmlSerializer out, boolean shared)
+    public void serializeData(XmlSerializer out)
             throws XmlPullParserException, IOException {
-        if (shared) {
-            serializeNetworkList(out, mSharedConfigurations);
-        } else {
-            serializeNetworkList(out, mUserConfigurations);
-        }
+        serializeNetworkList(out, mConfigurations);
     }
 
     @Override
-    public void deserializeData(XmlPullParser in, int outerTagDepth, boolean shared)
+    public void deserializeData(XmlPullParser in, int outerTagDepth)
             throws XmlPullParserException, IOException {
         // Ignore empty reads.
         if (in == null) {
             return;
         }
-        if (shared) {
-            mSharedConfigurations = parseNetworkList(in, outerTagDepth);
-        } else {
-            mUserConfigurations = parseNetworkList(in, outerTagDepth);
-        }
+        mConfigurations = parseNetworkList(in, outerTagDepth);
     }
 
     @Override
-    public void resetData(boolean shared) {
-        if (shared) {
-            mSharedConfigurations = null;
-        } else {
-            mUserConfigurations = null;
-        }
+    public void resetData() {
+        mConfigurations = null;
+    }
+
+    @Override
+    public boolean hasNewDataToSerialize() {
+        // always persist.
+        return true;
     }
 
     @Override
@@ -108,13 +97,8 @@ public class NetworkListStoreData implements WifiConfigStore.StoreData {
         return XML_TAG_SECTION_HEADER_NETWORK_LIST;
     }
 
-    @Override
-    public boolean supportShareData() {
-        return true;
-    }
-
-    public void setSharedConfigurations(List<WifiConfiguration> configs) {
-        mSharedConfigurations = configs;
+    public void setConfigurations(List<WifiConfiguration> configs) {
+        mConfigurations = configs;
     }
 
     /**
@@ -122,27 +106,11 @@ public class NetworkListStoreData implements WifiConfigStore.StoreData {
      *
      * @return List of {@link WifiConfiguration}
      */
-    public List<WifiConfiguration> getSharedConfigurations() {
-        if (mSharedConfigurations == null) {
+    public List<WifiConfiguration> getConfigurations() {
+        if (mConfigurations == null) {
             return new ArrayList<WifiConfiguration>();
         }
-        return mSharedConfigurations;
-    }
-
-    public void setUserConfigurations(List<WifiConfiguration> configs) {
-        mUserConfigurations = configs;
-    }
-
-    /**
-     * An empty list will be returned if no user configurations.
-     *
-     * @return List of {@link WifiConfiguration}
-     */
-    public List<WifiConfiguration> getUserConfigurations() {
-        if (mUserConfigurations == null) {
-            return new ArrayList<WifiConfiguration>();
-        }
-        return mUserConfigurations;
+        return mConfigurations;
     }
 
     /**

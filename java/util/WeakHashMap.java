@@ -120,7 +120,7 @@ import java.util.function.Consumer;
  * should be used only to detect bugs.</i>
  *
  * <p>This class is a member of the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
+ * <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/collections/index.html">
  * Java Collections Framework</a>.
  *
  * @param <K> the type of keys maintained by this map

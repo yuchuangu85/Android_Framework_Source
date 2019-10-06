@@ -19,7 +19,7 @@ package com.android.ex.chips;
 import android.net.Uri;
 import android.provider.ContactsContract.CommonDataKinds.Email;
 import android.provider.ContactsContract.DisplayNameSources;
-import android.support.annotation.DrawableRes;
+import androidx.annotation.DrawableRes;
 import android.text.util.Rfc822Token;
 import android.text.util.Rfc822Tokenizer;
 

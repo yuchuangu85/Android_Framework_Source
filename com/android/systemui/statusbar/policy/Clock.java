@@ -25,6 +25,7 @@ import android.content.res.TypedArray;
 import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Parcelable;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.text.Spannable;
@@ -43,11 +44,12 @@ import com.android.systemui.Dependency;
 import com.android.systemui.FontSizeUtils;
 import com.android.systemui.R;
 import com.android.systemui.SysUiServiceProvider;
+import com.android.systemui.plugins.DarkIconDispatcher;
+import com.android.systemui.plugins.DarkIconDispatcher.DarkReceiver;
 import com.android.systemui.settings.CurrentUserTracker;
 import com.android.systemui.statusbar.CommandQueue;
 import com.android.systemui.statusbar.phone.StatusBarIconController;
 import com.android.systemui.statusbar.policy.ConfigurationController.ConfigurationListener;
-import com.android.systemui.statusbar.policy.DarkIconDispatcher.DarkReceiver;
 import com.android.systemui.tuner.TunerService;
 import com.android.systemui.tuner.TunerService.Tunable;
 
@@ -65,6 +67,12 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
         DarkReceiver, ConfigurationListener {
 
     public static final String CLOCK_SECONDS = "clock_seconds";
+    private static final String CLOCK_SUPER_PARCELABLE = "clock_super_parcelable";
+    private static final String CURRENT_USER_ID = "current_user_id";
+    private static final String VISIBLE_BY_POLICY = "visible_by_policy";
+    private static final String VISIBLE_BY_USER = "visible_by_user";
+    private static final String SHOW_SECONDS = "show_seconds";
+    private static final String VISIBILITY = "visibility";
 
     private final CurrentUserTracker mCurrentUserTracker;
     private int mCurrentUserId;
@@ -129,6 +137,40 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
     }
 
     @Override
+    public Parcelable onSaveInstanceState() {
+        Bundle bundle = new Bundle();
+        bundle.putParcelable(CLOCK_SUPER_PARCELABLE, super.onSaveInstanceState());
+        bundle.putInt(CURRENT_USER_ID, mCurrentUserId);
+        bundle.putBoolean(VISIBLE_BY_POLICY, mClockVisibleByPolicy);
+        bundle.putBoolean(VISIBLE_BY_USER, mClockVisibleByUser);
+        bundle.putBoolean(SHOW_SECONDS, mShowSeconds);
+        bundle.putInt(VISIBILITY, getVisibility());
+
+        return bundle;
+    }
+
+    @Override
+    public void onRestoreInstanceState(Parcelable state) {
+        if (state == null || !(state instanceof Bundle)) {
+            super.onRestoreInstanceState(state);
+            return;
+        }
+
+        Bundle bundle = (Bundle) state;
+        Parcelable superState = bundle.getParcelable(CLOCK_SUPER_PARCELABLE);
+        super.onRestoreInstanceState(superState);
+        if (bundle.containsKey(CURRENT_USER_ID)) {
+            mCurrentUserId = bundle.getInt(CURRENT_USER_ID);
+        }
+        mClockVisibleByPolicy = bundle.getBoolean(VISIBLE_BY_POLICY, true);
+        mClockVisibleByUser = bundle.getBoolean(VISIBLE_BY_USER, true);
+        mShowSeconds = bundle.getBoolean(SHOW_SECONDS, false);
+        if (bundle.containsKey(VISIBILITY)) {
+            super.setVisibility(bundle.getInt(VISIBILITY));
+        }
+    }
+
+    @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
 
@@ -146,7 +188,7 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
                     null, Dependency.get(Dependency.TIME_TICK_HANDLER));
             Dependency.get(TunerService.class).addTunable(this, CLOCK_SECONDS,
                     StatusBarIconController.ICON_BLACKLIST);
-            SysUiServiceProvider.getComponent(getContext(), CommandQueue.class).addCallbacks(this);
+            SysUiServiceProvider.getComponent(getContext(), CommandQueue.class).addCallback(this);
             if (mShowDark) {
                 Dependency.get(DarkIconDispatcher.class).addDarkReceiver(this);
             }
@@ -162,6 +204,7 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
 
         // Make sure we update to the current time
         updateClock();
+        updateClockVisibility();
         updateShowSeconds();
     }
 
@@ -173,7 +216,7 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
             mAttached = false;
             Dependency.get(TunerService.class).removeTunable(this);
             SysUiServiceProvider.getComponent(getContext(), CommandQueue.class)
-                    .removeCallbacks(this);
+                    .removeCallback(this);
             if (mShowDark) {
                 Dependency.get(DarkIconDispatcher.class).removeDarkReceiver(this);
             }
@@ -206,6 +249,15 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
         }
     };
 
+    @Override
+    public void setVisibility(int visibility) {
+        if (visibility == View.VISIBLE && !shouldBeVisible()) {
+            return;
+        }
+
+        super.setVisibility(visibility);
+    }
+
     public void setClockVisibleByUser(boolean visible) {
         mClockVisibleByUser = visible;
         updateClockVisibility();
@@ -216,11 +268,14 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
         updateClockVisibility();
     }
 
+    private boolean shouldBeVisible() {
+        return mClockVisibleByPolicy && mClockVisibleByUser;
+    }
+
     private void updateClockVisibility() {
-        boolean visible = mClockVisibleByPolicy && mClockVisibleByUser;
-        Dependency.get(IconLogger.class).onIconVisibility("clock", visible);
+        boolean visible = shouldBeVisible();
         int visibility = visible ? View.VISIBLE : View.GONE;
-        setVisibility(visibility);
+        super.setVisibility(visibility);
     }
 
     final void updateClock() {
@@ -233,7 +288,7 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
     @Override
     public void onTuningChanged(String key, String newValue) {
         if (CLOCK_SECONDS.equals(key)) {
-            mShowSeconds = newValue != null && Integer.parseInt(newValue) != 0;
+            mShowSeconds = TunerService.parseIntegerSwitch(newValue, false);
             updateShowSeconds();
         } else {
             setClockVisibleByUser(!StatusBarIconController.getIconBlacklist(newValue)
@@ -243,7 +298,10 @@ public class Clock extends TextView implements DemoMode, Tunable, CommandQueue.C
     }
 
     @Override
-    public void disable(int state1, int state2, boolean animate) {
+    public void disable(int displayId, int state1, int state2, boolean animate) {
+        if (displayId != getDisplay().getDisplayId()) {
+            return;
+        }
         boolean clockVisibleByPolicy = (state1 & StatusBarManager.DISABLE_CLOCK) == 0;
         if (clockVisibleByPolicy != mClockVisibleByPolicy) {
             setClockVisibilityByPolicy(clockVisibleByPolicy);

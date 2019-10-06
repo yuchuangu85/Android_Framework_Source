@@ -18,6 +18,7 @@ package android.content.pm;
 import static android.content.pm.SharedLibraryNames.ORG_APACHE_HTTP_LEGACY;
 
 import android.content.pm.PackageParser.Package;
+import android.os.Build;
 
 import com.android.internal.annotations.VisibleForTesting;
 
@@ -25,16 +26,15 @@ import com.android.internal.annotations.VisibleForTesting;
  * Updates a package to ensure that if it targets < P that the org.apache.http.legacy library is
  * included by default.
  *
- * <p>This is separated out so that it can be conditionally included at build time depending on
- * whether org.apache.http.legacy is on the bootclasspath or not. In order to include this at
- * build time, and remove org.apache.http.legacy from the bootclasspath pass
- * REMOVE_OAHL_FROM_BCP=true on the build command line, otherwise this class will not be included
- * and the
- *
  * @hide
  */
 @VisibleForTesting
 public class OrgApacheHttpLegacyUpdater extends PackageSharedLibraryUpdater {
+
+    private static boolean apkTargetsApiLevelLessThanOrEqualToOMR1(Package pkg) {
+        int targetSdkVersion = pkg.applicationInfo.targetSdkVersion;
+        return targetSdkVersion < Build.VERSION_CODES.P;
+    }
 
     @Override
     public void updatePackage(Package pkg) {

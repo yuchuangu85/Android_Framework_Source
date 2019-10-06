@@ -35,6 +35,9 @@ import com.android.internal.R;
  *
  */
 public class ScoringParams {
+    // A long name that describes itself pretty well
+    public static final int MINIMUM_5GHZ_BAND_FREQUENCY_IN_MEGAHERTZ = 5000;
+
     private static final String TAG = "WifiScoringParams";
     private static final int EXIT = 0;
     private static final int ENTRY = 1;
@@ -371,8 +374,6 @@ public class ScoringParams {
     public int getExperimentIdentifier() {
         return mVal.expid;
     }
-
-    private static final int MINIMUM_5GHZ_BAND_FREQUENCY_IN_MEGAHERTZ = 5000;
 
     private int[] getRssiArray(int frequency) {
         if (frequency < MINIMUM_5GHZ_BAND_FREQUENCY_IN_MEGAHERTZ) {

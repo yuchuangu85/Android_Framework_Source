@@ -17,79 +17,74 @@
 package com.android.setupwizardlib.template;
 
 import android.content.res.TypedArray;
-import android.support.annotation.AttrRes;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import androidx.annotation.AttrRes;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import android.util.AttributeSet;
 import android.widget.TextView;
-
 import com.android.setupwizardlib.R;
 import com.android.setupwizardlib.TemplateLayout;
 
-/**
- * A {@link Mixin} for setting and getting the header text.
- */
+/** A {@link Mixin} for setting and getting the header text. */
 public class HeaderMixin implements Mixin {
 
-    private TemplateLayout mTemplateLayout;
+  private final TemplateLayout templateLayout;
 
-    /**
-     * @param layout The layout this Mixin belongs to.
-     * @param attrs XML attributes given to the layout.
-     * @param defStyleAttr The default style attribute as given to the constructor of the layout.
-     */
-    public HeaderMixin(@NonNull TemplateLayout layout, @Nullable AttributeSet attrs,
-            @AttrRes int defStyleAttr) {
-        mTemplateLayout = layout;
+  /**
+   * @param layout The layout this Mixin belongs to.
+   * @param attrs XML attributes given to the layout.
+   * @param defStyleAttr The default style attribute as given to the constructor of the layout.
+   */
+  public HeaderMixin(
+      @NonNull TemplateLayout layout, @Nullable AttributeSet attrs, @AttrRes int defStyleAttr) {
+    templateLayout = layout;
 
-        final TypedArray a = layout.getContext().obtainStyledAttributes(
-                attrs, R.styleable.SuwHeaderMixin, defStyleAttr, 0);
+    final TypedArray a =
+        layout
+            .getContext()
+            .obtainStyledAttributes(attrs, R.styleable.SuwHeaderMixin, defStyleAttr, 0);
 
-        // Set the header text
-        final CharSequence headerText = a.getText(R.styleable.SuwHeaderMixin_suwHeaderText);
-        if (headerText != null) {
-            setText(headerText);
-        }
-
-        a.recycle();
+    // Set the header text
+    final CharSequence headerText = a.getText(R.styleable.SuwHeaderMixin_suwHeaderText);
+    if (headerText != null) {
+      setText(headerText);
     }
 
-    /**
-     * @return The TextView displaying the header.
-     */
-    public TextView getTextView() {
-        return (TextView) mTemplateLayout.findManagedViewById(R.id.suw_layout_title);
-    }
+    a.recycle();
+  }
 
-    /**
-     * Sets the header text. This can also be set via the XML attribute {@code app:suwHeaderText}.
-     *
-     * @param title The resource ID of the text to be set as header.
-     */
-    public void setText(int title) {
-        final TextView titleView = getTextView();
-        if (titleView != null) {
-            titleView.setText(title);
-        }
-    }
+  /** @return The TextView displaying the header. */
+  public TextView getTextView() {
+    return (TextView) templateLayout.findManagedViewById(R.id.suw_layout_title);
+  }
 
-    /**
-     * Sets the header text. This can also be set via the XML attribute {@code app:suwHeaderText}.
-     *
-     * @param title The text to be set as header.
-     */
-    public void setText(CharSequence title) {
-        final TextView titleView = getTextView();
-        if (titleView != null) {
-            titleView.setText(title);
-        }
+  /**
+   * Sets the header text. This can also be set via the XML attribute {@code app:suwHeaderText}.
+   *
+   * @param title The resource ID of the text to be set as header.
+   */
+  public void setText(int title) {
+    final TextView titleView = getTextView();
+    if (titleView != null) {
+      titleView.setText(title);
     }
+  }
 
-    /**
-     * @return The current header text.
-     */
-    public CharSequence getText() {
-        final TextView titleView = getTextView();
-        return titleView != null ? titleView.getText() : null;
+  /**
+   * Sets the header text. This can also be set via the XML attribute {@code app:suwHeaderText}.
+   *
+   * @param title The text to be set as header.
+   */
+  public void setText(CharSequence title) {
+    final TextView titleView = getTextView();
+    if (titleView != null) {
+      titleView.setText(title);
     }
+  }
+
+  /** @return The current header text. */
+  public CharSequence getText() {
+    final TextView titleView = getTextView();
+    return titleView != null ? titleView.getText() : null;
+  }
 }

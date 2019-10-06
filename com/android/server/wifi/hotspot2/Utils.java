@@ -1,5 +1,11 @@
 package com.android.server.wifi.hotspot2;
 
+import static com.android.server.wifi.hotspot2.anqp.Constants.BYTE_MASK;
+import static com.android.server.wifi.hotspot2.anqp.Constants.NIBBLE_MASK;
+
+import android.net.wifi.EAPConstants;
+
+import com.android.server.wifi.IMSIParameter;
 import com.android.server.wifi.hotspot2.anqp.Constants;
 
 import java.nio.ByteBuffer;
@@ -9,9 +15,6 @@ import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.TimeZone;
-
-import static com.android.server.wifi.hotspot2.anqp.Constants.BYTE_MASK;
-import static com.android.server.wifi.hotspot2.anqp.Constants.NIBBLE_MASK;
 
 public abstract class Utils {
 
@@ -99,6 +102,46 @@ public abstract class Utils {
             }
         }
         return prefix;
+    }
+
+    /**
+     * Creates a realm that consists of mcc and mnc.
+     *
+     * @param mccmnc MCC(Mobile Country Code) and MNC (Mobile Network Code)
+     * @return a realm that has the MCC and MNC as format (wlan.mnc<MNC>.mcc<MCC>.3gppnetwork.org).
+     */
+    public static String getRealmForMccMnc(String mccmnc) {
+        // The length of mccmnc is 5 or 6.
+        if (mccmnc == null || (mccmnc.length() != (IMSIParameter.MCC_MNC_LENGTH - 1)
+                && mccmnc.length() != IMSIParameter.MCC_MNC_LENGTH)) {
+            return null;
+        }
+
+        // Please refer to 3GPP TS 23.003 for the definition of Home network realm when making
+        // the home network realm using mcc/mnc.
+        // 1. Take first 5 or 6 digits, depending on whether a 2 or 3 digit MNC used and separate
+        // them into MCC and MNC; if the MNC is 2 digits then a zero shall be added at the
+        // beginning.
+        // 2. Create the wlan.mnc<MNC>.mcc<MCC>.3gppnetwork.org domain name.
+        String mcc = mccmnc.substring(0, 3);
+        String mnc = mccmnc.substring(3);
+        if (mnc.length() == 2) {
+            mnc = "0" + mnc;
+        }
+        return String.format("wlan.mnc%s.mcc%s.3gppnetwork.org", mnc, mcc);
+    }
+
+    /**
+     * Check if the eapMethod is for EAP-Methods that carrier supports.
+     *
+     * @param eapMethod eap method to check
+     * @return {@code true} if the provided {@code eapMethod} belongs to the
+     * EAP-Methods(EAP-SIM/AKA/AKA'), {@code false} otherwise.
+     */
+    public static boolean isCarrierEapMethod(int eapMethod) {
+        return eapMethod == EAPConstants.EAP_SIM
+                || eapMethod == EAPConstants.EAP_AKA
+                || eapMethod == EAPConstants.EAP_AKA_PRIME;
     }
 
     public static String roamingConsortiumsToString(long[] ois) {

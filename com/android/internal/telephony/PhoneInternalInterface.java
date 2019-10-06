@@ -17,13 +17,12 @@
 package com.android.internal.telephony;
 
 import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.os.ResultReceiver;
-import android.os.WorkSource;
 import android.telecom.VideoProfile;
-import android.telephony.CellLocation;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.NetworkScanRequest;
 import android.telephony.ServiceState;
@@ -57,6 +56,7 @@ public interface PhoneInternalInterface {
                                      but physical link is down</li>
          * </ul>
          */
+        @UnsupportedAppUsage
         NONE, DATAIN, DATAOUT, DATAINANDOUT, DORMANT;
     }
 
@@ -125,7 +125,7 @@ public interface PhoneInternalInterface {
      */
     static final String REASON_ROAMING_ON = "roamingOn";
     static final String REASON_ROAMING_OFF = "roamingOff";
-    static final String REASON_DATA_DISABLED = "dataDisabled";
+    static final String REASON_DATA_DISABLED_INTERNAL = "dataDisabledInternal";
     static final String REASON_DATA_ENABLED = "dataEnabled";
     static final String REASON_DATA_ATTACHED = "dataAttached";
     static final String REASON_DATA_DETACHED = "dataDetached";
@@ -155,6 +155,8 @@ public interface PhoneInternalInterface {
     static final String REASON_CARRIER_ACTION_DISABLE_METERED_APN =
             "carrierActionDisableMeteredApn";
     static final String REASON_CSS_INDICATOR_CHANGED = "cssIndicatorChanged";
+    static final String REASON_RELEASED_BY_CONNECTIVITY_SERVICE = "releasedByConnectivityService";
+    static final String REASON_DATA_ENABLED_OVERRIDE = "dataEnabledOverride";
 
     // Used for band mode selection methods
     static final int BM_UNSPECIFIED = RILConstants.BAND_MODE_UNSPECIFIED; // automatic
@@ -178,36 +180,7 @@ public interface PhoneInternalInterface {
     static final int BM_US_2500M    = RILConstants.BAND_MODE_USA_2500M;
     static final int BM_NUM_BAND_MODES = 19; //Total number of band modes
 
-    // Used for preferred network type
-    // Note NT_* substitute RILConstants.NETWORK_MODE_* above the Phone
-    int NT_MODE_WCDMA_PREF   = RILConstants.NETWORK_MODE_WCDMA_PREF;
-    int NT_MODE_GSM_ONLY     = RILConstants.NETWORK_MODE_GSM_ONLY;
-    int NT_MODE_WCDMA_ONLY   = RILConstants.NETWORK_MODE_WCDMA_ONLY;
-    int NT_MODE_GSM_UMTS     = RILConstants.NETWORK_MODE_GSM_UMTS;
-
-    int NT_MODE_CDMA         = RILConstants.NETWORK_MODE_CDMA;
-
-    int NT_MODE_CDMA_NO_EVDO = RILConstants.NETWORK_MODE_CDMA_NO_EVDO;
-    int NT_MODE_EVDO_NO_CDMA = RILConstants.NETWORK_MODE_EVDO_NO_CDMA;
-    int NT_MODE_GLOBAL       = RILConstants.NETWORK_MODE_GLOBAL;
-
-    int NT_MODE_LTE_CDMA_AND_EVDO        = RILConstants.NETWORK_MODE_LTE_CDMA_EVDO;
-    int NT_MODE_LTE_GSM_WCDMA            = RILConstants.NETWORK_MODE_LTE_GSM_WCDMA;
-    int NT_MODE_LTE_CDMA_EVDO_GSM_WCDMA  = RILConstants.NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA;
-    int NT_MODE_LTE_ONLY                 = RILConstants.NETWORK_MODE_LTE_ONLY;
-    int NT_MODE_LTE_WCDMA                = RILConstants.NETWORK_MODE_LTE_WCDMA;
-
-    int NT_MODE_TDSCDMA_ONLY            = RILConstants.NETWORK_MODE_TDSCDMA_ONLY;
-    int NT_MODE_TDSCDMA_WCDMA           = RILConstants.NETWORK_MODE_TDSCDMA_WCDMA;
-    int NT_MODE_LTE_TDSCDMA             = RILConstants.NETWORK_MODE_LTE_TDSCDMA;
-    int NT_MODE_TDSCDMA_GSM             = RILConstants.NETWORK_MODE_TDSCDMA_GSM;
-    int NT_MODE_LTE_TDSCDMA_GSM         = RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM;
-    int NT_MODE_TDSCDMA_GSM_WCDMA       = RILConstants.NETWORK_MODE_TDSCDMA_GSM_WCDMA;
-    int NT_MODE_LTE_TDSCDMA_WCDMA       = RILConstants.NETWORK_MODE_LTE_TDSCDMA_WCDMA;
-    int NT_MODE_LTE_TDSCDMA_GSM_WCDMA   = RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM_WCDMA;
-    int NT_MODE_TDSCDMA_CDMA_EVDO_GSM_WCDMA = RILConstants.NETWORK_MODE_TDSCDMA_CDMA_EVDO_GSM_WCDMA;
-    int NT_MODE_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA = RILConstants.NETWORK_MODE_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA;
-
+    @UnsupportedAppUsage
     int PREFERRED_NT_MODE                = RILConstants.PREFERRED_NETWORK_MODE;
 
     // Used for CDMA roaming mode
@@ -254,12 +227,6 @@ public interface PhoneInternalInterface {
      * updates.
      */
     ServiceState getServiceState();
-
-    /**
-     * Get the current CellLocation.
-     * @param workSource calling WorkSource
-     */
-    CellLocation getCellLocation(WorkSource workSource);
 
     /**
      * Get the current DataState. No change notification exists at this
@@ -726,20 +693,6 @@ public interface PhoneInternalInterface {
     void stopNetworkScan(Message response);
 
     /**
-     * Query neighboring cell IDs.  <code>response</code> is dispatched when
-     * this is complete.  <code>response.obj</code> will be an AsyncResult,
-     * and <code>response.obj.exception</code> will be non-null on failure.
-     * On success, <code>AsyncResult.result</code> will be a <code>String[]</code>
-     * containing the neighboring cell IDs.  Index 0 will contain the count
-     * of available cell IDs.  Cell IDs are in hexadecimal format.
-     *
-     * @param response callback message that is dispatched when the query
-     * completes.
-     * @param workSource calling WorkSource
-     */
-    default void getNeighboringCids(Message response, WorkSource workSource){}
-
-    /**
      * Mutes or unmutes the microphone for the active call. The microphone
      * is automatically unmuted if a call is answered, dialed, or resumed
      * from a holding state.
@@ -790,16 +743,6 @@ public interface PhoneInternalInterface {
      * @return true if user has enabled data
      */
     boolean isUserDataEnabled();
-
-    /**
-     * @return true if data is enabled considering all factors
-     */
-    boolean isDataEnabled();
-
-    /**
-     * @param @enable set {@code true} if enable data connection
-     */
-    void setUserDataEnabled(boolean enable);
 
     /**
      * Retrieves the unique device ID, e.g., IMEI for GSM phones and MEID for CDMA phones.

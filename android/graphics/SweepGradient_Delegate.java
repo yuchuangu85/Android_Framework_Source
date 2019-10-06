@@ -56,17 +56,11 @@ public class SweepGradient_Delegate extends Gradient_Delegate {
     // ---- native methods ----
 
     @LayoutlibDelegate
-    /*package*/ static long nativeCreate1(long matrix, float x, float y, int colors[], float
-            positions[]) {
+    /*package*/ static long nativeCreate(long matrix, float x, float y, long[] colors,
+            float[] positions, long colorSpaceHandle) {
         SweepGradient_Delegate newDelegate = new SweepGradient_Delegate(matrix, x, y, colors,
                 positions);
         return sManager.addNewDelegate(newDelegate);
-    }
-
-    @LayoutlibDelegate
-    /*package*/ static long nativeCreate2(long matrix, float x, float y, int color0, int color1) {
-        return nativeCreate1(matrix, x, y, new int[] { color0, color1 },
-                null /*positions*/);
     }
 
     // ---- Private delegate/helper methods ----
@@ -87,7 +81,7 @@ public class SweepGradient_Delegate extends Gradient_Delegate {
      *                 spaced evenly.
      */
     private SweepGradient_Delegate(long nativeMatrix, float cx, float cy,
-            int colors[], float positions[]) {
+            long[] colors, float[] positions) {
         super(nativeMatrix, colors, positions);
         mJavaPaint = new SweepGradientPaint(cx, cy, mColors, mPositions);
     }

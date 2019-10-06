@@ -23,6 +23,8 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StringRes;
 import android.annotation.StyleRes;
+import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration.NativeConfig;
 import android.os.ParcelFileDescriptor;
@@ -46,6 +48,7 @@ import java.nio.channels.FileLock;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Provides access to an application's raw asset files; see {@link Resources}
@@ -57,6 +60,7 @@ import java.util.HashMap;
 public final class AssetManager implements AutoCloseable {
     private static final String TAG = "AssetManager";
     private static final boolean DEBUG_REFS = false;
+    private static final boolean FEATURE_FLAG_IDMAP2 = true;
 
     private static final String FRAMEWORK_APK_PATH = "/system/framework/framework-res.apk";
 
@@ -65,6 +69,7 @@ public final class AssetManager implements AutoCloseable {
     private static final ApkAssets[] sEmptyApkAssets = new ApkAssets[0];
 
     // Not private for LayoutLib's BridgeAssetManager.
+    @UnsupportedAppUsage
     @GuardedBy("sSync") static AssetManager sSystem = null;
 
     @GuardedBy("sSync") private static ApkAssets[] sSystemApkAssets = new ApkAssets[0];
@@ -95,6 +100,7 @@ public final class AssetManager implements AutoCloseable {
     @GuardedBy("this") private final long[] mOffsets = new long[2];
 
     // Pointer to native implementation, stuffed inside a long.
+    @UnsupportedAppUsage
     @GuardedBy("this") private long mObject;
 
     // The loaded asset paths.
@@ -152,6 +158,7 @@ public final class AssetManager implements AutoCloseable {
      * use by applications.
      * @hide
      */
+    @UnsupportedAppUsage
     public AssetManager() {
         final ApkAssets[] assets;
         synchronized (sSync) {
@@ -191,13 +198,25 @@ public final class AssetManager implements AutoCloseable {
             return;
         }
 
-        // Make sure that all IDMAPs are up to date.
-        nativeVerifySystemIdmaps();
 
         try {
             final ArrayList<ApkAssets> apkAssets = new ArrayList<>();
             apkAssets.add(ApkAssets.loadFromPath(FRAMEWORK_APK_PATH, true /*system*/));
-            loadStaticRuntimeOverlays(apkAssets);
+            if (FEATURE_FLAG_IDMAP2) {
+                final String[] systemIdmapPaths =
+                    nativeCreateIdmapsForStaticOverlaysTargetingAndroid();
+                if (systemIdmapPaths != null) {
+                    for (String idmapPath : systemIdmapPaths) {
+                        apkAssets.add(ApkAssets.loadOverlayFromPath(idmapPath, true /*system*/));
+                    }
+                } else {
+                    Log.w(TAG, "'idmap2 --scan' failed: no static=\"true\" overlays targeting "
+                            + "\"android\" will be loaded");
+                }
+            } else {
+                nativeVerifySystemIdmaps();
+                loadStaticRuntimeOverlays(apkAssets);
+            }
 
             sSystemApkAssetsSet = new ArraySet<>(apkAssets);
             sSystemApkAssets = apkAssets.toArray(new ApkAssets[apkAssets.size()]);
@@ -249,6 +268,7 @@ public final class AssetManager implements AutoCloseable {
      * system assets (no application assets).
      * @hide
      */
+    @UnsupportedAppUsage
     public static AssetManager getSystem() {
         synchronized (sSync) {
             createSystemAssetsInZygoteLocked();
@@ -328,6 +348,7 @@ public final class AssetManager implements AutoCloseable {
      * returns a 0-length array.
      * @hide
      */
+    @UnsupportedAppUsage
     public @NonNull ApkAssets[] getApkAssets() {
         synchronized (this) {
             if (mOpen) {
@@ -335,6 +356,22 @@ public final class AssetManager implements AutoCloseable {
             }
         }
         return sEmptyApkAssets;
+    }
+
+    /** @hide */
+    @TestApi
+    public @NonNull String[] getApkPaths() {
+        synchronized (this) {
+            if (mOpen) {
+                String[] paths = new String[mApkAssets.length];
+                final int count = mApkAssets.length;
+                for (int i = 0; i < count; i++) {
+                    paths[i] = mApkAssets[i].getAssetPath();
+                }
+                return paths;
+            }
+        }
+        return new String[0];
     }
 
     /**
@@ -362,6 +399,7 @@ public final class AssetManager implements AutoCloseable {
      * @hide
      */
     @Deprecated
+    @UnsupportedAppUsage
     public int addAssetPath(String path) {
         return addAssetPathInternal(path, false /*overlay*/, false /*appAsLib*/);
     }
@@ -371,6 +409,7 @@ public final class AssetManager implements AutoCloseable {
      * @hide
      */
     @Deprecated
+    @UnsupportedAppUsage
     public int addAssetPathAsSharedLibrary(String path) {
         return addAssetPathInternal(path, false /*overlay*/, true /*appAsLib*/);
     }
@@ -380,6 +419,7 @@ public final class AssetManager implements AutoCloseable {
      * @hide
      */
     @Deprecated
+    @UnsupportedAppUsage
     public int addOverlayPath(String path) {
         return addAssetPathInternal(path, true /*overlay*/, false /*appAsLib*/);
     }
@@ -457,6 +497,7 @@ public final class AssetManager implements AutoCloseable {
      * @return {@code true} if the data was loaded into {@code outValue},
      *         {@code false} otherwise
      */
+    @UnsupportedAppUsage
     boolean getResourceValue(@AnyRes int resId, int densityDpi, @NonNull TypedValue outValue,
             boolean resolveRefs) {
         Preconditions.checkNotNull(outValue, "outValue");
@@ -486,6 +527,7 @@ public final class AssetManager implements AutoCloseable {
      * @param resId the resource identifier to load
      * @return the string value, or {@code null}
      */
+    @UnsupportedAppUsage
     @Nullable CharSequence getResourceText(@StringRes int resId) {
         synchronized (this) {
             final TypedValue outValue = mValue;
@@ -504,6 +546,7 @@ public final class AssetManager implements AutoCloseable {
      * @param bagEntryId the index into the bag to load
      * @return the string value, or {@code null}
      */
+    @UnsupportedAppUsage
     @Nullable CharSequence getResourceBagText(@StringRes int resId, int bagEntryId) {
         synchronized (this) {
             ensureValidLocked();
@@ -665,6 +708,7 @@ public final class AssetManager implements AutoCloseable {
         }
     }
 
+    @UnsupportedAppUsage
     @Nullable String getResourceName(@AnyRes int resId) {
         synchronized (this) {
             ensureValidLocked();
@@ -672,6 +716,7 @@ public final class AssetManager implements AutoCloseable {
         }
     }
 
+    @UnsupportedAppUsage
     @Nullable String getResourcePackageName(@AnyRes int resId) {
         synchronized (this) {
             ensureValidLocked();
@@ -679,6 +724,7 @@ public final class AssetManager implements AutoCloseable {
         }
     }
 
+    @UnsupportedAppUsage
     @Nullable String getResourceTypeName(@AnyRes int resId) {
         synchronized (this) {
             ensureValidLocked();
@@ -686,6 +732,7 @@ public final class AssetManager implements AutoCloseable {
         }
     }
 
+    @UnsupportedAppUsage
     @Nullable String getResourceEntryName(@AnyRes int resId) {
         synchronized (this) {
             ensureValidLocked();
@@ -693,12 +740,45 @@ public final class AssetManager implements AutoCloseable {
         }
     }
 
+    @UnsupportedAppUsage
     @AnyRes int getResourceIdentifier(@NonNull String name, @Nullable String defType,
             @Nullable String defPackage) {
         synchronized (this) {
             ensureValidLocked();
             // name is checked in JNI.
             return nativeGetResourceIdentifier(mObject, name, defType, defPackage);
+        }
+    }
+
+    /**
+     * Enable resource resolution logging to track the steps taken to resolve the last resource
+     * entry retrieved. Stores the configuration and package names for each step.
+     *
+     * Default disabled.
+     *
+     * @param enabled Boolean indicating whether to enable or disable logging.
+     *
+     * @hide
+     */
+    public void setResourceResolutionLoggingEnabled(boolean enabled) {
+        synchronized (this) {
+            ensureValidLocked();
+            nativeSetResourceResolutionLoggingEnabled(mObject, enabled);
+        }
+    }
+
+    /**
+     * Retrieve the last resource resolution path logged.
+     *
+     * @return Formatted string containing last resource ID/name and steps taken to resolve final
+     * entry, including configuration and package names.
+     *
+     * @hide
+     */
+    public @Nullable String getLastResourceResolution() {
+        synchronized (this) {
+            ensureValidLocked();
+            return nativeGetLastResourceResolution(mObject);
         }
     }
 
@@ -804,6 +884,7 @@ public final class AssetManager implements AutoCloseable {
      * @see #open(String)
      * @hide
      */
+    @UnsupportedAppUsage
     public @NonNull InputStream openNonAsset(@NonNull String fileName) throws IOException {
         return openNonAsset(0, fileName, ACCESS_STREAMING);
     }
@@ -824,6 +905,7 @@ public final class AssetManager implements AutoCloseable {
      * @see #open(String, int)
      * @hide
      */
+    @UnsupportedAppUsage
     public @NonNull InputStream openNonAsset(@NonNull String fileName, int accessMode)
             throws IOException {
         return openNonAsset(0, fileName, accessMode);
@@ -836,6 +918,7 @@ public final class AssetManager implements AutoCloseable {
      * @param fileName Name of the asset to retrieve.
      * @hide
      */
+    @UnsupportedAppUsage
     public @NonNull InputStream openNonAsset(int cookie, @NonNull String fileName)
             throws IOException {
         return openNonAsset(cookie, fileName, ACCESS_STREAMING);
@@ -849,6 +932,7 @@ public final class AssetManager implements AutoCloseable {
      * @param accessMode Desired access mode for retrieving the data.
      * @hide
      */
+    @UnsupportedAppUsage
     public @NonNull InputStream openNonAsset(int cookie, @NonNull String fileName, int accessMode)
             throws IOException {
         Preconditions.checkNotNull(fileName, "fileName");
@@ -970,6 +1054,7 @@ public final class AssetManager implements AutoCloseable {
         }
     }
 
+    @UnsupportedAppUsage
     void applyStyle(long themePtr, @AttrRes int defStyleAttr, @StyleRes int defStyleRes,
             @Nullable XmlBlock.Parser parser, @NonNull int[] inAttrs, long outValuesAddress,
             long outIndicesAddress) {
@@ -984,6 +1069,15 @@ public final class AssetManager implements AutoCloseable {
         }
     }
 
+    int[] getAttributeResolutionStack(long themePtr, @AttrRes int defStyleAttr,
+            @StyleRes int defStyleRes, @StyleRes int xmlStyle) {
+        synchronized (this) {
+            return nativeAttributeResolutionStack(
+                    mObject, themePtr, xmlStyle, defStyleAttr, defStyleRes);
+        }
+    }
+
+    @UnsupportedAppUsage
     boolean resolveAttrs(long themePtr, @AttrRes int defStyleAttr, @StyleRes int defStyleRes,
             @Nullable int[] inValues, @NonNull int[] inAttrs, @NonNull int[] outValues,
             @NonNull int[] outIndices) {
@@ -999,6 +1093,7 @@ public final class AssetManager implements AutoCloseable {
         }
     }
 
+    @UnsupportedAppUsage
     boolean retrieveAttributes(@NonNull XmlBlock.Parser parser, @NonNull int[] inAttrs,
             @NonNull int[] outValues, @NonNull int[] outIndices) {
         Preconditions.checkNotNull(parser, "parser");
@@ -1014,6 +1109,7 @@ public final class AssetManager implements AutoCloseable {
         }
     }
 
+    @UnsupportedAppUsage
     long createTheme() {
         synchronized (this) {
             ensureValidLocked();
@@ -1036,6 +1132,17 @@ public final class AssetManager implements AutoCloseable {
             // the native implementation of AssetManager.
             ensureValidLocked();
             nativeThemeApplyStyle(mObject, themePtr, resId, force);
+        }
+    }
+
+    @UnsupportedAppUsage
+    void setThemeTo(long dstThemePtr, @NonNull AssetManager srcAssetManager, long srcThemePtr) {
+        synchronized (this) {
+            ensureValidLocked();
+            synchronized (srcAssetManager) {
+                srcAssetManager.ensureValidLocked();
+                nativeThemeCopy(mObject, dstThemePtr, srcAssetManager.mObject, srcThemePtr);
+            }
         }
     }
 
@@ -1066,6 +1173,7 @@ public final class AssetManager implements AutoCloseable {
         /**
          * @hide
          */
+        @UnsupportedAppUsage
         public final int getAssetInt() {
             throw new UnsupportedOperationException();
         }
@@ -1073,6 +1181,7 @@ public final class AssetManager implements AutoCloseable {
         /**
          * @hide
          */
+        @UnsupportedAppUsage
         public final long getNativeAsset() {
             return mAssetNativePtr;
         }
@@ -1169,13 +1278,21 @@ public final class AssetManager implements AutoCloseable {
      * instantiate a new AssetManager class to see the new data.
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean isUpToDate() {
-        for (ApkAssets apkAssets : getApkAssets()) {
-            if (!apkAssets.isUpToDate()) {
+        synchronized (this) {
+            if (!mOpen) {
                 return false;
             }
+
+            for (ApkAssets apkAssets : mApkAssets) {
+                if (!apkAssets.isUpToDate()) {
+                    return false;
+                }
+            }
+
+            return true;
         }
-        return true;
     }
 
     /**
@@ -1228,6 +1345,7 @@ public final class AssetManager implements AutoCloseable {
      * applications.
      * @hide
      */
+    @UnsupportedAppUsage
     public void setConfiguration(int mcc, int mnc, @Nullable String locale, int orientation,
             int touchscreen, int density, int keyboard, int keyboardHidden, int navigation,
             int screenWidth, int screenHeight, int smallestScreenWidthDp, int screenWidthDp,
@@ -1244,10 +1362,23 @@ public final class AssetManager implements AutoCloseable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public SparseArray<String> getAssignedPackageIdentifiers() {
         synchronized (this) {
             ensureValidLocked();
             return nativeGetAssignedPackageIdentifiers(mObject);
+        }
+    }
+
+    /**
+     * @hide
+     */
+    @TestApi
+    @GuardedBy("this")
+    public @Nullable Map<String, String> getOverlayableMap(String packageName) {
+        synchronized (this) {
+            ensureValidLocked();
+            return nativeGetOverlayableMap(mObject, packageName);
         }
     }
 
@@ -1329,8 +1460,12 @@ public final class AssetManager implements AutoCloseable {
     private static native @Nullable String nativeGetResourceEntryName(long ptr, @AnyRes int resid);
     private static native @Nullable String[] nativeGetLocales(long ptr, boolean excludeSystem);
     private static native @Nullable Configuration[] nativeGetSizeConfigurations(long ptr);
+    private static native void nativeSetResourceResolutionLoggingEnabled(long ptr, boolean enabled);
+    private static native @Nullable String nativeGetLastResourceResolution(long ptr);
 
     // Style attribute retrieval native methods.
+    private static native int[] nativeAttributeResolutionStack(long ptr, long themePtr,
+            @StyleRes int xmlStyleRes, @AttrRes int defStyleAttr, @StyleRes int defStyleRes);
     private static native void nativeApplyStyle(long ptr, long themePtr, @AttrRes int defStyleAttr,
             @StyleRes int defStyleRes, long xmlParserPtr, @NonNull int[] inAttrs,
             long outValuesAddress, long outIndicesAddress);
@@ -1345,7 +1480,8 @@ public final class AssetManager implements AutoCloseable {
     private static native void nativeThemeDestroy(long themePtr);
     private static native void nativeThemeApplyStyle(long ptr, long themePtr, @StyleRes int resId,
             boolean force);
-    static native void nativeThemeCopy(long destThemePtr, long sourceThemePtr);
+    private static native void nativeThemeCopy(long dstAssetManagerPtr, long dstThemePtr,
+            long srcAssetManagerPtr, long srcThemePtr);
     static native void nativeThemeClear(long themePtr);
     private static native int nativeThemeGetAttributeValue(long ptr, long themePtr,
             @AttrRes int resId, @NonNull TypedValue outValue, boolean resolve);
@@ -1362,11 +1498,15 @@ public final class AssetManager implements AutoCloseable {
     private static native long nativeAssetGetRemainingLength(long assetPtr);
 
     private static native void nativeVerifySystemIdmaps();
+    private static native String[] nativeCreateIdmapsForStaticOverlaysTargetingAndroid();
+    private static native @Nullable Map nativeGetOverlayableMap(long ptr,
+            @NonNull String packageName);
 
     // Global debug native methods.
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public static native int getGlobalAssetCount();
 
     /**
@@ -1377,5 +1517,6 @@ public final class AssetManager implements AutoCloseable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public static native int getGlobalAssetManagerCount();
 }

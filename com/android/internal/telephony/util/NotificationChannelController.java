@@ -15,6 +15,7 @@
  */
 package com.android.internal.telephony.util;
 
+import android.annotation.NonNull;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
@@ -37,7 +38,7 @@ public class NotificationChannelController {
      * list of {@link android.app.NotificationChannel} for telephony service.
      */
     public static final String CHANNEL_ID_ALERT = "alert";
-    public static final String CHANNEL_ID_CALL_FORWARD = "callForward";
+    public static final String CHANNEL_ID_CALL_FORWARD = "callForwardNew";
     public static final String CHANNEL_ID_MOBILE_DATA_STATUS = "mobileDataAlertNew";
     public static final String CHANNEL_ID_SIM = "sim";
     public static final String CHANNEL_ID_SMS = "sms";
@@ -46,6 +47,11 @@ public class NotificationChannelController {
 
     /** deprecated channel, replaced with @see #CHANNEL_ID_MOBILE_DATA_STATUS */
     private static final String CHANNEL_ID_MOBILE_DATA_ALERT_DEPRECATED = "mobileDataAlert";
+    /**
+     * deprecated channel, replaced with @see #CHANNEL_ID_CALL_FORWARD
+     * change the importance to default to make sure notification icon shown in the status bar.
+     */
+    private static final String CHANNEL_ID_CALL_FORWARD_DEPRECATED = "callForward";
 
     /**
      * Creates all notification channels and registers with NotificationManager. If a channel
@@ -73,32 +79,39 @@ public class NotificationChannelController {
                 context.getText(R.string.notification_channel_sim),
                 NotificationManager.IMPORTANCE_LOW
         );
-
         simChannel.setSound(null, null);
+
+        final NotificationChannel callforwardChannel = new NotificationChannel(
+                CHANNEL_ID_CALL_FORWARD,
+                context.getText(R.string.notification_channel_call_forward),
+                NotificationManager.IMPORTANCE_DEFAULT);
+        migrateCallFowardNotificationChannel(context, callforwardChannel);
 
         context.getSystemService(NotificationManager.class)
                 .createNotificationChannels(Arrays.asList(
-                new NotificationChannel(CHANNEL_ID_CALL_FORWARD,
-                        context.getText(R.string.notification_channel_call_forward),
-                        NotificationManager.IMPORTANCE_LOW),
                 new NotificationChannel(CHANNEL_ID_SMS,
                         context.getText(R.string.notification_channel_sms),
                         NotificationManager.IMPORTANCE_HIGH),
                 new NotificationChannel(CHANNEL_ID_WFC,
                         context.getText(R.string.notification_channel_wfc),
                         NotificationManager.IMPORTANCE_LOW),
-                alertChannel,
-                mobileDataStatusChannel,
-                simChannel));
+                alertChannel, mobileDataStatusChannel,
+                simChannel, callforwardChannel));
+
         // only for update
         if (getChannel(CHANNEL_ID_VOICE_MAIL, context) != null) {
             migrateVoicemailNotificationSettings(context);
         }
+
         // after channel has been created there is no way to change the channel setting
         // programmatically. delete the old channel and create a new one with a new ID.
         if (getChannel(CHANNEL_ID_MOBILE_DATA_ALERT_DEPRECATED, context) != null) {
             context.getSystemService(NotificationManager.class)
                     .deleteNotificationChannel(CHANNEL_ID_MOBILE_DATA_ALERT_DEPRECATED);
+        }
+        if (getChannel(CHANNEL_ID_CALL_FORWARD_DEPRECATED, context) != null) {
+            context.getSystemService(NotificationManager.class)
+                    .deleteNotificationChannel(CHANNEL_ID_CALL_FORWARD_DEPRECATED);
         }
     }
 
@@ -136,6 +149,22 @@ public class NotificationChannelController {
                 new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).build());
         context.getSystemService(NotificationManager.class)
                 .createNotificationChannel(voiceMailChannel);
+    }
+
+    /**
+     * migrate deprecated call forward notification channel.
+     * @param context
+     */
+    private static void migrateCallFowardNotificationChannel(
+            Context context, @NonNull NotificationChannel callforwardChannel) {
+        final NotificationChannel deprecatedChannel =
+                getChannel(CHANNEL_ID_CALL_FORWARD_DEPRECATED, context);
+        if (deprecatedChannel != null) {
+            callforwardChannel.setSound(deprecatedChannel.getSound(),
+                    deprecatedChannel.getAudioAttributes());
+            callforwardChannel.setVibrationPattern(deprecatedChannel.getVibrationPattern());
+            callforwardChannel.enableVibration(deprecatedChannel.shouldVibrate());
+        }
     }
 
     private final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {

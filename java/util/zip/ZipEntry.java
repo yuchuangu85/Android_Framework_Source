@@ -32,7 +32,6 @@ import java.nio.file.attribute.FileTime;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
-
 import static java.util.zip.ZipConstants64.*;
 
 /**
@@ -42,7 +41,6 @@ import static java.util.zip.ZipConstants64.*;
  */
 public
 class ZipEntry implements ZipConstants, Cloneable {
-
     String name;        // entry name
     long xdostime = -1; // last modification time (in extended DOS time,
                         // where milliseconds lost in conversion might
@@ -57,7 +55,8 @@ class ZipEntry implements ZipConstants, Cloneable {
     int flag = 0;       // general purpose flag
     byte[] extra;       // optional extra field data for entry
     String comment;     // optional comment string for entry
-    // Android-changed: Add dataOffset for internal use.
+    // Android-added: Add dataOffset for internal use.
+    // Used by android.util.jar.StrictJarFile from frameworks.
     long dataOffset;
 
     /**
@@ -75,21 +74,6 @@ class ZipEntry implements ZipConstants, Cloneable {
      */
     static final long DOSTIME_BEFORE_1980 = (1 << 21) | (1 << 16);
 
-    /** @hide - Called from StrictJarFile native code. */
-    public ZipEntry(String name, String comment, long crc, long compressedSize,
-            long size, int compressionMethod, int xdostime, byte[] extra,
-            long dataOffset) {
-        this.name = name;
-        this.comment = comment;
-        this.crc = crc;
-        this.csize = compressedSize;
-        this.size = size;
-        this.method = compressionMethod;
-        this.xdostime = xdostime;
-        this.dataOffset = dataOffset;
-        this.setExtra0(extra, false);
-    }
-
     /**
      * Approximately 128 years, in milliseconds (ignoring leap years etc).
      *
@@ -105,9 +89,25 @@ class ZipEntry implements ZipConstants, Cloneable {
      * should be sufficient.
      * @hide
      */
-    // Android-changed: public for testing purposes
+    // Android-changed: Make UPPER_DOSTIME_BOUND public hidden for testing purposes.
     public static final long UPPER_DOSTIME_BOUND =
             128L * 365 * 24 * 60 * 60 * 1000;
+
+    // Android-added: New constructor for use by StrictJarFile native code.
+    /** @hide */
+    public ZipEntry(String name, String comment, long crc, long compressedSize,
+            long size, int compressionMethod, int xdostime, byte[] extra,
+            long dataOffset) {
+        this.name = name;
+        this.comment = comment;
+        this.crc = crc;
+        this.csize = compressedSize;
+        this.size = size;
+        this.method = compressionMethod;
+        this.xdostime = xdostime;
+        this.dataOffset = dataOffset;
+        this.setExtra0(extra, false);
+    }
 
     /**
      * Creates a new zip entry with the specified name.
@@ -122,6 +122,9 @@ class ZipEntry implements ZipConstants, Cloneable {
     public ZipEntry(String name) {
         Objects.requireNonNull(name, "name");
         // Android-changed: Explicitly use UTF_8 instead of the default charset.
+        // if (name.length() > 0xFFFF) {
+        //     throw new IllegalArgumentException("entry name too long");
+        // }
         if (name.getBytes(StandardCharsets.UTF_8).length > 0xffff) {
             throw new IllegalArgumentException(name + " too long: " +
                     name.getBytes(StandardCharsets.UTF_8).length);
@@ -152,6 +155,7 @@ class ZipEntry implements ZipConstants, Cloneable {
         flag = e.flag;
         extra = e.extra;
         comment = e.comment;
+        // Android-added: Add dataOffset for internal use.
         dataOffset = e.dataOffset;
     }
 
@@ -160,6 +164,7 @@ class ZipEntry implements ZipConstants, Cloneable {
      */
     ZipEntry() {}
 
+    // Android-added: Add dataOffset for internal use.
     /** @hide */
     public long getDataOffset() {
         return dataOffset;
@@ -218,8 +223,6 @@ class ZipEntry implements ZipConstants, Cloneable {
      * @see #setLastModifiedTime(FileTime)
      */
     public long getTime() {
-        // Android-changed: Use xdostime, returning mtime would be a
-        // functional difference
         if (mtime != null) {
             return mtime.toMillis();
         }
@@ -573,18 +576,12 @@ class ZipEntry implements ZipConstants, Cloneable {
      * @see #getComment()
      */
     public void setComment(String comment) {
-        // Android-changed: Explicitly allow null comments (or allow comments to be
-        // cleared).
-        if (comment == null) {
-            this.comment = null;
-            return;
-        }
-
-        // Android-changed: Explicitly use UTF-8.
-        if (comment.getBytes(StandardCharsets.UTF_8).length > 0xffff) {
+        // BEGIN Android-added: Explicitly use UTF_8 instead of the default charset.
+        if (comment != null && comment.getBytes(StandardCharsets.UTF_8).length > 0xffff) {
             throw new IllegalArgumentException(comment + " too long: " +
                     comment.getBytes(StandardCharsets.UTF_8).length);
         }
+        // END Android-added: Explicitly use UTF_8 instead of the default charset.
 
         this.comment = comment;
     }

@@ -11,21 +11,23 @@ import android.net.NetworkCapabilities;
 import android.net.wifi.WifiManager;
 import android.os.Binder;
 import android.os.Build;
-import android.os.PowerManager;
 import android.telephony.TelephonyManager;
 import com.android.clockwork.bluetooth.BluetoothLogger;
 import com.android.clockwork.bluetooth.BluetoothScanModeEnforcer;
 import com.android.clockwork.bluetooth.BluetoothShardRunner;
 import com.android.clockwork.bluetooth.CompanionTracker;
 import com.android.clockwork.bluetooth.WearBluetoothMediator;
+import com.android.clockwork.bluetooth.WearBluetoothMediatorSettings;
 import com.android.clockwork.bluetooth.proxy.ProxyLinkProperties;
 import com.android.clockwork.bluetooth.proxy.ProxyServiceHelper;
 import com.android.clockwork.cellular.WearCellularMediator;
 import com.android.clockwork.cellular.WearCellularMediatorSettings;
 import com.android.clockwork.common.ActivityModeTracker;
-import com.android.clockwork.flags.UserAbsentRadiosOffObserver;
+import com.android.clockwork.flags.BooleanFlag;
+import com.android.clockwork.flags.ClockworkFlags;
 import com.android.clockwork.power.PowerTracker;
 import com.android.clockwork.power.TimeOnlyMode;
+import com.android.clockwork.power.WearPowerServiceInternal;
 import com.android.clockwork.wifi.SimpleTimerWifiBackoff;
 import com.android.clockwork.wifi.WearWifiMediator;
 import com.android.clockwork.wifi.WearWifiMediatorSettings;
@@ -52,11 +54,10 @@ public class WearConnectivityService extends SystemService {
     @VisibleForTesting static final String FEATURE_SIDEWINDER = "com.google.sidewinder";
 
     private WearConnectivityController mController;
-    private PowerTracker mPowerTracker;
     private BluetoothScanModeEnforcer mBtScanModeEnforcer;
     private WearNetworkObserver mWearNetworkObserver;
 
-    private UserAbsentRadiosOffObserver mUserAbsentRadiosOffObserver;
+    private BooleanFlag mUserAbsentRadiosOff;
 
     public WearConnectivityService(Context context) {
         super(context);
@@ -70,10 +71,13 @@ public class WearConnectivityService extends SystemService {
     @Override
     public void onBootPhase(int phase) {
         if (phase == com.android.server.SystemService.PHASE_SYSTEM_SERVICES_READY) {
-            mUserAbsentRadiosOffObserver =
-                new UserAbsentRadiosOffObserver(getContext().getContentResolver());
-            mPowerTracker = new PowerTracker(
-                    getContext(), getContext().getSystemService(PowerManager.class));
+            mUserAbsentRadiosOff =
+                ClockworkFlags.userAbsentRadiosOff(getContext().getContentResolver());
+
+            WearPowerServiceInternal powerService = getLocalService(WearPowerServiceInternal.class);
+
+            PowerTracker powerTracker = powerService.getPowerTracker();
+            TimeOnlyMode timeOnlyMode = powerService.getTimeOnlyMode();
 
             BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
             CompanionTracker companionTracker =
@@ -93,13 +97,14 @@ public class WearConnectivityService extends SystemService {
                 btMediator = new WearBluetoothMediator(
                         getContext(),
                         getContext().getSystemService(AlarmManager.class),
+                        new WearBluetoothMediatorSettings(getContext().getContentResolver()),
                         btAdapter,
                         btLogger,
                         btShardRunner,
                         companionTracker,
-                        mPowerTracker,
-                        mUserAbsentRadiosOffObserver,
-                        new TimeOnlyMode(getContext().getContentResolver(), mPowerTracker));
+                        powerTracker,
+                        mUserAbsentRadiosOff,
+                        timeOnlyMode);
             }
 
             WearCellularMediator cellMediator = null;
@@ -112,11 +117,12 @@ public class WearConnectivityService extends SystemService {
                         getContext().getSystemService(TelephonyManager.class);
                 cellMediator = new WearCellularMediator(
                         getContext(),
+                        getContext().getSystemService(AlarmManager.class),
                         telephonyManager,
                         new WearCellularMediatorSettings(
                                 getContext(), telephonyManager.getSimOperator()),
-                        mPowerTracker,
-                        mUserAbsentRadiosOffObserver);
+                        powerTracker,
+                        mUserAbsentRadiosOff);
             }
 
             WifiLogger wifiLogger = new WifiLogger();
@@ -125,8 +131,8 @@ public class WearConnectivityService extends SystemService {
                     getContext().getSystemService(AlarmManager.class),
                     new WearWifiMediatorSettings(getContext().getContentResolver()),
                     companionTracker,
-                    mPowerTracker,
-                    mUserAbsentRadiosOffObserver,
+                    powerTracker,
+                    mUserAbsentRadiosOff,
                     new SimpleTimerWifiBackoff(getContext(), wifiLogger),
                     getContext().getSystemService(WifiManager.class),
                     wifiLogger);
@@ -140,15 +146,11 @@ public class WearConnectivityService extends SystemService {
                     wifiMediator,
                     cellMediator,
                     proxyNetworkAgent,
-                    new ActivityModeTracker(getContext()),
-                    mPowerTracker);
+                    new ActivityModeTracker(getContext()));
             mWearNetworkObserver = new WearNetworkObserver(getContext(), mController);
             mWearNetworkObserver.register();
         } else if (phase == com.android.server.SystemService.PHASE_BOOT_COMPLETED) {
-            mUserAbsentRadiosOffObserver.register();
-            // this ordering ensures that mPowerTracker is properly initialized
-            // before its dependent classes
-            mPowerTracker.onBootCompleted();
+            mUserAbsentRadiosOff.register();
             mController.onBootCompleted();
         }
     }

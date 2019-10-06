@@ -24,6 +24,7 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.UUSInfo;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.net.Uri;
 import android.telecom.PhoneAccount;
@@ -189,6 +190,7 @@ public class ImsExternalConnection extends Connection {
     /**
      * Sets this external call as active.
      */
+    @UnsupportedAppUsage
     public void setActive() {
         if (mCall == null) {
             return;
@@ -269,6 +271,7 @@ public class ImsExternalConnection extends Connection {
     /**
      * Rebuilds the connection capabilities.
      */
+    @UnsupportedAppUsage
     private void rebuildCapabilities() {
         int capabilities = Capability.IS_EXTERNAL_CONNECTION;
         if (mIsPullable) {

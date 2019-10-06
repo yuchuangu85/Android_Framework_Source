@@ -16,11 +16,15 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.IntDef;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.telephony.Rlog;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * {@hide}
@@ -28,6 +32,13 @@ import java.util.Arrays;
 public class PlmnActRecord implements Parcelable {
     private static final String LOG_TAG = "PlmnActRecord";
 
+    private static final boolean VDBG = false;
+
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(flag = true, value = {ACCESS_TECH_UTRAN, ACCESS_TECH_EUTRAN, ACCESS_TECH_GSM,
+            ACCESS_TECH_GSM_COMPACT, ACCESS_TECH_CDMA2000_HRPD, ACCESS_TECH_CDMA2000_1XRTT,
+            ACCESS_TECH_RESERVED})
+    public @interface AccessTech {}
     // Values specified in 3GPP 31.102 sec. 4.2.5
     public static final int ACCESS_TECH_UTRAN = 0x8000;
     public static final int ACCESS_TECH_EUTRAN = 0x4000;
@@ -42,20 +53,13 @@ public class PlmnActRecord implements Parcelable {
     public final String plmn;
     public final int accessTechs;
 
-    private static final boolean VDBG = false;
-
-    public static final Parcelable.Creator<PlmnActRecord> CREATOR =
-            new Parcelable.Creator<PlmnActRecord>() {
-        @Override
-        public PlmnActRecord createFromParcel(Parcel source) {
-            return new PlmnActRecord(source.readString(), source.readInt());
-        }
-
-        @Override
-        public PlmnActRecord[] newArray(int size) {
-            return new PlmnActRecord[size];
-        }
-    };
+    /**
+     * Instantiate a PLMN w/ ACT Record
+     */
+    public PlmnActRecord(String plmn, int accessTechs) {
+        this.plmn = plmn;
+        this.accessTechs = accessTechs;
+    }
 
     /* From 3gpp 31.102 section 4.2.5
      * Bytes 0-2 bcd-encoded PLMN-ID
@@ -68,9 +72,15 @@ public class PlmnActRecord implements Parcelable {
                         | Byte.toUnsignedInt(bytes[offset + 4]);
     }
 
-    private PlmnActRecord(String plmn, int accessTechs) {
-        this.plmn = plmn;
-        this.accessTechs = accessTechs;
+    /**
+     * Get a record encoded as per 31.102 section 4.2.5
+     */
+    public byte[] getBytes() {
+        byte[] ret = new byte[ENCODED_LENGTH];
+        IccUtils.stringToBcdPlmn(this.plmn, ret, 0);
+        ret[3] = (byte) (this.accessTechs >> 8);
+        ret[4] = (byte) this.accessTechs;
+        return ret;
     }
 
     private String accessTechString() {
@@ -142,4 +152,29 @@ public class PlmnActRecord implements Parcelable {
         dest.writeInt(accessTechs);
     }
 
+    public static final Parcelable.Creator<PlmnActRecord> CREATOR =
+            new Parcelable.Creator<PlmnActRecord>() {
+        @Override
+        public PlmnActRecord createFromParcel(Parcel source) {
+            return new PlmnActRecord(source.readString(), source.readInt());
+        }
+
+        @Override
+        public PlmnActRecord[] newArray(int size) {
+            return new PlmnActRecord[size];
+        }
+    };
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(plmn, accessTechs);
+    }
+
+    @Override
+    public boolean equals(Object rhs) {
+        if (!(rhs instanceof PlmnActRecord)) return false;
+
+        PlmnActRecord r = (PlmnActRecord) rhs;
+        return plmn.equals(r.plmn) && accessTechs == r.accessTechs;
+    }
 }

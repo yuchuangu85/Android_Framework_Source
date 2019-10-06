@@ -19,6 +19,7 @@ package android.graphics.pdf;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.Config;
 import android.graphics.Matrix;
@@ -118,6 +119,7 @@ public final class PdfRenderer implements AutoCloseable {
 
     private ParcelFileDescriptor mInput;
 
+    @UnsupportedAppUsage
     private Page mCurrentPage;
 
     /** @hide */
@@ -242,6 +244,7 @@ public final class PdfRenderer implements AutoCloseable {
         }
     }
 
+    @UnsupportedAppUsage
     private void doClose() {
         if (mCurrentPage != null) {
             mCurrentPage.close();
@@ -432,8 +435,9 @@ public final class PdfRenderer implements AutoCloseable {
             final long transformPtr = transform.native_instance;
 
             synchronized (sPdfiumLock) {
-                nativeRenderPage(mNativeDocument, mNativePage, destination, contentLeft,
-                        contentTop, contentRight, contentBottom, transformPtr, renderMode);
+                nativeRenderPage(mNativeDocument, mNativePage, destination.getNativeInstance(),
+                        contentLeft, contentTop, contentRight, contentBottom, transformPtr,
+                        renderMode);
             }
         }
 
@@ -484,7 +488,7 @@ public final class PdfRenderer implements AutoCloseable {
     private static native void nativeClose(long documentPtr);
     private static native int nativeGetPageCount(long documentPtr);
     private static native boolean nativeScaleForPrinting(long documentPtr);
-    private static native void nativeRenderPage(long documentPtr, long pagePtr, Bitmap dest,
+    private static native void nativeRenderPage(long documentPtr, long pagePtr, long bitmapHandle,
             int clipLeft, int clipTop, int clipRight, int clipBottom, long transformPtr,
             int renderMode);
     private static native long nativeOpenPageAndGetSize(long documentPtr, int pageIndex,

@@ -38,6 +38,8 @@ import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
 import java.util.ArrayList;
 
+import libcore.util.NativeAllocationRegistry_Delegate;
+
 /**
  * Delegate implementing the native methods of android.graphics.Path
  *
@@ -58,6 +60,8 @@ public final class Path_Delegate {
             new DelegateManager<Path_Delegate>(Path_Delegate.class);
 
     private static final float EPSILON = 1e-4f;
+
+    private static long sFinalizer = -1;
 
     // ---- delegate data ----
     private FillType mFillType = FillType.WINDING;
@@ -476,8 +480,14 @@ public final class Path_Delegate {
     }
 
     @LayoutlibDelegate
-    /*package*/ static void nFinalize(long nPath) {
-        sManager.removeJavaReferenceFor(nPath);
+    /*package*/ static long nGetFinalizer() {
+        synchronized (Path_Delegate.class) {
+            if (sFinalizer == -1) {
+                sFinalizer = NativeAllocationRegistry_Delegate.createFinalizer(
+                        sManager::removeJavaReferenceFor);
+            }
+        }
+        return sFinalizer;
     }
 
     @LayoutlibDelegate

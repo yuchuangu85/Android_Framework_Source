@@ -17,6 +17,7 @@
 package android.telephony.ims;
 
 import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -82,17 +83,23 @@ public final class ImsStreamMediaProfile implements Parcelable {
 
     // Audio related information
     /** @hide */
+    @UnsupportedAppUsage
     public int mAudioQuality;
     /** @hide */
+    @UnsupportedAppUsage
     public int mAudioDirection;
     // Video related information
     /** @hide */
     public int mVideoQuality;
     /** @hide */
+    @UnsupportedAppUsage
     public int mVideoDirection;
     // Rtt related information
     /** @hide */
     public int mRttMode;
+    // RTT Audio Speech Indicator
+    /** @hide */
+    public boolean mIsReceivingRttAudio = false;
 
     /** @hide */
     public ImsStreamMediaProfile(Parcel in) {
@@ -156,6 +163,7 @@ public final class ImsStreamMediaProfile implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public ImsStreamMediaProfile() {
         mAudioQuality = AUDIO_QUALITY_NONE;
         mAudioDirection = DIRECTION_SEND_RECEIVE;
@@ -192,7 +200,8 @@ public final class ImsStreamMediaProfile implements Parcelable {
                 ", audioDirection=" + mAudioDirection +
                 ", videoQuality=" + mVideoQuality +
                 ", videoDirection=" + mVideoDirection +
-                ", rttMode=" + mRttMode + " }";
+                ", rttMode=" + mRttMode +
+                ", hasRttAudioSpeech=" + mIsReceivingRttAudio + " }";
     }
 
     @Override
@@ -207,6 +216,7 @@ public final class ImsStreamMediaProfile implements Parcelable {
         out.writeInt(mVideoQuality);
         out.writeInt(mVideoDirection);
         out.writeInt(mRttMode);
+        out.writeBoolean(mIsReceivingRttAudio);
     }
 
     private void readFromParcel(Parcel in) {
@@ -215,9 +225,10 @@ public final class ImsStreamMediaProfile implements Parcelable {
         mVideoQuality = in.readInt();
         mVideoDirection = in.readInt();
         mRttMode = in.readInt();
+        mIsReceivingRttAudio = in.readBoolean();
     }
 
-    public static final Creator<ImsStreamMediaProfile> CREATOR =
+    public static final @android.annotation.NonNull Creator<ImsStreamMediaProfile> CREATOR =
             new Creator<ImsStreamMediaProfile>() {
         @Override
         public ImsStreamMediaProfile createFromParcel(Parcel in) {
@@ -245,6 +256,14 @@ public final class ImsStreamMediaProfile implements Parcelable {
         mRttMode = rttMode;
     }
 
+    /**
+     * Sets whether the remote party is transmitting audio over the RTT call.
+     * @param audioOn true if audio is being received, false otherwise.
+     */
+    public void setReceivingRttAudio(boolean audioOn) {
+        mIsReceivingRttAudio = audioOn;
+    }
+
     public int getAudioQuality() {
         return mAudioQuality;
     }
@@ -263,5 +282,12 @@ public final class ImsStreamMediaProfile implements Parcelable {
 
     public int getRttMode() {
         return mRttMode;
+    }
+
+    /**
+     * @return true if remote party is transmitting audio, false otherwise.
+     */
+    public boolean isReceivingRttAudio() {
+        return mIsReceivingRttAudio;
     }
 }

@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.AsyncResult;
 import android.os.Handler;
@@ -58,15 +59,21 @@ public class UiccCardApplication {
     public static final int AUTH_CONTEXT_EAP_AKA = PhoneConstants.AUTH_CONTEXT_EAP_AKA;
     public static final int AUTH_CONTEXT_UNDEFINED = PhoneConstants.AUTH_CONTEXT_UNDEFINED;
 
+    @UnsupportedAppUsage
     private final Object  mLock = new Object();
     private UiccProfile   mUiccProfile; //parent
+    @UnsupportedAppUsage
     private AppState      mAppState;
+    @UnsupportedAppUsage
     private AppType       mAppType;
     private int           mAuthContext;
+    @UnsupportedAppUsage
     private PersoSubState mPersoSubState;
+    @UnsupportedAppUsage
     private String        mAid;
     private String        mAppLabel;
     private boolean       mPin1Replaced;
+    @UnsupportedAppUsage
     private PinState      mPin1State;
     private PinState      mPin2State;
     private boolean       mIccFdnEnabled;
@@ -78,11 +85,13 @@ public class UiccCardApplication {
     private boolean       mIgnoreApp;
     private boolean       mIccFdnAvailable = true; // Default is enabled.
 
+    @UnsupportedAppUsage
     private CommandsInterface mCi;
     private Context mContext;
     private IccRecords mIccRecords;
     private IccFileHandler mIccFh;
 
+    @UnsupportedAppUsage
     private boolean mDestroyed;//set to true once this App is commanded to be disposed of.
 
     private RegistrantList mReadyRegistrants = new RegistrantList();
@@ -118,6 +127,7 @@ public class UiccCardApplication {
         mCi.registerForNotAvailable(mHandler, EVENT_RADIO_UNAVAILABLE, null);
     }
 
+    @UnsupportedAppUsage
     public void update (IccCardApplicationStatus as, Context c, CommandsInterface ci) {
         synchronized (mLock) {
             if (mDestroyed) {
@@ -167,6 +177,7 @@ public class UiccCardApplication {
         }
     }
 
+    @UnsupportedAppUsage
     void dispose() {
         synchronized (mLock) {
             if (DBG) log(mAppType + " being Disposed");
@@ -293,10 +304,6 @@ public class UiccCardApplication {
 
                 mIccLockEnabled = (ints[0] != 0);
 
-                if (mIccLockEnabled) {
-                    mPinLockedRegistrants.notifyRegistrants();
-                }
-
                 // Sanity check: we expect mPin1State to match mIccLockEnabled.
                 // When mPin1State is DISABLED mIccLockEanbled should be false.
                 // When mPin1State is ENABLED mIccLockEnabled should be true.
@@ -418,6 +425,7 @@ public class UiccCardApplication {
         }
     };
 
+    @UnsupportedAppUsage
     public void registerForReady(Handler h, int what, Object obj) {
         synchronized (mLock) {
             Registrant r = new Registrant (h, what, obj);
@@ -426,6 +434,7 @@ public class UiccCardApplication {
         }
     }
 
+    @UnsupportedAppUsage
     public void unregisterForReady(Handler h) {
         synchronized (mLock) {
             mReadyRegistrants.remove(h);
@@ -543,18 +552,21 @@ public class UiccCardApplication {
         }
     }
 
+    @UnsupportedAppUsage
     public AppState getState() {
         synchronized (mLock) {
             return mAppState;
         }
     }
 
+    @UnsupportedAppUsage
     public AppType getType() {
         synchronized (mLock) {
             return mAppType;
         }
     }
 
+    @UnsupportedAppUsage
     public int getAuthContext() {
         synchronized (mLock) {
             return mAuthContext;
@@ -588,12 +600,14 @@ public class UiccCardApplication {
         return authContext;
     }
 
+    @UnsupportedAppUsage
     public PersoSubState getPersoSubState() {
         synchronized (mLock) {
             return mPersoSubState;
         }
     }
 
+    @UnsupportedAppUsage
     public String getAid() {
         synchronized (mLock) {
             return mAid;
@@ -604,6 +618,7 @@ public class UiccCardApplication {
         return mAppLabel;
     }
 
+    @UnsupportedAppUsage
     public PinState getPin1State() {
         synchronized (mLock) {
             if (mPin1Replaced) {
@@ -613,12 +628,14 @@ public class UiccCardApplication {
         }
     }
 
+    @UnsupportedAppUsage
     public IccFileHandler getIccFileHandler() {
         synchronized (mLock) {
             return mIccFh;
         }
     }
 
+    @UnsupportedAppUsage
     public IccRecords getIccRecords() {
         synchronized (mLock) {
             return mIccRecords;
@@ -874,6 +891,7 @@ public class UiccCardApplication {
         }
     }
 
+    @UnsupportedAppUsage
     public int getPhoneId() {
         return mUiccProfile.getPhoneId();
     }
@@ -890,10 +908,12 @@ public class UiccCardApplication {
         return mUiccProfile;
     }
 
+    @UnsupportedAppUsage
     private void log(String msg) {
         Rlog.d(LOG_TAG, msg);
     }
 
+    @UnsupportedAppUsage
     private void loge(String msg) {
         Rlog.e(LOG_TAG, msg);
     }

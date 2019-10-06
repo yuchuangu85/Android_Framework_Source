@@ -16,7 +16,10 @@
 
 package android.os;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.system.Os;
 import android.system.OsConstants;
 import android.webkit.WebViewZygote;
@@ -30,18 +33,12 @@ public class Process {
     private static final String LOG_TAG = "Process";
 
     /**
-     * @hide for internal use only.
+     * An invalid UID value.
      */
-    public static final String ZYGOTE_SOCKET = "zygote";
-
-    /**
-     * @hide for internal use only.
-     */
-    public static final String SECONDARY_ZYGOTE_SOCKET = "zygote_secondary";
+    public static final int INVALID_UID = -1;
 
     /**
      * Defines the root UID.
-     * @hide
      */
     public static final int ROOT_UID = 0;
 
@@ -57,7 +54,6 @@ public class Process {
 
     /**
      * Defines the UID/GID for the user shell.
-     * @hide
      */
     public static final int SHELL_UID = 2000;
 
@@ -65,30 +61,35 @@ public class Process {
      * Defines the UID/GID for the log group.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int LOG_UID = 1007;
 
     /**
      * Defines the UID/GID for the WIFI supplicant process.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int WIFI_UID = 1010;
 
     /**
      * Defines the UID/GID for the mediaserver process.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int MEDIA_UID = 1013;
 
     /**
      * Defines the UID/GID for the DRM process.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int DRM_UID = 1019;
 
     /**
      * Defines the UID/GID for the group that controls VPN services.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int VPN_UID = 1016;
 
     /**
@@ -101,11 +102,17 @@ public class Process {
      * Defines the UID/GID for the NFC service process.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int NFC_UID = 1027;
 
     /**
-     * Defines the UID/GID for the Bluetooth service process.
+     * Defines the UID/GID for the clatd process.
      * @hide
+     * */
+    public static final int CLAT_UID = 1029;
+
+    /**
+     * Defines the UID/GID for the Bluetooth service process.
      */
     public static final int BLUETOOTH_UID = 1002;
 
@@ -140,6 +147,12 @@ public class Process {
     public static final int CAMERASERVER_UID = 1047;
 
     /**
+     * Defines the UID/GID for the tethering DNS resolver (currently dnsmasq).
+     * @hide
+     */
+    public static final int DNS_TETHER_UID = 1052;
+
+    /**
      * Defines the UID/GID for the WebView zygote process.
      * @hide
      */
@@ -163,6 +176,12 @@ public class Process {
      */
     public static final int SE_UID = 1068;
 
+    /**
+     * Defines the UID/GID for the NetworkStack app.
+     * @hide
+     */
+    public static final int NETWORK_STACK_UID = 1073;
+
     /** {@hide} */
     public static final int NOBODY_UID = 9999;
 
@@ -180,15 +199,38 @@ public class Process {
     public static final int LAST_APPLICATION_UID = 19999;
 
     /**
+     * First uid used for fully isolated sandboxed processes spawned from an app zygote
+     * @hide
+     */
+    @TestApi
+    public static final int FIRST_APP_ZYGOTE_ISOLATED_UID = 90000;
+
+    /**
+     * Number of UIDs we allocate per application zygote
+     * @hide
+     */
+    @TestApi
+    public static final int NUM_UIDS_PER_APP_ZYGOTE = 100;
+
+    /**
+     * Last uid used for fully isolated sandboxed processes spawned from an app zygote
+     * @hide
+     */
+    @TestApi
+    public static final int LAST_APP_ZYGOTE_ISOLATED_UID = 98999;
+
+    /**
      * First uid used for fully isolated sandboxed processes (with no permissions of their own)
      * @hide
      */
+    @TestApi
     public static final int FIRST_ISOLATED_UID = 99000;
 
     /**
      * Last uid used for fully isolated sandboxed processes (with no permissions of their own)
      * @hide
      */
+    @TestApi
     public static final int LAST_ISOLATED_UID = 99999;
 
     /**
@@ -434,8 +476,7 @@ public class Process {
      * State associated with the zygote process.
      * @hide
      */
-    public static final ZygoteProcess zygoteProcess =
-            new ZygoteProcess(ZYGOTE_SOCKET, SECONDARY_ZYGOTE_SOCKET);
+    public static final ZygoteProcess ZYGOTE_PROCESS = new ZygoteProcess();
 
     /**
      * Start a new process.
@@ -469,46 +510,51 @@ public class Process {
      * @param instructionSet null-ok the instruction set to use.
      * @param appDataDir null-ok the data directory of the app.
      * @param invokeWith null-ok the command to invoke with.
+     * @param packageName null-ok the name of the package this process belongs to.
+     *
      * @param zygoteArgs Additional arguments to supply to the zygote process.
-     * 
      * @return An object that describes the result of the attempt to start the process.
      * @throws RuntimeException on fatal start failure
      * 
      * {@hide}
      */
-    public static final ProcessStartResult start(final String processClass,
-                                  final String niceName,
-                                  int uid, int gid, int[] gids,
-                                  int runtimeFlags, int mountExternal,
-                                  int targetSdkVersion,
-                                  String seInfo,
-                                  String abi,
-                                  String instructionSet,
-                                  String appDataDir,
-                                  String invokeWith,
-                                  String[] zygoteArgs) {
-            // 请求Zygote进程创建一个应用进程
-        return zygoteProcess.start(processClass, niceName, uid, gid, gids,
+    public static ProcessStartResult start(@NonNull final String processClass,
+                                           @Nullable final String niceName,
+                                           int uid, int gid, @Nullable int[] gids,
+                                           int runtimeFlags,
+                                           int mountExternal,
+                                           int targetSdkVersion,
+                                           @Nullable String seInfo,
+                                           @NonNull String abi,
+                                           @Nullable String instructionSet,
+                                           @Nullable String appDataDir,
+                                           @Nullable String invokeWith,
+                                           @Nullable String packageName,
+                                           @Nullable String[] zygoteArgs) {
+        return ZYGOTE_PROCESS.start(processClass, niceName, uid, gid, gids,
                     runtimeFlags, mountExternal, targetSdkVersion, seInfo,
-                    abi, instructionSet, appDataDir, invokeWith, zygoteArgs);
+                    abi, instructionSet, appDataDir, invokeWith, packageName,
+                    /*useUsapPool=*/ true, zygoteArgs);
     }
 
     /** @hide */
-    public static final ProcessStartResult startWebView(final String processClass,
-                                  final String niceName,
-                                  int uid, int gid, int[] gids,
-                                  int runtimeFlags, int mountExternal,
-                                  int targetSdkVersion,
-                                  String seInfo,
-                                  String abi,
-                                  String instructionSet,
-                                  String appDataDir,
-                                  String invokeWith,
-                                  String[] zygoteArgs) {
-            // 请求Zygote进程创建这个应用进程
+    public static ProcessStartResult startWebView(@NonNull final String processClass,
+                                                  @Nullable final String niceName,
+                                                  int uid, int gid, @Nullable int[] gids,
+                                                  int runtimeFlags,
+                                                  int mountExternal,
+                                                  int targetSdkVersion,
+                                                  @Nullable String seInfo,
+                                                  @NonNull String abi,
+                                                  @Nullable String instructionSet,
+                                                  @Nullable String appDataDir,
+                                                  @Nullable String invokeWith,
+                                                  @Nullable String packageName,
+                                                  @Nullable String[] zygoteArgs) {
         return WebViewZygote.getProcess().start(processClass, niceName, uid, gid, gids,
                     runtimeFlags, mountExternal, targetSdkVersion, seInfo,
-                    abi, instructionSet, appDataDir, invokeWith, zygoteArgs);
+                    abi, instructionSet, appDataDir, invokeWith, packageName,
+                    /*useUsapPool=*/ false, zygoteArgs);
     }
 
     /**
@@ -556,6 +602,7 @@ public class Process {
      * Returns the identifier of this process' parent.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int myPpid() {
         return Os.getppid();
     }
@@ -614,9 +661,11 @@ public class Process {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public static final boolean isIsolated(int uid) {
         uid = UserHandle.getAppId(uid);
-        return uid >= FIRST_ISOLATED_UID && uid <= LAST_ISOLATED_UID;
+        return (uid >= FIRST_ISOLATED_UID && uid <= LAST_ISOLATED_UID)
+                || (uid >= FIRST_APP_ZYGOTE_ISOLATED_UID && uid <= LAST_APP_ZYGOTE_ISOLATED_UID);
     }
 
     /**
@@ -639,6 +688,7 @@ public class Process {
      * @return the uid of the process, or -1 if the process is not running.
      * @hide pending API council review
      */
+    @UnsupportedAppUsage
     public static final int getUidForPid(int pid) {
         String[] procStatusLabels = { "Uid:" };
         long[] procStatusValues = new long[1];
@@ -653,6 +703,7 @@ public class Process {
      * @return the parent process id of the process, or -1 if the process is not running.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int getParentPid(int pid) {
         String[] procStatusLabels = { "PPid:" };
         long[] procStatusValues = new long[1];
@@ -756,6 +807,7 @@ public class Process {
      *
      * Always sets cpusets.
      */
+    @UnsupportedAppUsage
     public static final native void setProcessGroup(int pid, int group)
             throws IllegalArgumentException, SecurityException;
 
@@ -897,6 +949,7 @@ public class Process {
      * 
      * {@hide}
      */
+    @UnsupportedAppUsage
     public static final native void setArgV0(String text);
 
     /**
@@ -947,50 +1000,97 @@ public class Process {
     public static final native void sendSignalQuiet(int pid, int signal);
     
     /** @hide */
+    @UnsupportedAppUsage
     public static final native long getFreeMemory();
     
     /** @hide */
+    @UnsupportedAppUsage
     public static final native long getTotalMemory();
     
     /** @hide */
+    @UnsupportedAppUsage
     public static final native void readProcLines(String path,
             String[] reqFields, long[] outSizes);
     
     /** @hide */
+    @UnsupportedAppUsage
     public static final native int[] getPids(String path, int[] lastArray);
     
     /** @hide */
+    @UnsupportedAppUsage
     public static final int PROC_TERM_MASK = 0xff;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int PROC_ZERO_TERM = 0;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int PROC_SPACE_TERM = (int)' ';
     /** @hide */
+    @UnsupportedAppUsage
     public static final int PROC_TAB_TERM = (int)'\t';
     /** @hide */
+    public static final int PROC_NEWLINE_TERM = (int) '\n';
+    /** @hide */
+    @UnsupportedAppUsage
     public static final int PROC_COMBINE = 0x100;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int PROC_PARENS = 0x200;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int PROC_QUOTES = 0x400;
     /** @hide */
     public static final int PROC_CHAR = 0x800;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int PROC_OUT_STRING = 0x1000;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int PROC_OUT_LONG = 0x2000;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int PROC_OUT_FLOAT = 0x4000;
-    
-    /** @hide */
+
+    /**
+     * Read and parse a {@code proc} file in the given format.
+     *
+     * <p>The format is a list of integers, where every integer describes a variable in the file. It
+     * specifies how the variable is syntactically terminated (e.g. {@link Process#PROC_SPACE_TERM},
+     * {@link Process#PROC_TAB_TERM}, {@link Process#PROC_ZERO_TERM}, {@link
+     * Process#PROC_NEWLINE_TERM}).
+     *
+     * <p>If the variable should be parsed and returned to the caller, the termination type should
+     * be binary OR'd with the type of output (e.g. {@link Process#PROC_OUT_STRING}, {@link
+     * Process#PROC_OUT_LONG}, {@link Process#PROC_OUT_FLOAT}.
+     *
+     * <p>If the variable is wrapped in quotation marks it should be binary OR'd with {@link
+     * Process#PROC_QUOTES}. If the variable is wrapped in parentheses it should be binary OR'd with
+     * {@link Process#PROC_PARENS}.
+     *
+     * <p>If the variable is not formatted as a string and should be cast directly from characters
+     * to a long, the {@link Process#PROC_CHAR} integer should be binary OR'd.
+     *
+     * <p>If the terminating character can be repeated, the {@link Process#PROC_COMBINE} integer
+     * should be binary OR'd.
+     *
+     * @param file the path of the {@code proc} file to read
+     * @param format the format of the file
+     * @param outStrings the parsed {@code String}s from the file
+     * @param outLongs the parsed {@code long}s from the file
+     * @param outFloats the parsed {@code float}s from the file
+     * @hide
+     */
+    @UnsupportedAppUsage
     public static final native boolean readProcFile(String file, int[] format,
             String[] outStrings, long[] outLongs, float[] outFloats);
-    
+
     /** @hide */
+    @UnsupportedAppUsage
     public static final native boolean parseProcLine(byte[] buffer, int startIndex, 
             int endIndex, int[] format, String[] outStrings, long[] outLongs, float[] outFloats);
 
     /** @hide */
+    @UnsupportedAppUsage
     public static final native int[] getPidsForCommands(String[] cmds);
 
     /**
@@ -1001,7 +1101,11 @@ public class Process {
      *  or -1 if the value cannot be determined 
      * @hide
      */
+    @UnsupportedAppUsage
     public static final native long getPss(int pid);
+
+    /** @hide */
+    public static final native long[] getRss(int pid);
 
     /**
      * Specifies the outcome of having started a process.

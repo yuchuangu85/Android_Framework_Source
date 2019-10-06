@@ -202,7 +202,7 @@ import dalvik.system.VMStack;
  * @see java.io.DataInput
  * @see java.io.ObjectOutputStream
  * @see java.io.Serializable
- * @see <a href="{@docRoot}openjdk-redirect.html?v=8&path=/platform/serialization/spec/input.html"> Object Serialization Specification, Section 3, Object Input Classes</a>
+ * @see <a href="https://docs.oracle.com/javase/8/docs/platform/serialization/spec/input.html"> Object Serialization Specification, Section 3, Object Input Classes</a>
  * @since   JDK1.1
  */
 public class ObjectInputStream
@@ -239,12 +239,54 @@ public class ObjectInputStream
             new ReferenceQueue<>();
     }
 
+    // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+    /*
+    static {
+        /* Setup access so sun.misc can invoke package private functions. *
+        sun.misc.SharedSecrets.setJavaOISAccess(new JavaOISAccess() {
+            public void setObjectInputFilter(ObjectInputStream stream, ObjectInputFilter filter) {
+                stream.setInternalObjectInputFilter(filter);
+            }
+
+            public ObjectInputFilter getObjectInputFilter(ObjectInputStream stream) {
+                return stream.getInternalObjectInputFilter();
+            }
+        });
+    }
+
+    /*
+     * Separate class to defer initialization of logging until needed.
+     *
+    private static class Logging {
+
+        /*
+         * Logger for ObjectInputFilter results.
+         * Setup the filter logger if it is set to INFO or WARNING.
+         * (Assuming it will not change).
+         *
+        private static final PlatformLogger traceLogger;
+        private static final PlatformLogger infoLogger;
+        static {
+            PlatformLogger filterLog = PlatformLogger.getLogger("java.io.serialization");
+            infoLogger = (filterLog != null &&
+                filterLog.isLoggable(PlatformLogger.Level.INFO)) ? filterLog : null;
+            traceLogger = (filterLog != null &&
+                filterLog.isLoggable(PlatformLogger.Level.FINER)) ? filterLog : null;
+        }
+    }
+    */
+
     /** filter stream for handling block data conversion */
     private final BlockDataInputStream bin;
     /** validation callback list */
     private final ValidationList vlist;
     /** recursion depth */
+    // Android-changed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+    // private long depth;
     private int depth;
+    // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+    // /** Total number of references to any type of object, class, enum, proxy, etc. */
+    // private long totalObjectRefs;
     /** whether stream is closed */
     private boolean closed;
 
@@ -269,6 +311,14 @@ public class ObjectInputStream
      * Null when not during readObject upcall.
      */
     private SerialCallbackContext curContext;
+
+    // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+    /**
+     * Filter of class descriptors and classes read from the stream;
+     * may be null.
+     *
+    private ObjectInputFilter serialFilter;
+    */
 
     /**
      * Creates an ObjectInputStream that reads from the specified InputStream.
@@ -297,6 +347,8 @@ public class ObjectInputStream
         bin = new BlockDataInputStream(in);
         handles = new HandleTable(10);
         vlist = new ValidationList();
+        // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+        // serialFilter = ObjectInputFilter.Config.getSerialFilter();
         enableOverride = false;
         readStreamHeader();
         bin.setBlockDataMode(true);
@@ -327,6 +379,8 @@ public class ObjectInputStream
         bin = null;
         handles = null;
         vlist = null;
+        // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+        // serialFilter = ObjectInputFilter.Config.getSerialFilter();
         enableOverride = true;
     }
 
@@ -334,7 +388,7 @@ public class ObjectInputStream
      * Read an object from the ObjectInputStream.  The class of the object, the
      * signature of the class, and the values of the non-transient and
      * non-static fields of the class and all of its supertypes are read.
-     * Default deserializing for a class can be overriden using the writeObject
+     * Default deserializing for a class can be overridden using the writeObject
      * and readObject methods.  Objects referenced by this object are read
      * transitively so that a complete equivalent graph of objects is
      * reconstructed by readObject.
@@ -1075,6 +1129,9 @@ public class ObjectInputStream
         return bin.readUTF();
     }
 
+    // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+    // Removed ObjectInputFilter related methods.
+
     /**
      * Provide access to the persistent fields read from the input stream.
      */
@@ -1324,6 +1381,8 @@ public class ObjectInputStream
         }
 
         depth++;
+        // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+        // totalObjectRefs++;
         try {
             switch (tc) {
                 case TC_NULL:
@@ -1400,6 +1459,18 @@ public class ObjectInputStream
         }
         Object rep = resolveObject(obj);
         if (rep != obj) {
+            // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+            /*
+            // The type of the original object has been filtered but resolveObject
+            // may have replaced it;  filter the replacement's type
+            if (rep != null) {
+                if (rep.getClass().isArray()) {
+                    filterCheck(rep.getClass(), Array.getLength(rep));
+                } else {
+                    filterCheck(rep.getClass(), -1);
+                }
+            }
+            */
             handles.setObject(passHandle, rep);
         }
         return rep;
@@ -1470,6 +1541,8 @@ public class ObjectInputStream
             throw new InvalidObjectException(
                 "cannot read back reference to unshared object");
         }
+        // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+        // filterCheck(null, -1);       // just a check for number of references, depth, no class
         return obj;
     }
 
@@ -1506,23 +1579,29 @@ public class ObjectInputStream
         throws IOException
     {
         byte tc = bin.peekByte();
+        ObjectStreamClass descriptor;
         switch (tc) {
             case TC_NULL:
-                return (ObjectStreamClass) readNull();
-
+                descriptor = (ObjectStreamClass) readNull();
+                break;
             case TC_REFERENCE:
-                return (ObjectStreamClass) readHandle(unshared);
-
+                descriptor = (ObjectStreamClass) readHandle(unshared);
+                break;
             case TC_PROXYCLASSDESC:
-                return readProxyDesc(unshared);
-
+                descriptor = readProxyDesc(unshared);
+                break;
             case TC_CLASSDESC:
-                return readNonProxyDesc(unshared);
-
+                descriptor = readNonProxyDesc(unshared);
+                break;
             default:
                 throw new StreamCorruptedException(
                     String.format("invalid type code: %02X", tc));
         }
+        // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+        // if (descriptor != null) {
+        //     validateDescriptor(descriptor);
+        // }
+        return descriptor;
     }
 
     private boolean isCustomSubclass() {
@@ -1569,6 +1648,11 @@ public class ObjectInputStream
                 ReflectUtil.checkProxyPackageAccess(
                         getClass().getClassLoader(),
                         cl.getInterfaces());
+                // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+                // // Filter the interfaces
+                // for (Class<?> clazz : cl.getInterfaces()) {
+                //     filterCheck(clazz, -1);
+                // }
             }
         } catch (ClassNotFoundException ex) {
             resolveEx = ex;
@@ -1576,6 +1660,10 @@ public class ObjectInputStream
         skipCustomData();
 
         desc.initProxy(cl, resolveEx, readClassDesc(false));
+
+        // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+        // // Call filterCheck on the definition
+        // filterCheck(desc.forClass(), -1);
 
         handles.finish(descHandle);
         passHandle = descHandle;
@@ -1624,8 +1712,13 @@ public class ObjectInputStream
 
         desc.initNonProxy(readDesc, cl, resolveEx, readClassDesc(false));
 
+        // Android-removed: ObjectInputFilter unsupported - removed filterCheck() call.
+        // // Call filterCheck on the definition
+        // filterCheck(desc.forClass(), -1);
+
         handles.finish(descHandle);
         passHandle = descHandle;
+
         return desc;
     }
 
@@ -1665,6 +1758,9 @@ public class ObjectInputStream
 
         ObjectStreamClass desc = readClassDesc(false);
         int len = bin.readInt();
+
+        // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+        // filterCheck(desc.forClass(), len);
 
         Object array = null;
         Class<?> cl, ccl = null;
@@ -1814,6 +1910,17 @@ public class ObjectInputStream
                 rep = cloneArray(rep);
             }
             if (rep != obj) {
+                // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+                /*
+                // Filter the replacement object
+                if (rep != null) {
+                    if (rep.getClass().isArray()) {
+                        filterCheck(rep.getClass(), Array.getLength(rep));
+                    } else {
+                        filterCheck(rep.getClass(), -1);
+                    }
+                }
+                */
                 handles.setObject(passHandle, obj = rep);
             }
         }
@@ -1892,6 +1999,10 @@ public class ObjectInputStream
                 if (obj == null || handles.lookupException(passHandle) != null) {
                     defaultReadFields(null, slotDesc); // skip field values
                 } else if (slotDesc.hasReadObjectMethod()) {
+                    // BEGIN Android-changed: ThreadDeath cannot cause corruption on Android.
+                    // Android does not support Thread.stop() or Thread.stop(Throwable) so this
+                    // does not need to protect against state corruption that can occur when a
+                    // ThreadDeath Error is thrown in the middle of the finally block.
                     SerialCallbackContext oldContext = curContext;
                     if (oldContext != null)
                         oldContext.check();
@@ -1914,6 +2025,7 @@ public class ObjectInputStream
                         if (oldContext!= null)
                             oldContext.check();
                         curContext = oldContext;
+                        // END Android-changed: ThreadDeath cannot cause corruption on Android.
                     }
 
                     /*
@@ -1924,7 +2036,7 @@ public class ObjectInputStream
                     defaultDataEnd = false;
                 } else {
                     defaultReadFields(obj, slotDesc);
-                }
+                    }
 
                 if (slotDesc.hasWriteObjectData()) {
                     skipCustomData();
@@ -1940,7 +2052,7 @@ public class ObjectInputStream
                 }
             }
         }
-    }
+            }
 
     /**
      * Skips over all block data and objects until TC_ENDBLOCKDATA is
@@ -1988,7 +2100,7 @@ public class ObjectInputStream
         if (primVals == null || primVals.length < primDataSize) {
             primVals = new byte[primDataSize];
         }
-        bin.readFully(primVals, 0, primDataSize, false);
+            bin.readFully(primVals, 0, primDataSize, false);
         if (obj != null) {
             desc.setPrimFieldValues(obj, primVals);
         }
@@ -2287,6 +2399,9 @@ public class ObjectInputStream
         }
     }
 
+    // Android-removed: ObjectInputFilter logic, to be reconsidered. http://b/110252929
+    // Removed FilterValues class.
+
     /**
      * Input stream supporting single-byte peek operations.
      */
@@ -2296,6 +2411,8 @@ public class ObjectInputStream
         private final InputStream in;
         /** peeked byte */
         private int peekb = -1;
+        /** total bytes read from the stream */
+        private long totalBytesRead = 0;
 
         /**
          * Creates new PeekInputStream on top of given underlying stream.
@@ -2309,7 +2426,12 @@ public class ObjectInputStream
          * that it does not consume the read value.
          */
         int peek() throws IOException {
-            return (peekb >= 0) ? peekb : (peekb = in.read());
+            if (peekb >= 0) {
+                return peekb;
+            }
+            peekb = in.read();
+            totalBytesRead += peekb >= 0 ? 1 : 0;
+            return peekb;
         }
 
         public int read() throws IOException {
@@ -2318,21 +2440,27 @@ public class ObjectInputStream
                 peekb = -1;
                 return v;
             } else {
-                return in.read();
+                int nbytes = in.read();
+                totalBytesRead += nbytes >= 0 ? 1 : 0;
+                return nbytes;
             }
         }
 
         public int read(byte[] b, int off, int len) throws IOException {
+            int nbytes;
             if (len == 0) {
                 return 0;
             } else if (peekb < 0) {
-                return in.read(b, off, len);
+                nbytes = in.read(b, off, len);
+                totalBytesRead += nbytes >= 0 ? nbytes : 0;
+                return nbytes;
             } else {
                 b[off++] = (byte) peekb;
                 len--;
                 peekb = -1;
-                int n = in.read(b, off, len);
-                return (n >= 0) ? (n + 1) : 1;
+                nbytes = in.read(b, off, len);
+                totalBytesRead += nbytes >= 0 ? nbytes : 0;
+                return (nbytes >= 0) ? (nbytes + 1) : 1;
             }
         }
 
@@ -2357,7 +2485,9 @@ public class ObjectInputStream
                 skipped++;
                 n--;
             }
-            return skipped + skip(n);
+            n = skipped + in.skip(n);
+            totalBytesRead += n;
+            return n;
         }
 
         public int available() throws IOException {
@@ -2366,6 +2496,10 @@ public class ObjectInputStream
 
         public void close() throws IOException {
             in.close();
+        }
+
+        public long getBytesRead() {
+            return totalBytesRead;
         }
     }
 
@@ -3222,6 +3356,14 @@ public class ObjectInputStream
                     throw new UTFDataFormatException();
             }
         }
+
+        /**
+         * Returns the number of bytes read from the input stream.
+         * @return the number of bytes read from the input stream
+         */
+        long getBytesRead() {
+            return in.getBytesRead();
+        }
     }
 
     /**
@@ -3552,4 +3694,23 @@ public class ObjectInputStream
         }
     }
 
+    // Android-removed: Logic related to ObjectStreamClassValidator, unused on Android
+    /*
+    private void validateDescriptor(ObjectStreamClass descriptor) {
+        ObjectStreamClassValidator validating = validator;
+        if (validating != null) {
+            validating.validateDescriptor(descriptor);
+        }
+    }
+
+    // controlled access to ObjectStreamClassValidator
+    private volatile ObjectStreamClassValidator validator;
+
+    private static void setValidator(ObjectInputStream ois, ObjectStreamClassValidator validator) {
+        ois.validator = validator;
+    }
+    static {
+        SharedSecrets.setJavaObjectInputStreamAccess(ObjectInputStream::setValidator);
+    }
+    */
 }

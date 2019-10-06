@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.app.AppGlobals;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -30,6 +31,7 @@ import android.os.UserHandle;
 import android.provider.Settings;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.Rlog;
+import android.telephony.SmsManager;
 import android.util.AtomicFile;
 import android.util.Xml;
 
@@ -74,21 +76,6 @@ public class SmsUsageMonitor {
 
     /** Default number of SMS sent in checking period without user permission. */
     private static final int DEFAULT_SMS_MAX_COUNT = 30;
-
-    /** Return value from {@link #checkDestination} for regular phone numbers. */
-    static final int CATEGORY_NOT_SHORT_CODE = 0;
-
-    /** Return value from {@link #checkDestination} for free (no cost) short codes. */
-    static final int CATEGORY_FREE_SHORT_CODE = 1;
-
-    /** Return value from {@link #checkDestination} for standard rate (non-premium) short codes. */
-    static final int CATEGORY_STANDARD_SHORT_CODE = 2;
-
-    /** Return value from {@link #checkDestination} for possible premium short codes. */
-    public static final int CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE = 3;
-
-    /** Return value from {@link #checkDestination} for premium short codes. */
-    static final int CATEGORY_PREMIUM_SHORT_CODE = 4;
 
     /** @hide */
     public static int mergeShortCodeCategories(int type1, int type2) {
@@ -203,20 +190,20 @@ public class SmsUsageMonitor {
         int getNumberCategory(String phoneNumber) {
             if (mFreeShortCodePattern != null && mFreeShortCodePattern.matcher(phoneNumber)
                     .matches()) {
-                return CATEGORY_FREE_SHORT_CODE;
+                return SmsManager.SMS_CATEGORY_FREE_SHORT_CODE;
             }
             if (mStandardShortCodePattern != null && mStandardShortCodePattern.matcher(phoneNumber)
                     .matches()) {
-                return CATEGORY_STANDARD_SHORT_CODE;
+                return SmsManager.SMS_CATEGORY_STANDARD_SHORT_CODE;
             }
             if (mPremiumShortCodePattern != null && mPremiumShortCodePattern.matcher(phoneNumber)
                     .matches()) {
-                return CATEGORY_PREMIUM_SHORT_CODE;
+                return SmsManager.SMS_CATEGORY_PREMIUM_SHORT_CODE;
             }
             if (mShortCodePattern != null && mShortCodePattern.matcher(phoneNumber).matches()) {
-                return CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE;
+                return SmsManager.SMS_CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE;
             }
-            return CATEGORY_NOT_SHORT_CODE;
+            return SmsManager.SMS_CATEGORY_NOT_SHORT_CODE;
         }
     }
 
@@ -254,6 +241,7 @@ public class SmsUsageMonitor {
      * Create SMS usage monitor.
      * @param context the context to use to load resources and get TelephonyManager service
      */
+    @UnsupportedAppUsage
     public SmsUsageMonitor(Context context) {
         mContext = context;
         ContentResolver resolver = context.getContentResolver();
@@ -361,6 +349,7 @@ public class SmsUsageMonitor {
      * @return true if application is allowed to send the requested number
      *  of new sms messages
      */
+    @UnsupportedAppUsage
     public boolean check(String appName, int smsWaiting) {
         synchronized (mSmsStamp) {
             removeExpiredTimestamps();
@@ -386,20 +375,23 @@ public class SmsUsageMonitor {
      * destination phone number.
      *
      * @param destAddress the destination address to test for possible short code
-     * @return {@link #CATEGORY_NOT_SHORT_CODE}, {@link #CATEGORY_FREE_SHORT_CODE},
-     *  {@link #CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE}, or {@link #CATEGORY_PREMIUM_SHORT_CODE}.
+     * @return {@link SmsManager#SMS_CATEGORY_FREE_SHORT_CODE},
+     * {@link SmsManager#SMS_CATEGORY_NOT_SHORT_CODE},
+     *  {@link SmsManager#SMS_CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE},
+     *  {@link SmsManager#SMS_CATEGORY_STANDARD_SHORT_CODE}, or
+     *  {@link SmsManager#SMS_CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE}
      */
     public int checkDestination(String destAddress, String countryIso) {
         synchronized (mSettingsObserverHandler) {
             // always allow emergency numbers
             if (PhoneNumberUtils.isEmergencyNumber(destAddress, countryIso)) {
                 if (DBG) Rlog.d(TAG, "isEmergencyNumber");
-                return CATEGORY_NOT_SHORT_CODE;
+                return SmsManager.SMS_CATEGORY_NOT_SHORT_CODE;
             }
             // always allow if the feature is disabled
             if (!mCheckEnabled.get()) {
                 if (DBG) Rlog.e(TAG, "check disabled");
-                return CATEGORY_NOT_SHORT_CODE;
+                return SmsManager.SMS_CATEGORY_NOT_SHORT_CODE;
             }
 
             if (countryIso != null) {
@@ -422,9 +414,9 @@ public class SmsUsageMonitor {
                 // Generic rule: numbers of 5 digits or less are considered potential short codes
                 Rlog.e(TAG, "No patterns for \"" + countryIso + "\": using generic short code rule");
                 if (destAddress.length() <= 5) {
-                    return CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE;
+                    return SmsManager.SMS_CATEGORY_POSSIBLE_PREMIUM_SHORT_CODE;
                 } else {
-                    return CATEGORY_NOT_SHORT_CODE;
+                    return SmsManager.SMS_CATEGORY_NOT_SHORT_CODE;
                 }
             }
         }

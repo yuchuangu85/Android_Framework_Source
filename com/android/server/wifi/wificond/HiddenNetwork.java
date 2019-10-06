@@ -19,7 +19,7 @@ package com.android.server.wifi.wificond;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import java.util.Objects;
+import java.util.Arrays;
 
 /**
  * HiddenNetwork for wificond
@@ -42,13 +42,13 @@ public class HiddenNetwork implements Parcelable {
             return false;
         }
         HiddenNetwork network = (HiddenNetwork) rhs;
-        return java.util.Arrays.equals(ssid, network.ssid);
+        return Arrays.equals(ssid, network.ssid);
     }
 
     /** override hash code */
     @Override
     public int hashCode() {
-        return Objects.hash(ssid);
+        return Arrays.hashCode(ssid);
     }
 
     /** implement Parcelable interface */

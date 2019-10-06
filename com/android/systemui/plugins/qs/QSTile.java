@@ -43,7 +43,7 @@ public interface QSTile {
     boolean isAvailable();
     void setTileSpec(String tileSpec);
 
-    void clearState();
+    @Deprecated default void clearState() {}
     void refreshState();
 
     void addCallback(Callback callback);
@@ -116,6 +116,8 @@ public interface QSTile {
         public boolean isTransient = false;
         public String expandedAccessibilityClassName;
         public SlashState slash;
+        public boolean handlesLongClick = true;
+        public boolean showRippleEffect = true;
 
         public boolean copyTo(State other) {
             if (other == null) throw new IllegalArgumentException();
@@ -133,7 +135,9 @@ public interface QSTile {
                     || !Objects.equals(other.state, state)
                     || !Objects.equals(other.isTransient, isTransient)
                     || !Objects.equals(other.dualTarget, dualTarget)
-                    || !Objects.equals(other.slash, slash);
+                    || !Objects.equals(other.slash, slash)
+                    || !Objects.equals(other.handlesLongClick, handlesLongClick)
+                    || !Objects.equals(other.showRippleEffect, showRippleEffect);
             other.icon = icon;
             other.iconSupplier = iconSupplier;
             other.label = label;
@@ -146,6 +150,8 @@ public interface QSTile {
             other.dualTarget = dualTarget;
             other.isTransient = isTransient;
             other.slash = slash != null ? slash.copy() : null;
+            other.handlesLongClick = handlesLongClick;
+            other.showRippleEffect = showRippleEffect;
             return changed;
         }
 
@@ -239,27 +245,6 @@ public interface QSTile {
         @Override
         public State copy() {
             SignalState state = new SignalState();
-            copyTo(state);
-            return state;
-        }
-    }
-
-
-    @ProvidesInterface(version = AirplaneBooleanState.VERSION)
-    public static class AirplaneBooleanState extends BooleanState {
-        public static final int VERSION = 1;
-        public boolean isAirplaneMode;
-
-        @Override
-        public boolean copyTo(State other) {
-            final AirplaneBooleanState o = (AirplaneBooleanState) other;
-            final boolean changed = super.copyTo(other) || o.isAirplaneMode != isAirplaneMode;
-            o.isAirplaneMode = isAirplaneMode;
-            return changed;
-        }
-
-        public State copy() {
-            AirplaneBooleanState state = new AirplaneBooleanState();
             copyTo(state);
             return state;
         }

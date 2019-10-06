@@ -19,6 +19,7 @@ package android.widget;
 import static android.widget.SuggestionsAdapter.getColumnString;
 
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.app.PendingIntent;
 import android.app.SearchManager;
 import android.app.SearchableInfo;
@@ -35,6 +36,7 @@ import android.database.Cursor;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -60,6 +62,7 @@ import android.view.ViewConfiguration;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
+import android.view.inspector.InspectableProperty;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.AdapterView.OnItemSelectedListener;
 import android.widget.TextView.OnEditorActionListener;
@@ -105,13 +108,20 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
      */
     private static final String IME_OPTION_NO_MICROPHONE = "nm";
 
+    @UnsupportedAppUsage
     private final SearchAutoComplete mSearchSrcTextView;
+    @UnsupportedAppUsage
     private final View mSearchEditFrame;
+    @UnsupportedAppUsage
     private final View mSearchPlate;
+    @UnsupportedAppUsage
     private final View mSubmitArea;
+    @UnsupportedAppUsage
     private final ImageView mSearchButton;
     private final ImageView mGoButton;
+    @UnsupportedAppUsage
     private final ImageView mCloseButton;
+    @UnsupportedAppUsage
     private final ImageView mVoiceButton;
     private final View mDropDownAnchor;
 
@@ -125,6 +135,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
     private final ImageView mCollapsedIcon;
 
     /** Drawable used as an EditText hint. */
+    @UnsupportedAppUsage
     private final Drawable mSearchHintIcon;
 
     // Resources used by SuggestionsAdapter to display suggestions.
@@ -137,24 +148,33 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
 
     private final CharSequence mDefaultQueryHint;
 
+    @UnsupportedAppUsage
     private OnQueryTextListener mOnQueryChangeListener;
     private OnCloseListener mOnCloseListener;
     private OnFocusChangeListener mOnQueryTextFocusChangeListener;
     private OnSuggestionListener mOnSuggestionListener;
     private OnClickListener mOnSearchClickListener;
 
+    @UnsupportedAppUsage
     private boolean mIconifiedByDefault;
+    @UnsupportedAppUsage
     private boolean mIconified;
+    @UnsupportedAppUsage
     private CursorAdapter mSuggestionsAdapter;
     private boolean mSubmitButtonEnabled;
     private CharSequence mQueryHint;
     private boolean mQueryRefinement;
+    @UnsupportedAppUsage
     private boolean mClearingFocus;
     private int mMaxWidth;
+    @UnsupportedAppUsage
     private boolean mVoiceButtonEnabled;
     private CharSequence mOldQueryText;
+    @UnsupportedAppUsage
     private CharSequence mUserQuery;
+    @UnsupportedAppUsage
     private boolean mExpandedInActionView;
+    @UnsupportedAppUsage
     private int mCollapsedImeOptions;
 
     private SearchableInfo mSearchable;
@@ -263,6 +283,8 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, R.styleable.SearchView, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.SearchView,
+                attrs, a, defStyleAttr, defStyleRes);
         final LayoutInflater inflater = (LayoutInflater) context.getSystemService(
                 Context.LAYOUT_INFLATER_SERVICE);
         final int layoutResId = a.getResourceId(
@@ -544,6 +566,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
      *
      * @return the query string
      */
+    @InspectableProperty(hasAttributeId = false)
     public CharSequence getQuery() {
         return mSearchSrcTextView.getText();
     }
@@ -601,6 +624,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
      * @return the displayed query hint text, or {@code null} if none set
      * @attr ref android.R.styleable#SearchView_queryHint
      */
+    @InspectableProperty
     @Nullable
     public CharSequence getQueryHint() {
         final CharSequence hint;
@@ -637,9 +661,21 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
      * Returns the default iconified state of the search field.
      * @return
      *
+     * @deprecated use {@link #isIconifiedByDefault()}
      * @attr ref android.R.styleable#SearchView_iconifiedByDefault
      */
+    @Deprecated
     public boolean isIconfiedByDefault() {
+        return mIconifiedByDefault;
+    }
+
+    /**
+     * Returns the default iconified state of the search field.
+     *
+     * @attr ref android.R.styleable#SearchView_iconifiedByDefault
+     */
+    @InspectableProperty
+    public boolean isIconifiedByDefault() {
         return mIconifiedByDefault;
     }
 
@@ -667,6 +703,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
      * @return true if the SearchView is currently iconified, false if the search field is
      * fully visible.
      */
+    @InspectableProperty(hasAttributeId = false)
     public boolean isIconified() {
         return mIconified;
     }
@@ -761,6 +798,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
      *
      * @attr ref android.R.styleable#SearchView_maxWidth
      */
+    @InspectableProperty
     public int getMaxWidth() {
         return mMaxWidth;
     }
@@ -853,6 +891,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
                 .getDimensionPixelSize(R.dimen.search_view_preferred_height);
     }
 
+    @UnsupportedAppUsage
     private void updateViewsVisibility(final boolean collapsed) {
         mIconified = collapsed;
         // Visibility of views that are visible when collapsed
@@ -898,6 +937,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
         return (mSubmitButtonEnabled || mVoiceButtonEnabled) && !isIconified();
     }
 
+    @UnsupportedAppUsage
     private void updateSubmitButton(boolean hasText) {
         int visibility = GONE;
         if (mSubmitButtonEnabled && isSubmitAreaEnabled() && hasFocus()
@@ -907,6 +947,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
         mGoButton.setVisibility(visibility);
     }
 
+    @UnsupportedAppUsage
     private void updateSubmitArea() {
         int visibility = GONE;
         if (isSubmitAreaEnabled()
@@ -962,6 +1003,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
         setQuery(queryText);
     }
 
+    @UnsupportedAppUsage
     private final OnClickListener mOnClickListener = new OnClickListener() {
 
         public void onClick(View v) {
@@ -1270,6 +1312,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
         mSearchSrcTextView.dismissDropDown();
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private void onCloseClicked() {
         CharSequence text = mSearchSrcTextView.getText();
         if (TextUtils.isEmpty(text)) {
@@ -1390,7 +1433,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
                     + " isIconified=" + isIconified + "}";
         }
 
-        public static final Parcelable.Creator<SavedState> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<SavedState> CREATOR =
                 new Parcelable.Creator<SavedState>() {
                     public SavedState createFromParcel(Parcel in) {
                         return new SavedState(in);
@@ -1467,6 +1510,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
         return false;
     }
 
+    @UnsupportedAppUsage
     private final OnItemClickListener mOnItemClickListener = new OnItemClickListener() {
 
         /**
@@ -1566,6 +1610,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
     /**
      * Sets the text in the query box, without updating the suggestions.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private void setQuery(CharSequence query) {
         mSearchSrcTextView.setText(query, true);
         // Move the cursor to the end
@@ -1892,6 +1937,7 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
             mThreshold = getThreshold();
         }
 
+        @UnsupportedAppUsage
         public SearchAutoComplete(Context context, AttributeSet attrs) {
             super(context, attrs);
             mThreshold = getThreshold();
@@ -2030,6 +2076,11 @@ public class SearchView extends LinearLayout implements CollapsibleActionView {
                 post(mRunShowSoftInputIfNecessary);
             }
             return ic;
+        }
+
+        @Override
+        public boolean checkInputConnectionProxy(View view) {
+            return view == mSearchView;
         }
 
         private void showSoftInputIfNecessary() {

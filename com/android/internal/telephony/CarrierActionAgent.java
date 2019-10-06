@@ -118,6 +118,10 @@ public class CarrierActionAgent extends Handler {
                 log("SET_METERED_APNS_ENABLED: " + mCarrierActionOnMeteredApnEnabled);
                 mMeteredApnEnabledLog.log("SET_METERED_APNS_ENABLED: "
                         + mCarrierActionOnMeteredApnEnabled);
+                int otaspState = (mCarrierActionOnMeteredApnEnabled)
+                        ? mPhone.getServiceStateTracker().getOtasp()
+                        : TelephonyManager.OTASP_SIM_UNPROVISIONED;
+                mPhone.notifyOtaspChanged(otaspState);
                 mMeteredApnEnableRegistrants.notifyRegistrants(
                         new AsyncResult(null, mCarrierActionOnMeteredApnEnabled, null));
                 break;
@@ -217,7 +221,7 @@ public class CarrierActionAgent extends Handler {
         sendMessage(obtainMessage(CARRIER_ACTION_REPORT_DEFAULT_NETWORK_STATUS, report));
     }
 
-    private void carrierActionReset() {
+    public void carrierActionReset() {
         carrierActionReportDefaultNetworkStatus(false);
         carrierActionSetMeteredApnsEnabled(true);
         carrierActionSetRadioEnabled(true);

@@ -87,15 +87,13 @@ public class WifiP2pMonitor {
         mWifiInjector = wifiInjector;
     }
 
-    void enableVerboseLogging(int verbose) {
-        if (verbose > 0) {
-            mVerboseLoggingEnabled = true;
-        } else {
-            mVerboseLoggingEnabled = false;
-        }
+    /**
+     * Enable verbose logging for all sub modules.
+     */
+    public void enableVerboseLogging(int verbose) {
+        mVerboseLoggingEnabled = verbose > 0;
     }
 
-    // TODO(b/27569474) remove support for multiple handlers for the same event
     private final Map<String, SparseArray<Set<Handler>>> mHandlerMap = new HashMap<>();
 
     /**

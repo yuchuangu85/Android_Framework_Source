@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -56,6 +57,7 @@ public class CarrierServiceBindHelper {
      */
     private static final int UNBIND_DELAY_MILLIS = 30 * 1000; // 30 seconds
 
+    @UnsupportedAppUsage
     private Context mContext;
     private AppBinding[] mBindings;
     private String[] mLastSimState;
@@ -80,6 +82,7 @@ public class CarrierServiceBindHelper {
     private static final int EVENT_REBIND = 0;
     private static final int EVENT_PERFORM_IMMEDIATE_UNBIND = 1;
 
+    @UnsupportedAppUsage
     private Handler mHandler = new Handler() {
         @Override
         public void handleMessage(Message msg) {

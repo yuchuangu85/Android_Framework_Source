@@ -1,21 +1,21 @@
 package com.android.clockwork.common;
 
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RobolectricTestRunner;
-import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowLooper;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.verify;
 import static org.robolectric.Shadows.shadowOf;
 
 @RunWith(RobolectricTestRunner.class)
-@Config(manifest = Config.NONE, sdk = 26)
 public class RadioTogglerTest {
 
     /**
@@ -47,11 +47,11 @@ public class RadioTogglerTest {
     }
 
 
-    @Mock PartialWakeLock mockWakeLock;
-    MockRadio mockRadio;
-    RadioToggler radioToggler;
+    private @Mock PartialWakeLock mockWakeLock;
+    private MockRadio mockRadio;
+    private RadioToggler radioToggler;
 
-    ShadowLooper shadowLooper;
+    private ShadowLooper shadowLooper;
 
     @Before
     public void setUp() {
@@ -67,11 +67,11 @@ public class RadioTogglerTest {
     @Test
     public void testGetRadioEnabled() {
         // the value here should match mockRadio's value before construction
-        Assert.assertFalse(radioToggler.getRadioEnabled());
+        assertFalse(radioToggler.getRadioEnabled());
 
         // changing the state of the radio should not directly affect RadioToggler
         mockRadio.setEnabled(true);
-        Assert.assertFalse(radioToggler.getRadioEnabled());
+        assertFalse(radioToggler.getRadioEnabled());
     }
 
     @Test
@@ -79,12 +79,12 @@ public class RadioTogglerTest {
         mockRadio.setEnabled(true);
         radioToggler.refreshRadioState();
         shadowLooper.runToEndOfTasks();
-        Assert.assertTrue(radioToggler.getRadioEnabled());
+        assertTrue(radioToggler.getRadioEnabled());
 
         mockRadio.setEnabled(false);
         radioToggler.refreshRadioState();
         shadowLooper.runToEndOfTasks();
-        Assert.assertFalse(radioToggler.getRadioEnabled());
+        assertFalse(radioToggler.getRadioEnabled());
     }
 
     /**
@@ -107,9 +107,9 @@ public class RadioTogglerTest {
         verify(mockWakeLock).acquire();
         verify(mockWakeLock).release();
 
-        Assert.assertTrue(radioToggler.getRadioEnabled());
-        Assert.assertTrue(mockRadio.getEnabled());
-        Assert.assertEquals(1, mockRadio.numSetEnables);
+        assertTrue(radioToggler.getRadioEnabled());
+        assertTrue(mockRadio.getEnabled());
+        assertEquals(1, mockRadio.numSetEnables);
     }
 
     @Test
@@ -121,9 +121,9 @@ public class RadioTogglerTest {
 
         verify(mockWakeLock).acquire();
         verify(mockWakeLock).release();
-        Assert.assertFalse(radioToggler.getRadioEnabled());
-        Assert.assertFalse(mockRadio.getEnabled());
-        Assert.assertEquals(1, mockRadio.numSetEnables);
+        assertFalse(radioToggler.getRadioEnabled());
+        assertFalse(mockRadio.getEnabled());
+        assertEquals(1, mockRadio.numSetEnables);
     }
 
     @Test
@@ -135,9 +135,9 @@ public class RadioTogglerTest {
 
         verifyNoMoreInteractions(mockWakeLock);
 
-        Assert.assertTrue(radioToggler.getRadioEnabled());
-        Assert.assertTrue(mockRadio.getEnabled());
-        Assert.assertEquals(0, mockRadio.numSetEnables);
+        assertTrue(radioToggler.getRadioEnabled());
+        assertTrue(mockRadio.getEnabled());
+        assertEquals(0, mockRadio.numSetEnables);
     }
 
     @Test
@@ -149,9 +149,9 @@ public class RadioTogglerTest {
 
         verifyNoMoreInteractions(mockWakeLock);
 
-        Assert.assertFalse(radioToggler.getRadioEnabled());
-        Assert.assertFalse(mockRadio.getEnabled());
-        Assert.assertEquals(0, mockRadio.numSetEnables);
+        assertFalse(radioToggler.getRadioEnabled());
+        assertFalse(mockRadio.getEnabled());
+        assertEquals(0, mockRadio.numSetEnables);
     }
 
     @Test
@@ -170,9 +170,9 @@ public class RadioTogglerTest {
         verify(mockWakeLock).acquire();
         verify(mockWakeLock).release();
 
-        Assert.assertFalse(radioToggler.getRadioEnabled());
-        Assert.assertFalse(mockRadio.getEnabled());
-        Assert.assertEquals(1, mockRadio.numSetEnables);
+        assertFalse(radioToggler.getRadioEnabled());
+        assertFalse(mockRadio.getEnabled());
+        assertEquals(1, mockRadio.numSetEnables);
     }
 
     @Test
@@ -191,8 +191,8 @@ public class RadioTogglerTest {
 
         verifyNoMoreInteractions(mockWakeLock);
 
-        Assert.assertTrue(radioToggler.getRadioEnabled());
-        Assert.assertTrue(mockRadio.getEnabled());
-        Assert.assertEquals(0, mockRadio.numSetEnables);
+        assertTrue(radioToggler.getRadioEnabled());
+        assertTrue(mockRadio.getEnabled());
+        assertEquals(0, mockRadio.numSetEnables);
     }
 }

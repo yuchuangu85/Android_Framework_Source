@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.cat;
 
+import android.annotation.UnsupportedAppUsage;
 import android.telephony.Rlog;
 
 import java.util.ArrayList;
@@ -57,6 +58,7 @@ public class ComprehensionTlv {
         mRawValue = data;
     }
 
+    @UnsupportedAppUsage
     public int getTag() {
         return mTag;
     }
@@ -65,14 +67,17 @@ public class ComprehensionTlv {
         return mCr;
     }
 
+    @UnsupportedAppUsage
     public int getLength() {
         return mLength;
     }
 
+    @UnsupportedAppUsage
     public int getValueIndex() {
         return mValueIndex;
     }
 
+    @UnsupportedAppUsage
     public byte[] getRawValue() {
         return mRawValue;
     }

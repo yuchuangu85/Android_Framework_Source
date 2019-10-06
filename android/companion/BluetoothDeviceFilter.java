@@ -25,6 +25,7 @@ import static android.companion.BluetoothDeviceFilterUtils.patternToString;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.bluetooth.BluetoothDevice;
 import android.os.Parcel;
 import android.os.ParcelUuid;
@@ -99,6 +100,7 @@ public final class BluetoothDeviceFilter implements DeviceFilter<BluetoothDevice
 
     /** @hide */
     @Nullable
+    @UnsupportedAppUsage
     public String getAddress() {
         return mAddress;
     }
@@ -144,7 +146,7 @@ public final class BluetoothDeviceFilter implements DeviceFilter<BluetoothDevice
         return 0;
     }
 
-    public static final Creator<BluetoothDeviceFilter> CREATOR
+    public static final @android.annotation.NonNull Creator<BluetoothDeviceFilter> CREATOR
             = new Creator<BluetoothDeviceFilter>() {
         @Override
         public BluetoothDeviceFilter createFromParcel(Parcel in) {

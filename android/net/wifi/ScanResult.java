@@ -17,6 +17,7 @@
 package android.net.wifi;
 
 import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -40,6 +41,7 @@ public class ScanResult implements Parcelable {
     /**
      * Ascii encoded SSID. This will replace SSID when we deprecate it. @hide
      */
+    @UnsupportedAppUsage
     public WifiSsid wifiSsid;
 
     /**
@@ -51,12 +53,14 @@ public class ScanResult implements Parcelable {
      * The HESSID from the beacon.
      * @hide
      */
+    @UnsupportedAppUsage
     public long hessid;
 
     /**
      * The ANQP Domain ID from the Hotspot 2.0 Indication element, if present.
      * @hide
      */
+    @UnsupportedAppUsage
     public int anqpDomainId;
 
     /*
@@ -82,9 +86,9 @@ public class ScanResult implements Parcelable {
     public static final int PROTOCOL_WPA = 1;
     /**
      * @hide
-     * Security protocol type: WPA version 2, also called RSN.
+     * Security protocol type: RSN, for WPA version 2, and version 3.
      */
-    public static final int PROTOCOL_WPA2 = 2;
+    public static final int PROTOCOL_RSN = 2;
     /**
      * @hide
      * Security protocol type:
@@ -134,7 +138,31 @@ public class ScanResult implements Parcelable {
      * Used for Hotspot 2.0.
      */
     public static final int KEY_MGMT_OSEN = 7;
-
+     /**
+     * @hide
+     * Security key management scheme: SAE.
+     */
+    public static final int KEY_MGMT_SAE = 8;
+    /**
+     * @hide
+     * Security key management scheme: OWE.
+     */
+    public static final int KEY_MGMT_OWE = 9;
+    /**
+     * @hide
+     * Security key management scheme: SUITE_B_192.
+     */
+    public static final int KEY_MGMT_EAP_SUITE_B_192 = 10;
+    /**
+     * @hide
+     * Security key management scheme: FT_SAE.
+     */
+    public static final int KEY_MGMT_FT_SAE = 11;
+    /**
+     * @hide
+     * Security key management scheme: OWE in transition mode.
+     */
+    public static final int KEY_MGMT_OWE_TRANSITION = 12;
     /**
      * @hide
      * No cipher suite.
@@ -155,6 +183,11 @@ public class ScanResult implements Parcelable {
      * Cipher suite: CCMP
      */
     public static final int CIPHER_CCMP = 3;
+    /**
+     * @hide
+     * Cipher suite: GCMP
+     */
+    public static final int CIPHER_GCMP_256 = 4;
 
     /**
      * The detected signal level in dBm, also known as the RSSI.
@@ -214,6 +247,7 @@ public class ScanResult implements Parcelable {
      * @deprecated use is80211mcResponder() instead
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean is80211McRTTResponder;
 
     /**
@@ -226,6 +260,7 @@ public class ScanResult implements Parcelable {
      * Timestamp representing date when this result was last seen, in milliseconds from 1970
      * {@hide}
      */
+    @UnsupportedAppUsage
     public long seen;
 
     /**
@@ -284,6 +319,7 @@ public class ScanResult implements Parcelable {
      * Number of time autojoin used it
      * @hide
      */
+    @UnsupportedAppUsage
     public int numUsage;
 
     /**
@@ -291,6 +327,7 @@ public class ScanResult implements Parcelable {
      * {@link UNSPECIFIED}.
      * {@hide}
      */
+    @UnsupportedAppUsage
     public int distanceCm;
 
     /**
@@ -298,6 +335,7 @@ public class ScanResult implements Parcelable {
      * Else {@link UNSPECIFIED}.
      * {@hide}
      */
+    @UnsupportedAppUsage
     public int distanceSdCm;
 
     /** {@hide} */
@@ -314,6 +352,7 @@ public class ScanResult implements Parcelable {
      * Defines flags; such as {@link #FLAG_PASSPOINT_NETWORK}.
      * {@hide}
      */
+    @UnsupportedAppUsage
     public long flags;
 
     /**
@@ -391,29 +430,45 @@ public class ScanResult implements Parcelable {
      *  @hide
      * anqp lines from supplicant BSS response
      */
+    @UnsupportedAppUsage
     public List<String> anqpLines;
 
     /** information elements from beacon
      * @hide
      */
     public static class InformationElement {
+        @UnsupportedAppUsage
         public static final int EID_SSID = 0;
+        @UnsupportedAppUsage
         public static final int EID_SUPPORTED_RATES = 1;
+        @UnsupportedAppUsage
         public static final int EID_TIM = 5;
+        @UnsupportedAppUsage
         public static final int EID_BSS_LOAD = 11;
+        @UnsupportedAppUsage
         public static final int EID_ERP = 42;
         public static final int EID_HT_CAPABILITIES = 45;
+        @UnsupportedAppUsage
         public static final int EID_RSN = 48;
+        @UnsupportedAppUsage
         public static final int EID_EXTENDED_SUPPORTED_RATES = 50;
+        @UnsupportedAppUsage
         public static final int EID_HT_OPERATION = 61;
+        @UnsupportedAppUsage
         public static final int EID_INTERWORKING = 107;
+        @UnsupportedAppUsage
         public static final int EID_ROAMING_CONSORTIUM = 111;
+        @UnsupportedAppUsage
         public static final int EID_EXTENDED_CAPS = 127;
         public static final int EID_VHT_CAPABILITIES = 191;
+        @UnsupportedAppUsage
         public static final int EID_VHT_OPERATION = 192;
+        @UnsupportedAppUsage
         public static final int EID_VSA = 221;
 
+        @UnsupportedAppUsage
         public int id;
+        @UnsupportedAppUsage
         public byte[] bytes;
 
         public InformationElement() {
@@ -428,6 +483,7 @@ public class ScanResult implements Parcelable {
     /** information elements found in the beacon
      * @hide
      */
+    @UnsupportedAppUsage
     public InformationElement[] informationElements;
 
     /** ANQP response elements.
@@ -704,7 +760,8 @@ public class ScanResult implements Parcelable {
     }
 
     /** Implement the Parcelable interface {@hide} */
-    public static final Creator<ScanResult> CREATOR =
+    @UnsupportedAppUsage
+    public static final @android.annotation.NonNull Creator<ScanResult> CREATOR =
         new Creator<ScanResult>() {
             public ScanResult createFromParcel(Parcel in) {
                 WifiSsid wifiSsid = null;

@@ -36,6 +36,7 @@ import libcore.io.Libcore;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
+import libcore.net.InetAddressUtils;
 
 import static android.system.OsConstants.AF_INET;
 import static android.system.OsConstants.AF_INET6;
@@ -43,6 +44,7 @@ import static android.system.OsConstants.AF_UNSPEC;
 import static android.system.OsConstants.AI_ADDRCONFIG;
 import static android.system.OsConstants.EACCES;
 import static android.system.OsConstants.ECONNREFUSED;
+import static android.system.OsConstants.EPERM;
 import static android.system.OsConstants.NI_NAMEREQD;
 import static android.system.OsConstants.ICMP6_ECHO_REPLY;
 import static android.system.OsConstants.ICMP_ECHOREPLY;
@@ -93,12 +95,8 @@ class Inet6AddressImpl implements InetAddressImpl {
         }
 
         // Is it a numeric address?
-        InetAddress result = InetAddress.parseNumericAddressNoThrow(host);
+        InetAddress result = InetAddressUtils.parseNumericAddressNoThrowStripOptionalBrackets(host);
         if (result != null) {
-            result = InetAddress.disallowDeprecatedFormats(host, result);
-            if (result == null) {
-                throw new UnknownHostException("Deprecated IPv4 address format: " + host);
-            }
             return new InetAddress[] { result };
         }
 
@@ -147,7 +145,8 @@ class Inet6AddressImpl implements InetAddressImpl {
             // SecurityException to aid in debugging this common mistake.
             // http://code.google.com/p/android/issues/detail?id=15722
             if (gaiException.getCause() instanceof ErrnoException) {
-                if (((ErrnoException) gaiException.getCause()).errno == EACCES) {
+                int errno = ((ErrnoException) gaiException.getCause()).errno;
+                if (errno == EACCES || errno == EPERM) {
                     throw new SecurityException("Permission denied (missing INTERNET permission?)", gaiException);
                 }
             }

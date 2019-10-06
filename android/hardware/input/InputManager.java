@@ -20,10 +20,11 @@ import android.annotation.IntDef;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemService;
-import android.app.IInputForwarder;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.media.AudioAttributes;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -40,6 +41,7 @@ import android.util.Log;
 import android.util.SparseArray;
 import android.view.InputDevice;
 import android.view.InputEvent;
+import android.view.InputMonitor;
 import android.view.MotionEvent;
 import android.view.PointerIcon;
 
@@ -64,6 +66,7 @@ public final class InputManager {
 
     private static InputManager sInstance;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final IInputManager mIm;
 
     // Guarded by mInputDevicesLock
@@ -181,6 +184,7 @@ public final class InputManager {
      * Waits for the event to be delivered to the application and handled.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int INJECT_INPUT_EVENT_MODE_WAIT_FOR_FINISH = 2;  // see InputDispatcher.h
 
     /** @hide */
@@ -223,6 +227,7 @@ public final class InputManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static InputManager getInstance() {
         synchronized (InputManager.class) {
             if (sInstance == null) {
@@ -866,6 +871,7 @@ public final class InputManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean injectInputEvent(InputEvent event, int mode) {
         if (event == null) {
             throw new IllegalArgumentException("event must not be null");
@@ -891,6 +897,7 @@ public final class InputManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void setPointerIconType(int iconId) {
         try {
             mIm.setPointerIconType(iconId);
@@ -927,20 +934,14 @@ public final class InputManager {
         }
     }
 
-
     /**
-     * Create an {@link IInputForwarder} targeted to provided display.
-     * {@link android.Manifest.permission.INJECT_EVENTS} permission is required to call this method.
-     *
-     * @param displayId Id of the target display where input events should be forwarded.
-     *                  Display must exist and must be owned by the caller.
-     * @return The forwarder instance.
+     * Monitor input on the specified display for gestures.
      *
      * @hide
      */
-    public IInputForwarder createInputForwarder(int displayId) {
+    public InputMonitor monitorGestureInput(String name, int displayId) {
         try {
-            return mIm.createInputForwarder(displayId);
+            return mIm.monitorGestureInput(name, displayId);
         } catch (RemoteException ex) {
             throw ex.rethrowFromSystemServer();
         }
@@ -1191,8 +1192,8 @@ public final class InputManager {
          * @hide
          */
         @Override
-        public void vibrate(int uid, String opPkg,
-                VibrationEffect effect, AudioAttributes attributes) {
+        public void vibrate(int uid, String opPkg, VibrationEffect effect,
+                String reason, AudioAttributes attributes) {
             long[] pattern;
             int repeat;
             if (effect instanceof VibrationEffect.OneShot) {

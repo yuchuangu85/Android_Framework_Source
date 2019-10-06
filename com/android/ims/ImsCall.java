@@ -16,8 +16,6 @@
 
 package com.android.ims;
 
-import com.android.internal.R;
-
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -29,12 +27,14 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Message;
 import android.os.Parcel;
+import android.telecom.Call;
 import android.telecom.ConferenceParticipant;
 import android.telecom.Connection;
 import android.telephony.Rlog;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import android.telephony.CallQuality;
 import android.telephony.ServiceState;
 import android.telephony.ims.ImsCallProfile;
 import android.telephony.ims.ImsConferenceState;
@@ -474,6 +474,24 @@ public class ImsCall implements ICall {
          *      otherwise.
          */
         public void onMultipartyStateChanged(ImsCall imsCall, boolean isMultiParty) {
+        }
+
+        /**
+         * Called when rtt call audio indicator has changed.
+         *
+         * @param imsCall ImsCall object
+         * @param profile updated ImsStreamMediaProfile profile.
+         */
+        public void onRttAudioIndicatorChanged(ImsCall imsCall, ImsStreamMediaProfile profile) {
+        }
+
+        /**
+         * Called when the call quality has changed.
+         *
+         * @param imsCall ImsCall object
+         * @param callQuality the updated CallQuality
+         */
+        public void onCallQualityChanged(ImsCall imsCall, CallQuality callQuality) {
         }
     }
 
@@ -1230,8 +1248,8 @@ public class ImsCall implements ICall {
         }
     }
 
-    public void terminate(int reason, int overrideReason) throws ImsException {
-        logi("terminate :: reason=" + reason + " ; overrideReadon=" + overrideReason);
+    public void terminate(int reason, int overrideReason) {
+        logi("terminate :: reason=" + reason + " ; overrideReason=" + overrideReason);
         mOverrideReason = overrideReason;
         terminate(reason);
     }
@@ -1240,9 +1258,8 @@ public class ImsCall implements ICall {
      * Terminates an IMS call (e.g. user initiated).
      *
      * @param reason reason code to terminate a call
-     * @throws ImsException if the IMS service fails to terminate the call
      */
-    public void terminate(int reason) throws ImsException {
+    public void terminate(int reason) {
         logi("terminate :: reason=" + reason);
 
         synchronized(mLockObj) {
@@ -1350,6 +1367,15 @@ public class ImsCall implements ICall {
         }
     }
 
+    private boolean isUpdatePending(ImsCall imsCall) {
+        if (imsCall != null && imsCall.mUpdateRequest != UPDATE_NONE) {
+            loge("merge :: update is in progress; request=" +
+                    updateRequestToString(mUpdateRequest));
+            return true;
+        }
+        return false;
+    }
+
     /**
      * Merges the active & hold call.
      *
@@ -1360,25 +1386,23 @@ public class ImsCall implements ICall {
         logi("merge :: ");
 
         synchronized(mLockObj) {
-            // If the host of the merge is in the midst of some other operation, we cannot merge.
-            if (mUpdateRequest != UPDATE_NONE) {
+            // If the fg call of the merge is in the midst of some other operation, we cannot merge.
+            // fg is either the host or the peer of the merge
+            if (isUpdatePending(this)) {
                 setCallSessionMergePending(false);
-                if (mMergePeer != null) {
-                    mMergePeer.setCallSessionMergePending(false);
-                }
-                loge("merge :: update is in progress; request=" +
-                        updateRequestToString(mUpdateRequest));
+                if (mMergePeer != null) mMergePeer.setCallSessionMergePending(false);
+                if (mMergeHost != null) mMergeHost.setCallSessionMergePending(false);
                 throw new ImsException("Call update is in progress",
                         ImsReasonInfo.CODE_LOCAL_ILLEGAL_STATE);
             }
 
-            // The peer of the merge is in the midst of some other operation, we cannot merge.
-            if (mMergePeer != null && mMergePeer.mUpdateRequest != UPDATE_NONE) {
+            // If the bg call of the merge is in the midst of some other operation, we cannot merge.
+            // bg is either the peer or the host of the merge.
+            if (isUpdatePending(mMergePeer) || isUpdatePending(mMergeHost)) {
                 setCallSessionMergePending(false);
-                mMergePeer.setCallSessionMergePending(false);
-                loge("merge :: peer call update is in progress; request=" +
-                        updateRequestToString(mMergePeer.mUpdateRequest));
-                throw new ImsException("Peer call update is in progress",
+                if (mMergePeer != null) mMergePeer.setCallSessionMergePending(false);
+                if (mMergeHost != null) mMergeHost.setCallSessionMergePending(false);
+                throw new ImsException("Peer or host call update is in progress",
                         ImsReasonInfo.CODE_LOCAL_ILLEGAL_STATE);
             }
 
@@ -1403,6 +1427,9 @@ public class ImsCall implements ICall {
                     // merge is pending.
                     mUpdateRequest = UPDATE_MERGE;
                     mMergePeer.mUpdateRequest = UPDATE_MERGE;
+                } else if (mMergeHost != null && !mMergeHost.isMultiparty() && !isMultiparty()) {
+                    mUpdateRequest = UPDATE_MERGE;
+                    mMergeHost.mUpdateRequest = UPDATE_MERGE;
                 }
 
                 mSession.merge();
@@ -1575,7 +1602,7 @@ public class ImsCall implements ICall {
      * @param result the result message to send when done.
      */
     public void sendDtmf(char c, Message result) {
-        logi("sendDtmf :: code=" + c);
+        logi("sendDtmf :: ");
 
         synchronized(mLockObj) {
             if (mSession != null) {
@@ -1592,7 +1619,7 @@ public class ImsCall implements ICall {
      * @param c that represents the DTMF to send. '0' ~ '9', 'A' ~ 'D', '*', '#' are valid inputs.
      */
     public void startDtmf(char c) {
-        logi("startDtmf :: code=" + c);
+        logi("startDtmf :: ");
 
         synchronized(mLockObj) {
             if (mSession != null) {
@@ -1648,16 +1675,20 @@ public class ImsCall implements ICall {
 
     /**
      * Sends a user-requested RTT upgrade request.
+     * @param rttOn true if the request is to turn on RTT, false to turn off.
      */
-    public void sendRttModifyRequest() {
+    public void sendRttModifyRequest(boolean rttOn) {
         logi("sendRttModifyRequest");
 
         synchronized(mLockObj) {
             if (mSession == null) {
                 loge("sendRttModifyRequest::no session");
             }
-            if (mCallProfile.mMediaProfile.isRttCall()) {
-                logi("sendRttModifyRequest::Already RTT call, ignoring.");
+            if (rttOn && mCallProfile.mMediaProfile.isRttCall()) {
+                logi("sendRttModifyRequest::Already RTT call, ignoring request to turn on.");
+                return;
+            } else if (!rttOn && !mCallProfile.mMediaProfile.isRttCall()) {
+                logi("sendRttModifyRequest::Not RTT call, ignoring request to turn off.");
                 return;
             }
             // Make a copy of the current ImsCallProfile and modify it to enable RTT
@@ -1665,7 +1696,9 @@ public class ImsCall implements ICall {
             mCallProfile.writeToParcel(p, 0);
             p.setDataPosition(0);
             ImsCallProfile requestedProfile = new ImsCallProfile(p);
-            requestedProfile.mMediaProfile.setRttMode(ImsStreamMediaProfile.RTT_MODE_FULL);
+            requestedProfile.mMediaProfile.setRttMode(rttOn
+                    ? ImsStreamMediaProfile.RTT_MODE_FULL
+                    : ImsStreamMediaProfile.RTT_MODE_DISABLED);
 
             mSession.sendRttModifyRequest(requestedProfile);
         }
@@ -1841,7 +1874,7 @@ public class ImsCall implements ICall {
 
             if (connectionState != Connection.STATE_DISCONNECTED) {
                 ConferenceParticipant conferenceParticipant = new ConferenceParticipant(handle,
-                        displayName, endpointUri, connectionState);
+                        displayName, endpointUri, connectionState, Call.Details.DIRECTION_UNKNOWN);
                 mConferenceParticipants.add(conferenceParticipant);
             }
         }
@@ -3168,7 +3201,41 @@ public class ImsCall implements ICall {
                 try {
                     listener.onRttMessageReceived(ImsCall.this, rttMessage);
                 } catch (Throwable t) {
-                    loge("callSessionRttModifyResponseReceived:: ", t);
+                    loge("callSessionRttMessageReceived:: ", t);
+                }
+            }
+        }
+
+        @Override
+        public void callSessionRttAudioIndicatorChanged(ImsStreamMediaProfile profile) {
+            ImsCall.Listener listener;
+
+            synchronized(ImsCall.this) {
+                listener = mListener;
+            }
+
+            if (listener != null) {
+                try {
+                    listener.onRttAudioIndicatorChanged(ImsCall.this, profile);
+                } catch (Throwable t) {
+                    loge("callSessionRttAudioIndicatorChanged:: ", t);
+                }
+            }
+        }
+
+        @Override
+        public void callQualityChanged(CallQuality callQuality) {
+            ImsCall.Listener listener;
+
+            synchronized (ImsCall.this) {
+                listener = mListener;
+            }
+
+            if (listener != null) {
+                try {
+                    listener.onCallQualityChanged(ImsCall.this, callQuality);
+                } catch (Throwable t) {
+                    loge("callQualityChanged:: ", t);
                 }
             }
         }

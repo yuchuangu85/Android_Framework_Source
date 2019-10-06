@@ -4,9 +4,11 @@ import static com.android.clockwork.bluetooth.WearBluetoothConstants.PROXY_SCORE
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyObject;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.never;
@@ -22,15 +24,12 @@ import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Message;
-import android.provider.Settings;
-import com.android.clockwork.WearRobolectricTestRunner;
 import com.android.clockwork.common.EventHistory;
-import com.android.clockwork.flags.UserAbsentRadiosOffObserver;
+import com.android.clockwork.flags.BooleanFlag;
 import com.android.clockwork.power.PowerTracker;
 import com.android.clockwork.power.TimeOnlyMode;
 import com.android.internal.util.IndentingPrintWriter;
@@ -42,46 +41,42 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
-import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowApplication;
 import org.robolectric.shadows.ShadowLooper;
 
 /** Test for {@link WearBluetoothMediator} */
-@RunWith(WearRobolectricTestRunner.class)
-@Config(manifest = Config.NONE,
-        sdk = 26)
+@RunWith(RobolectricTestRunner.class)
 public class WearBluetoothMediatorTest {
     private static final String REASON = "";
 
     private final ShadowApplication shadowApplication = ShadowApplication.getInstance();
 
-    @Captor ArgumentCaptor<Message> msgCaptor;
-    @Mock AlarmManager mockAlarmManager;
-    @Mock BluetoothAdapter mockBtAdapter;
-    @Mock BluetoothClass mockPeripheralBluetoothClass;
-    @Mock BluetoothClass mockPhoneBluetoothClass;
-    @Mock BluetoothDevice mockBtPeripheral;
-    @Mock BluetoothDevice mockBtPhone;
-    @Mock BluetoothLogger mockBtLogger;
-    @Mock BluetoothShardRunner mockShardRunner;
-    @Mock CompanionTracker mockCompanionTracker;
-    @Mock ContentResolver mockResolver;
-    @Mock Handler mockHandler;
-    @Mock IndentingPrintWriter mockIndentingPrintWriter;
-    @Mock PowerTracker mockPowerTracker;
-    @Mock UserAbsentRadiosOffObserver mockUserAbsentRadiosOffObserver;
-    @Mock TimeOnlyMode mockTimeOnlyMode;
+    private @Captor ArgumentCaptor<Message> msgCaptor;
+    private @Mock AlarmManager mockAlarmManager;
+    private @Mock BluetoothAdapter mockBtAdapter;
+    private @Mock BluetoothClass mockPeripheralBluetoothClass;
+    private @Mock BluetoothClass mockPhoneBluetoothClass;
+    private @Mock BluetoothDevice mockBtPeripheral;
+    private @Mock BluetoothDevice mockBtPhone;
+    private @Mock BluetoothLogger mockBtLogger;
+    private @Mock BluetoothShardRunner mockShardRunner;
+    private @Mock CompanionTracker mockCompanionTracker;
+    private @Mock Handler mockHandler;
+    private @Mock IndentingPrintWriter mockIndentingPrintWriter;
+    private @Mock PowerTracker mockPowerTracker;
+    private @Mock BooleanFlag mockUserAbsentRadiosOffFlag;
+    private @Mock WearBluetoothMediatorSettings mockWearBluetoothMediatorSettings;
+    private @Mock TimeOnlyMode mockTimeOnlyMode;
 
     private Context mContext;
-    private ContentResolver mContentResolver;
     private WearBluetoothMediator mMediator;
 
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
-        mContext = shadowApplication.getApplicationContext();
-        mContentResolver = RuntimeEnvironment.application.getContentResolver();
+        mContext = RuntimeEnvironment.application;
 
         when(mockBtPhone.getType()).thenReturn(BluetoothDevice.DEVICE_TYPE_CLASSIC);
         when(mockBtPhone.getAddress()).thenReturn("AA:BB:CC:DD:EE:FF");
@@ -100,17 +95,21 @@ public class WearBluetoothMediatorTest {
         when(mockCompanionTracker.getCompanion()).thenReturn(mockBtPhone);
         when(mockPowerTracker.isCharging()).thenReturn(false);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(true);
+        when(mockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(true);
+
+        when(mockWearBluetoothMediatorSettings.getIsInAirplaneMode()).thenReturn(false);
+        when(mockWearBluetoothMediatorSettings.getIsSettingsPreferenceBluetoothOn()).thenReturn(true);
 
         mMediator = new WearBluetoothMediator(
                 mContext,
                 mockAlarmManager,
+                mockWearBluetoothMediatorSettings,
                 mockBtAdapter,
                 mockBtLogger,
                 mockShardRunner,
                 mockCompanionTracker,
                 mockPowerTracker,
-                mockUserAbsentRadiosOffObserver,
+                mockUserAbsentRadiosOffFlag,
                 mockTimeOnlyMode);
     }
 
@@ -119,7 +118,7 @@ public class WearBluetoothMediatorTest {
         verify(mockCompanionTracker).addListener(mMediator);
         verify(mockPowerTracker).addListener(mMediator);
         verify(mockTimeOnlyMode).addListener(mMediator);
-        verify(mockUserAbsentRadiosOffObserver).addListener(mMediator);
+        verify(mockUserAbsentRadiosOffFlag).addListener(any());
 
         mMediator.onBootCompleted();
 
@@ -146,9 +145,14 @@ public class WearBluetoothMediatorTest {
     @Test
     public void testOnBootCompletedWhenAdapterDisabled() {
         when(mockBtAdapter.isEnabled()).thenReturn(false);
-        mMediator.onBootCompleted();
-        verify(mockBtAdapter).enable();
+        // Replace handler with mock
+        mMediator.mRadioPowerHandler = mockHandler;
 
+        mMediator.onBootCompleted();
+
+        verifyPowerChange(WearBluetoothMediator.MSG_ENABLE_BT,
+                WearBluetoothMediator.Reason.ON_BOOT_AUTO);
+        verify(mockWearBluetoothMediatorSettings).setSettingsPreferenceBluetoothOn(true);
         verifyNoMoreInteractions(mockShardRunner);
         verify(mockCompanionTracker, never()).onBluetoothAdapterReady();
         verify(mockAlarmManager, never()).set(eq(AlarmManager.ELAPSED_REALTIME), anyLong(),
@@ -369,6 +373,34 @@ public class WearBluetoothMediatorTest {
     }
 
     @Test
+    public void testDisabledInAirplaneMode() {
+        // Replace handler with mock
+        mMediator.mRadioPowerHandler = mockHandler;
+        mMediator.onAirplaneModeSettingChanged(true);
+        mMediator.onSettingsPreferenceBluetoothSettingChanged(true);
+
+        mMediator.onDeviceIdleModeChanged();
+
+        mMediator.onSettingsPreferenceBluetoothSettingChanged(false);
+        mMediator.onDeviceIdleModeChanged();
+
+        verify(mockHandler, never()).sendMessage(anyObject());
+    }
+
+    @Test
+    public void testDisabledUserPreferenceSettings() {
+        // Replace handler with mock
+        mMediator.mRadioPowerHandler = mockHandler;
+        mMediator.onAirplaneModeSettingChanged(false);
+        mMediator.onSettingsPreferenceBluetoothSettingChanged(false);
+
+        mMediator.onDeviceIdleModeChanged();
+
+        verifyPowerChange(WearBluetoothMediator.MSG_DISABLE_BT,
+                WearBluetoothMediator.Reason.OFF_SETTINGS_PREFERENCE);
+    }
+
+    @Test
     public void testDeviceIdle() {
         mMediator.onBootCompleted();
         // Replace handler with mock
@@ -379,7 +411,7 @@ public class WearBluetoothMediatorTest {
         verifyPowerChange(WearBluetoothMediator.MSG_DISABLE_BT,
                 WearBluetoothMediator.Reason.OFF_USER_ABSENT);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(false);
+        when(mockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(false);
         mMediator.onUserAbsentRadiosOffChanged(false);
         verifyPowerChange(WearBluetoothMediator.MSG_ENABLE_BT,
                 WearBluetoothMediator.Reason.ON_AUTO);
@@ -394,7 +426,7 @@ public class WearBluetoothMediatorTest {
         verifyPowerChange(WearBluetoothMediator.MSG_ENABLE_BT,
                 WearBluetoothMediator.Reason.ON_AUTO);
 
-        when(mockUserAbsentRadiosOffObserver.isEnabled()).thenReturn(true);
+        when(mockUserAbsentRadiosOffFlag.isEnabled()).thenReturn(true);
         mMediator.onUserAbsentRadiosOffChanged(true);
         verifyPowerChange(WearBluetoothMediator.MSG_DISABLE_BT,
                 WearBluetoothMediator.Reason.OFF_USER_ABSENT);
@@ -584,12 +616,23 @@ public class WearBluetoothMediatorTest {
     }
 
     @Test
-    public void testOnBootCompleted_AirplaneModeOn() {
-        Settings.Global.putInt(mContentResolver, Settings.Global.AIRPLANE_MODE_ON, 1);
+    public void testOnBootCompleted_AdapterDisabledAirplaneModeOn() {
+        when(mockWearBluetoothMediatorSettings.getIsInAirplaneMode()).thenReturn(true);
         when(mockBtAdapter.isEnabled()).thenReturn(false);
 
         mMediator.onBootCompleted();
 
+        verify(mockBtAdapter, never()).enable();
+    }
+
+    @Test
+    public void testOnBootCompleted_AdapterDisabledAirplaneModeOff() {
+        when(mockWearBluetoothMediatorSettings.getIsInAirplaneMode()).thenReturn(false);
+        when(mockBtAdapter.isEnabled()).thenReturn(false);
+
+        mMediator.onBootCompleted();
+
+        verify(mockWearBluetoothMediatorSettings).setSettingsPreferenceBluetoothOn(anyBoolean());
         verify(mockBtAdapter, never()).enable();
     }
 

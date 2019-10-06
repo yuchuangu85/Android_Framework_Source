@@ -427,8 +427,14 @@ public class CompanionProxyShard implements Closeable {
             @Override
             protected void onPostExecute(Boolean result) {
                 DebugAssert.isMainThread();
-                sWaitingForAsyncDisconnectResponse = result;
+                // Double check if sysproxy is still connected and did not
+                // initiate a disconnect during this async operation.
+                // see: bug 111653688
+                if (mIsSysproxyConnected) {
+                    sWaitingForAsyncDisconnectResponse = result;
+                }
                 maybeLogDebug("JNI Disconnect response result:" + result
+                        + " mIsSysproxyConnected:" + mIsSysproxyConnected
                         + " isClosed:" + mIsClosed);
             }
         }.execute();

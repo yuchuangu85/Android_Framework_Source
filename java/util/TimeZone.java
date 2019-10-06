@@ -39,15 +39,17 @@
 
 package java.util;
 
-import org.apache.harmony.luni.internal.util.TimezoneGetter;
 import android.icu.text.TimeZoneNames;
 import java.io.IOException;
 import java.io.Serializable;
 import java.time.ZoneId;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import libcore.io.IoUtils;
-import libcore.util.ZoneInfoDB;
+import libcore.timezone.ZoneInfoDB;
+
+import dalvik.system.RuntimeHooks;
 
 /**
  * <code>TimeZone</code> represents a time zone offset, and also figures out daylight
@@ -704,8 +706,8 @@ abstract public class TimeZone implements Serializable, Cloneable {
      */
     static synchronized TimeZone getDefaultRef() {
         if (defaultTimeZone == null) {
-            TimezoneGetter tzGetter = TimezoneGetter.getInstance();
-            String zoneName = (tzGetter != null) ? tzGetter.getId() : null;
+            Supplier<String> tzGetter = RuntimeHooks.getTimeZoneIdSupplier();
+            String zoneName = (tzGetter != null) ? tzGetter.get() : null;
             if (zoneName != null) {
                 zoneName = zoneName.trim();
             }

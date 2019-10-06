@@ -74,6 +74,7 @@ final class ConnectionServiceAdapterServant {
     private static final int MSG_ON_RTT_UPGRADE_REQUEST = 33;
     private static final int MSG_SET_PHONE_ACCOUNT_CHANGED = 34;
     private static final int MSG_CONNECTION_SERVICE_FOCUS_RELEASED = 35;
+    private static final int MSG_SET_CONFERENCE_STATE = 36;
 
     private final IConnectionServiceAdapter mDelegate;
 
@@ -185,8 +186,13 @@ final class ConnectionServiceAdapterServant {
                     break;
                 }
                 case MSG_QUERY_REMOTE_CALL_SERVICES:
-                    mDelegate.queryRemoteConnectionServices((RemoteServiceCallback) msg.obj,
-                            null /*Session.Info*/);
+                    SomeArgs args2 = (SomeArgs) msg.obj;
+                    try {
+                        mDelegate.queryRemoteConnectionServices((RemoteServiceCallback) args2.arg1,
+                                (String) args2.arg2, null /*Session.Info*/);
+                    } finally {
+                        args2.recycle();
+                    }
                     break;
                 case MSG_SET_VIDEO_STATE:
                     mDelegate.setVideoState((String) msg.obj, msg.arg1, null /*Session.Info*/);
@@ -333,6 +339,14 @@ final class ConnectionServiceAdapterServant {
                 case MSG_CONNECTION_SERVICE_FOCUS_RELEASED:
                     mDelegate.onConnectionServiceFocusReleased(null /*Session.Info*/);
                     break;
+                case MSG_SET_CONFERENCE_STATE:
+                    SomeArgs args = (SomeArgs) msg.obj;
+                    try {
+                        mDelegate.setConferenceState((String) args.arg1, (Boolean) args.arg2,
+                                (Session.Info) args.arg3);
+                    } finally {
+                        args.recycle();
+                    }
             }
         }
     };
@@ -459,8 +473,11 @@ final class ConnectionServiceAdapterServant {
 
         @Override
         public void queryRemoteConnectionServices(RemoteServiceCallback callback,
-                Session.Info sessionInfo) {
-            mHandler.obtainMessage(MSG_QUERY_REMOTE_CALL_SERVICES, callback).sendToTarget();
+                String callingPackage, Session.Info sessionInfo) {
+            SomeArgs args = SomeArgs.obtain();
+            args.arg1 = callback;
+            args.arg2 = callingPackage;
+            mHandler.obtainMessage(MSG_QUERY_REMOTE_CALL_SERVICES, args).sendToTarget();
         }
 
         @Override
@@ -609,6 +626,21 @@ final class ConnectionServiceAdapterServant {
         @Override
         public void onConnectionServiceFocusReleased(Session.Info sessionInfo) {
             mHandler.obtainMessage(MSG_CONNECTION_SERVICE_FOCUS_RELEASED).sendToTarget();
+        }
+
+        @Override
+        public void resetConnectionTime(String callId, Session.Info sessionInfo) {
+            // Do nothing
+        }
+
+        @Override
+        public void setConferenceState(String callId, boolean isConference,
+                Session.Info sessionInfo) {
+            SomeArgs args = SomeArgs.obtain();
+            args.arg1 = callId;
+            args.arg2 = isConference;
+            args.arg3 = sessionInfo;
+            mHandler.obtainMessage(MSG_SET_CONFERENCE_STATE, args).sendToTarget();
         }
     };
 

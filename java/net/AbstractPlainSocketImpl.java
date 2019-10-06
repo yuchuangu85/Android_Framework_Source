@@ -488,9 +488,12 @@ abstract class AbstractPlainSocketImpl extends SocketImpl
         return socketOutputStream;
     }
 
+    // Android-removed: this.fd is maintained by the concrete implementation.
+    /*
     void setFileDescriptor(FileDescriptor fd) {
         this.fd = fd;
     }
+    */
 
     void setAddress(InetAddress address) {
         this.address = address;

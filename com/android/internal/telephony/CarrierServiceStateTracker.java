@@ -54,6 +54,8 @@ public class CarrierServiceStateTracker extends Handler {
     protected static final int CARRIER_EVENT_VOICE_DEREGISTRATION = CARRIER_EVENT_BASE + 2;
     protected static final int CARRIER_EVENT_DATA_REGISTRATION = CARRIER_EVENT_BASE + 3;
     protected static final int CARRIER_EVENT_DATA_DEREGISTRATION = CARRIER_EVENT_BASE + 4;
+    protected static final int CARRIER_EVENT_IMS_CAPABILITIES_CHANGED = CARRIER_EVENT_BASE + 5;
+
     private static final int UNINITIALIZED_DELAY_VALUE = -1;
     private Phone mPhone;
     private ServiceStateTracker mSST;
@@ -139,6 +141,9 @@ public class CarrierServiceStateTracker extends Handler {
             case CARRIER_EVENT_DATA_DEREGISTRATION:
                 handleConfigChanges();
                 break;
+            case CARRIER_EVENT_IMS_CAPABILITIES_CHANGED:
+                handleImsCapabilitiesChanged();
+                break;
             case NOTIFICATION_EMERGENCY_NETWORK:
             case NOTIFICATION_PREF_NETWORK:
                 Rlog.d(LOG_TAG, "sending notification after delay: " + msg.what);
@@ -214,6 +219,14 @@ public class CarrierServiceStateTracker extends Handler {
 
     private void handlePrefNetworkModeChanged() {
         NotificationType notificationType = mNotificationTypeMap.get(NOTIFICATION_PREF_NETWORK);
+        if (notificationType != null) {
+            evaluateSendingMessageOrCancelNotification(notificationType);
+        }
+    }
+
+    private void handleImsCapabilitiesChanged() {
+        NotificationType notificationType = mNotificationTypeMap
+                .get(NOTIFICATION_EMERGENCY_NETWORK);
         if (notificationType != null) {
             evaluateSendingMessageOrCancelNotification(notificationType);
         }

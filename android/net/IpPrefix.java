@@ -16,6 +16,10 @@
 
 package android.net;
 
+import android.annotation.IntRange;
+import android.annotation.NonNull;
+import android.annotation.SystemApi;
+import android.annotation.TestApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Pair;
@@ -68,7 +72,7 @@ public final class IpPrefix implements Parcelable {
      *
      * @hide
      */
-    public IpPrefix(byte[] address, int prefixLength) {
+    public IpPrefix(@NonNull byte[] address, @IntRange(from = 0, to = 128) int prefixLength) {
         this.address = address.clone();
         this.prefixLength = prefixLength;
         checkAndMaskAddressAndPrefixLength();
@@ -83,7 +87,9 @@ public final class IpPrefix implements Parcelable {
      * @param prefixLength the prefix length. Must be &gt;= 0 and &lt;= (32 or 128) (IPv4 or IPv6).
      * @hide
      */
-    public IpPrefix(InetAddress address, int prefixLength) {
+    @SystemApi
+    @TestApi
+    public IpPrefix(@NonNull InetAddress address, @IntRange(from = 0, to = 128) int prefixLength) {
         // We don't reuse the (byte[], int) constructor because it calls clone() on the byte array,
         // which is unnecessary because getAddress() already returns a clone.
         this.address = address.getAddress();
@@ -100,7 +106,9 @@ public final class IpPrefix implements Parcelable {
      *
      * @hide
      */
-    public IpPrefix(String prefix) {
+    @SystemApi
+    @TestApi
+    public IpPrefix(@NonNull String prefix) {
         // We don't reuse the (InetAddress, int) constructor because "error: call to this must be
         // first statement in constructor". We could factor out setting the member variables to an
         // init() method, but if we did, then we'd have to make the members non-final, or "error:
@@ -143,13 +151,13 @@ public final class IpPrefix implements Parcelable {
      *
      * @return the address in the form of a byte array.
      */
-    public InetAddress getAddress() {
+    public @NonNull InetAddress getAddress() {
         try {
             return InetAddress.getByAddress(address);
         } catch (UnknownHostException e) {
             // Cannot happen. InetAddress.getByAddress can only throw an exception if the byte
             // array is the wrong length, but we check that in the constructor.
-            return null;
+            throw new IllegalArgumentException("Address is invalid");
         }
     }
 
@@ -159,7 +167,7 @@ public final class IpPrefix implements Parcelable {
      *
      * @return the address in the form of a byte array.
      */
-    public byte[] getRawAddress() {
+    public @NonNull byte[] getRawAddress() {
         return address.clone();
     }
 
@@ -168,6 +176,7 @@ public final class IpPrefix implements Parcelable {
      *
      * @return the prefix length.
      */
+    @IntRange(from = 0, to = 128)
     public int getPrefixLength() {
         return prefixLength;
     }
@@ -176,10 +185,10 @@ public final class IpPrefix implements Parcelable {
      * Determines whether the prefix contains the specified address.
      *
      * @param address An {@link InetAddress} to test.
-     * @return {@code true} if the prefix covers the given address.
+     * @return {@code true} if the prefix covers the given address. {@code false} otherwise.
      */
-    public boolean contains(InetAddress address) {
-        byte[] addrBytes = (address == null) ? null : address.getAddress();
+    public boolean contains(@NonNull InetAddress address) {
+        byte[] addrBytes = address.getAddress();
         if (addrBytes == null || addrBytes.length != this.address.length) {
             return false;
         }
@@ -194,7 +203,7 @@ public final class IpPrefix implements Parcelable {
      * @param otherPrefix the prefix to test
      * @hide
      */
-    public boolean containsPrefix(IpPrefix otherPrefix) {
+    public boolean containsPrefix(@NonNull IpPrefix otherPrefix) {
         if (otherPrefix.getPrefixLength() < prefixLength) return false;
         final byte[] otherAddress = otherPrefix.getRawAddress();
         NetworkUtils.maskRawAddress(otherAddress, prefixLength);
@@ -279,7 +288,7 @@ public final class IpPrefix implements Parcelable {
     /**
      * Implement the Parcelable interface.
      */
-    public static final Creator<IpPrefix> CREATOR =
+    public static final @android.annotation.NonNull Creator<IpPrefix> CREATOR =
             new Creator<IpPrefix>() {
                 public IpPrefix createFromParcel(Parcel in) {
                     byte[] address = in.createByteArray();

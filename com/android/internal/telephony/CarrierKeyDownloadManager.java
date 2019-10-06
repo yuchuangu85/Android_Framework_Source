@@ -17,6 +17,7 @@
 package com.android.internal.telephony;
 
 import static android.preference.PreferenceManager.getDefaultSharedPreferences;
+import static android.telephony.CarrierConfigManager.KEY_ALLOW_METERED_NETWORK_FOR_CERT_DOWNLOAD_BOOL;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
@@ -30,6 +31,8 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Message;
 import android.os.PersistableBundle;
 import android.telephony.CarrierConfigManager;
 import android.telephony.ImsiEncryptionInfo;
@@ -64,7 +67,7 @@ import java.util.zip.GZIPInputStream;
  * This class contains logic to get Certificates and keep them current.
  * The class will be instantiated by various Phone implementations.
  */
-public class CarrierKeyDownloadManager {
+public class CarrierKeyDownloadManager extends Handler {
     private static final String LOG_TAG = "CarrierKeyDownloadManager";
 
     private static final String MCC_MNC_PREF_TAG = "CARRIER_KEY_DM_MCC_MNC";
@@ -93,8 +96,6 @@ public class CarrierKeyDownloadManager {
     private static final String SEPARATOR = ":";
 
     private static final String JSON_CERTIFICATE = "certificate";
-    // This is a hack to accommodate certain Carriers who insists on using the public-key
-    // field to store the certificate. We'll just use which-ever is not null.
     private static final String JSON_CERTIFICATE_ALTERNATE = "public-key";
     private static final String JSON_TYPE = "key-type";
     private static final String JSON_IDENTIFIER = "key-identifier";
@@ -102,15 +103,18 @@ public class CarrierKeyDownloadManager {
     private static final String JSON_TYPE_VALUE_WLAN = "WLAN";
     private static final String JSON_TYPE_VALUE_EPDG = "EPDG";
 
+    private static final int EVENT_ALARM_OR_CONFIG_CHANGE = 0;
+    private static final int EVENT_DOWNLOAD_COMPLETE = 1;
+
 
     private static final int[] CARRIER_KEY_TYPES = {TelephonyManager.KEY_TYPE_EPDG,
             TelephonyManager.KEY_TYPE_WLAN};
-    private static final int UNINITIALIZED_KEY_TYPE = -1;
 
     private final Phone mPhone;
     private final Context mContext;
     public final DownloadManager mDownloadManager;
     private String mURL;
+    private boolean mAllowedOverMeteredNetwork = false;
 
     public CarrierKeyDownloadManager(Phone phone) {
         mPhone = phone;
@@ -131,31 +135,43 @@ public class CarrierKeyDownloadManager {
             int slotId = mPhone.getPhoneId();
             if (action.equals(INTENT_KEY_RENEWAL_ALARM_PREFIX + slotId)) {
                 Log.d(LOG_TAG, "Handling key renewal alarm: " + action);
-                handleAlarmOrConfigChange();
+                sendEmptyMessage(EVENT_ALARM_OR_CONFIG_CHANGE);
             } else if (action.equals(TelephonyIntents.ACTION_CARRIER_CERTIFICATE_DOWNLOAD)) {
                 if (slotId == intent.getIntExtra(PhoneConstants.PHONE_KEY,
                         SubscriptionManager.INVALID_SIM_SLOT_INDEX)) {
                     Log.d(LOG_TAG, "Handling reset intent: " + action);
-                    handleAlarmOrConfigChange();
+                    sendEmptyMessage(EVENT_ALARM_OR_CONFIG_CHANGE);
                 }
             } else if (action.equals(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED)) {
                 if (slotId == intent.getIntExtra(PhoneConstants.PHONE_KEY,
                         SubscriptionManager.INVALID_SIM_SLOT_INDEX)) {
                     Log.d(LOG_TAG, "Carrier Config changed: " + action);
-                    handleAlarmOrConfigChange();
+                    sendEmptyMessage(EVENT_ALARM_OR_CONFIG_CHANGE);
                 }
             } else if (action.equals(DownloadManager.ACTION_DOWNLOAD_COMPLETE)) {
                 Log.d(LOG_TAG, "Download Complete");
-                long carrierKeyDownloadIdentifier =
-                        intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, 0);
+                sendMessage(obtainMessage(EVENT_DOWNLOAD_COMPLETE,
+                        intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, 0)));
+            }
+        }
+    };
+
+    @Override
+    public void handleMessage (Message msg) {
+        switch (msg.what) {
+            case EVENT_ALARM_OR_CONFIG_CHANGE:
+                handleAlarmOrConfigChange();
+                break;
+            case EVENT_DOWNLOAD_COMPLETE:
+                long carrierKeyDownloadIdentifier = (long) msg.obj;
                 String mccMnc = getMccMncSetFromPref();
                 if (isValidDownload(mccMnc)) {
                     onDownloadComplete(carrierKeyDownloadIdentifier, mccMnc);
                     onPostDownloadProcessing(carrierKeyDownloadIdentifier);
                 }
-            }
+                break;
         }
-    };
+    }
 
     private void onPostDownloadProcessing(long carrierKeyDownloadIdentifier) {
         resetRenewalAlarm();
@@ -370,6 +386,8 @@ public class CarrierKeyDownloadManager {
         }
         mKeyAvailability = b.getInt(CarrierConfigManager.IMSI_KEY_AVAILABILITY_INT);
         mURL = b.getString(CarrierConfigManager.IMSI_KEY_DOWNLOAD_URL_STRING);
+        mAllowedOverMeteredNetwork = b.getBoolean(
+                KEY_ALLOW_METERED_NETWORK_FOR_CERT_DOWNLOAD_BOOL);
         if (TextUtils.isEmpty(mURL) || mKeyAvailability == 0) {
             Log.d(LOG_TAG, "Carrier not enabled or invalid values");
             return false;
@@ -430,20 +448,27 @@ public class CarrierKeyDownloadManager {
             JSONArray keys = jsonObj.getJSONArray(JSON_CARRIER_KEYS);
             for (int i = 0; i < keys.length(); i++) {
                 JSONObject key = keys.getJSONObject(i);
-                // This is a hack to accommodate certain carriers who insist on using the public-key
-                // field to store the certificate. We'll just use which-ever is not null.
+                // Support both "public-key" and "certificate" String property.
+                // "certificate" is a more accurate description, however, the 3GPP draft spec
+                // S3-170116, "Privacy Protection for EAP-AKA" section 4.3 mandates the use of
+                // "public-key".
                 String cert = null;
                 if (key.has(JSON_CERTIFICATE)) {
                     cert = key.getString(JSON_CERTIFICATE);
                 } else {
                     cert = key.getString(JSON_CERTIFICATE_ALTERNATE);
                 }
-                String typeString = key.getString(JSON_TYPE);
-                int type = UNINITIALIZED_KEY_TYPE;
-                if (typeString.equals(JSON_TYPE_VALUE_WLAN)) {
-                    type = TelephonyManager.KEY_TYPE_WLAN;
-                } else if (typeString.equals(JSON_TYPE_VALUE_EPDG)) {
-                    type = TelephonyManager.KEY_TYPE_EPDG;
+                // The 3GPP draft spec 3GPP draft spec S3-170116, "Privacy Protection for EAP-AKA"
+                // section 4.3, does not specify any key-type property. To be compatible with these
+                // networks, the logic defaults to WLAN type if not specified.
+                int type = TelephonyManager.KEY_TYPE_WLAN;
+                if (key.has(JSON_TYPE)) {
+                    String typeString = key.getString(JSON_TYPE);
+                    if (typeString.equals(JSON_TYPE_VALUE_EPDG)) {
+                        type = TelephonyManager.KEY_TYPE_EPDG;
+                    } else if (!typeString.equals(JSON_TYPE_VALUE_WLAN)) {
+                        Log.e(LOG_TAG, "Invalid key-type specified: " + typeString);
+                    }
                 }
                 String identifier = key.getString(JSON_IDENTIFIER);
                 ByteArrayInputStream inStream = new ByteArrayInputStream(cert.getBytes());
@@ -520,7 +545,10 @@ public class CarrierKeyDownloadManager {
         }
         try {
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(mURL));
-            request.setAllowedOverMetered(false);
+
+            // TODO(b/128550341): Implement the logic to minimize using metered network such as
+            // LTE for downloading a certificate.
+            request.setAllowedOverMetered(mAllowedOverMeteredNetwork);
             request.setVisibleInDownloadsUi(false);
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN);
             Long carrierKeyDownloadRequestId = mDownloadManager.enqueue(request);

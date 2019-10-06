@@ -71,7 +71,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * See {@link PhoneAccount} and {@link TelecomManager#registerPhoneAccount} for more information.
  * <p>
  * System managed {@link ConnectionService}s must be enabled by the user in the phone app settings
- * before Telecom will bind to them.  Self-manged {@link ConnectionService}s must be granted the
+ * before Telecom will bind to them.  Self-managed {@link ConnectionService}s must be granted the
  * appropriate permission before Telecom will bind to them.
  * <p>
  * Once registered and enabled by the user in the phone app settings or granted permission, telecom
@@ -1254,6 +1254,39 @@ public abstract class ConnectionService extends Service {
                 mAdapter.removeExtras(id, keys);
             }
         }
+
+        @Override
+        public void onConferenceStateChanged(Conference c, boolean isConference) {
+            String id = mIdByConference.get(c);
+            if (id != null) {
+                mAdapter.setConferenceState(id, isConference);
+            }
+        }
+
+        @Override
+        public void onAddressChanged(Conference c, Uri newAddress, int presentation) {
+            String id = mIdByConference.get(c);
+            if (id != null) {
+                mAdapter.setAddress(id, newAddress, presentation);
+            }
+        }
+
+        @Override
+        public void onCallerDisplayNameChanged(Conference c, String callerDisplayName,
+                int presentation) {
+            String id = mIdByConference.get(c);
+            if (id != null) {
+                mAdapter.setCallerDisplayName(id, callerDisplayName, presentation);
+            }
+        }
+
+        @Override
+        public void onConnectionEvent(Conference c, String event, Bundle extras) {
+            String id = mIdByConference.get(c);
+            if (id != null) {
+                mAdapter.onConnectionEvent(id, event, extras);
+            }
+        }
     };
 
     private final Connection.Listener mConnectionListener = new Connection.Listener() {
@@ -1474,6 +1507,13 @@ public abstract class ConnectionService extends Service {
                 mAdapter.onPhoneAccountChanged(id, pHandle);
             }
         }
+
+        public void onConnectionTimeReset(Connection c) {
+            String id = mIdByConnection.get(c);
+            if (id != null) {
+                mAdapter.resetConnectionTime(id);
+            }
+        }
     };
 
     /** {@inheritDoc} */
@@ -1531,6 +1571,14 @@ public abstract class ConnectionService extends Service {
                     new DisconnectCause(DisconnectCause.ERROR, "IMPL_RETURNED_NULL_CONNECTION"));
         }
 
+        boolean isSelfManaged =
+                (connection.getConnectionProperties() & Connection.PROPERTY_SELF_MANAGED)
+                        == Connection.PROPERTY_SELF_MANAGED;
+        // Self-managed Connections should always use voip audio mode; we default here so that the
+        // local state within the ConnectionService matches the default we assume in Telecom.
+        if (isSelfManaged) {
+            connection.setAudioModeIsVoip(true);
+        }
         connection.setTelecomCallId(callId);
         if (connection.getState() != Connection.STATE_DISCONNECTED) {
             addConnection(request.getAccountHandle(), callId, connection);
@@ -1570,9 +1618,7 @@ public abstract class ConnectionService extends Service {
                         createIdList(connection.getConferenceables()),
                         connection.getExtras()));
 
-        if (isIncoming && request.shouldShowIncomingCallUi() &&
-                (connection.getConnectionProperties() & Connection.PROPERTY_SELF_MANAGED) ==
-                        Connection.PROPERTY_SELF_MANAGED) {
+        if (isIncoming && request.shouldShowIncomingCallUi() && isSelfManaged) {
             // Tell ConnectionService to show its incoming call UX.
             connection.onShowIncomingCallUi();
         }
@@ -1891,6 +1937,8 @@ public abstract class ConnectionService extends Service {
             return;
         }
 
+        String callingPackage = getOpPackageName();
+
         mAdapter.queryRemoteConnectionServices(new RemoteServiceCallback.Stub() {
             @Override
             public void onResult(
@@ -1919,7 +1967,7 @@ public abstract class ConnectionService extends Service {
                     }
                 }.prepare());
             }
-        });
+        }, callingPackage);
     }
 
     /**
@@ -2008,7 +2056,11 @@ public abstract class ConnectionService extends Service {
                     conference.getConnectTimeMillis(),
                     conference.getConnectionStartElapsedRealTime(),
                     conference.getStatusHints(),
-                    conference.getExtras());
+                    conference.getExtras(),
+                    conference.getAddress(),
+                    conference.getAddressPresentation(),
+                    conference.getCallerDisplayName(),
+                    conference.getCallerDisplayNamePresentation());
 
             mAdapter.addConferenceCall(id, parcelableConference);
             mAdapter.setVideoProvider(id, conference.getVideoProvider());
@@ -2040,6 +2092,10 @@ public abstract class ConnectionService extends Service {
     /**
      * Call to inform Telecom that your {@link ConnectionService} has released call resources (e.g
      * microphone, camera).
+     *
+     * <p>
+     * The {@link ConnectionService} will be disconnected when it failed to call this method within
+     * 5 seconds after {@link #onConnectionServiceFocusLost()} is called.
      *
      * @see ConnectionService#onConnectionServiceFocusLost()
      */
@@ -2088,7 +2144,8 @@ public abstract class ConnectionService extends Service {
                     connection.getDisconnectCause(),
                     emptyList,
                     connection.getExtras(),
-                    conferenceId);
+                    conferenceId,
+                    connection.getCallDirection());
             mAdapter.addExistingConnection(id, parcelableConnection);
         }
     }

@@ -26,10 +26,7 @@ import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 import static android.os.Process.SYSTEM_UID;
 
 import android.Manifest.permission;
-import android.app.ActivityManager;
 import android.app.AppOpsManager;
-import android.app.ContentProviderHolder;
-import android.app.IActivityManager;
 import android.app.slice.ISliceManager;
 import android.app.slice.SliceSpec;
 import android.app.usage.UsageStatsManagerInternal;
@@ -42,6 +39,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManagerInternal;
+import android.content.pm.ProviderInfo;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Binder;
@@ -197,6 +195,7 @@ public class SliceManagerService extends ISliceManager.Stub {
     public SliceSpec[] getPinnedSpecs(Uri uri, String pkg) throws RemoteException {
         verifyCaller(pkg);
         enforceAccess(pkg, uri);
+        uri = maybeAddUserId(uri, Binder.getCallingUserHandle().getIdentifier());
         return getPinnedSlice(uri).getSpecs();
     }
 
@@ -217,12 +216,12 @@ public class SliceManagerService extends ISliceManager.Stub {
     }
 
     @Override
-    public int checkSlicePermission(Uri uri, String pkg, int pid, int uid,
+    public int checkSlicePermission(Uri uri, String callingPkg, String pkg, int pid, int uid,
             String[] autoGrantPermissions) {
         int userId = UserHandle.getUserId(uid);
         if (pkg == null) {
             for (String p : mContext.getPackageManager().getPackagesForUid(uid)) {
-                if (checkSlicePermission(uri, p, pid, uid, autoGrantPermissions)
+                if (checkSlicePermission(uri, callingPkg, p, pid, uid, autoGrantPermissions)
                         == PERMISSION_GRANTED) {
                     return PERMISSION_GRANTED;
                 }
@@ -235,9 +234,9 @@ public class SliceManagerService extends ISliceManager.Stub {
         if (mPermissions.hasPermission(pkg, userId, uri)) {
             return PackageManager.PERMISSION_GRANTED;
         }
-        if (autoGrantPermissions != null) {
+        if (autoGrantPermissions != null && callingPkg != null) {
             // Need to own the Uri to call in with permissions to grant.
-            enforceOwner(pkg, uri, userId);
+            enforceOwner(callingPkg, uri, userId);
             for (String perm : autoGrantPermissions) {
                 if (mContext.checkPermission(perm, pid, uid) == PERMISSION_GRANTED) {
                     int providerUser = ContentProvider.getUserIdFromUri(uri, userId);
@@ -389,36 +388,17 @@ public class SliceManagerService extends ISliceManager.Stub {
     }
 
     protected int checkAccess(String pkg, Uri uri, int uid, int pid) {
-        return checkSlicePermission(uri, pkg, uid, pid, null);
+        return checkSlicePermission(uri, null, pkg, pid, uid, null);
     }
 
     private String getProviderPkg(Uri uri, int user) {
         long ident = Binder.clearCallingIdentity();
         try {
-            IBinder token = new Binder();
-            IActivityManager activityManager = ActivityManager.getService();
-            ContentProviderHolder holder = null;
             String providerName = getUriWithoutUserId(uri).getAuthority();
-            try {
-                try {
-                    holder = activityManager.getContentProviderExternal(
-                            providerName, getUserIdFromUri(uri, user), token);
-                    if (holder != null && holder.info != null) {
-                        return holder.info.packageName;
-                    } else {
-                        return null;
-                    }
-                } finally {
-                    if (holder != null && holder.provider != null) {
-                        activityManager.removeContentProviderExternal(providerName, token);
-                    }
-                }
-            } catch (RemoteException e) {
-                // Can't happen.
-                throw e.rethrowAsRuntimeException();
-            }
+            ProviderInfo provider = mContext.getPackageManager().resolveContentProviderAsUser(
+                    providerName, 0, getUserIdFromUri(uri, user));
+            return provider.packageName;
         } finally {
-            // I know, the double finally seems ugly, but seems safest for the identity.
             Binder.restoreCallingIdentity(ident);
         }
     }

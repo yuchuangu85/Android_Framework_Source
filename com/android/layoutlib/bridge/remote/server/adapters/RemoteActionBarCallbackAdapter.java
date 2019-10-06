@@ -17,6 +17,7 @@
 package com.android.layoutlib.bridge.remote.server.adapters;
 
 import com.android.ide.common.rendering.api.ActionBarCallback;
+import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.layout.remote.api.RemoteActionBarCallback;
 import com.android.tools.layoutlib.annotations.NotNull;
 
@@ -31,9 +32,9 @@ public class RemoteActionBarCallbackAdapter extends ActionBarCallback {
     }
 
     @Override
-    public List<String> getMenuIdNames() {
+    public List<ResourceReference> getMenuIds() {
         try {
-            return mDelegate.getMenuIdNames();
+            return mDelegate.getMenuIds();
         } catch (RemoteException e) {
             throw new RuntimeException(e);
         }

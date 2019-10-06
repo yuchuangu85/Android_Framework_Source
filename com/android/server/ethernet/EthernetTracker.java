@@ -294,12 +294,20 @@ final class EthernetTracker {
         }
     }
 
+    /**
+     * Parses an Ethernet interface configuration
+     *
+     * @param configString represents an Ethernet configuration in the following format: {@code
+     * <interface name|mac address>;[Network Capabilities];[IP config];[Override Transport]}
+     */
     private void parseEthernetConfig(String configString) {
-        String[] tokens = configString.split(";");
+        String[] tokens = configString.split(";", /* limit of tokens */ 4);
         String name = tokens[0];
         String capabilities = tokens.length > 1 ? tokens[1] : null;
+        String transport = tokens.length > 3 ? tokens[3] : null;
         NetworkCapabilities nc = createNetworkCapabilities(
-                !TextUtils.isEmpty(capabilities)  /* clear default capabilities */, capabilities);
+                !TextUtils.isEmpty(capabilities)  /* clear default capabilities */, capabilities,
+                transport);
         mNetworkCapabilities.put(name, nc);
 
         if (tokens.length > 2 && !TextUtils.isEmpty(tokens[2])) {
@@ -320,24 +328,76 @@ final class EthernetTracker {
     }
 
     private static NetworkCapabilities createNetworkCapabilities(boolean clearDefaultCapabilities) {
-        return createNetworkCapabilities(clearDefaultCapabilities, null);
+        return createNetworkCapabilities(clearDefaultCapabilities, null, null);
     }
 
-    private static NetworkCapabilities createNetworkCapabilities(
-            boolean clearDefaultCapabilities, @Nullable String commaSeparatedCapabilities) {
+    /**
+     * Parses a static list of network capabilities
+     *
+     * @param clearDefaultCapabilities Indicates whether or not to clear any default capabilities
+     * @param commaSeparatedCapabilities A comma separated string list of integer encoded
+     *                                   NetworkCapability.NET_CAPABILITY_* values
+     * @param overrideTransport A string representing a single integer encoded override transport
+     *                          type. Must be one of the NetworkCapability.TRANSPORT_*
+     *                          values. TRANSPORT_VPN is not supported. Errors with input
+     *                          will cause the override to be ignored.
+     */
+    @VisibleForTesting
+    static NetworkCapabilities createNetworkCapabilities(
+            boolean clearDefaultCapabilities, @Nullable String commaSeparatedCapabilities,
+            @Nullable String overrideTransport) {
 
         NetworkCapabilities nc = new NetworkCapabilities();
         if (clearDefaultCapabilities) {
-            nc.clearAll();  // Remove default capabilities.
+            nc.clearAll();  // Remove default capabilities and transports
         }
-        nc.addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET);
+
+        // Determine the transport type. If someone has tried to define an override transport then
+        // attempt to add it. Since we can only have one override, all errors with it will
+        // gracefully default back to TRANSPORT_ETHERNET and warn the user. VPN is not allowed as an
+        // override type. Wifi Aware and LoWPAN are currently unsupported as well.
+        int transport = NetworkCapabilities.TRANSPORT_ETHERNET;
+        if (!TextUtils.isEmpty(overrideTransport)) {
+            try {
+                int parsedTransport = Integer.valueOf(overrideTransport);
+                if (parsedTransport == NetworkCapabilities.TRANSPORT_VPN
+                        || parsedTransport == NetworkCapabilities.TRANSPORT_WIFI_AWARE
+                        || parsedTransport == NetworkCapabilities.TRANSPORT_LOWPAN) {
+                    Log.e(TAG, "Override transport '" + parsedTransport + "' is not supported. "
+                            + "Defaulting to TRANSPORT_ETHERNET");
+                } else {
+                    transport = parsedTransport;
+                }
+            } catch (NumberFormatException nfe) {
+                Log.e(TAG, "Override transport type '" + overrideTransport + "' "
+                        + "could not be parsed. Defaulting to TRANSPORT_ETHERNET");
+            }
+        }
+
+        // Apply the transport. If the user supplied a valid number that is not a valid transport
+        // then adding will throw an exception. Default back to TRANSPORT_ETHERNET if that happens
+        try {
+            nc.addTransportType(transport);
+        } catch (IllegalArgumentException iae) {
+            Log.e(TAG, transport + " is not a valid NetworkCapability.TRANSPORT_* value. "
+                    + "Defaulting to TRANSPORT_ETHERNET");
+            nc.addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET);
+        }
+
         nc.setLinkUpstreamBandwidthKbps(100 * 1000);
         nc.setLinkDownstreamBandwidthKbps(100 * 1000);
 
         if (!TextUtils.isEmpty(commaSeparatedCapabilities)) {
             for (String strNetworkCapability : commaSeparatedCapabilities.split(",")) {
                 if (!TextUtils.isEmpty(strNetworkCapability)) {
-                    nc.addCapability(Integer.valueOf(strNetworkCapability));
+                    try {
+                        nc.addCapability(Integer.valueOf(strNetworkCapability));
+                    } catch (NumberFormatException nfe) {
+                        Log.e(TAG, "Capability '" + strNetworkCapability + "' could not be parsed");
+                    } catch (IllegalArgumentException iae) {
+                        Log.e(TAG, strNetworkCapability + " is not a valid "
+                                + "NetworkCapability.NET_CAPABILITY_* value");
+                    }
                 }
             }
         }

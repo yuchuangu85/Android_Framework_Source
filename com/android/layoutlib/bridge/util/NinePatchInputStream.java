@@ -16,9 +16,13 @@
 
 package com.android.layoutlib.bridge.util;
 
+import com.android.tools.layoutlib.annotations.NotNull;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
 
 /**
  * Simpler wrapper around FileInputStream. This is used when the input stream represent
@@ -26,22 +30,67 @@ import java.io.FileNotFoundException;
  * This is useful when the InputStream is created in a method but used in another that needs
  * to know whether this is 9-patch or not, such as BitmapFactory.
  */
-public class NinePatchInputStream extends FileInputStream {
+public class NinePatchInputStream extends InputStream {
+    private final InputStream mDelegate;
     private boolean mFakeMarkSupport = true;
+
     public NinePatchInputStream(File file) throws FileNotFoundException {
-        super(file);
+        mDelegate = new FileInputStream(file);
+    }
+
+    public NinePatchInputStream(@NotNull InputStream stream) {
+        mDelegate = stream;
     }
 
     @Override
     public boolean markSupported() {
         // this is needed so that BitmapFactory doesn't wrap this in a BufferedInputStream.
-        return mFakeMarkSupport || super.markSupported();
-
+        return mFakeMarkSupport || mDelegate.markSupported();
     }
 
     public void disableFakeMarkSupport() {
         // disable fake mark support so that in case codec actually try to use them
         // we don't lie to them.
         mFakeMarkSupport = false;
+    }
+
+    @Override
+    public int read() throws IOException {
+        return mDelegate.read();
+    }
+
+    @Override
+    public int read(byte[] b) throws IOException {
+        return mDelegate.read(b);
+    }
+
+    @Override
+    public int read(byte[] b, int off, int len) throws IOException {
+        return mDelegate.read(b, off, len);
+    }
+
+    @Override
+    public long skip(long n) throws IOException {
+        return mDelegate.skip(n);
+    }
+
+    @Override
+    public int available() throws IOException {
+        return mDelegate.available();
+    }
+
+    @Override
+    public void close() throws IOException {
+        mDelegate.close();
+    }
+
+    @Override
+    public void mark(int readlimit) {
+        mDelegate.mark(readlimit);
+    }
+
+    @Override
+    public void reset() throws IOException {
+        mDelegate.reset();
     }
 }

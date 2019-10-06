@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.AsyncResult;
 import android.os.Message;
 import android.os.SystemClock;
@@ -43,8 +44,11 @@ public class RILRequest {
     private static final int MAX_POOL_SIZE = 4;
 
     //***** Instance Variables
+    @UnsupportedAppUsage
     int mSerial;
+    @UnsupportedAppUsage
     int mRequest;
+    @UnsupportedAppUsage
     Message mResult;
     RILRequest mNext;
     int mWakeLockType;
@@ -72,6 +76,7 @@ public class RILRequest {
      * @param result sent when operation completes
      * @return a RILRequest instance from the pool.
      */
+    @UnsupportedAppUsage
     private static RILRequest obtain(int request, Message result) {
         RILRequest rr = null;
 
@@ -88,7 +93,8 @@ public class RILRequest {
             rr = new RILRequest();
         }
 
-        rr.mSerial = sNextSerial.getAndIncrement();
+        // Increment serial number. Wrap to 0 when reaching Integer.MAX_VALUE.
+        rr.mSerial = sNextSerial.getAndUpdate(n -> ((n + 1) % Integer.MAX_VALUE));
 
         rr.mRequest = request;
         rr.mResult = result;
@@ -114,9 +120,8 @@ public class RILRequest {
      */
     // @VisibleForTesting
     public static RILRequest obtain(int request, Message result, WorkSource workSource) {
-        RILRequest rr = null;
+        RILRequest rr = obtain(request, result);
 
-        rr = obtain(request, result);
         if (workSource != null) {
             rr.mWorkSource = workSource;
             rr.mClientId = rr.getWorkSourceClientId();
@@ -154,6 +159,7 @@ public class RILRequest {
      *
      * Note: This should only be called once per use.
      */
+    @UnsupportedAppUsage
     void release() {
         synchronized (sPoolSync) {
             if (sPoolSize < MAX_POOL_SIZE) {
@@ -176,19 +182,20 @@ public class RILRequest {
     }
 
     static void resetSerial() {
-        // use a random so that on recovery we probably don't mix old requests
+        // Use a non-negative random number so that on recovery we probably don't mix old requests
         // with new.
-        sNextSerial.set(sRandom.nextInt());
+        sNextSerial.set(sRandom.nextInt(Integer.MAX_VALUE));
     }
 
+    @UnsupportedAppUsage
     String serialString() {
         //Cheesy way to do %04d
         StringBuilder sb = new StringBuilder(8);
         String sn;
 
-        long adjustedSerial = (((long) mSerial) - Integer.MIN_VALUE) % 10000;
-
-        sn = Long.toString(adjustedSerial);
+        // Truncate mSerial to a number with maximum 4 digits.
+        int adjustedSerial = mSerial % 10000;
+        sn = Integer.toString(adjustedSerial);
 
         //sb.append("J[");
         sb.append('[');
@@ -201,6 +208,7 @@ public class RILRequest {
         return sb.toString();
     }
 
+    @UnsupportedAppUsage
     void onError(int error, Object ret) {
         CommandException ex;
 

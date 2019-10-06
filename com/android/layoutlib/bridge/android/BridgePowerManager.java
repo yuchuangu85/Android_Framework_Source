@@ -16,16 +16,17 @@
 
 package com.android.layoutlib.bridge.android;
 
+import android.os.BatterySaverPolicyConfig;
 import android.os.IBinder;
 import android.os.IPowerManager;
 import android.os.PowerManager;
+import android.os.PowerManager.WakeReason;
 import android.os.PowerSaveState;
 import android.os.RemoteException;
 import android.os.WorkSource;
 
 /**
  * Fake implementation of IPowerManager.
- *
  */
 public class BridgePowerManager implements IPowerManager {
 
@@ -40,8 +41,30 @@ public class BridgePowerManager implements IPowerManager {
     }
 
     @Override
-    public boolean setPowerSaveMode(boolean mode) throws RemoteException {
+    public boolean setPowerSaveModeEnabled(boolean mode) throws RemoteException {
         return false;
+    }
+
+    @Override
+    public boolean setDynamicPowerSaveHint(boolean powerSaveHint, int disableThreshold)
+            throws RemoteException {
+        return false;
+    }
+
+    @Override
+    public boolean setAdaptivePowerSavePolicy(BatterySaverPolicyConfig config)
+            throws RemoteException {
+        return false;
+    }
+
+    @Override
+    public boolean setAdaptivePowerSaveEnabled(boolean enabled) throws RemoteException {
+        return false;
+    }
+
+    @Override
+    public int getPowerSaveModeTrigger() {
+        return 0;
     }
 
     public PowerSaveState getPowerSaveState(int serviceType) {
@@ -138,7 +161,8 @@ public class BridgePowerManager implements IPowerManager {
     }
 
     @Override
-    public void wakeUp(long time, String reason, String opPackageName) throws RemoteException {
+    public void wakeUp(long time, @WakeReason int reason, String details , String opPackageName)
+            throws RemoteException {
         // pass for now.
     }
 
@@ -168,7 +192,17 @@ public class BridgePowerManager implements IPowerManager {
     }
 
     @Override
+    public int getLastSleepReason() {
+        return PowerManager.GO_TO_SLEEP_REASON_TIMEOUT;
+    }
+
+    @Override
     public void setDozeAfterScreenOff(boolean mode) throws RemoteException {
         // pass for now.
+    }
+
+    @Override
+    public boolean forceSuspend() {
+        return false;
     }
 }

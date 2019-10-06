@@ -16,7 +16,7 @@
 
 package com.android.systemui.recents.views;
 
-import android.app.ActivityManager;
+import android.app.ActivityTaskManager;
 import android.content.Context;
 import android.graphics.Point;
 import android.os.Bundle;
@@ -24,14 +24,11 @@ import android.util.SparseArray;
 import android.view.View;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
-
 import com.android.systemui.R;
-import com.android.systemui.recents.Recents;
+import com.android.systemui.recents.LegacyRecentsImpl;
 import com.android.systemui.recents.events.EventBus;
 import com.android.systemui.recents.events.ui.dragndrop.DragEndEvent;
 import com.android.systemui.recents.events.ui.dragndrop.DragStartEvent;
-import com.android.systemui.shared.recents.utilities.Utilities;
-import com.android.systemui.shared.recents.model.TaskStack;
 
 public class TaskViewAccessibilityDelegate extends View.AccessibilityDelegate {
     private static final String TAG = "TaskViewAccessibilityDelegate";
@@ -58,9 +55,9 @@ public class TaskViewAccessibilityDelegate extends View.AccessibilityDelegate {
     @Override
     public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
         super.onInitializeAccessibilityNodeInfo(host, info);
-        if (ActivityManager.supportsSplitScreenMultiWindow(mTaskView.getContext())
-                && !Recents.getSystemServices().hasDockedTask()) {
-            DockState[] dockStates = Recents.getConfiguration()
+        if (ActivityTaskManager.supportsSplitScreenMultiWindow(mTaskView.getContext())
+                && !LegacyRecentsImpl.getSystemServices().hasDockedTask()) {
+            DockState[] dockStates = LegacyRecentsImpl.getConfiguration()
                     .getDockStatesForCurrentOrientation();
             for (DockState dockState: dockStates) {
                 if (dockState == DockState.TOP) {

@@ -18,9 +18,9 @@ package com.android.layoutlib.bridge.impl;
 
 import com.android.ide.common.rendering.api.AdapterBinding;
 import com.android.ide.common.rendering.api.HardwareConfig;
+import com.android.ide.common.rendering.api.ILayoutPullParser;
 import com.android.ide.common.rendering.api.LayoutLog;
 import com.android.ide.common.rendering.api.LayoutlibCallback;
-import com.android.ide.common.rendering.api.RenderResources;
 import com.android.ide.common.rendering.api.RenderSession;
 import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.ResourceValue;
@@ -45,11 +45,8 @@ import com.android.layoutlib.bridge.android.support.FragmentTabHostUtil;
 import com.android.layoutlib.bridge.android.support.SupportPreferencesUtil;
 import com.android.layoutlib.bridge.impl.binding.FakeAdapter;
 import com.android.layoutlib.bridge.impl.binding.FakeExpandableAdapter;
-import com.android.layoutlib.bridge.util.ReflectionUtils;
-import com.android.resources.ResourceType;
 import com.android.tools.layoutlib.java.System_Delegate;
 import com.android.util.Pair;
-import com.android.util.PropertiesMap;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -57,6 +54,7 @@ import android.app.Fragment_Delegate;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap_Delegate;
 import android.graphics.Canvas;
+import android.graphics.NinePatch_Delegate;
 import android.os.Looper;
 import android.preference.Preference_Delegate;
 import android.view.AttachInfo_Accessor;
@@ -86,6 +84,7 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -171,8 +170,9 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         BridgeContext context = getContext();
 
         // use default of true in case it's not found to use alpha by default
-        mIsAlphaChannelImage = ResourceHelper.getBooleanThemeValue(params.getResources(),
-                "windowIsFloating", true, true);
+        mIsAlphaChannelImage =
+                ResourceHelper.getBooleanThemeFrameworkAttrValue(params.getResources(),
+                        "windowIsFloating", true);
 
         mLayoutBuilder = new Layout.Builder(params, context);
 
@@ -180,7 +180,8 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         mInflater = new BridgeInflater(context, params.getLayoutlibCallback());
         context.setBridgeInflater(mInflater);
 
-        mBlockParser = new BridgeXmlBlockParser(params.getLayoutDescription(), context, false);
+        ILayoutPullParser layoutParser = params.getLayoutDescription();
+        mBlockParser = new BridgeXmlBlockParser(layoutParser, context, layoutParser.getLayoutNamespace());
 
         return SUCCESS.createResult();
     }
@@ -296,7 +297,8 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                     Bridge.getLog().warning(LayoutLog.TAG_RTL_NOT_ENABLED,
                             "You are using a right-to-left " +
                                     "(RTL) locale but RTL is not enabled", null);
-                } else if (params.getSimulatedPlatformVersion() < 17) {
+                } else if (params.getSimulatedPlatformVersion() !=0 &&
+                        params.getSimulatedPlatformVersion() < 17) {
                     // This will render ok because we are using the latest layoutlib but at least
                     // warn the user that this might fail in a real device.
                     Bridge.getLog().warning(LayoutLog.TAG_RTL_NOT_SUPPORTED, "You are using a " +
@@ -310,7 +312,8 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
             Fragment_Delegate.setLayoutlibCallback(params.getLayoutlibCallback());
 
             String rootTag = params.getFlag(RenderParamsFlags.FLAG_KEY_ROOT_TAG);
-            boolean isPreference = "PreferenceScreen".equals(rootTag);
+            boolean isPreference = "PreferenceScreen".equals(rootTag) ||
+                    SupportPreferencesUtil.isSupportRootTag(rootTag);
             View view;
             if (isPreference) {
                 // First try to use the support library inflater. If something fails, fallback
@@ -484,6 +487,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                 // it doesn't get cached.
                 boolean disableBitmapCaching = Boolean.TRUE.equals(params.getFlag(
                     RenderParamsFlags.FLAG_KEY_DISABLE_BITMAP_CACHING));
+
                 if (mNewRenderSize || mCanvas == null || disableBitmapCaching) {
                     mNewRenderSize = false;
                     if (params.getImageFactory() != null) {
@@ -518,6 +522,19 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                     } else {
                         mCanvas.setBitmap(bitmap);
                     }
+
+                    boolean enableImageResizing =
+                            mImage.getWidth() != mMeasuredScreenWidth &&
+                            mImage.getHeight() != mMeasuredScreenHeight &&
+                            Boolean.TRUE.equals(params.getFlag(
+                                    RenderParamsFlags.FLAG_KEY_RESULT_IMAGE_AUTO_SCALE));
+
+                    if (enableImageResizing) {
+                        float scaleX = (float)mImage.getWidth() / mMeasuredScreenWidth;
+                        float scaleY = (float)mImage.getHeight() / mMeasuredScreenHeight;
+                        mCanvas.scale(scaleX, scaleY);
+                    }
+
                     mCanvas.setDensity(hardwareConfig.getDensity().getDpiValue());
                 }
 
@@ -715,12 +732,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         if (!hasToolbar(collapsingToolbar)) {
             return;
         }
-        RenderResources res = context.getRenderResources();
         String title = params.getAppLabel();
-        ResourceValue titleValue = res.findResValue(title, false);
-        if (titleValue != null && titleValue.getValue() != null) {
-            title = titleValue.getValue();
-        }
         DesignLibUtil.setTitle(collapsingToolbar, title);
     }
 
@@ -832,7 +844,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
 
         // this must be called before addTab() so that the TabHost searches its TabWidget
         // and FrameLayout.
-        if (ReflectionUtils.isInstanceOf(tabHost, FragmentTabHostUtil.CN_FRAGMENT_TAB_HOST)) {
+        if (isInstanceOf(tabHost, FragmentTabHostUtil.CN_FRAGMENT_TAB_HOST)) {
             FragmentTabHostUtil.setup(tabHost, getContext());
         } else {
             tabHost.setup();
@@ -853,10 +865,10 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
                 @SuppressWarnings("ConstantConditions")  // child cannot be null.
                 int id = child.getId();
                 @SuppressWarnings("deprecation")
-                Pair<ResourceType, String> resource = layoutlibCallback.resolveResourceId(id);
+                ResourceReference resource = layoutlibCallback.resolveResourceId(id);
                 String name;
                 if (resource != null) {
-                    name = resource.getSecond();
+                    name = resource.getName();
                 } else {
                     name = String.format("Tab %d", i+1); // default name if id is unresolved.
                 }
@@ -992,10 +1004,14 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
 
             // The view is part of the layout added by the user. Hence,
             // the ViewCookie may be obtained only through the Context.
+            int shiftX = -scrollX + Math.round(view.getTranslationX()) + hOffset;
+            int shiftY = -scrollY + Math.round(view.getTranslationY()) + vOffset;
             result = new ViewInfo(view.getClass().getName(),
-                    getContext().getViewKey(view), -scrollX + view.getLeft() + hOffset,
-                    -scrollY + view.getTop() + vOffset, -scrollX + view.getRight() + hOffset,
-                    -scrollY + view.getBottom() + vOffset,
+                    getContext().getViewKey(view),
+                    shiftX + view.getLeft(),
+                    shiftY + view.getTop(),
+                    shiftX + view.getRight(),
+                    shiftY + view.getBottom(),
                     view, view.getLayoutParams());
         } else {
             // We are part of the system decor.
@@ -1098,8 +1114,22 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         return mSystemViewInfoList;
     }
 
-    public Map<Object, PropertiesMap> getDefaultProperties() {
+    public Map<Object, Map<ResourceReference, ResourceValue>> getDefaultNamespacedProperties() {
         return getContext().getDefaultProperties();
+    }
+
+    public Map<Object, String> getDefaultStyles() {
+        Map<Object, String> defaultStyles = new IdentityHashMap<>();
+        Map<Object, ResourceReference> namespacedStyles = getDefaultNamespacedStyles();
+        for (Object key : namespacedStyles.keySet()) {
+            ResourceReference style = namespacedStyles.get(key);
+            defaultStyles.put(key, style.getQualifiedName());
+        }
+        return defaultStyles;
+    }
+
+    public Map<Object, ResourceReference> getDefaultNamespacedStyles() {
+        return getContext().getDefaultNamespacedStyles();
     }
 
     public void setScene(RenderSession session) {
@@ -1133,6 +1163,7 @@ public class RenderSessionImpl extends RenderAction<SessionParams> {
         mImage = null;
         mViewRoot = null;
         mContentRoot = null;
+        NinePatch_Delegate.clearCache();
 
         if (createdLooper) {
             Choreographer_Delegate.dispose();

@@ -21,9 +21,9 @@ import android.graphics.Rect;
 import android.view.ViewConfiguration;
 
 import com.android.systemui.R;
-import com.android.systemui.recents.Recents;
+import com.android.systemui.recents.LegacyRecentsImpl;
 import com.android.systemui.recents.RecentsActivityLaunchState;
-import com.android.systemui.shared.recents.utilities.Utilities;
+import com.android.systemui.recents.utilities.Utilities;
 import com.android.systemui.shared.recents.model.Task;
 import com.android.systemui.recents.views.TaskStackLayoutAlgorithm;
 import com.android.systemui.recents.views.TaskViewTransform;
@@ -82,7 +82,7 @@ public class TaskStackLowRamLayoutAlgorithm {
     }
 
     public VisibilityReport computeStackVisibilityReport(ArrayList<Task> tasks) {
-        RecentsActivityLaunchState launchState = Recents.getConfiguration().getLaunchState();
+        RecentsActivityLaunchState launchState = LegacyRecentsImpl.getConfiguration().getLaunchState();
         int maxVisible = launchState.launchedFromHome || launchState.launchedFromPipApp
                     || launchState.launchedWithNextPipApp
                 ? NUM_TASK_VISIBLE_LAUNCHED_FROM_HOME

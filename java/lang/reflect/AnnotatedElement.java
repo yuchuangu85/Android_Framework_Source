@@ -27,6 +27,7 @@
 package java.lang.reflect;
 
 import java.lang.annotation.Annotation;
+import java.lang.annotation.AnnotationFormatError;
 import java.util.Objects;
 import libcore.reflect.AnnotatedElements;
 

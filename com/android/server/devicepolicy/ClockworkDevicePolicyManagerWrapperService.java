@@ -10,6 +10,7 @@ import android.app.IServiceConnection;
 import android.app.admin.DevicePolicyManager;
 import android.app.admin.NetworkEvent;
 import android.app.admin.PasswordMetrics;
+import android.app.admin.StartInstallingUpdateCallback;
 import android.app.admin.SystemUpdateInfo;
 import android.app.admin.SystemUpdatePolicy;
 import android.content.ComponentName;
@@ -27,11 +28,15 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.ParcelFileDescriptor;
 import android.os.PersistableBundle;
 import android.os.RemoteCallback;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
+import android.security.keymaster.KeymasterCertificateChain;
+import android.security.keystore.ParcelableKeyGenParameterSpec;
+import android.telephony.data.ApnSetting;
 import android.util.ArraySet;
 
 import java.util.ArrayList;
@@ -215,8 +220,18 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     }
 
     @Override
+    public boolean isUsingUnifiedPassword(ComponentName who) {
+        return true;
+    }
+
+    @Override
     public boolean isProfileActivePasswordSufficientForParent(int userHandle) {
         return false;
+    }
+
+    @Override
+    public int getPasswordComplexity() {
+        return mDpmsDelegate.getPasswordComplexity();
     }
 
     @Override
@@ -401,12 +416,12 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     }
 
     @Override
-    public void reportFailedFingerprintAttempt(int userHandle) {
+    public void reportFailedBiometricAttempt(int userHandle) {
         maybeThrowUnsupportedOperationException();
     }
 
     @Override
-    public void reportSuccessfulFingerprintAttempt(int userHandle) {
+    public void reportSuccessfulBiometricAttempt(int userHandle) {
         maybeThrowUnsupportedOperationException();
     }
 
@@ -463,6 +478,11 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     }
 
     @Override
+    public ComponentName getProfileOwnerAsUser(int userHandle) {
+        return null;
+    }
+
+    @Override
     public String getProfileOwnerName(int userHandle) {
         return null;
     }
@@ -480,6 +500,16 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     @Override
     public void clearProfileOwner(ComponentName who) {
         maybeThrowUnsupportedOperationException();
+    }
+
+    @Override
+    public boolean checkDeviceIdentifierAccess(String packageName, int pid, int uid) {
+        return mDpmsDelegate.checkDeviceIdentifierAccess(packageName, pid, uid);
+    }
+
+    @Override
+    public void grantDeviceIdsAccessToProfileOwner(ComponentName who, int userId) {
+        mDpmsDelegate.grantDeviceIdsAccessToProfileOwner(who, userId);
     }
 
     @Override
@@ -553,6 +583,21 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     }
 
     @Override
+    public boolean generateKeyPair(ComponentName who, String callerPackage, String algorithm,
+            ParcelableKeyGenParameterSpec keySpec, int idAttestationFlags,
+            KeymasterCertificateChain attestationChain) {
+        maybeThrowUnsupportedOperationException();
+        return false;
+    }
+
+    @Override
+    public boolean setKeyPairCertificate(ComponentName who, String callerPackage, String alias,
+            byte[] cert, byte[] chain, boolean isUserSelectable) {
+        maybeThrowUnsupportedOperationException();
+        return false;
+    }
+
+    @Override
     public void choosePrivateKeyAlias(int uid, Uri uri, String alias, IBinder response) {
         maybeThrowUnsupportedOperationException();
     }
@@ -587,13 +632,24 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     }
 
     @Override
-    public boolean setAlwaysOnVpnPackage(ComponentName admin, String vpnPackage, boolean lockdown) {
+    public boolean setAlwaysOnVpnPackage(ComponentName admin, String vpnPackage, boolean lockdown,
+            List<String> lockdownWhitelist) {
         maybeThrowUnsupportedOperationException();
         return false;
     }
 
     @Override
     public String getAlwaysOnVpnPackage(ComponentName admin) {
+        return null;
+    }
+
+    @Override
+    public boolean isAlwaysOnVpnLockdownEnabled(ComponentName who) {
+        return false;
+    }
+
+    @Override
+    public List<String> getAlwaysOnVpnLockdownWhitelist(ComponentName who) {
         return null;
     }
 
@@ -611,6 +667,11 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
 
     @Override
     public void clearPackagePersistentPreferredActivities(ComponentName who, String packageName) {
+        maybeThrowUnsupportedOperationException();
+    }
+
+    @Override
+    public void setDefaultSmsApplication(ComponentName admin, String packageName) {
         maybeThrowUnsupportedOperationException();
     }
 
@@ -735,6 +796,33 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     @Override
     public List<String> getCrossProfileWidgetProviders(ComponentName admin) {
         return null;
+    }
+
+    @Override
+    public void setCrossProfileCalendarPackages(ComponentName admin, List<String> packageNames) {
+        maybeThrowUnsupportedOperationException();
+    }
+
+    @Override
+    public List<String> getCrossProfileCalendarPackages(ComponentName admin) {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public boolean isPackageAllowedToAccessCalendarForUser(String packageName,
+            int userHandle) {
+        return false;
+    }
+
+    @Override
+    public List<String> getCrossProfileCalendarPackagesForUser(int userHandle) {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public boolean startViewCalendarEventInManagedProfile(String packageName, long eventId,
+            long start, long end, boolean allDay, int flags) {
+        return false;
     }
 
     @Override
@@ -904,6 +992,11 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     }
 
     @Override
+    public void setSystemSetting(ComponentName who, String setting, String value) {
+        maybeThrowUnsupportedOperationException();
+    }
+
+    @Override
     public boolean setTime(ComponentName who, long millis) {
         maybeThrowUnsupportedOperationException();
         return false;
@@ -1025,6 +1118,17 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     }
 
     @Override
+    public void clearSystemUpdatePolicyFreezePeriodRecord() {
+        maybeThrowUnsupportedOperationException();
+    }
+
+    @Override
+    public void installUpdateFromFile(ComponentName admin,
+            ParcelFileDescriptor updateFileDescriptor, StartInstallingUpdateCallback listener) {
+        maybeThrowUnsupportedOperationException();
+    }
+
+    @Override
     public boolean setKeyguardDisabled(ComponentName who, boolean disabled) {
         maybeThrowUnsupportedOperationException();
         return false;
@@ -1064,10 +1168,11 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     }
 
     @Override
-    public boolean setPermissionGrantState(ComponentName admin, String callerPackage,
-            String packageName, String permission, int grantState) throws RemoteException {
+    public void setPermissionGrantState(ComponentName admin, String callerPackage,
+            String packageName, String permission, int grantState, RemoteCallback cb)
+                throws RemoteException {
         maybeThrowUnsupportedOperationException();
-        return false;
+        return;
     }
 
     @Override
@@ -1193,6 +1298,23 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     }
 
     @Override
+    public List<String> setMeteredDataDisabledPackages(ComponentName admin, List<String> packageNames) {
+        maybeThrowUnsupportedOperationException();
+        return packageNames;
+    }
+
+    @Override
+    public List<String> getMeteredDataDisabledPackages(ComponentName admin) {
+        return new ArrayList<>();
+    }
+
+    @Override
+    public boolean isMeteredDataDisabledPackageForUser(
+            ComponentName admin, String packageName, int userId) {
+        return false;
+    }
+
+    @Override
     public int getUserProvisioningState() {
         return DevicePolicyManager.STATE_USER_UNMANAGED;
     }
@@ -1235,6 +1357,18 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     @Override
     public ParceledListSlice retrievePreRebootSecurityLogs(ComponentName admin) {
         return null;
+    }
+
+    @Override
+    public long forceNetworkLogs() {
+        maybeThrowUnsupportedOperationException();
+        return 0;
+    }
+
+    @Override
+    public long forceSecurityLogs() {
+        maybeThrowUnsupportedOperationException();
+        return 0;
     }
 
     @Override
@@ -1292,17 +1426,17 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     }
 
     @Override
-    public void setNetworkLoggingEnabled(ComponentName admin, boolean enabled) {
+    public void setNetworkLoggingEnabled(ComponentName admin, String packageName, boolean enabled) {
         maybeThrowUnsupportedOperationException();
     }
 
     @Override
-    public boolean isNetworkLoggingEnabled(ComponentName admin) {
+    public boolean isNetworkLoggingEnabled(ComponentName admin, String packageName) {
         return false;
     }
 
     @Override
-    public List<NetworkEvent> retrieveNetworkLogs(ComponentName admin, long batchToken) {
+    public List<NetworkEvent> retrieveNetworkLogs(ComponentName admin, String packageName, long batchToken) {
         return null;
     }
 
@@ -1378,17 +1512,93 @@ public class ClockworkDevicePolicyManagerWrapperService extends BaseIDevicePolic
     }
 
     @Override
-    public boolean setMandatoryBackupTransport(
-            ComponentName admin, ComponentName backupTransportComponent) {
+    public void transferOwnership(ComponentName admin, ComponentName target, PersistableBundle bundle) {
+        maybeThrowUnsupportedOperationException();
+    }
+
+    @Override
+    public PersistableBundle getTransferOwnershipBundle() {
+        return null;
+    }
+
+    @Override
+    public int addOverrideApn(ComponentName admin, ApnSetting apnSetting) {
+        maybeThrowUnsupportedOperationException();
+        return -1;
+    }
+
+    @Override
+    public boolean updateOverrideApn(ComponentName admin, int apnId, ApnSetting apnSetting) {
         maybeThrowUnsupportedOperationException();
         return false;
     }
 
     @Override
-    public ComponentName getMandatoryBackupTransport() {
+    public boolean removeOverrideApn(ComponentName admin, int apnId) {
+        maybeThrowUnsupportedOperationException();
+        return false;
+    }
+
+    @Override
+    public List<ApnSetting> getOverrideApns(ComponentName admin) {
+        return Collections.emptyList();
+    }
+
+    @Override
+    public void setOverrideApnsEnabled(ComponentName admin, boolean enabled) {
+        maybeThrowUnsupportedOperationException();
+    }
+
+    @Override
+    public boolean isOverrideApnEnabled(ComponentName admin) {
+        return false;
+    }
+
+    @Override
+    public void setStartUserSessionMessage(
+            ComponentName admin, CharSequence startUserSessionMessage) {
+        maybeThrowUnsupportedOperationException();
+    }
+
+    @Override
+    public void setEndUserSessionMessage(ComponentName admin, CharSequence endUserSessionMessage) {
+        maybeThrowUnsupportedOperationException();
+    }
+
+    @Override
+    public String getStartUserSessionMessage(ComponentName admin) {
         return null;
     }
 
+    @Override
+    public String getEndUserSessionMessage(ComponentName admin) {
+        return null;
+    }
+
+    @Override
+    public int setGlobalPrivateDns(ComponentName who, int mode, String privateDnsHost) {
+        return DevicePolicyManager.PRIVATE_DNS_SET_ERROR_FAILURE_SETTING;
+    }
+
+    @Override
+    public int getGlobalPrivateDnsMode(ComponentName who) {
+        return DevicePolicyManager.PRIVATE_DNS_MODE_UNKNOWN;
+    }
+
+    @Override
+    public String getGlobalPrivateDnsHost(ComponentName who) {
+        return null;
+    }
+
+    @Override
+    public boolean isManagedKiosk() {
+        return false;
+    }
+
+    @Override
+    public boolean isUnattendedManagedKiosk() {
+        return false;
+    }
     private void maybeThrowUnsupportedOperationException() throws UnsupportedOperationException {
         if (mThrowUnsupportedException) {
             throw new UnsupportedOperationException(NOT_SUPPORTED_MESSAGE);

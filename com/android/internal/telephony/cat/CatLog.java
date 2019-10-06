@@ -16,11 +16,13 @@
 
 package com.android.internal.telephony.cat;
 
+import android.annotation.UnsupportedAppUsage;
 import android.telephony.Rlog;
 
 public abstract class CatLog {
     static final boolean DEBUG = true;
 
+    @UnsupportedAppUsage
     public static void d(Object caller, String msg) {
         if (!DEBUG) {
             return;
@@ -31,6 +33,7 @@ public abstract class CatLog {
                 + msg);
     }
 
+    @UnsupportedAppUsage
     public static void d(String caller, String msg) {
         if (!DEBUG) {
             return;
@@ -38,6 +41,7 @@ public abstract class CatLog {
 
         Rlog.d("CAT", caller + ": " + msg);
     }
+    @UnsupportedAppUsage
     public static void e(Object caller, String msg) {
         String className = caller.getClass().getName();
         Rlog.e("CAT", className.substring(className.lastIndexOf('.') + 1) + ": "

@@ -16,16 +16,21 @@
 
 package android.content;
 
+import static android.provider.DocumentsContract.EXTRA_ORIENTATION;
+
 import android.accounts.Account;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
 import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.annotation.UserIdInt;
 import android.app.ActivityManager;
 import android.app.ActivityThread;
 import android.app.AppGlobals;
+import android.app.UriGrantsManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.Resources;
@@ -33,8 +38,14 @@ import android.database.ContentObserver;
 import android.database.CrossProcessCursorWrapper;
 import android.database.Cursor;
 import android.database.IContentObserver;
+import android.graphics.Bitmap;
+import android.graphics.ImageDecoder;
+import android.graphics.ImageDecoder.ImageInfo;
+import android.graphics.ImageDecoder.Source;
+import android.graphics.Matrix;
 import android.graphics.Point;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.CancellationSignal;
@@ -47,9 +58,12 @@ import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.os.UserHandle;
+import android.os.storage.StorageManager;
+import android.system.Int32Ref;
 import android.text.TextUtils;
 import android.util.EventLog;
 import android.util.Log;
+import android.util.Size;
 
 import com.android.internal.util.MimeIconUtils;
 import com.android.internal.util.Preconditions;
@@ -66,6 +80,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -77,8 +92,32 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>For more information about using a ContentResolver with content providers, read the
  * <a href="{@docRoot}guide/topics/providers/content-providers.html">Content Providers</a>
  * developer guide.</p>
+ * </div>
  */
-public abstract class ContentResolver {
+public abstract class ContentResolver implements ContentInterface {
+    /**
+     * Enables logic that supports deprecation of {@code _data} columns,
+     * typically by replacing values with fake paths that the OS then offers to
+     * redirect to {@link #openFileDescriptor(Uri, String)}, which developers
+     * should be using directly.
+     *
+     * @hide
+     */
+    public static final boolean DEPRECATE_DATA_COLUMNS = StorageManager.hasIsolatedStorage();
+
+    /**
+     * Special filesystem path prefix which indicates that a path should be
+     * treated as a {@code content://} {@link Uri} when
+     * {@link #DEPRECATE_DATA_COLUMNS} is enabled.
+     * <p>
+     * The remainder of the path after this prefix is a
+     * {@link Uri#getSchemeSpecificPart()} value, which includes authority, path
+     * segments, and query parameters.
+     *
+     * @hide
+     */
+    public static final String DEPRECATE_DATA_PREFIX = "/mnt/content/";
+
     /**
      * @deprecated instead use
      * {@link #requestSync(android.accounts.Account, String, android.os.Bundle)}
@@ -260,6 +299,13 @@ public abstract class ContentResolver {
      */
     public static final String QUERY_ARG_SQL_SORT_ORDER = "android:query-arg-sql-sort-order";
 
+    /** {@hide} */
+    public static final String QUERY_ARG_SQL_GROUP_BY = "android:query-arg-sql-group-by";
+    /** {@hide} */
+    public static final String QUERY_ARG_SQL_HAVING = "android:query-arg-sql-having";
+    /** {@hide} */
+    public static final String QUERY_ARG_SQL_LIMIT = "android:query-arg-sql-limit";
+
     /**
      * Specifies the list of columns against which to sort results. When first column values
      * are identical, records are then sorted based on second column values, and so on.
@@ -428,7 +474,14 @@ public abstract class ContentResolver {
      */
     public static final String ANY_CURSOR_ITEM_TYPE = "vnd.android.cursor.item/*";
 
+    /**
+     * Default MIME type for files whose type is otherwise unknown.
+     * @hide
+     */
+    public static final String MIME_TYPE_DEFAULT = "application/octet-stream";
+
     /** @hide */
+    @UnsupportedAppUsage
     public static final int SYNC_ERROR_SYNC_ALREADY_IN_PROGRESS = 1;
     /** @hide */
     public static final int SYNC_ERROR_AUTHENTICATION = 2;
@@ -485,6 +538,7 @@ public abstract class ContentResolver {
     public static final int SYNC_OBSERVER_TYPE_PENDING = 1<<1;
     public static final int SYNC_OBSERVER_TYPE_ACTIVE = 1<<2;
     /** @hide */
+    @UnsupportedAppUsage
     public static final int SYNC_OBSERVER_TYPE_STATUS = 1<<3;
     /** @hide */
     public static final int SYNC_OBSERVER_TYPE_ALL = 0x7fffffff;
@@ -560,13 +614,64 @@ public abstract class ContentResolver {
     private static final int SLOW_THRESHOLD_MILLIS = 500;
     private final Random mRandom = new Random();  // guarded by itself
 
-    public ContentResolver(Context context) {
+    public ContentResolver(@Nullable Context context) {
+        this(context, null);
+    }
+
+    /** {@hide} */
+    public ContentResolver(@Nullable Context context, @Nullable ContentInterface wrapped) {
         mContext = context != null ? context : ActivityThread.currentApplication();
         mPackageName = mContext.getOpPackageName();
         mTargetSdkVersion = mContext.getApplicationInfo().targetSdkVersion;
+        mWrapped = wrapped;
+    }
+
+    /** {@hide} */
+    public static @NonNull ContentResolver wrap(@NonNull ContentInterface wrapped) {
+        Preconditions.checkNotNull(wrapped);
+
+        return new ContentResolver(null, wrapped) {
+            @Override
+            public void unstableProviderDied(IContentProvider icp) {
+                throw new UnsupportedOperationException();
+            }
+            @Override
+            public boolean releaseUnstableProvider(IContentProvider icp) {
+                throw new UnsupportedOperationException();
+            }
+            @Override
+            public boolean releaseProvider(IContentProvider icp) {
+                throw new UnsupportedOperationException();
+            }
+            @Override
+            protected IContentProvider acquireUnstableProvider(Context c, String name) {
+                throw new UnsupportedOperationException();
+            }
+            @Override
+            protected IContentProvider acquireProvider(Context c, String name) {
+                throw new UnsupportedOperationException();
+            }
+        };
+    }
+
+    /**
+     * Create a {@link ContentResolver} instance that redirects all its methods
+     * to the given {@link ContentProvider}.
+     */
+    public static @NonNull ContentResolver wrap(@NonNull ContentProvider wrapped) {
+        return wrap((ContentInterface) wrapped);
+    }
+
+    /**
+     * Create a {@link ContentResolver} instance that redirects all its methods
+     * to the given {@link ContentProviderClient}.
+     */
+    public static @NonNull ContentResolver wrap(@NonNull ContentProviderClient wrapped) {
+        return wrap((ContentInterface) wrapped);
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     protected abstract IContentProvider acquireProvider(Context c, String name);
 
     /**
@@ -576,17 +681,22 @@ public abstract class ContentResolver {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     protected IContentProvider acquireExistingProvider(Context c, String name) {
         return acquireProvider(c, name);
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public abstract boolean releaseProvider(IContentProvider icp);
     /** @hide */
+    @UnsupportedAppUsage
     protected abstract IContentProvider acquireUnstableProvider(Context c, String name);
     /** @hide */
+    @UnsupportedAppUsage
     public abstract boolean releaseUnstableProvider(IContentProvider icp);
     /** @hide */
+    @UnsupportedAppUsage
     public abstract void unstableProviderDied(IContentProvider icp);
 
     /** @hide */
@@ -601,8 +711,15 @@ public abstract class ContentResolver {
      * using the content:// scheme.
      * @return A MIME type for the content, or null if the URL is invalid or the type is unknown
      */
+    @Override
     public final @Nullable String getType(@NonNull Uri url) {
         Preconditions.checkNotNull(url, "url");
+
+        try {
+            if (mWrapped != null) return mWrapped.getType(url);
+        } catch (RemoteException e) {
+            return null;
+        }
 
         // XXX would like to have an acquireExistingUnstableProvider for this.
         IContentProvider provider = acquireExistingProvider(url);
@@ -654,9 +771,16 @@ public abstract class ContentResolver {
      * data streams that match the given mimeTypeFilter.  If there are none,
      * null is returned.
      */
+    @Override
     public @Nullable String[] getStreamTypes(@NonNull Uri url, @NonNull String mimeTypeFilter) {
         Preconditions.checkNotNull(url, "url");
         Preconditions.checkNotNull(mimeTypeFilter, "mimeTypeFilter");
+
+        try {
+            if (mWrapped != null) return mWrapped.getStreamTypes(url, mimeTypeFilter);
+        } catch (RemoteException e) {
+            return null;
+        }
 
         IContentProvider provider = acquireProvider(url);
         if (provider == null) {
@@ -701,7 +825,9 @@ public abstract class ContentResolver {
      * @param sortOrder How to order the rows, formatted as an SQL ORDER BY
      *         clause (excluding the ORDER BY itself). Passing null will use the
      *         default sort order, which may be unordered.
-     * @return A Cursor object, which is positioned before the first entry, or null
+     * @return A Cursor object, which is positioned before the first entry. May return
+     *         <code>null</code> if the underlying content provider returns <code>null</code>,
+     *         or if it crashes.
      * @see Cursor
      */
     public final @Nullable Cursor query(@RequiresPermission.Read @NonNull Uri uri,
@@ -741,7 +867,9 @@ public abstract class ContentResolver {
      * @param cancellationSignal A signal to cancel the operation in progress, or null if none.
      * If the operation is canceled, then {@link OperationCanceledException} will be thrown
      * when the query is executed.
-     * @return A Cursor object, which is positioned before the first entry, or null
+     * @return A Cursor object, which is positioned before the first entry. May return
+     *         <code>null</code> if the underlying content provider returns <code>null</code>,
+     *         or if it crashes.
      * @see Cursor
      */
     public final @Nullable Cursor query(@RequiresPermission.Read @NonNull Uri uri,
@@ -766,7 +894,9 @@ public abstract class ContentResolver {
      * in the {@link Cursor} extras {@link Bundle}. See {@link #EXTRA_HONORED_ARGS}
      * for details.
      *
-     * @see #QUERY_ARG_SORT_COLUMNS, #QUERY_ARG_SORT_DIRECTION, #QUERY_ARG_SORT_COLLATION.
+     * @see #QUERY_ARG_SORT_COLUMNS
+     * @see #QUERY_ARG_SORT_DIRECTION
+     * @see #QUERY_ARG_SORT_COLLATION
      *
      * @param uri The URI, using the content:// scheme, for the content to
      *         retrieve.
@@ -776,13 +906,25 @@ public abstract class ContentResolver {
      * @param cancellationSignal A signal to cancel the operation in progress, or null if none.
      * If the operation is canceled, then {@link OperationCanceledException} will be thrown
      * when the query is executed.
-     * @return A Cursor object, which is positioned before the first entry, or null
+     * @return A Cursor object, which is positioned before the first entry. May return
+     *         <code>null</code> if the underlying content provider returns <code>null</code>,
+     *         or if it crashes.
      * @see Cursor
      */
+    @Override
     public final @Nullable Cursor query(final @RequiresPermission.Read @NonNull Uri uri,
             @Nullable String[] projection, @Nullable Bundle queryArgs,
             @Nullable CancellationSignal cancellationSignal) {
         Preconditions.checkNotNull(uri, "uri");
+
+        try {
+            if (mWrapped != null) {
+                return mWrapped.query(uri, projection, queryArgs, cancellationSignal);
+            }
+        } catch (RemoteException e) {
+            return null;
+        }
+
         IContentProvider unstableProvider = acquireUnstableProvider(uri);
         if (unstableProvider == null) {
             return null;
@@ -849,6 +991,12 @@ public abstract class ContentResolver {
         }
     }
 
+    /** {@hide} */
+    public final @NonNull Uri canonicalizeOrElse(@NonNull Uri uri) {
+        final Uri res = canonicalize(uri);
+        return (res != null) ? res : uri;
+    }
+
     /**
      * Transform the given <var>url</var> to a canonical representation of
      * its referenced resource, which can be used across devices, persisted,
@@ -879,8 +1027,16 @@ public abstract class ContentResolver {
      *
      * @see #uncanonicalize
      */
+    @Override
     public final @Nullable Uri canonicalize(@NonNull Uri url) {
         Preconditions.checkNotNull(url, "url");
+
+        try {
+            if (mWrapped != null) return mWrapped.canonicalize(url);
+        } catch (RemoteException e) {
+            return null;
+        }
+
         IContentProvider provider = acquireProvider(url);
         if (provider == null) {
             return null;
@@ -915,8 +1071,16 @@ public abstract class ContentResolver {
      *
      * @see #canonicalize
      */
+    @Override
     public final @Nullable Uri uncanonicalize(@NonNull Uri url) {
         Preconditions.checkNotNull(url, "url");
+
+        try {
+            if (mWrapped != null) return mWrapped.uncanonicalize(url);
+        } catch (RemoteException e) {
+            return null;
+        }
+
         IContentProvider provider = acquireProvider(url);
         if (provider == null) {
             return null;
@@ -949,9 +1113,17 @@ public abstract class ContentResolver {
      *            canceled the refresh request.
      * @return true if the provider actually tried refreshing.
      */
+    @Override
     public final boolean refresh(@NonNull Uri url, @Nullable Bundle args,
             @Nullable CancellationSignal cancellationSignal) {
         Preconditions.checkNotNull(url, "url");
+
+        try {
+            if (mWrapped != null) return mWrapped.refresh(url, args, cancellationSignal);
+        } catch (RemoteException e) {
+            return false;
+        }
+
         IContentProvider provider = acquireProvider(url);
         if (provider == null) {
             return false;
@@ -1060,6 +1232,18 @@ public abstract class ContentResolver {
         }
     }
 
+    @Override
+    public final @Nullable ParcelFileDescriptor openFile(@NonNull Uri uri, @NonNull String mode,
+            @Nullable CancellationSignal signal) throws FileNotFoundException {
+        try {
+            if (mWrapped != null) return mWrapped.openFile(uri, mode, signal);
+        } catch (RemoteException e) {
+            return null;
+        }
+
+        return openFileDescriptor(uri, mode, signal);
+    }
+
     /**
      * Open a raw file descriptor to access data under a URI.  This
      * is like {@link #openAssetFileDescriptor(Uri, String)}, but uses the
@@ -1145,6 +1329,12 @@ public abstract class ContentResolver {
     public final @Nullable ParcelFileDescriptor openFileDescriptor(@NonNull Uri uri,
             @NonNull String mode, @Nullable CancellationSignal cancellationSignal)
                     throws FileNotFoundException {
+        try {
+            if (mWrapped != null) return mWrapped.openFile(uri, mode, cancellationSignal);
+        } catch (RemoteException e) {
+            return null;
+        }
+
         AssetFileDescriptor afd = openAssetFileDescriptor(uri, mode, cancellationSignal);
         if (afd == null) {
             return null;
@@ -1163,6 +1353,18 @@ public abstract class ContentResolver {
         }
 
         throw new FileNotFoundException("Not a whole file");
+    }
+
+    @Override
+    public final @Nullable AssetFileDescriptor openAssetFile(@NonNull Uri uri, @NonNull String mode,
+            @Nullable CancellationSignal signal) throws FileNotFoundException {
+        try {
+            if (mWrapped != null) return mWrapped.openAssetFile(uri, mode, signal);
+        } catch (RemoteException e) {
+            return null;
+        }
+
+        return openAssetFileDescriptor(uri, mode, signal);
     }
 
     /**
@@ -1275,6 +1477,12 @@ public abstract class ContentResolver {
         Preconditions.checkNotNull(uri, "uri");
         Preconditions.checkNotNull(mode, "mode");
 
+        try {
+            if (mWrapped != null) return mWrapped.openAssetFile(uri, mode, cancellationSignal);
+        } catch (RemoteException e) {
+            return null;
+        }
+
         String scheme = uri.getScheme();
         if (SCHEME_ANDROID_RESOURCE.equals(scheme)) {
             if (!"r".equals(mode)) {
@@ -1369,6 +1577,21 @@ public abstract class ContentResolver {
         }
     }
 
+    @Override
+    public final @Nullable AssetFileDescriptor openTypedAssetFile(@NonNull Uri uri,
+            @NonNull String mimeTypeFilter, @Nullable Bundle opts,
+            @Nullable CancellationSignal signal) throws FileNotFoundException {
+        try {
+            if (mWrapped != null) {
+                return mWrapped.openTypedAssetFile(uri, mimeTypeFilter, opts, signal);
+            }
+        } catch (RemoteException e) {
+            return null;
+        }
+
+        return openTypedAssetFileDescriptor(uri, mimeTypeFilter, opts, signal);
+    }
+
     /**
      * Open a raw file descriptor to access (potentially type transformed)
      * data from a "content:" URI.  This interacts with the underlying
@@ -1438,6 +1661,12 @@ public abstract class ContentResolver {
             @Nullable CancellationSignal cancellationSignal) throws FileNotFoundException {
         Preconditions.checkNotNull(uri, "uri");
         Preconditions.checkNotNull(mimeType, "mimeType");
+
+        try {
+            if (mWrapped != null) return mWrapped.openTypedAssetFile(uri, mimeType, opts, cancellationSignal);
+        } catch (RemoteException e) {
+            return null;
+        }
 
         IContentProvider unstableProvider = acquireUnstableProvider(uri);
         if (unstableProvider == null) {
@@ -1518,7 +1747,9 @@ public abstract class ContentResolver {
      * @hide
      */
     public class OpenResourceIdResult {
+        @UnsupportedAppUsage
         public Resources r;
+        @UnsupportedAppUsage
         public int id;
     }
 
@@ -1527,6 +1758,7 @@ public abstract class ContentResolver {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public OpenResourceIdResult getResourceId(Uri uri) throws FileNotFoundException {
         String authority = uri.getAuthority();
         Resources r;
@@ -1573,11 +1805,20 @@ public abstract class ContentResolver {
      * @param url The URL of the table to insert into.
      * @param values The initial values for the newly inserted row. The key is the column name for
      *               the field. Passing an empty ContentValues will create an empty row.
-     * @return the URL of the newly created row.
+     * @return the URL of the newly created row. May return <code>null</code> if the underlying
+     *         content provider returns <code>null</code>, or if it crashes.
      */
+    @Override
     public final @Nullable Uri insert(@RequiresPermission.Write @NonNull Uri url,
                 @Nullable ContentValues values) {
         Preconditions.checkNotNull(url, "url");
+
+        try {
+            if (mWrapped != null) return mWrapped.insert(url, values);
+        } catch (RemoteException e) {
+            return null;
+        }
+
         IContentProvider provider = acquireProvider(url);
         if (provider == null) {
             throw new IllegalArgumentException("Unknown URL " + url);
@@ -1613,11 +1854,19 @@ public abstract class ContentResolver {
      * @throws RemoteException thrown if a RemoteException is encountered while attempting
      *   to communicate with a remote provider.
      */
+    @Override
     public @NonNull ContentProviderResult[] applyBatch(@NonNull String authority,
             @NonNull ArrayList<ContentProviderOperation> operations)
                     throws RemoteException, OperationApplicationException {
         Preconditions.checkNotNull(authority, "authority");
         Preconditions.checkNotNull(operations, "operations");
+
+        try {
+            if (mWrapped != null) return mWrapped.applyBatch(authority, operations);
+        } catch (RemoteException e) {
+            return null;
+        }
+
         ContentProviderClient provider = acquireContentProviderClient(authority);
         if (provider == null) {
             throw new IllegalArgumentException("Unknown authority " + authority);
@@ -1639,10 +1888,18 @@ public abstract class ContentResolver {
      *               the field. Passing null will create an empty row.
      * @return the number of newly created rows.
      */
+    @Override
     public final int bulkInsert(@RequiresPermission.Write @NonNull Uri url,
                 @NonNull ContentValues[] values) {
         Preconditions.checkNotNull(url, "url");
         Preconditions.checkNotNull(values, "values");
+
+        try {
+            if (mWrapped != null) return mWrapped.bulkInsert(url, values);
+        } catch (RemoteException e) {
+            return 0;
+        }
+
         IContentProvider provider = acquireProvider(url);
         if (provider == null) {
             throw new IllegalArgumentException("Unknown URL " + url);
@@ -1672,9 +1929,17 @@ public abstract class ContentResolver {
                     (excluding the WHERE itself).
      * @return The number of rows deleted.
      */
+    @Override
     public final int delete(@RequiresPermission.Write @NonNull Uri url, @Nullable String where,
             @Nullable String[] selectionArgs) {
         Preconditions.checkNotNull(url, "url");
+
+        try {
+            if (mWrapped != null) return mWrapped.delete(url, where, selectionArgs);
+        } catch (RemoteException e) {
+            return 0;
+        }
+
         IContentProvider provider = acquireProvider(url);
         if (provider == null) {
             throw new IllegalArgumentException("Unknown URL " + url);
@@ -1707,10 +1972,18 @@ public abstract class ContentResolver {
      * @return the number of rows updated.
      * @throws NullPointerException if uri or values are null
      */
+    @Override
     public final int update(@RequiresPermission.Write @NonNull Uri uri,
             @Nullable ContentValues values, @Nullable String where,
             @Nullable String[] selectionArgs) {
         Preconditions.checkNotNull(uri, "uri");
+
+        try {
+            if (mWrapped != null) return mWrapped.update(uri, values, where, selectionArgs);
+        } catch (RemoteException e) {
+            return 0;
+        }
+
         IContentProvider provider = acquireProvider(uri);
         if (provider == null) {
             throw new IllegalArgumentException("Unknown URI " + uri);
@@ -1746,14 +2019,27 @@ public abstract class ContentResolver {
      */
     public final @Nullable Bundle call(@NonNull Uri uri, @NonNull String method,
             @Nullable String arg, @Nullable Bundle extras) {
-        Preconditions.checkNotNull(uri, "uri");
+        return call(uri.getAuthority(), method, arg, extras);
+    }
+
+    @Override
+    public final @Nullable Bundle call(@NonNull String authority, @NonNull String method,
+            @Nullable String arg, @Nullable Bundle extras) {
+        Preconditions.checkNotNull(authority, "authority");
         Preconditions.checkNotNull(method, "method");
-        IContentProvider provider = acquireProvider(uri);
+
+        try {
+            if (mWrapped != null) return mWrapped.call(authority, method, arg, extras);
+        } catch (RemoteException e) {
+            return null;
+        }
+
+        IContentProvider provider = acquireProvider(authority);
         if (provider == null) {
-            throw new IllegalArgumentException("Unknown URI " + uri);
+            throw new IllegalArgumentException("Unknown authority " + authority);
         }
         try {
-            final Bundle res = provider.call(mPackageName, method, arg, extras);
+            final Bundle res = provider.call(mPackageName, authority, method, arg, extras);
             Bundle.setDefusable(res, true);
             return res;
         } catch (RemoteException e) {
@@ -1772,6 +2058,7 @@ public abstract class ContentResolver {
      * @return The ContentProvider for the given URI, or null if no content provider is found.
      * @hide
      */
+    @UnsupportedAppUsage
     public final IContentProvider acquireProvider(Uri uri) {
         if (!SCHEME_CONTENT.equals(uri.getScheme())) {
             return null;
@@ -1791,6 +2078,7 @@ public abstract class ContentResolver {
      * @return The ContentProvider for the given URI, or null if no content provider is found.
      * @hide
      */
+    @UnsupportedAppUsage
     public final IContentProvider acquireExistingProvider(Uri uri) {
         if (!SCHEME_CONTENT.equals(uri.getScheme())) {
             return null;
@@ -1805,6 +2093,7 @@ public abstract class ContentResolver {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public final IContentProvider acquireProvider(String name) {
         if (name == null) {
             return null;
@@ -1833,6 +2122,7 @@ public abstract class ContentResolver {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public final IContentProvider acquireUnstableProvider(String name) {
         if (name == null) {
             return null;
@@ -1845,7 +2135,7 @@ public abstract class ContentResolver {
      * that services the content at uri, starting the provider if necessary. Returns
      * null if there is no provider associated wih the uri. The caller must indicate that they are
      * done with the provider by calling {@link ContentProviderClient#release} which will allow
-     * the system to release the provider it it determines that there is no other reason for
+     * the system to release the provider if it determines that there is no other reason for
      * keeping it active.
      * @param uri specifies which provider should be acquired
      * @return a {@link ContentProviderClient} that is associated with the {@link ContentProvider}
@@ -1855,7 +2145,7 @@ public abstract class ContentResolver {
         Preconditions.checkNotNull(uri, "uri");
         IContentProvider provider = acquireProvider(uri);
         if (provider != null) {
-            return new ContentProviderClient(this, provider, true);
+            return new ContentProviderClient(this, provider, uri.getAuthority(), true);
         }
         return null;
     }
@@ -1865,7 +2155,7 @@ public abstract class ContentResolver {
      * with the authority of name, starting the provider if necessary. Returns
      * null if there is no provider associated wih the uri. The caller must indicate that they are
      * done with the provider by calling {@link ContentProviderClient#release} which will allow
-     * the system to release the provider it it determines that there is no other reason for
+     * the system to release the provider if it determines that there is no other reason for
      * keeping it active.
      * @param name specifies which provider should be acquired
      * @return a {@link ContentProviderClient} that is associated with the {@link ContentProvider}
@@ -1876,7 +2166,7 @@ public abstract class ContentResolver {
         Preconditions.checkNotNull(name, "name");
         IContentProvider provider = acquireProvider(name);
         if (provider != null) {
-            return new ContentProviderClient(this, provider, true);
+            return new ContentProviderClient(this, provider, name, true);
         }
 
         return null;
@@ -1903,7 +2193,7 @@ public abstract class ContentResolver {
         Preconditions.checkNotNull(uri, "uri");
         IContentProvider provider = acquireUnstableProvider(uri);
         if (provider != null) {
-            return new ContentProviderClient(this, provider, false);
+            return new ContentProviderClient(this, provider, uri.getAuthority(), false);
         }
 
         return null;
@@ -1930,7 +2220,7 @@ public abstract class ContentResolver {
         Preconditions.checkNotNull(name, "name");
         IContentProvider provider = acquireUnstableProvider(name);
         if (provider != null) {
-            return new ContentProviderClient(this, provider, false);
+            return new ContentProviderClient(this, provider, name, false);
         }
 
         return null;
@@ -1966,6 +2256,7 @@ public abstract class ContentResolver {
     }
 
     /** @hide - designated user version */
+    @UnsupportedAppUsage
     public final void registerContentObserver(Uri uri, boolean notifyForDescendents,
             ContentObserver observer, @UserIdInt int userHandle) {
         try {
@@ -2097,7 +2388,7 @@ public abstract class ContentResolver {
                     uri, observer == null ? null : observer.getContentObserver(),
                     observer != null && observer.deliverSelfNotifications(),
                     syncToNetwork ? NOTIFY_SYNC_TO_NETWORK : 0,
-                    userHandle, mTargetSdkVersion);
+                    userHandle, mTargetSdkVersion, mContext.getPackageName());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -2114,7 +2405,7 @@ public abstract class ContentResolver {
             getContentService().notifyChange(
                     uri, observer == null ? null : observer.getContentObserver(),
                     observer != null && observer.deliverSelfNotifications(), flags,
-                    userHandle, mTargetSdkVersion);
+                    userHandle, mTargetSdkVersion, mContext.getPackageName());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -2134,7 +2425,7 @@ public abstract class ContentResolver {
             @Intent.AccessUriMode int modeFlags) {
         Preconditions.checkNotNull(uri, "uri");
         try {
-            ActivityManager.getService().takePersistableUriPermission(
+            UriGrantsManager.getService().takePersistableUriPermission(
                     ContentProvider.getUriWithoutUserId(uri), modeFlags, /* toPackage= */ null,
                     resolveUserId(uri));
         } catch (RemoteException e) {
@@ -2145,12 +2436,13 @@ public abstract class ContentResolver {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public void takePersistableUriPermission(@NonNull String toPackage, @NonNull Uri uri,
             @Intent.AccessUriMode int modeFlags) {
         Preconditions.checkNotNull(toPackage, "toPackage");
         Preconditions.checkNotNull(uri, "uri");
         try {
-            ActivityManager.getService().takePersistableUriPermission(
+            UriGrantsManager.getService().takePersistableUriPermission(
                     ContentProvider.getUriWithoutUserId(uri), modeFlags, toPackage,
                     resolveUserId(uri));
         } catch (RemoteException e) {
@@ -2170,7 +2462,7 @@ public abstract class ContentResolver {
             @Intent.AccessUriMode int modeFlags) {
         Preconditions.checkNotNull(uri, "uri");
         try {
-            ActivityManager.getService().releasePersistableUriPermission(
+            UriGrantsManager.getService().releasePersistableUriPermission(
                     ContentProvider.getUriWithoutUserId(uri), modeFlags, /* toPackage= */ null,
                     resolveUserId(uri));
         } catch (RemoteException e) {
@@ -2190,8 +2482,8 @@ public abstract class ContentResolver {
      */
     public @NonNull List<UriPermission> getPersistedUriPermissions() {
         try {
-            return ActivityManager.getService()
-                    .getPersistedUriPermissions(mPackageName, true).getList();
+            return UriGrantsManager.getService().getUriPermissions(
+                    mPackageName, true /* incoming */, true /* persistedOnly */).getList();
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -2206,8 +2498,18 @@ public abstract class ContentResolver {
      */
     public @NonNull List<UriPermission> getOutgoingPersistedUriPermissions() {
         try {
-            return ActivityManager.getService()
-                    .getPersistedUriPermissions(mPackageName, false).getList();
+            return UriGrantsManager.getService().getUriPermissions(
+                    mPackageName, false /* incoming */, true /* persistedOnly */).getList();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /** @hide */
+    public @NonNull List<UriPermission> getOutgoingUriPermissions() {
+        try {
+            return UriGrantsManager.getService().getUriPermissions(
+                    mPackageName, false /* incoming */, false /* persistedOnly */).getList();
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -2286,7 +2588,9 @@ public abstract class ContentResolver {
                 .syncOnce()     // Immediate sync.
                 .build();
         try {
-            getContentService().syncAsUser(request, userId);
+            // Note ActivityThread.currentPackageName() may not be accurate in a shared process
+            // case, but it's only for debugging.
+            getContentService().syncAsUser(request, userId, ActivityThread.currentPackageName());
         } catch(RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -2298,7 +2602,9 @@ public abstract class ContentResolver {
      */
     public static void requestSync(SyncRequest request) {
         try {
-            getContentService().sync(request);
+            // Note ActivityThread.currentPackageName() may not be accurate in a shared process
+            // case, but it's only for debugging.
+            getContentService().sync(request, ActivityThread.currentPackageName());
         } catch(RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -2642,6 +2948,19 @@ public abstract class ContentResolver {
     }
 
     /**
+     * @see #setIsSyncable(Account, String, int)
+     * @hide
+     */
+    public static void setIsSyncableAsUser(Account account, String authority, int syncable,
+            int userId) {
+        try {
+            getContentService().setIsSyncableAsUser(account, authority, syncable, userId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Gets the master auto-sync setting that applies to all the providers and accounts.
      * If this is false then the per-provider auto-sync setting is ignored.
      * <p>This method requires the caller to hold the permission
@@ -2779,6 +3098,7 @@ public abstract class ContentResolver {
      * @return the SyncStatusInfo for the authority, or null if none exists
      * @hide
      */
+    @UnsupportedAppUsage
     public static SyncStatusInfo getSyncStatus(Account account, String authority) {
         try {
             return getContentService().getSyncStatus(account, authority, null);
@@ -2791,6 +3111,7 @@ public abstract class ContentResolver {
      * @see #getSyncStatus(Account, String)
      * @hide
      */
+    @UnsupportedAppUsage
     public static SyncStatusInfo getSyncStatusAsUser(Account account, String authority,
             @UserIdInt int userId) {
         try {
@@ -2872,8 +3193,19 @@ public abstract class ContentResolver {
         }
     }
 
-    /** {@hide} */
-    public void putCache(Uri key, Bundle value) {
+    /**
+     * Store the given {@link Bundle} as a long-lived cached object within the
+     * system. This can be useful to avoid expensive re-parsing when apps are
+     * restarted multiple times on low-RAM devices.
+     * <p>
+     * The {@link Bundle} is automatically invalidated when a
+     * {@link #notifyChange(Uri, ContentObserver)} event applies to the key.
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.CACHE_CONTENT)
+    public void putCache(@NonNull Uri key, @Nullable Bundle value) {
         try {
             getContentService().putCache(mContext.getPackageName(), key, value,
                     mContext.getUserId());
@@ -2882,8 +3214,18 @@ public abstract class ContentResolver {
         }
     }
 
-    /** {@hide} */
-    public Bundle getCache(Uri key) {
+    /**
+     * Retrieve the last {@link Bundle} stored as a long-lived cached object
+     * within the system.
+     *
+     * @return {@code null} if no cached object has been stored, or if the
+     *         stored object has been invalidated due to a
+     *         {@link #notifyChange(Uri, ContentObserver)} event.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.CACHE_CONTENT)
+    public @Nullable Bundle getCache(@NonNull Uri key) {
         try {
             final Bundle bundle = getContentService().getCache(mContext.getPackageName(), key,
                     mContext.getUserId());
@@ -3033,6 +3375,7 @@ public abstract class ContentResolver {
     public static final String CONTENT_SERVICE_NAME = "content";
 
     /** @hide */
+    @UnsupportedAppUsage
     public static IContentService getContentService() {
         if (sContentService != null) {
             return sContentService;
@@ -3043,15 +3386,20 @@ public abstract class ContentResolver {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public String getPackageName() {
         return mPackageName;
     }
 
+    @UnsupportedAppUsage
     private static volatile IContentService sContentService;
+    @UnsupportedAppUsage
     private final Context mContext;
 
+    @UnsupportedAppUsage
     final String mPackageName;
     final int mTargetSdkVersion;
+    final ContentInterface mWrapped;
 
     private static final String TAG = "ContentResolver";
 
@@ -3065,9 +3413,68 @@ public abstract class ContentResolver {
         return mContext.getUserId();
     }
 
-    /** @hide */
+    /** {@hide} */
+    @Deprecated
     public Drawable getTypeDrawable(String mimeType) {
-        return MimeIconUtils.loadMimeIcon(mContext, mimeType);
+        return getTypeInfo(mimeType).getIcon().loadDrawable(mContext);
+    }
+
+    /**
+     * Return a detailed description of the given MIME type, including an icon
+     * and label that describe the type.
+     *
+     * @param mimeType Valid, concrete MIME type.
+     */
+    public final @NonNull MimeTypeInfo getTypeInfo(@NonNull String mimeType) {
+        Objects.requireNonNull(mimeType);
+        return MimeIconUtils.getTypeInfo(mimeType);
+    }
+
+    /**
+     * Detailed description of a specific MIME type, including an icon and label
+     * that describe the type.
+     */
+    public static final class MimeTypeInfo {
+        private final Icon mIcon;
+        private final CharSequence mLabel;
+        private final CharSequence mContentDescription;
+
+        /** {@hide} */
+        public MimeTypeInfo(@NonNull Icon icon, @NonNull CharSequence label,
+                @NonNull CharSequence contentDescription) {
+            mIcon = Objects.requireNonNull(icon);
+            mLabel = Objects.requireNonNull(label);
+            mContentDescription = Objects.requireNonNull(contentDescription);
+        }
+
+        /**
+         * Return a visual representation of this MIME type. This can be styled
+         * using {@link Icon#setTint(int)} to match surrounding UI.
+         *
+         * @see Icon#loadDrawable(Context)
+         * @see android.widget.ImageView#setImageDrawable(Drawable)
+         */
+        public @NonNull Icon getIcon() {
+            return mIcon;
+        }
+
+        /**
+         * Return a textual representation of this MIME type.
+         *
+         * @see android.widget.TextView#setText(CharSequence)
+         */
+        public @NonNull CharSequence getLabel() {
+            return mLabel;
+        }
+
+        /**
+         * Return a content description for this MIME type.
+         *
+         * @see android.view.View#setContentDescription(CharSequence)
+         */
+        public @NonNull CharSequence getContentDescription() {
+            return mContentDescription;
+        }
     }
 
     /**
@@ -3142,5 +3549,98 @@ public abstract class ContentResolver {
             }
         }
         return query;
+    }
+
+    /**
+     * Convenience method that efficiently loads a visual thumbnail for the
+     * given {@link Uri}. Internally calls
+     * {@link ContentProvider#openTypedAssetFile} on the remote provider, but
+     * also defensively resizes any returned content to match the requested
+     * target size.
+     *
+     * @param uri The item that should be visualized as a thumbnail.
+     * @param size The target area on the screen where this thumbnail will be
+     *            shown. This is passed to the provider as {@link #EXTRA_SIZE}
+     *            to help it avoid downloading or generating heavy resources.
+     * @param signal A signal to cancel the operation in progress.
+     * @return Valid {@link Bitmap} which is a visual thumbnail.
+     * @throws IOException If any trouble was encountered while generating or
+     *             loading the thumbnail, or if
+     *             {@link CancellationSignal#cancel()} was invoked.
+     */
+    public @NonNull Bitmap loadThumbnail(@NonNull Uri uri, @NonNull Size size,
+            @Nullable CancellationSignal signal) throws IOException {
+        return loadThumbnail(this, uri, size, signal, ImageDecoder.ALLOCATOR_SOFTWARE);
+    }
+
+    /** {@hide} */
+    public static Bitmap loadThumbnail(@NonNull ContentInterface content, @NonNull Uri uri,
+            @NonNull Size size, @Nullable CancellationSignal signal, int allocator)
+            throws IOException {
+        Objects.requireNonNull(content);
+        Objects.requireNonNull(uri);
+        Objects.requireNonNull(size);
+
+        // Convert to Point, since that's what the API is defined as
+        final Bundle opts = new Bundle();
+        opts.putParcelable(EXTRA_SIZE, Point.convert(size));
+        final Int32Ref orientation = new Int32Ref(0);
+
+        Bitmap bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(() -> {
+            final AssetFileDescriptor afd = content.openTypedAssetFile(uri, "image/*", opts,
+                    signal);
+            final Bundle extras = afd.getExtras();
+            orientation.value = (extras != null) ? extras.getInt(EXTRA_ORIENTATION, 0) : 0;
+            return afd;
+        }), (ImageDecoder decoder, ImageInfo info, Source source) -> {
+            decoder.setAllocator(allocator);
+
+            // One last-ditch check to see if we've been canceled.
+            if (signal != null) signal.throwIfCanceled();
+
+            // We requested a rough thumbnail size, but the remote size may have
+            // returned something giant, so defensively scale down as needed.
+            final int widthSample = info.getSize().getWidth() / size.getWidth();
+            final int heightSample = info.getSize().getHeight() / size.getHeight();
+            final int sample = Math.min(widthSample, heightSample);
+            if (sample > 1) {
+                decoder.setTargetSampleSize(sample);
+            }
+        });
+
+        // Transform the bitmap if requested. We use a side-channel to
+        // communicate the orientation, since EXIF thumbnails don't contain
+        // the rotation flags of the original image.
+        if (orientation.value != 0) {
+            final int width = bitmap.getWidth();
+            final int height = bitmap.getHeight();
+
+            final Matrix m = new Matrix();
+            m.setRotate(orientation.value, width / 2, height / 2);
+            bitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, m, false);
+        }
+
+        return bitmap;
+    }
+
+    /** {@hide} */
+    public static void onDbCorruption(String tag, String message, Throwable stacktrace) {
+        try {
+            getContentService().onDbCorruption(tag, message, Log.getStackTraceString(stacktrace));
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /** {@hide} */
+    public static Uri translateDeprecatedDataPath(String path) {
+        final String ssp = "//" + path.substring(DEPRECATE_DATA_PREFIX.length());
+        return Uri.parse(new Uri.Builder().scheme(SCHEME_CONTENT)
+                .encodedOpaquePart(ssp).build().toString());
+    }
+
+    /** {@hide} */
+    public static String translateDeprecatedDataPath(Uri uri) {
+        return DEPRECATE_DATA_PREFIX + uri.getEncodedSchemeSpecificPart().substring(2);
     }
 }

@@ -20,9 +20,9 @@ import static android.app.Activity.RESULT_FIRST_USER;
 
 public final class ResultCodes {
 
-    public static final int RESULT_SKIP = RESULT_FIRST_USER;
-    public static final int RESULT_RETRY = RESULT_FIRST_USER + 1;
-    public static final int RESULT_ACTIVITY_NOT_FOUND = RESULT_FIRST_USER + 2;
+  public static final int RESULT_SKIP = RESULT_FIRST_USER;
+  public static final int RESULT_RETRY = RESULT_FIRST_USER + 1;
+  public static final int RESULT_ACTIVITY_NOT_FOUND = RESULT_FIRST_USER + 2;
 
-    public static final int RESULT_FIRST_SETUP_USER = RESULT_FIRST_USER + 100;
+  public static final int RESULT_FIRST_SETUP_USER = RESULT_FIRST_USER + 100;
 }

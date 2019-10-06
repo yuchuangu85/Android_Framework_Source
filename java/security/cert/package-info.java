@@ -32,14 +32,14 @@
  * <h2>Package Specification</h2>
  *
  * <ul>
- *   <li><a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/CryptoSpec.html">
+ *   <li><a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html">
  *     <b>Java&trade;
  *     Cryptography Architecture (JCA) Reference Guide</b></a>
  *   <li>RFC 5280: Internet X.509 Public Key Infrastructure Certificate and
  *     Certificate Revocation List (CRL) Profile
  *   <li>RFC 2560: X.509 Internet Public Key Infrastructure Online Certificate
  *     Status Protocol - OCSP
- *   <li><a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html">
+ *   <li><a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html">
  *     <b>Java&trade;
  *     Cryptography Architecture Standard Algorithm Name
  *     Documentation</b></a></li>
@@ -52,10 +52,10 @@
  *   <li><a href="http://www.ietf.org/rfc/rfc5280.txt">
  *     http://www.ietf.org/rfc/rfc5280.txt</a>
  *   <li><a href=
- *     "{@docRoot}/openjdk-redirect.html?v=8&path=/technotes/guides/security/certpath/CertPathProgGuide.html">
+ *     "https://docs.oracle.com/javase/8/docs/technotes/guides/security/certpath/CertPathProgGuide.html">
  *     <b>Java&trade;
  *     PKI Programmer's Guide</b></a>
- *   <li><a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/cert3.html">
+ *   <li><a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/cert3.html">
  *     <b>X.509 Certificates and Certificate Revocation Lists (CRLs)</b></a>
  * </ul>
  *

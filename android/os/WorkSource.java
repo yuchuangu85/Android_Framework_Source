@@ -2,6 +2,8 @@ package android.os;
 
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.WorkSourceProto;
 import android.provider.Settings;
@@ -23,8 +25,11 @@ public class WorkSource implements Parcelable {
     static final String TAG = "WorkSource";
     static final boolean DEBUG = false;
 
+    @UnsupportedAppUsage
     int mNum;
+    @UnsupportedAppUsage
     int[] mUids;
+    @UnsupportedAppUsage
     String[] mNames;
 
     private ArrayList<WorkChain> mChains;
@@ -83,6 +88,7 @@ public class WorkSource implements Parcelable {
     }
 
     /** @hide */
+    @TestApi
     public WorkSource(int uid) {
         mNum = 1;
         mUids = new int[] { uid, 0 };
@@ -101,6 +107,7 @@ public class WorkSource implements Parcelable {
         mChains = null;
     }
 
+    @UnsupportedAppUsage
     WorkSource(Parcel in) {
         mNum = in.readInt();
         mUids = in.createIntArray();
@@ -127,16 +134,34 @@ public class WorkSource implements Parcelable {
     }
 
     /** @hide */
+    @TestApi
     public int size() {
         return mNum;
     }
 
     /** @hide */
+    @TestApi
     public int get(int index) {
         return mUids[index];
     }
 
+    /**
+     * Return the UID to which this WorkSource should be attributed to, i.e, the UID that
+     * initiated the work and not the UID performing it. If the WorkSource has no UIDs, returns -1
+     * instead.
+     *
+     * @hide
+     */
+    public int getAttributionUid() {
+        if (isEmpty()) {
+            return -1;
+        }
+
+        return mNum > 0 ? mUids[0] : mChains.get(0).getAttributionUid();
+    }
+
     /** @hide */
+    @TestApi
     public String getName(int index) {
         return mNames != null ? mNames[index] : null;
     }
@@ -328,6 +353,7 @@ public class WorkSource implements Parcelable {
      *     to be aware of internal differences.
      */
     @Deprecated
+    @TestApi
     public WorkSource[] setReturningDiffs(WorkSource other) {
         synchronized (sTmpWorkSource) {
             sNewbWork = null;
@@ -379,6 +405,7 @@ public class WorkSource implements Parcelable {
      * @deprecated meant for unit testing use only. Will be removed in a future API revision.
      */
     @Deprecated
+    @TestApi
     public WorkSource addReturningNewbs(WorkSource other) {
         synchronized (sTmpWorkSource) {
             sNewbWork = null;
@@ -388,6 +415,7 @@ public class WorkSource implements Parcelable {
     }
 
     /** @hide */
+    @TestApi
     public boolean add(int uid) {
         if (mNum <= 0) {
             mNames = null;
@@ -407,6 +435,7 @@ public class WorkSource implements Parcelable {
     }
 
     /** @hide */
+    @TestApi
     public boolean add(int uid, String name) {
         if (mNum <= 0) {
             insert(0, uid, name);
@@ -903,17 +932,18 @@ public class WorkSource implements Parcelable {
 
         /**
          * Return the UID to which this WorkChain should be attributed to, i.e, the UID that
-         * initiated the work and not the UID performing it.
+         * initiated the work and not the UID performing it. Returns -1 if the chain is empty.
          */
         public int getAttributionUid() {
-            return mUids[0];
+            return mSize > 0 ? mUids[0] : -1;
         }
 
         /**
          * Return the tag associated with the attribution UID. See (@link #getAttributionUid}.
+         * Returns null if the chain is empty.
          */
         public String getAttributionTag() {
-            return mTags[0];
+            return mTags.length > 0 ? mTags[0] : null;
         }
 
         // TODO: The following three trivial getters are purely for testing and will be removed
@@ -1005,7 +1035,7 @@ public class WorkSource implements Parcelable {
             dest.writeStringArray(mTags);
         }
 
-        public static final Parcelable.Creator<WorkChain> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<WorkChain> CREATOR =
                 new Parcelable.Creator<WorkChain>() {
                     public WorkChain createFromParcel(Parcel in) {
                         return new WorkChain(in);
@@ -1146,7 +1176,7 @@ public class WorkSource implements Parcelable {
         proto.end(workSourceToken);
     }
 
-    public static final Parcelable.Creator<WorkSource> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<WorkSource> CREATOR
             = new Parcelable.Creator<WorkSource>() {
         public WorkSource createFromParcel(Parcel in) {
             return new WorkSource(in);

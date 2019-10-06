@@ -24,13 +24,13 @@ import android.text.TextUtils;
  * IMSI is a prefix.
  */
 public class IMSIParameter {
-    private static final int MAX_IMSI_LENGTH = 15;
-
     /**
      * MCC (Mobile Country Code) is a 3 digit number and MNC (Mobile Network Code) is also a 3
      * digit number.
      */
-    private static final int MCC_MNC_LENGTH = 6;
+    public static final int MCC_MNC_LENGTH = 6;
+
+    private static final int MAX_IMSI_LENGTH = 15;
 
     private final String mImsi;
     private final boolean mPrefix;

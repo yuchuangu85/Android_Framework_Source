@@ -18,6 +18,7 @@ package android.app;
 
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.accessibilityservice.IAccessibilityServiceClient;
+import android.annotation.Nullable;
 import android.content.Context;
 import android.content.pm.IPackageManager;
 import android.graphics.Bitmap;
@@ -30,6 +31,7 @@ import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.UserHandle;
+import android.util.Log;
 import android.view.IWindowManager;
 import android.view.InputEvent;
 import android.view.SurfaceControl;
@@ -37,7 +39,6 @@ import android.view.WindowAnimationFrameStats;
 import android.view.WindowContentFrameStats;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.IAccessibilityManager;
-import android.util.Log;
 
 import libcore.io.IoUtils;
 
@@ -70,6 +71,9 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
 
     private final IPackageManager mPackageManager = IPackageManager.Stub
             .asInterface(ServiceManager.getService("package"));
+
+    private final IActivityManager mActivityManager = IActivityManager.Stub
+            .asInterface(ServiceManager.getService("activity"));
 
     private final Object mLock = new Object();
 
@@ -124,11 +128,28 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
                 : InputManager.INJECT_INPUT_EVENT_MODE_ASYNC;
         final long identity = Binder.clearCallingIdentity();
         try {
-            return InputManager.getInstance().injectInputEvent(event, mode);
+            return mWindowManager.injectInputAfterTransactionsApplied(event, mode);
+        } catch (RemoteException e) {
         } finally {
             Binder.restoreCallingIdentity(identity);
         }
+        return false;
     }
+
+    @Override
+    public void syncInputTransactions() {
+        synchronized (mLock) {
+            throwIfCalledByNotTrustedUidLocked();
+            throwIfShutdownLocked();
+            throwIfNotConnectedLocked();
+        }
+
+        try {
+            mWindowManager.syncInputTransactions();
+        } catch (RemoteException e) {
+        }
+    }
+
 
     @Override
     public boolean setRotation(int rotation) {
@@ -274,6 +295,37 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
         }
     }
 
+    @Override
+    public void adoptShellPermissionIdentity(int uid, @Nullable String[] permissions)
+            throws RemoteException {
+        synchronized (mLock) {
+            throwIfCalledByNotTrustedUidLocked();
+            throwIfShutdownLocked();
+            throwIfNotConnectedLocked();
+        }
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            mActivityManager.startDelegateShellPermissionIdentity(uid, permissions);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
+    @Override
+    public void dropShellPermissionIdentity() throws RemoteException {
+        synchronized (mLock) {
+            throwIfCalledByNotTrustedUidLocked();
+            throwIfShutdownLocked();
+            throwIfNotConnectedLocked();
+        }
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            mActivityManager.stopDelegateShellPermissionIdentity();
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
     public class Repeater implements Runnable {
         // Continuously read readFrom and write back to writeTo until EOF is encountered
         private final InputStream readFrom;
@@ -296,7 +348,7 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
                     writeTo.flush();
                 }
             } catch (IOException ioe) {
-                throw new RuntimeException("Error while reading/writing ", ioe);
+                Log.w(TAG, "Error while reading/writing to streams");
             } finally {
                 IoUtils.closeQuietly(readFrom);
                 IoUtils.closeQuietly(writeTo);

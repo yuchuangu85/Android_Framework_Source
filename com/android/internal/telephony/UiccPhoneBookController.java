@@ -18,6 +18,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.ServiceManager;
 import android.telephony.Rlog;
 
@@ -30,9 +31,11 @@ import java.util.List;
 
 public class UiccPhoneBookController extends IIccPhoneBook.Stub {
     private static final String TAG = "UiccPhoneBookController";
+    @UnsupportedAppUsage
     private Phone[] mPhone;
 
     /* only one UiccPhoneBookController exists */
+    @UnsupportedAppUsage
     public UiccPhoneBookController(Phone[] phone) {
         if (ServiceManager.getService("simphonebook") == null) {
                ServiceManager.addService("simphonebook", this);
@@ -130,6 +133,7 @@ public class UiccPhoneBookController extends IIccPhoneBook.Stub {
     /**
      * get phone book interface manager object based on subscription.
      **/
+    @UnsupportedAppUsage
     private IccPhoneBookInterfaceManager
             getIccPhoneBookInterfaceManager(int subId) {
 
@@ -147,6 +151,7 @@ public class UiccPhoneBookController extends IIccPhoneBook.Stub {
         }
     }
 
+    @UnsupportedAppUsage
     private int getDefaultSubscription() {
         return PhoneFactory.getDefaultSubscription();
     }

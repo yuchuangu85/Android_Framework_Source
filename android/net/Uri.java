@@ -16,15 +16,16 @@
 
 package android.net;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.os.Environment;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.StrictMode;
 import android.util.Log;
-
-import libcore.net.UriCodec;
 
 import java.io.File;
 import java.io.IOException;
@@ -135,6 +136,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
     /**
      * Prevents external subclassing.
      */
+    @UnsupportedAppUsage
     private Uri() {}
 
     /**
@@ -197,7 +199,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
      *
      * <p>Example: "//www.google.com/search?q=android"
      *
-     * @return the decoded scheme-specific-part
+     * @return the encoded scheme-specific-part
      */
     public abstract String getEncodedSchemeSpecificPart();
 
@@ -374,11 +376,15 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
     public abstract String toString();
 
     /**
-     * Return a string representation of the URI that is safe to print
-     * to logs and other places where PII should be avoided.
+     * Return a string representation of this URI that has common forms of PII redacted,
+     * making it safer to use for logging purposes.  For example, {@code tel:800-466-4411} is
+     * returned as {@code tel:xxx-xxx-xxxx} and {@code http://example.com/path/to/item/} is
+     * returned as {@code http://example.com/...}.
+     * @return the common forms PII redacted string of this URI
      * @hide
      */
-    public String toSafeString() {
+    @SystemApi
+    public @NonNull String toSafeString() {
         String scheme = getScheme();
         String ssp = getSchemeSpecificPart();
         if (scheme != null) {
@@ -400,7 +406,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
                 }
                 return builder.toString();
             } else if (scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https")
-                    || scheme.equalsIgnoreCase("ftp")) {
+                    || scheme.equalsIgnoreCase("ftp") || scheme.equalsIgnoreCase("rtsp")) {
                 ssp = "//" + ((getHost() != null) ? getHost() : "")
                         + ((getPort() != -1) ? (":" + getPort()) : "")
                         + "/...";
@@ -1101,19 +1107,18 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
         public String getHost() {
             @SuppressWarnings("StringEquality")
             boolean cached = (host != NOT_CACHED);
-            return cached ? host
-                    : (host = parseHost());
+            return cached ? host : (host = parseHost());
         }
 
         private String parseHost() {
-            String authority = getEncodedAuthority();
+            final String authority = getEncodedAuthority();
             if (authority == null) {
                 return null;
             }
 
             // Parse out user info and then port.
             int userInfoSeparator = authority.lastIndexOf('@');
-            int portSeparator = authority.indexOf(':', userInfoSeparator);
+            int portSeparator = findPortSeparator(authority);
 
             String encodedHost = portSeparator == NOT_FOUND
                     ? authority.substring(userInfoSeparator + 1)
@@ -1131,16 +1136,8 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
         }
 
         private int parsePort() {
-            String authority = getEncodedAuthority();
-            if (authority == null) {
-                return -1;
-            }
-
-            // Make sure we look for the port separtor *after* the user info
-            // separator. We have URLs with a ':' in the user info.
-            int userInfoSeparator = authority.lastIndexOf('@');
-            int portSeparator = authority.indexOf(':', userInfoSeparator);
-
+            final String authority = getEncodedAuthority();
+            int portSeparator = findPortSeparator(authority);
             if (portSeparator == NOT_FOUND) {
                 return -1;
             }
@@ -1152,6 +1149,24 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
                 Log.w(LOG, "Error parsing port string.", e);
                 return -1;
             }
+        }
+
+        private int findPortSeparator(String authority) {
+            if (authority == null) {
+                return NOT_FOUND;
+            }
+
+            // Reverse search for the ':' character that breaks as soon as a char that is neither
+            // a colon nor an ascii digit is encountered. Thanks to the goodness of UTF-16 encoding,
+            // it's not possible that a surrogate matches one of these, so this loop can just
+            // look for characters rather than care about code points.
+            for (int i = authority.length() - 1; i >= 0; --i) {
+                final int character = authority.charAt(i);
+                if (':' == character) return i;
+                // Character.isDigit would include non-ascii digits
+                if (character < '0' || character > '9') return NOT_FOUND;
+            }
+            return NOT_FOUND;
         }
     }
 
@@ -1788,7 +1803,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
     /**
      * Reads Uris from Parcels.
      */
-    public static final Parcelable.Creator<Uri> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<Uri> CREATOR
             = new Parcelable.Creator<Uri>() {
         public Uri createFromParcel(Parcel in) {
             int type = in.readInt();
@@ -1959,7 +1974,8 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
         if (s == null) {
             return null;
         }
-        return UriCodec.decode(s, false, StandardCharsets.UTF_8, false);
+        return UriCodec.decode(
+                s, false /* convertPlus */, StandardCharsets.UTF_8, false /* throwOnFailure */);
     }
 
     /**
@@ -2332,6 +2348,7 @@ public abstract class Uri implements Parcelable, Comparable<Uri> {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public Uri getCanonicalUri() {
         if ("file".equals(getScheme())) {
             final String canonicalPath;

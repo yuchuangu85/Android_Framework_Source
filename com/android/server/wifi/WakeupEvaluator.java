@@ -16,10 +16,7 @@
 
 package com.android.server.wifi;
 
-import android.content.Context;
 import android.net.wifi.ScanResult;
-
-import com.android.internal.annotations.VisibleForTesting;
 
 import java.util.Collection;
 
@@ -28,22 +25,10 @@ import java.util.Collection;
  */
 public class WakeupEvaluator {
 
-    private final int mThresholdMinimumRssi24;
-    private final int mThresholdMinimumRssi5;
+    private final ScoringParams mScoringParams;
 
-    /**
-     * Constructs a {@link WakeupEvaluator} using the given context.
-     */
-    public static WakeupEvaluator fromContext(Context context) {
-        ScoringParams scoringParams = new ScoringParams(context); // TODO(b/74793980) - replumb
-        return new WakeupEvaluator(scoringParams.getEntryRssi(ScoringParams.BAND2),
-                                   scoringParams.getEntryRssi(ScoringParams.BAND5));
-    }
-
-    @VisibleForTesting
-    WakeupEvaluator(int minimumRssi24, int minimumRssi5) {
-        mThresholdMinimumRssi24 = minimumRssi24;
-        mThresholdMinimumRssi5 = minimumRssi5;
+    WakeupEvaluator(ScoringParams scoringParams) {
+        mScoringParams = scoringParams;
     }
 
     /**
@@ -54,19 +39,19 @@ public class WakeupEvaluator {
      * returns null. If there are multiple, it returns the one with the highest RSSI.
      *
      * @param scanResults ScanResults to search
-     * @param savedNetworks Network list to compare against
+     * @param networks Network list to compare against
      * @return The {@link ScanResult} representing an in-range connectable network, or {@code null}
      *         signifying there is no viable network
      */
     public ScanResult findViableNetwork(Collection<ScanResult> scanResults,
-                                        Collection<ScanResultMatchInfo> savedNetworks) {
+                                        Collection<ScanResultMatchInfo> networks) {
         ScanResult selectedScanResult = null;
 
         for (ScanResult scanResult : scanResults) {
             if (isBelowThreshold(scanResult)) {
                 continue;
             }
-            if (savedNetworks.contains(ScanResultMatchInfo.fromScanResult(scanResult))) {
+            if (networks.contains(ScanResultMatchInfo.fromScanResult(scanResult))) {
                 if (selectedScanResult == null || selectedScanResult.level < scanResult.level) {
                     selectedScanResult = scanResult;
                 }
@@ -80,7 +65,6 @@ public class WakeupEvaluator {
      * Returns whether the given ScanResult's signal strength is below the selection threshold.
      */
     public boolean isBelowThreshold(ScanResult scanResult) {
-        return ((scanResult.is24GHz() && scanResult.level < mThresholdMinimumRssi24)
-                || (scanResult.is5GHz() && scanResult.level < mThresholdMinimumRssi5));
+        return scanResult.level < mScoringParams.getEntryRssi(scanResult.frequency);
     }
 }

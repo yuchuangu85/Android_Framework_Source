@@ -25,67 +25,62 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.XmlResourceParser;
 import android.graphics.Color;
+import android.util.Xml;
+import android.widget.TextView;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.filters.SmallTest;
 import android.support.test.runner.AndroidJUnit4;
-import android.util.Xml;
-import android.widget.TextView;
-
 import com.android.setupwizardlib.TemplateLayout;
 import com.android.setupwizardlib.test.R;
-
+import java.io.IOException;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.xmlpull.v1.XmlPullParserException;
 
-import java.io.IOException;
-
 @RunWith(AndroidJUnit4.class)
 @SmallTest
 public class ColoredHeaderMixinTest {
 
-    private Context mContext;
-    private TemplateLayout mTemplateLayout;
-    private TextView mHeaderTextView;
+  private Context mContext;
+  private TemplateLayout mTemplateLayout;
+  private TextView mHeaderTextView;
 
-    @Before
-    public void setUp() {
-        mContext = InstrumentationRegistry.getTargetContext();
-        mTemplateLayout = spy(new TemplateLayout(mContext, R.layout.test_template,
-                R.id.suw_layout_content));
+  @Before
+  public void setUp() {
+    mContext = InstrumentationRegistry.getTargetContext();
+    mTemplateLayout =
+        spy(new TemplateLayout(mContext, R.layout.test_template, R.id.suw_layout_content));
 
-        mHeaderTextView = new TextView(mContext);
-        doReturn(mHeaderTextView).when(mTemplateLayout)
-                .findManagedViewById(eq(R.id.suw_layout_title));
+    mHeaderTextView = new TextView(mContext);
+    doReturn(mHeaderTextView).when(mTemplateLayout).findManagedViewById(eq(R.id.suw_layout_title));
+  }
+
+  @Test
+  public void testSetColor() {
+    ColoredHeaderMixin mixin = new ColoredHeaderMixin(mTemplateLayout, null, 0);
+    mixin.setColor(ColorStateList.valueOf(Color.MAGENTA));
+
+    assertEquals(ColorStateList.valueOf(Color.MAGENTA), mHeaderTextView.getTextColors());
+  }
+
+  @Test
+  public void testGetColor() {
+    ColoredHeaderMixin mixin = new ColoredHeaderMixin(mTemplateLayout, null, 0);
+    mHeaderTextView.setTextColor(ColorStateList.valueOf(Color.GREEN));
+
+    assertEquals(ColorStateList.valueOf(Color.GREEN), mixin.getColor());
+  }
+
+  @SuppressWarnings("ResourceType") // Needed to create attribute set from layout XML.
+  @Test
+  public void testSetColorFromXml() throws IOException, XmlPullParserException {
+    final XmlResourceParser parser = mContext.getResources().getXml(R.layout.test_mixin_attributes);
+    while (!TemplateLayout.class.getName().equals(parser.getName())) {
+      parser.next();
     }
+    new ColoredHeaderMixin(mTemplateLayout, Xml.asAttributeSet(parser), 0);
 
-    @Test
-    public void testSetColor() {
-        ColoredHeaderMixin mixin = new ColoredHeaderMixin(mTemplateLayout, null, 0);
-        mixin.setColor(ColorStateList.valueOf(Color.MAGENTA));
-
-        assertEquals(ColorStateList.valueOf(Color.MAGENTA), mHeaderTextView.getTextColors());
-    }
-
-    @Test
-    public void testGetColor() {
-        ColoredHeaderMixin mixin = new ColoredHeaderMixin(mTemplateLayout, null, 0);
-        mHeaderTextView.setTextColor(ColorStateList.valueOf(Color.GREEN));
-
-        assertEquals(ColorStateList.valueOf(Color.GREEN), mixin.getColor());
-    }
-
-    @SuppressWarnings("ResourceType")  // Needed to create attribute set from layout XML.
-    @Test
-    public void testSetColorFromXml() throws IOException, XmlPullParserException {
-        final XmlResourceParser parser =
-                mContext.getResources().getXml(R.layout.test_mixin_attributes);
-        while (!TemplateLayout.class.getName().equals(parser.getName())) {
-            parser.next();
-        }
-        new ColoredHeaderMixin(mTemplateLayout, Xml.asAttributeSet(parser), 0);
-
-        assertEquals(ColorStateList.valueOf(Color.RED), mHeaderTextView.getTextColors());
-    }
+    assertEquals(ColorStateList.valueOf(Color.RED), mHeaderTextView.getTextColors());
+  }
 }

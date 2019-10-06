@@ -19,6 +19,7 @@ package android.net;
 import static android.content.pm.PackageManager.GET_SIGNATURES;
 
 import android.annotation.SystemService;
+import android.annotation.UnsupportedAppUsage;
 import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
@@ -27,6 +28,7 @@ import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.Signature;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
+import android.os.Build;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.util.DebugUtils;
@@ -90,16 +92,6 @@ public class NetworkPolicyManager {
     public static final int MASK_ALL_NETWORKS     = 0b11110000;
 
     public static final int FIREWALL_RULE_DEFAULT = 0;
-    public static final int FIREWALL_RULE_ALLOW = 1;
-    public static final int FIREWALL_RULE_DENY = 2;
-
-    public static final int FIREWALL_TYPE_WHITELIST = 0;
-    public static final int FIREWALL_TYPE_BLACKLIST = 1;
-
-    public static final int FIREWALL_CHAIN_NONE = 0;
-    public static final int FIREWALL_CHAIN_DOZABLE = 1;
-    public static final int FIREWALL_CHAIN_STANDBY = 2;
-    public static final int FIREWALL_CHAIN_POWERSAVE = 3;
 
     public static final String FIREWALL_CHAIN_NAME_NONE = "none";
     public static final String FIREWALL_CHAIN_NAME_DOZABLE = "dozable";
@@ -121,6 +113,7 @@ public class NetworkPolicyManager {
     public static final int OVERRIDE_CONGESTED = 1 << 1;
 
     private final Context mContext;
+    @UnsupportedAppUsage
     private INetworkPolicyManager mService;
 
     public NetworkPolicyManager(Context context, INetworkPolicyManager service) {
@@ -131,6 +124,7 @@ public class NetworkPolicyManager {
         mService = service;
     }
 
+    @UnsupportedAppUsage
     public static NetworkPolicyManager from(Context context) {
         return (NetworkPolicyManager) context.getSystemService(Context.NETWORK_POLICY_SERVICE);
     }
@@ -141,6 +135,7 @@ public class NetworkPolicyManager {
      * @param policy should be {@link #POLICY_NONE} or any combination of {@code POLICY_} flags,
      *     although it is not validated.
      */
+    @UnsupportedAppUsage
     public void setUidPolicy(int uid, int policy) {
         try {
             mService.setUidPolicy(uid, policy);
@@ -181,6 +176,7 @@ public class NetworkPolicyManager {
         }
     }
 
+    @UnsupportedAppUsage
     public int getUidPolicy(int uid) {
         try {
             return mService.getUidPolicy(uid);
@@ -189,6 +185,7 @@ public class NetworkPolicyManager {
         }
     }
 
+    @UnsupportedAppUsage
     public int[] getUidsWithPolicy(int policy) {
         try {
             return mService.getUidsWithPolicy(policy);
@@ -197,6 +194,7 @@ public class NetworkPolicyManager {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void registerListener(INetworkPolicyListener listener) {
         try {
             mService.registerListener(listener);
@@ -205,6 +203,7 @@ public class NetworkPolicyManager {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void unregisterListener(INetworkPolicyListener listener) {
         try {
             mService.unregisterListener(listener);
@@ -221,6 +220,7 @@ public class NetworkPolicyManager {
         }
     }
 
+    @UnsupportedAppUsage
     public NetworkPolicy[] getNetworkPolicies() {
         try {
             return mService.getNetworkPolicies(mContext.getOpPackageName());
@@ -229,6 +229,7 @@ public class NetworkPolicyManager {
         }
     }
 
+    @UnsupportedAppUsage
     public void setRestrictBackground(boolean restrictBackground) {
         try {
             mService.setRestrictBackground(restrictBackground);
@@ -237,6 +238,7 @@ public class NetworkPolicyManager {
         }
     }
 
+    @UnsupportedAppUsage
     public boolean getRestrictBackground() {
         try {
             return mService.getRestrictBackground();

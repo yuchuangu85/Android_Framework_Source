@@ -16,6 +16,7 @@
 
 package android.net.wifi;
 
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -42,9 +43,11 @@ import java.util.Locale;
 public class WifiSsid implements Parcelable {
     private static final String TAG = "WifiSsid";
 
+    @UnsupportedAppUsage
     public final ByteArrayOutputStream octets = new ByteArrayOutputStream(32);
 
     private static final int HEX_RADIX = 16;
+    @UnsupportedAppUsage
     public static final String NONE = "<unknown ssid>";
 
     private WifiSsid() {
@@ -58,6 +61,7 @@ public class WifiSsid implements Parcelable {
         return wifiSsid;
     }
 
+    @UnsupportedAppUsage
     public static WifiSsid createFromAsciiEncoded(String asciiEncoded) {
         WifiSsid a = new WifiSsid();
         a.convertToBytes(asciiEncoded);
@@ -124,6 +128,8 @@ public class WifiSsid implements Parcelable {
                             try {
                                 val = Integer.parseInt(asciiEncoded.substring(i, i + 2), HEX_RADIX);
                             } catch (NumberFormatException e) {
+                                val = -1;
+                            } catch (StringIndexOutOfBoundsException e) {
                                 val = -1;
                             }
                             if (val < 0) {
@@ -220,6 +226,7 @@ public class WifiSsid implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public byte[] getOctets() {
         return octets.toByteArray();
     }
@@ -246,7 +253,8 @@ public class WifiSsid implements Parcelable {
     }
 
     /** Implement the Parcelable interface {@hide} */
-    public static final Creator<WifiSsid> CREATOR =
+    @UnsupportedAppUsage
+    public static final @android.annotation.NonNull Creator<WifiSsid> CREATOR =
         new Creator<WifiSsid>() {
             public WifiSsid createFromParcel(Parcel in) {
                 WifiSsid ssid = new WifiSsid();

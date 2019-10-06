@@ -22,6 +22,7 @@ import android.content.res.Resources;
 import android.os.Message;
 import android.provider.Telephony.Sms.Intents;
 import android.telephony.SmsCbMessage;
+import android.telephony.TelephonyManager;
 
 import com.android.internal.telephony.CellBroadcastHandler;
 import com.android.internal.telephony.CommandsInterface;
@@ -110,7 +111,9 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
         // Handle CMAS emergency broadcast messages.
         if (isBroadcastType) {
             log("Broadcast type message");
-            SmsCbMessage cbMessage = sms.parseBroadcastSms();
+            String plmn =
+                    TelephonyManager.from(mContext).getNetworkOperatorForPhone(mPhone.getPhoneId());
+            SmsCbMessage cbMessage = sms.parseBroadcastSms(plmn);
             if (cbMessage != null) {
                 mCellBroadcastHandler.dispatchSmsMessage(cbMessage);
             } else {
@@ -193,19 +196,6 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
     }
 
     /**
-     * Called when the phone changes the default method updates mPhone
-     * mStorageMonitor and mCellBroadcastHandler.updatePhoneObject.
-     * Override if different or other behavior is desired.
-     *
-     * @param phone
-     */
-    @Override
-    protected void onUpdatePhoneObject(Phone phone) {
-        super.onUpdatePhoneObject(phone);
-        mCellBroadcastHandler.updatePhoneObject(phone);
-    }
-
-    /**
      * Convert Android result code to CDMA SMS failure cause.
      * @param rc the Android SMS intent result value
      * @return 0 for success, or a CDMA SMS failure cause value
@@ -244,6 +234,8 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
         }
         // update voice mail count in phone
         mPhone.setVoiceMessageCount(voicemailCount);
+        // update metrics
+        addVoicemailSmsToMetrics();
     }
 
     /**
@@ -299,10 +291,10 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
         // pass the user data portion of the PDU to the shared handler in SMSDispatcher
         byte[] userData = new byte[pdu.length - index];
         System.arraycopy(pdu, index, userData, 0, pdu.length - index);
-
-        InboundSmsTracker tracker = TelephonyComponentFactory.getInstance().makeInboundSmsTracker(
+        InboundSmsTracker tracker = TelephonyComponentFactory.getInstance()
+                .inject(InboundSmsTracker.class.getName()).makeInboundSmsTracker(
                 userData, timestamp, destinationPort, true, address, dispAddr, referenceNumber,
-                segment, totalSegments, true, HexDump.toHexString(userData));
+                segment, totalSegments, true, HexDump.toHexString(userData), false /* isClass0 */);
 
         // de-duping is done only for text messages
         return addTrackerToRawTableAndSendMessage(tracker, false /* don't de-dup */);
@@ -341,5 +333,13 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
 
         String mimeType = pduDecoder.getValueString();
         return (WspTypeDecoder.CONTENT_TYPE_B_PUSH_SYNCML_NOTI.equals(mimeType));
+    }
+
+    /**
+     * Add voicemail indication SMS 0 to metrics.
+     */
+    private void addVoicemailSmsToMetrics() {
+        mMetrics.writeIncomingVoiceMailSms(mPhone.getPhoneId(),
+                android.telephony.SmsMessage.FORMAT_3GPP2);
     }
 }

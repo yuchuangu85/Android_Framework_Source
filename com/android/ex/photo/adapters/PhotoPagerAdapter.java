@@ -20,8 +20,8 @@ package com.android.ex.photo.adapters;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
-import android.support.v4.app.Fragment;
-import android.support.v4.util.SimpleArrayMap;
+import androidx.fragment.app.Fragment;
+import androidx.collection.SimpleArrayMap;
 
 import com.android.ex.photo.Intents;
 import com.android.ex.photo.Intents.PhotoViewIntentBuilder;
@@ -39,7 +39,7 @@ public class PhotoPagerAdapter extends BaseCursorPagerAdapter {
     protected boolean mDisplayThumbsFullScreen;
 
     public PhotoPagerAdapter(
-            Context context, android.support.v4.app.FragmentManager fm, Cursor c,
+            Context context, androidx.fragment.app.FragmentManager fm, Cursor c,
             float maxScale, boolean thumbsFullScreen) {
         super(context, fm, c);
         mMaxScale = maxScale;

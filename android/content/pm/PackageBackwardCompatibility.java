@@ -45,13 +45,11 @@ public class PackageBackwardCompatibility extends PackageSharedLibraryUpdater {
     static {
         final List<PackageSharedLibraryUpdater> packageUpdaters = new ArrayList<>();
 
-        // Attempt to load and add the optional updater that will only be available when
-        // REMOVE_OAHL_FROM_BCP=true. If that could not be found then add the default updater that
-        // will remove any references to org.apache.http.library from the package so that it does
-        // not try and load the library when it is on the bootclasspath.
-        boolean bootClassPathContainsOAHL = !addOptionalUpdater(packageUpdaters,
-                "android.content.pm.OrgApacheHttpLegacyUpdater",
-                RemoveUnnecessaryOrgApacheHttpLegacyLibrary::new);
+        // Automatically add the org.apache.http.legacy library to the app classpath if the app
+        // targets < P.
+        packageUpdaters.add(new OrgApacheHttpLegacyUpdater());
+
+        packageUpdaters.add(new AndroidHidlUpdater());
 
         // Add this before adding AndroidTestBaseUpdater so that android.test.base comes before
         // android.test.mock.
@@ -68,7 +66,7 @@ public class PackageBackwardCompatibility extends PackageSharedLibraryUpdater {
         PackageSharedLibraryUpdater[] updaterArray = packageUpdaters
                 .toArray(new PackageSharedLibraryUpdater[0]);
         INSTANCE = new PackageBackwardCompatibility(
-                bootClassPathContainsOAHL, bootClassPathContainsATB, updaterArray);
+                bootClassPathContainsATB, updaterArray);
     }
 
     /**
@@ -114,15 +112,12 @@ public class PackageBackwardCompatibility extends PackageSharedLibraryUpdater {
         return INSTANCE;
     }
 
-    private final boolean mBootClassPathContainsOAHL;
-
     private final boolean mBootClassPathContainsATB;
 
     private final PackageSharedLibraryUpdater[] mPackageUpdaters;
 
-    public PackageBackwardCompatibility(boolean bootClassPathContainsOAHL,
+    private PackageBackwardCompatibility(
             boolean bootClassPathContainsATB, PackageSharedLibraryUpdater[] packageUpdaters) {
-        this.mBootClassPathContainsOAHL = bootClassPathContainsOAHL;
         this.mBootClassPathContainsATB = bootClassPathContainsATB;
         this.mPackageUpdaters = packageUpdaters;
     }
@@ -143,14 +138,6 @@ public class PackageBackwardCompatibility extends PackageSharedLibraryUpdater {
         for (PackageSharedLibraryUpdater packageUpdater : mPackageUpdaters) {
             packageUpdater.updatePackage(pkg);
         }
-    }
-
-    /**
-     * True if the org.apache.http.legacy is on the bootclasspath, false otherwise.
-     */
-    @VisibleForTesting
-    public static boolean bootClassPathContainsOAHL() {
-        return INSTANCE.mBootClassPathContainsOAHL;
     }
 
     /**

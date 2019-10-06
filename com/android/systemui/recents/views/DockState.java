@@ -16,8 +16,8 @@
 
 package com.android.systemui.recents.views;
 
-import static android.app.ActivityManager.SPLIT_SCREEN_CREATE_MODE_BOTTOM_OR_RIGHT;
-import static android.app.ActivityManager.SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT;
+import static android.app.ActivityTaskManager.SPLIT_SCREEN_CREATE_MODE_BOTTOM_OR_RIGHT;
+import static android.app.ActivityTaskManager.SPLIT_SCREEN_CREATE_MODE_TOP_OR_LEFT;
 import static android.view.WindowManager.DOCKED_BOTTOM;
 import static android.view.WindowManager.DOCKED_INVALID;
 import static android.view.WindowManager.DOCKED_LEFT;
@@ -45,8 +45,8 @@ import android.view.animation.Interpolator;
 import com.android.internal.policy.DockedDividerUtils;
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
-import com.android.systemui.recents.Recents;
-import com.android.systemui.shared.recents.utilities.Utilities;
+import com.android.systemui.recents.LegacyRecentsImpl;
+import com.android.systemui.recents.utilities.Utilities;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -132,7 +132,7 @@ public class DockState implements DropTarget {
         private ViewState(int areaAlpha, int hintAlpha, @TextOrientation int hintOrientation,
                 int hintTextResId) {
             dockAreaAlpha = areaAlpha;
-            dockAreaOverlay = new ColorDrawable(Recents.getConfiguration().isGridEnabled
+            dockAreaOverlay = new ColorDrawable(LegacyRecentsImpl.getConfiguration().isGridEnabled
                     ? DOCK_AREA_GRID_BG_COLOR : DOCK_AREA_BG_COLOR);
             dockAreaOverlay.setAlpha(0);
             hintTextAlpha = hintAlpha;

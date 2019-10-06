@@ -18,6 +18,7 @@ package android.widget;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.app.LocalActivityManager;
 import android.content.Context;
 import android.content.Intent;
@@ -54,11 +55,13 @@ public class TabHost extends FrameLayout implements ViewTreeObserver.OnTouchMode
     private static final int TABWIDGET_LOCATION_BOTTOM = 3;
     private TabWidget mTabWidget;
     private FrameLayout mTabContent;
+    @UnsupportedAppUsage
     private List<TabSpec> mTabSpecs = new ArrayList<TabSpec>(2);
     /**
      * This field should be made private, so it is hidden from the SDK.
      * {@hide}
      */
+    @UnsupportedAppUsage
     protected int mCurrentTab = -1;
     private View mCurrentView = null;
     /**
@@ -66,6 +69,7 @@ public class TabHost extends FrameLayout implements ViewTreeObserver.OnTouchMode
      * {@hide}
      */
     protected LocalActivityManager mLocalActivityManager = null;
+    @UnsupportedAppUsage
     private OnTabChangeListener mOnTabChangeListener;
     private OnKeyListener mTabKeyListener;
 
@@ -89,6 +93,8 @@ public class TabHost extends FrameLayout implements ViewTreeObserver.OnTouchMode
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, com.android.internal.R.styleable.TabWidget, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.TabWidget,
+                attrs, a, defStyleAttr, defStyleRes);
 
         mTabLayoutId = a.getResourceId(R.styleable.TabWidget_tabLayout, 0);
         a.recycle();
@@ -504,7 +510,9 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
 
         private final @NonNull String mTag;
 
+        @UnsupportedAppUsage
         private IndicatorStrategy mIndicatorStrategy;
+        @UnsupportedAppUsage
         private ContentStrategy mContentStrategy;
 
         /**
@@ -767,6 +775,7 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
             mIntent = intent;
         }
 
+        @UnsupportedAppUsage
         public View getContentView() {
             if (mLocalActivityManager == null) {
                 throw new IllegalStateException("Did you forget to call 'public void setup(LocalActivityManager activityGroup)'?");
@@ -796,6 +805,7 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
             return mLaunchedView;
         }
 
+        @UnsupportedAppUsage
         public void tabClosed() {
             if (mLaunchedView != null) {
                 mLaunchedView.setVisibility(View.GONE);

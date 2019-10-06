@@ -18,6 +18,7 @@ package android.app;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -28,6 +29,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
+import android.content.pm.SharedLibraryInfo;
 import android.content.pm.dex.ArtManager;
 import android.content.pm.split.SplitDependencyLoader;
 import android.content.res.AssetManager;
@@ -55,6 +57,7 @@ import android.view.DisplayAdjustments;
 
 import com.android.internal.util.ArrayUtils;
 
+import dalvik.system.BaseDexClassLoader;
 import dalvik.system.VMRuntime;
 
 import java.io.File;
@@ -69,16 +72,21 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.Executor;
 
 final class IntentReceiverLeaked extends AndroidRuntimeException {
+    @UnsupportedAppUsage
     public IntentReceiverLeaked(String msg) {
         super(msg);
     }
 }
 
 final class ServiceConnectionLeaked extends AndroidRuntimeException {
+    @UnsupportedAppUsage
     public ServiceConnectionLeaked(String msg) {
         super(msg);
     }
@@ -93,36 +101,53 @@ public final class LoadedApk {
     static final boolean DEBUG = false;
     private static final String PROPERTY_NAME_APPEND_NATIVE = "pi.append_native_lib_paths";
 
+    @UnsupportedAppUsage
     private final ActivityThread mActivityThread;
+    @UnsupportedAppUsage
     final String mPackageName;
+    @UnsupportedAppUsage
     private ApplicationInfo mApplicationInfo;
+    @UnsupportedAppUsage
     private String mAppDir;
+    @UnsupportedAppUsage
     private String mResDir;
     private String[] mOverlayDirs;
+    @UnsupportedAppUsage
     private String mDataDir;
+    @UnsupportedAppUsage
     private String mLibDir;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private File mDataDirFile;
     private File mDeviceProtectedDataDirFile;
     private File mCredentialProtectedDataDirFile;
+    @UnsupportedAppUsage
     private final ClassLoader mBaseClassLoader;
+    private ClassLoader mDefaultClassLoader;
     private final boolean mSecurityViolation;
     private final boolean mIncludeCode;
     private final boolean mRegisterPackage;
+    @UnsupportedAppUsage
     private final DisplayAdjustments mDisplayAdjustments = new DisplayAdjustments();
     /** WARNING: This may change. Don't hold external references to it. */
+    @UnsupportedAppUsage
     Resources mResources;
+    @UnsupportedAppUsage
     private ClassLoader mClassLoader;
+    @UnsupportedAppUsage
     private Application mApplication;
 
     private String[] mSplitNames;
     private String[] mSplitAppDirs;
+    @UnsupportedAppUsage
     private String[] mSplitResDirs;
     private String[] mSplitClassLoaderNames;
 
+    @UnsupportedAppUsage
     private final ArrayMap<Context, ArrayMap<BroadcastReceiver, ReceiverDispatcher>> mReceivers
         = new ArrayMap<>();
     private final ArrayMap<Context, ArrayMap<BroadcastReceiver, LoadedApk.ReceiverDispatcher>> mUnregisteredReceivers
         = new ArrayMap<>();
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final ArrayMap<Context, ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher>> mServices
         = new ArrayMap<>();
     private final ArrayMap<Context, ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher>> mUnboundServices
@@ -205,9 +230,11 @@ public final class LoadedApk {
         mSecurityViolation = false;
         mIncludeCode = true;
         mRegisterPackage = false;
-        mClassLoader = ClassLoader.getSystemClassLoader();
         mResources = Resources.getSystem();
-        mAppComponentFactory = createAppFactory(mApplicationInfo, mClassLoader);
+        mDefaultClassLoader = ClassLoader.getSystemClassLoader();
+        mAppComponentFactory = createAppFactory(mApplicationInfo, mDefaultClassLoader);
+        mClassLoader = mAppComponentFactory.instantiateClassLoader(mDefaultClassLoader,
+                new ApplicationInfo(mApplicationInfo));
     }
 
     /**
@@ -216,15 +243,17 @@ public final class LoadedApk {
     void installSystemApplicationInfo(ApplicationInfo info, ClassLoader classLoader) {
         assert info.packageName.equals("android");
         mApplicationInfo = info;
-        mClassLoader = classLoader;
-        mAppComponentFactory = createAppFactory(info, classLoader);
+        mDefaultClassLoader = classLoader;
+        mAppComponentFactory = createAppFactory(info, mDefaultClassLoader);
+        mClassLoader = mAppComponentFactory.instantiateClassLoader(mDefaultClassLoader,
+                new ApplicationInfo(mApplicationInfo));
     }
 
     private AppComponentFactory createAppFactory(ApplicationInfo appInfo, ClassLoader cl) {
         if (appInfo.appComponentFactory != null && cl != null) {
             try {
-                return (AppComponentFactory) cl.loadClass(appInfo.appComponentFactory)
-                        .newInstance();
+                return (AppComponentFactory)
+                        cl.loadClass(appInfo.appComponentFactory).newInstance();
             } catch (InstantiationException | IllegalAccessException | ClassNotFoundException e) {
                 Slog.e(TAG, "Unable to instantiate appComponentFactory", e);
             }
@@ -236,10 +265,12 @@ public final class LoadedApk {
         return mAppComponentFactory;
     }
 
+    @UnsupportedAppUsage
     public String getPackageName() {
         return mPackageName;
     }
 
+    @UnsupportedAppUsage
     public ApplicationInfo getApplicationInfo() {
         return mApplicationInfo;
     }
@@ -252,6 +283,7 @@ public final class LoadedApk {
         return mSecurityViolation;
     }
 
+    @UnsupportedAppUsage
     public CompatibilityInfo getCompatibilityInfo() {
         return mDisplayAdjustments.getCompatibilityInfo();
     }
@@ -335,7 +367,7 @@ public final class LoadedApk {
                         getClassLoader());
             }
         }
-        mAppComponentFactory = createAppFactory(aInfo, mClassLoader);
+        mAppComponentFactory = createAppFactory(aInfo, mDefaultClassLoader);
     }
 
     private void setApplicationInfo(ApplicationInfo aInfo) {
@@ -367,6 +399,24 @@ public final class LoadedApk {
         makePaths(activityThread, false, aInfo, outZipPaths, null);
     }
 
+    private static void appendSharedLibrariesLibPathsIfNeeded(
+            List<SharedLibraryInfo> sharedLibraries, ApplicationInfo aInfo,
+            Set<String> outSeenPaths,
+            List<String> outLibPaths) {
+        if (sharedLibraries == null) {
+            return;
+        }
+        for (SharedLibraryInfo lib : sharedLibraries) {
+            List<String> paths = lib.getAllCodePaths();
+            outSeenPaths.addAll(paths);
+            for (String path : paths) {
+                appendApkLibPathIfNeeded(path, aInfo, outLibPaths);
+            }
+            appendSharedLibrariesLibPathsIfNeeded(
+                    lib.getDependencies(), aInfo, outSeenPaths, outLibPaths);
+        }
+    }
+
     public static void makePaths(ActivityThread activityThread,
                                  boolean isBundledApp,
                                  ApplicationInfo aInfo,
@@ -374,7 +424,6 @@ public final class LoadedApk {
                                  List<String> outLibPaths) {
         final String appDir = aInfo.sourceDir;
         final String libDir = aInfo.nativeLibraryDir;
-        final String[] sharedLibraries = aInfo.sharedLibraryFiles;
 
         outZipPaths.clear();
         outZipPaths.add(appDir);
@@ -469,11 +518,19 @@ public final class LoadedApk {
             }
         }
 
-        // Prepend the shared libraries, maintaining their original order where possible.
-        if (sharedLibraries != null) {
+        // Add the shared libraries native paths. The dex files in shared libraries will
+        // be resolved through shared library loaders, which are setup later.
+        Set<String> outSeenPaths = new LinkedHashSet<>();
+        appendSharedLibrariesLibPathsIfNeeded(
+                aInfo.sharedLibraryInfos, aInfo, outSeenPaths, outLibPaths);
+
+        // ApplicationInfo.sharedLibraryFiles is a public API, so anyone can change it.
+        // We prepend shared libraries that the package manager hasn't seen, maintaining their
+        // original order where possible.
+        if (aInfo.sharedLibraryFiles != null) {
             int index = 0;
-            for (String lib : sharedLibraries) {
-                if (!outZipPaths.contains(lib)) {
+            for (String lib : aInfo.sharedLibraryFiles) {
+                if (!outSeenPaths.contains(lib) && !outZipPaths.contains(lib)) {
                     outZipPaths.add(index, lib);
                     index++;
                     appendApkLibPathIfNeeded(lib, aInfo, outLibPaths);
@@ -601,6 +658,60 @@ public final class LoadedApk {
         return mSplitLoader.getSplitPathsForSplit(splitName);
     }
 
+    /**
+     * Create a class loader for the {@code sharedLibrary}. Shared libraries are canonicalized,
+     * so if we already created a class loader with that shared library, we return it.
+     *
+     * Implementation notes: the canonicalization of shared libraries is something dex2oat
+     * also does.
+     */
+    ClassLoader createSharedLibraryLoader(SharedLibraryInfo sharedLibrary,
+            boolean isBundledApp, String librarySearchPath, String libraryPermittedPath) {
+        List<String> paths = sharedLibrary.getAllCodePaths();
+        List<ClassLoader> sharedLibraries = createSharedLibrariesLoaders(
+                sharedLibrary.getDependencies(), isBundledApp, librarySearchPath,
+                libraryPermittedPath);
+        final String jars = (paths.size() == 1) ? paths.get(0) :
+                TextUtils.join(File.pathSeparator, paths);
+
+        // Shared libraries get a null parent: this has the side effect of having canonicalized
+        // shared libraries using ApplicationLoaders cache, which is the behavior we want.
+        return ApplicationLoaders.getDefault().getSharedLibraryClassLoaderWithSharedLibraries(jars,
+                    mApplicationInfo.targetSdkVersion, isBundledApp, librarySearchPath,
+                    libraryPermittedPath, /* parent */ null,
+                    /* classLoaderName */ null, sharedLibraries);
+    }
+
+    private List<ClassLoader> createSharedLibrariesLoaders(List<SharedLibraryInfo> sharedLibraries,
+            boolean isBundledApp, String librarySearchPath, String libraryPermittedPath) {
+        if (sharedLibraries == null) {
+            return null;
+        }
+        List<ClassLoader> loaders = new ArrayList<>();
+        for (SharedLibraryInfo info : sharedLibraries) {
+            loaders.add(createSharedLibraryLoader(
+                    info, isBundledApp, librarySearchPath, libraryPermittedPath));
+        }
+        return loaders;
+    }
+
+    private StrictMode.ThreadPolicy allowThreadDiskReads() {
+        if (mActivityThread == null) {
+            // When LoadedApk is used without an ActivityThread (usually in a
+            // zygote context), don't call into StrictMode, as it initializes
+            // the binder subsystem, which we don't want.
+            return null;
+        }
+
+        return StrictMode.allowThreadDiskReads();
+    }
+
+    private void setThreadPolicy(StrictMode.ThreadPolicy policy) {
+        if (mActivityThread != null && policy != null) {
+            StrictMode.setThreadPolicy(policy);
+        }
+    }
+
     private void createOrUpdateClassLoaderLocked(List<String> addedPaths) {
         if (mPackageName.equals("android")) {
             // Note: This branch is taken for system server and we don't need to setup
@@ -611,19 +722,23 @@ public final class LoadedApk {
             }
 
             if (mBaseClassLoader != null) {
-                mClassLoader = mBaseClassLoader;
+                mDefaultClassLoader = mBaseClassLoader;
             } else {
-                mClassLoader = ClassLoader.getSystemClassLoader();
+                mDefaultClassLoader = ClassLoader.getSystemClassLoader();
             }
-            mAppComponentFactory = createAppFactory(mApplicationInfo, mClassLoader);
-
+            mAppComponentFactory = createAppFactory(mApplicationInfo, mDefaultClassLoader);
+            mClassLoader = mAppComponentFactory.instantiateClassLoader(mDefaultClassLoader,
+                    new ApplicationInfo(mApplicationInfo));
             return;
         }
 
         // Avoid the binder call when the package is the current application package.
         // The activity manager will perform ensure that dexopt is performed before
-        // spinning up the process.
-        if (!Objects.equals(mPackageName, ActivityThread.currentPackageName()) && mIncludeCode) {
+        // spinning up the process. Similarly, don't call into binder when we don't
+        // have an ActivityThread object.
+        if (mActivityThread != null
+                && !Objects.equals(mPackageName, ActivityThread.currentPackageName())
+                && mIncludeCode) {
             try {
                 ActivityThread.getPackageManager().notifyPackageUse(mPackageName,
                         PackageManager.NOTIFY_PACKAGE_USE_CROSS_PACKAGE);
@@ -693,14 +808,19 @@ public final class LoadedApk {
         // call System.loadLibrary() on a classloader from a LoadedApk with
         // mIncludeCode == false).
         if (!mIncludeCode) {
-            if (mClassLoader == null) {
-                StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
-                mClassLoader = ApplicationLoaders.getDefault().getClassLoader(
+            if (mDefaultClassLoader == null) {
+                StrictMode.ThreadPolicy oldPolicy = allowThreadDiskReads();
+                mDefaultClassLoader = ApplicationLoaders.getDefault().getClassLoader(
                         "" /* codePath */, mApplicationInfo.targetSdkVersion, isBundledApp,
                         librarySearchPath, libraryPermittedPath, mBaseClassLoader,
                         null /* classLoaderName */);
-                StrictMode.setThreadPolicy(oldPolicy);
+                setThreadPolicy(oldPolicy);
                 mAppComponentFactory = AppComponentFactory.DEFAULT;
+            }
+
+            if (mClassLoader == null) {
+                mClassLoader = mAppComponentFactory.instantiateClassLoader(mDefaultClassLoader,
+                        new ApplicationInfo(mApplicationInfo));
             }
 
             return;
@@ -719,34 +839,39 @@ public final class LoadedApk {
                     ", JNI path: " + librarySearchPath);
 
         boolean needToSetupJitProfiles = false;
-        if (mClassLoader == null) {
+        if (mDefaultClassLoader == null) {
             // Temporarily disable logging of disk reads on the Looper thread
             // as this is early and necessary.
-            StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
+            StrictMode.ThreadPolicy oldPolicy = allowThreadDiskReads();
 
-            mClassLoader = ApplicationLoaders.getDefault().getClassLoader(zip,
-                    mApplicationInfo.targetSdkVersion, isBundledApp, librarySearchPath,
+            List<ClassLoader> sharedLibraries = createSharedLibrariesLoaders(
+                    mApplicationInfo.sharedLibraryInfos, isBundledApp, librarySearchPath,
+                    libraryPermittedPath);
+
+            mDefaultClassLoader = ApplicationLoaders.getDefault().getClassLoaderWithSharedLibraries(
+                    zip, mApplicationInfo.targetSdkVersion, isBundledApp, librarySearchPath,
                     libraryPermittedPath, mBaseClassLoader,
-                    mApplicationInfo.classLoaderName);
-            mAppComponentFactory = createAppFactory(mApplicationInfo, mClassLoader);
+                    mApplicationInfo.classLoaderName, sharedLibraries);
+            mAppComponentFactory = createAppFactory(mApplicationInfo, mDefaultClassLoader);
 
-            StrictMode.setThreadPolicy(oldPolicy);
+            setThreadPolicy(oldPolicy);
             // Setup the class loader paths for profiling.
             needToSetupJitProfiles = true;
         }
 
         if (!libPaths.isEmpty() && SystemProperties.getBoolean(PROPERTY_NAME_APPEND_NATIVE, true)) {
             // Temporarily disable logging of disk reads on the Looper thread as this is necessary
-            StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
+            StrictMode.ThreadPolicy oldPolicy = allowThreadDiskReads();
             try {
-                ApplicationLoaders.getDefault().addNative(mClassLoader, libPaths);
+                ApplicationLoaders.getDefault().addNative(mDefaultClassLoader, libPaths);
             } finally {
-                StrictMode.setThreadPolicy(oldPolicy);
+                setThreadPolicy(oldPolicy);
             }
         }
 
-        // /vendor/lib, /odm/lib and /product/lib are added to the native lib search
-        // paths of the classloader. Note that this is done AFTER the classloader is
+        // /aepx/com.android.runtime/lib, /vendor/lib, /odm/lib and /product/lib
+        // are added to the native lib search paths of the classloader.
+        // Note that this is done AFTER the classloader is
         // created by ApplicationLoaders.getDefault().getClassLoader(...). The
         // reason is because if we have added the paths when creating the classloader
         // above, the paths are also added to the search path of the linker namespace
@@ -763,8 +888,11 @@ public final class LoadedApk {
         // System.loadLibrary(). In order to prevent the problem, we explicitly
         // add the paths only to the classloader, and not to the native loader
         // (linker namespace).
-        List<String> extraLibPaths = new ArrayList<>(3);
+        List<String> extraLibPaths = new ArrayList<>(4);
         String abiSuffix = VMRuntime.getRuntime().is64Bit() ? "64" : "";
+        if (!defaultSearchPaths.contains("/apex/com.android.runtime/lib")) {
+            extraLibPaths.add("/apex/com.android.runtime/lib" + abiSuffix);
+        }
         if (!defaultSearchPaths.contains("/vendor/lib")) {
             extraLibPaths.add("/vendor/lib" + abiSuffix);
         }
@@ -775,17 +903,17 @@ public final class LoadedApk {
             extraLibPaths.add("/product/lib" + abiSuffix);
         }
         if (!extraLibPaths.isEmpty()) {
-            StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
+            StrictMode.ThreadPolicy oldPolicy = allowThreadDiskReads();
             try {
-                ApplicationLoaders.getDefault().addNative(mClassLoader, extraLibPaths);
+                ApplicationLoaders.getDefault().addNative(mDefaultClassLoader, extraLibPaths);
             } finally {
-                StrictMode.setThreadPolicy(oldPolicy);
+                setThreadPolicy(oldPolicy);
             }
         }
 
         if (addedPaths != null && addedPaths.size() > 0) {
             final String add = TextUtils.join(File.pathSeparator, addedPaths);
-            ApplicationLoaders.getDefault().addPath(mClassLoader, add);
+            ApplicationLoaders.getDefault().addPath(mDefaultClassLoader, add);
             // Setup the new code paths for profiling.
             needToSetupJitProfiles = true;
         }
@@ -799,11 +927,23 @@ public final class LoadedApk {
         //
         // It is NOT ok to call this function from the system_server (for any of the packages it
         // loads code from) so we explicitly disallow it there.
-        if (needToSetupJitProfiles && !ActivityThread.isSystem()) {
+        //
+        // It is not ok to call this in a zygote context where mActivityThread is null.
+        if (needToSetupJitProfiles && !ActivityThread.isSystem() && mActivityThread != null) {
             setupJitProfileSupport();
+        }
+
+        // Call AppComponentFactory to select/create the main class loader of this app.
+        // Since this may call code in the app, mDefaultClassLoader must be fully set up
+        // before invoking the factory.
+        // Invoke with a copy of ApplicationInfo to protect against the app changing it.
+        if (mClassLoader == null) {
+            mClassLoader = mAppComponentFactory.instantiateClassLoader(mDefaultClassLoader,
+                    new ApplicationInfo(mApplicationInfo));
         }
     }
 
+    @UnsupportedAppUsage
     public ClassLoader getClassLoader() {
         synchronized (this) {
             if (mClassLoader == null) {
@@ -817,6 +957,15 @@ public final class LoadedApk {
         if (!SystemProperties.getBoolean("dalvik.vm.usejitprofiles", false)) {
             return;
         }
+
+        // If we use profiles, setup the dex reporter to notify package manager
+        // of any relevant dex loads. The idle maintenance job will use the information
+        // reported to optimize the loaded dex files.
+        // Note that we only need one global reporter per app.
+        // Make sure we do this before invoking app code for the first time so that we
+        // can capture the complete application startup.
+        BaseDexClassLoader.setReporter(DexLoadReporter.getInstance());
+
         // Only set up profile support if the loaded apk has the same uid as the
         // current process.
         // Currently, we do not support profiling across different apps.
@@ -972,6 +1121,7 @@ public final class LoadedApk {
         }
     }
 
+    @UnsupportedAppUsage
     public String getAppDir() {
         return mAppDir;
     }
@@ -980,6 +1130,7 @@ public final class LoadedApk {
         return mLibDir;
     }
 
+    @UnsupportedAppUsage
     public String getResDir() {
         return mResDir;
     }
@@ -988,10 +1139,12 @@ public final class LoadedApk {
         return mSplitAppDirs;
     }
 
+    @UnsupportedAppUsage
     public String[] getSplitResDirs() {
         return mSplitResDirs;
     }
 
+    @UnsupportedAppUsage
     public String[] getOverlayDirs() {
         return mOverlayDirs;
     }
@@ -1000,6 +1153,7 @@ public final class LoadedApk {
         return mDataDir;
     }
 
+    @UnsupportedAppUsage
     public File getDataDirFile() {
         return mDataDirFile;
     }
@@ -1012,10 +1166,12 @@ public final class LoadedApk {
         return mCredentialProtectedDataDirFile;
     }
 
+    @UnsupportedAppUsage
     public AssetManager getAssets() {
         return getResources().getAssets();
     }
 
+    @UnsupportedAppUsage
     public Resources getResources() {
         if (mResources == null) {
             final String[] splitPaths;
@@ -1034,6 +1190,7 @@ public final class LoadedApk {
         return mResources;
     }
 
+    @UnsupportedAppUsage
     public Application makeApplication(boolean forceDefaultAppClass,
             Instrumentation instrumentation) {
         if (mApplication != null) {
@@ -1074,7 +1231,6 @@ public final class LoadedApk {
 
         if (instrumentation != null) {
             try {
-                // 调用Application的onCreate方法
                 instrumentation.callApplicationOnCreate(app);
             } catch (Exception e) {
                 if (!instrumentation.onException(app, e)) {
@@ -1103,6 +1259,7 @@ public final class LoadedApk {
         return app;
     }
 
+    @UnsupportedAppUsage
     private void rewriteRValues(ClassLoader cl, String packageName, int id) {
         final Class<?> rClazz;
         try {
@@ -1195,27 +1352,19 @@ public final class LoadedApk {
         }
     }
 
-    // 每一个注册过广播接收者的Activity组件在LoadApk类中都有一个对应的ReceiverDispatcher对象，它负责
-    // 将这个被注册的广播接收者与注册它的Activity组件关联在一起。这些ReceiverDispatcher对象保存在一个
-    // HashMap中，并且以它们所关联的广播接收者为关键字。最后用来保存这些ReceiverDispatcher对象的HashMap
-    // 又以它们所关联的Activity组件的Context接口为关键字保存在LoadApk类的成员变量mReceivers中
     public IIntentReceiver getReceiverDispatcher(BroadcastReceiver r,
             Context context, Handler handler,
             Instrumentation instrumentation, boolean registered) {
         synchronized (mReceivers) {
             LoadedApk.ReceiverDispatcher rd = null;
             ArrayMap<BroadcastReceiver, LoadedApk.ReceiverDispatcher> map = null;
-            // 是不是注册广播
             if (registered) {
-                // 查找有没有对应的广播接收者对象列表
                 map = mReceivers.get(context);
                 if (map != null) {
-                    // 查找是否存在该广播接收者对应的ReceiverDispatcher对象
                     rd = map.get(r);
                 }
             }
-            if (rd == null) {// 不存在
-                // 初始化广播接收器调度员
+            if (rd == null) {
                 rd = new ReceiverDispatcher(r, context, handler,
                         instrumentation, registered);
                 if (registered) {
@@ -1223,11 +1372,9 @@ public final class LoadedApk {
                         map = new ArrayMap<BroadcastReceiver, LoadedApk.ReceiverDispatcher>();
                         mReceivers.put(context, map);
                     }
-                    // 缓存ReceiverDispatcher
                     map.put(r, rd);
                 }
             } else {
-                // 验证广播分发者的Context和Handler是否一致。
                 rd.validate(context, handler);
             }
             rd.mForgotten = false;
@@ -1334,24 +1481,24 @@ public final class LoadedApk {
             }
         }
 
-        final IIntentReceiver.Stub mIIntentReceiver;// 指向实现了IIntentReceiver接口的Binder本地对象
-        final BroadcastReceiver mReceiver;// 指向与该Activity组件相关的一个广播接收者
-        final Context mContext;// 指向Activity
-        final Handler mActivityThread;// 指向与该Activity组件相关的一个Handler对象
+        final IIntentReceiver.Stub mIIntentReceiver;
+        @UnsupportedAppUsage
+        final BroadcastReceiver mReceiver;
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+        final Context mContext;
+        final Handler mActivityThread;
         final Instrumentation mInstrumentation;
-        final boolean mRegistered;// 用来描述mReceiver所指向的广播接收者是否已经注册到AMS中。已注册：true，否则：false
+        final boolean mRegistered;
         final IntentReceiverLeaked mLocation;
         RuntimeException mUnregisterLocation;
         boolean mForgotten;
 
         final class Args extends BroadcastReceiver.PendingResult {
-            // 用来描述一个广播，它的目标广播接收者便是ReceiverDispatcher类的成员变量mReceiver所指向的广播接收者
             private Intent mCurIntent;
-            private final boolean mOrdered;// 用来描述成员变量mCurIntent所描述的广播是否是一个有序广播
+            private final boolean mOrdered;
             private boolean mDispatched;
-            private Throwable mPreviousRunStacktrace; // To investigate b/37809561. STOPSHIP remove.
-            // 动态广播：参数mRegistered为true，mType就是TYPE_REGISTERED
-            // 非ordered广播：ordered变量是false，mOrderedHint为false，mType是TYPE_REGISTERED
+            private boolean mRunCalled;
+
             public Args(Intent intent, int resultCode, String resultData, Bundle resultExtras,
                     boolean ordered, boolean sticky, int sendingUser) {
                 super(resultCode, resultData, resultExtras,
@@ -1363,7 +1510,6 @@ public final class LoadedApk {
 
             public final Runnable getRunnable() {
                 return () -> {
-                // mReceiver指向一个广播接收者
                     final BroadcastReceiver receiver = mReceiver;
                     final boolean ordered = mOrdered;
 
@@ -1379,13 +1525,12 @@ public final class LoadedApk {
                     final Intent intent = mCurIntent;
                     if (intent == null) {
                         Log.wtf(TAG, "Null intent being dispatched, mDispatched=" + mDispatched
-                                + ": run() previously called at "
-                                + Log.getStackTraceString(mPreviousRunStacktrace));
+                                + (mRunCalled ? ", run() has already been called" : ""));
                     }
 
                     mCurIntent = null;
                     mDispatched = true;
-                    mPreviousRunStacktrace = new Throwable("Previous stacktrace");
+                    mRunCalled = true;
                     if (receiver == null || intent == null || mForgotten) {
                         if (mRegistered && ordered) {
                             if (ActivityThread.DEBUG_BROADCAST) Slog.i(ActivityThread.TAG,
@@ -1396,25 +1541,17 @@ public final class LoadedApk {
                     }
 
                     Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "broadcastReceiveReg");
-                // 这里处理的是动态广播接收者，默认认为接收者BroadcastReceiver已经存在
                     try {
                         ClassLoader cl = mReceiver.getClass().getClassLoader();
                         intent.setExtrasClassLoader(cl);
                         intent.prepareToEnterProcess();
                         setExtrasClassLoader(cl);
-                    // 调用接收者的onReceive方法，这里还涉及到setPendingResult方法，相关具体内容请看
-                    // BroadcastReceiver.goAsync方法
                         receiver.setPendingResult(this);
-                    // 接受广播
                         receiver.onReceive(mContext, intent);
-                    // 然后调用BroadcastReceiver.PendingResult.finish函数，也就是下面的finish函数
                     } catch (Exception e) {
-                    // 检查当前广播是否是有序广播，并且广播接收者是否已经注册到AMS中
                         if (mRegistered && ordered) {
                             if (ActivityThread.DEBUG_BROADCAST) Slog.i(ActivityThread.TAG,
                                     "Finishing failed broadcast to " + mReceiver);
-                        // 通知AMS，它前面转发过来的有序广播已经处理完了，这时AMS就可以继续将这个有序广播
-                        // 转发给下一个目标广播接收者了
                             sendFinished(mgr);
                         }
                         if (mInstrumentation == null ||
@@ -1451,12 +1588,6 @@ public final class LoadedApk {
             mLocation.fillInStackTrace();
         }
 
-        /**
-         * 验证广播分发者的Context和Handler是否一致。
-         *
-         * @param context        广播分发者的Context
-         * @param activityThread 广播分发者的Handler
-         */
         void validate(Context context, Handler activityThread) {
             if (mContext != context) {
                 throw new IllegalStateException(
@@ -1476,10 +1607,12 @@ public final class LoadedApk {
             return mLocation;
         }
 
+        @UnsupportedAppUsage
         BroadcastReceiver getIntentReceiver() {
             return mReceiver;
         }
 
+        @UnsupportedAppUsage
         IIntentReceiver getIIntentReceiver() {
             return mIIntentReceiver;
         }
@@ -1494,12 +1627,8 @@ public final class LoadedApk {
 
         public void performReceive(Intent intent, int resultCode, String data,
                 Bundle extras, boolean ordered, boolean sticky, int sendingUser) {
-            // 首先将参数Intent所描述的一个广播封装成一个Args对象，然后将这个Args对象封装成一个消息对象，
-            // 然后将这个消息对象发送到应用程序主线程的消息队列中。
             final Args args = new Args(intent, resultCode, data, extras, ordered,
                     sticky, sendingUser);
-            // 将当前广播信息放到主线程的Handler中进行处理，作为一个Runnable调度而不是在handleMessage中处理，
-            // 而是在Handler内部机制中，处理的时候会对应run函数，因此这里不久后会调用Args.run函数
             if (intent == null) {
                 Log.wtf(TAG, "Null intent received");
             } else {
@@ -1509,7 +1638,6 @@ public final class LoadedApk {
                             + " seq=" + seq + " to " + mReceiver);
                 }
             }
-            // 上面将广播的参数封装在一个Args对象里面，然后通过post到主线程的消息队列里面
             if (intent == null || !mActivityThread.post(args.getRunnable())) {
                 if (mRegistered && ordered) {
                     IActivityManager mgr = ActivityManager.getService();
@@ -1522,21 +1650,32 @@ public final class LoadedApk {
 
     }
 
-    // 每一个绑定过Service组件的Activity组件在LoadedApk类中都有一个对应的ServiceDispatcher对象，它负责将
-    // 这个被绑定的Service组件与绑定它的Activity组件关联起来，这些ServiceDispatcher保存在map中
+    @UnsupportedAppUsage
     public final IServiceConnection getServiceDispatcher(ServiceConnection c,
             Context context, Handler handler, int flags) {
+        return getServiceDispatcherCommon(c, context, handler, null, flags);
+    }
+
+    public final IServiceConnection getServiceDispatcher(ServiceConnection c,
+            Context context, Executor executor, int flags) {
+        return getServiceDispatcherCommon(c, context, null, executor, flags);
+    }
+
+    private IServiceConnection getServiceDispatcherCommon(ServiceConnection c,
+            Context context, Handler handler, Executor executor, int flags) {
         synchronized (mServices) {
             LoadedApk.ServiceDispatcher sd = null;
             ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher> map = mServices.get(context);
-            // 检查成员变量mServices中是否存在一个以ServiceConnection对象c为关键字的ServiceDispatcher
-            // 对象sd，如果不存在，则创建一个并且以context为关键字保存到mServices中
             if (map != null) {
                 if (DEBUG) Slog.d(TAG, "Returning existing dispatcher " + sd + " for conn " + c);
                 sd = map.get(c);
             }
             if (sd == null) {
-                sd = new ServiceDispatcher(c, context, handler, flags);
+                if (executor != null) {
+                    sd = new ServiceDispatcher(c, context, executor, flags);
+                } else {
+                    sd = new ServiceDispatcher(c, context, handler, flags);
+                }
                 if (DEBUG) Slog.d(TAG, "Creating new dispatcher " + sd + " for conn " + c);
                 if (map == null) {
                     map = new ArrayMap<>();
@@ -1544,11 +1683,22 @@ public final class LoadedApk {
                 }
                 map.put(c, sd);
             } else {
-                sd.validate(context, handler);
+                sd.validate(context, handler, executor);
             }
-            // 调用前面获取到的ServiceDispatcher对象sd的成员函数getIServiceConnection来获取一个实现了
-            // IServiceConnection接口的本地Binder对象
             return sd.getIServiceConnection();
+        }
+    }
+
+    @UnsupportedAppUsage
+    public IServiceConnection lookupServiceDispatcher(ServiceConnection c,
+            Context context) {
+        synchronized (mServices) {
+            LoadedApk.ServiceDispatcher sd = null;
+            ArrayMap<ServiceConnection, LoadedApk.ServiceDispatcher> map = mServices.get(context);
+            if (map != null) {
+                sd = map.get(c);
+            }
+            return sd != null ? sd.getIServiceConnection() : null;
         }
     }
 
@@ -1604,12 +1754,14 @@ public final class LoadedApk {
     }
 
     static final class ServiceDispatcher {
-        // mIServiceConnection对象指向一个实现了IServiceConnection接口的Binder本地对象
         private final ServiceDispatcher.InnerConnection mIServiceConnection;
+        @UnsupportedAppUsage
         private final ServiceConnection mConnection;
-        private final Context mContext;// 指向Activity组件
-        private final Handler mActivityThread;// 指向与Activity组件关联的一个Handler对象
-        private final ServiceConnectionLeaked mLocation;// 指向与上面Activity关联的一个ServiceConnection对象
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+        private final Context mContext;
+        private final Handler mActivityThread;
+        private final Executor mActivityExecutor;
+        private final ServiceConnectionLeaked mLocation;
         private final int mFlags;
 
         private RuntimeException mUnbindLocation;
@@ -1622,6 +1774,7 @@ public final class LoadedApk {
         }
 
         private static class InnerConnection extends IServiceConnection.Stub {
+            @UnsupportedAppUsage
             final WeakReference<LoadedApk.ServiceDispatcher> mDispatcher;
 
             InnerConnection(LoadedApk.ServiceDispatcher sd) {
@@ -1640,18 +1793,32 @@ public final class LoadedApk {
         private final ArrayMap<ComponentName, ServiceDispatcher.ConnectionInfo> mActiveConnections
             = new ArrayMap<ComponentName, ServiceDispatcher.ConnectionInfo>();
 
+        @UnsupportedAppUsage
         ServiceDispatcher(ServiceConnection conn,
                 Context context, Handler activityThread, int flags) {
             mIServiceConnection = new InnerConnection(this);
             mConnection = conn;
             mContext = context;
             mActivityThread = activityThread;
+            mActivityExecutor = null;
             mLocation = new ServiceConnectionLeaked(null);
             mLocation.fillInStackTrace();
             mFlags = flags;
         }
 
-        void validate(Context context, Handler activityThread) {
+        ServiceDispatcher(ServiceConnection conn,
+                Context context, Executor activityExecutor, int flags) {
+            mIServiceConnection = new InnerConnection(this);
+            mConnection = conn;
+            mContext = context;
+            mActivityThread = null;
+            mActivityExecutor = activityExecutor;
+            mLocation = new ServiceConnectionLeaked(null);
+            mLocation.fillInStackTrace();
+            mFlags = flags;
+        }
+
+        void validate(Context context, Handler activityThread, Executor activityExecutor) {
             if (mContext != context) {
                 throw new RuntimeException(
                     "ServiceConnection " + mConnection +
@@ -1663,6 +1830,12 @@ public final class LoadedApk {
                     "ServiceConnection " + mConnection +
                     " registered with differing handler (was " +
                     mActivityThread + " now " + activityThread + ")");
+            }
+            if (mActivityExecutor != activityExecutor) {
+                throw new RuntimeException(
+                    "ServiceConnection " + mConnection +
+                    " registered with differing executor (was " +
+                    mActivityExecutor + " now " + activityExecutor + ")");
             }
         }
 
@@ -1685,7 +1858,7 @@ public final class LoadedApk {
             return mConnection;
         }
 
-        // 将成员变量mIServiceConnection所指向的一个InnerConnection对象返回给调用者
+        @UnsupportedAppUsage
         IServiceConnection getIServiceConnection() {
             return mIServiceConnection;
         }
@@ -1703,17 +1876,19 @@ public final class LoadedApk {
         }
 
         public void connected(ComponentName name, IBinder service, boolean dead) {
-            // mActivityThread指向了ActivityThread类的成员变量mH，它是用来向应用程序的主线程的消息队列发送消息的
-            if (mActivityThread != null) {
+            if (mActivityExecutor != null) {
+                mActivityExecutor.execute(new RunConnection(name, service, 0, dead));
+            } else if (mActivityThread != null) {
                 mActivityThread.post(new RunConnection(name, service, 0, dead));
             } else {
-                // 执行连接
                 doConnected(name, service, dead);
             }
         }
 
         public void death(ComponentName name, IBinder service) {
-            if (mActivityThread != null) {
+            if (mActivityExecutor != null) {
+                mActivityExecutor.execute(new RunConnection(name, service, 1, false));
+            } else if (mActivityThread != null) {
                 mActivityThread.post(new RunConnection(name, service, 1, false));
             } else {
                 doDeath(name, service);
@@ -1770,7 +1945,6 @@ public final class LoadedApk {
             }
             // If there is a new viable service, it is now connected.
             if (service != null) {
-                // 调用onServiceConnected函数以便将参数service所描述的Binder本地对象传递给你要绑定的Service组件
                 mConnection.onServiceConnected(name, service);
             } else {
                 // The binding machinery worked, but the remote returned null from onBind().

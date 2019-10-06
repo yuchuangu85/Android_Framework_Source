@@ -16,15 +16,16 @@
 
 package com.android.systemui.statusbar.phone;
 
+import static com.android.systemui.statusbar.phone.StatusBarIconController.TAG_PRIMARY;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.statusbar.StatusBarIcon;
+
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
-
-import static com.android.systemui.statusbar.phone.StatusBarIconController.TAG_PRIMARY;
 
 public class StatusBarIconList {
     private ArrayList<Slot> mSlots = new ArrayList<>();
@@ -244,6 +245,25 @@ public class StatusBarIconList {
 
             if (mHolder != null) {
                 holders.add(mHolder);
+            }
+
+            return holders;
+        }
+
+        /**
+         * Build a list of the {@link StatusBarIconHolder}s in the same order.
+         * This provides a safe list that can be iterated and inserted into its group.
+         *
+         * @return all holders contained here
+         */
+        public List<StatusBarIconHolder> getHolderList() {
+            ArrayList<StatusBarIconHolder> holders = new ArrayList<>();
+            if (mHolder != null) {
+                holders.add(mHolder);
+            }
+
+            if (mSubSlots != null) {
+                holders.addAll(mSubSlots);
             }
 
             return holders;

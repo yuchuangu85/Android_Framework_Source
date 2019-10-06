@@ -25,6 +25,8 @@ import android.annotation.LayoutRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StyleRes;
+import android.annotation.SystemApi;
+import android.annotation.UnsupportedAppUsage;
 import android.app.WindowConfiguration;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
@@ -36,16 +38,17 @@ import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.media.session.MediaController;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.RemoteException;
-import android.os.SystemProperties;
 import android.transition.Scene;
 import android.transition.Transition;
 import android.transition.TransitionManager;
 import android.view.accessibility.AccessibilityEvent;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -151,6 +154,7 @@ public abstract class Window {
      * Max value used as a feature ID
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int FEATURE_MAX = FEATURE_ACTIVITY_TRANSITIONS;
 
     /**
@@ -252,8 +256,6 @@ public abstract class Window {
      */
     public static final int ID_ANDROID_CONTENT = com.android.internal.R.id.content;
 
-    private static final String PROPERTY_HARDWARE_UI = "persist.sys.ui.hw";
-
     /**
      * Flag for letting the theme drive the color of the window caption controls. Use with
      * {@link #setDecorCaptionShade(int)}. This is the default value.
@@ -270,18 +272,25 @@ public abstract class Window {
      */
     public static final int DECOR_CAPTION_SHADE_DARK = 2;
 
+    @UnsupportedAppUsage
     private final Context mContext;
 
+    @UnsupportedAppUsage
     private TypedArray mWindowStyle;
+    @UnsupportedAppUsage
     private Callback mCallback;
     private OnWindowDismissedCallback mOnWindowDismissedCallback;
     private OnWindowSwipeDismissedCallback mOnWindowSwipeDismissedCallback;
     private WindowControllerCallback mWindowControllerCallback;
     private OnRestrictedCaptionAreaChangedListener mOnRestrictedCaptionAreaChangedListener;
     private Rect mRestrictedCaptionAreaRect;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private WindowManager mWindowManager;
+    @UnsupportedAppUsage
     private IBinder mAppToken;
+    @UnsupportedAppUsage
     private String mAppName;
+    @UnsupportedAppUsage
     private boolean mHardwareAccelerated;
     private Window mContainer;
     private Window mActiveChild;
@@ -291,7 +300,9 @@ public abstract class Window {
     private boolean mSetCloseOnTouchOutside = false;
     private int mForcedWindowFlags = 0;
 
+    @UnsupportedAppUsage
     private int mFeatures;
+    @UnsupportedAppUsage
     private int mLocalFeatures;
 
     private boolean mHaveWindowFormat = false;
@@ -300,12 +311,14 @@ public abstract class Window {
 
     private boolean mHasSoftInputMode = false;
 
+    @UnsupportedAppUsage
     private boolean mDestroyed;
 
     private boolean mOverlayWithDecorCaptionEnabled = false;
     private boolean mCloseOnSwipeEnabled = false;
 
     // The current window attributes.
+    @UnsupportedAppUsage
     private final WindowManager.LayoutParams mWindowAttributes =
         new WindowManager.LayoutParams();
 
@@ -412,7 +425,7 @@ public abstract class Window {
          * @return boolean You must return true for the panel to be displayed;
          *         if you return false it will not be shown.
          */
-        public boolean onCreatePanelMenu(int featureId, Menu menu);
+        boolean onCreatePanelMenu(int featureId, @NonNull Menu menu);
 
         /**
          * Prepare a panel to be displayed.  This is called right before the
@@ -428,7 +441,7 @@ public abstract class Window {
          *
          * @see #onCreatePanelView
          */
-        public boolean onPreparePanel(int featureId, View view, Menu menu);
+        boolean onPreparePanel(int featureId, @Nullable View view, @NonNull Menu menu);
 
         /**
          * Called when a panel's menu is opened by the user. This may also be
@@ -440,7 +453,7 @@ public abstract class Window {
          * @return Return true to allow the menu to open, or false to prevent
          *         the menu from opening.
          */
-        public boolean onMenuOpened(int featureId, Menu menu);
+        boolean onMenuOpened(int featureId, @NonNull Menu menu);
 
         /**
          * Called when a panel's menu item has been selected by the user.
@@ -452,7 +465,7 @@ public abstract class Window {
          *         false to perform the normal menu handling (calling its
          *         Runnable or sending a Message to its target Handler).
          */
-        public boolean onMenuItemSelected(int featureId, MenuItem item);
+        boolean onMenuItemSelected(int featureId, @NonNull MenuItem item);
 
         /**
          * This is called whenever the current window attributes change.
@@ -502,7 +515,7 @@ public abstract class Window {
          * @param menu If onCreatePanelView() returned null, this is the Menu
          *            being displayed in the panel.
          */
-        public void onPanelClosed(int featureId, Menu menu);
+        void onPanelClosed(int featureId, @NonNull Menu menu);
 
         /**
          * Called when the user signals the desire to start a search.
@@ -610,11 +623,10 @@ public abstract class Window {
     /** @hide */
     public interface WindowControllerCallback {
         /**
-         * Moves the activity from
-         * Moves the activity from {@link WindowConfiguration#WINDOWING_MODE_FREEFORM} windowing
-         * mode to {@link WindowConfiguration#WINDOWING_MODE_FULLSCREEN}.
+         * Moves the activity between {@link WindowConfiguration#WINDOWING_MODE_FREEFORM} windowing
+         * mode and {@link WindowConfiguration#WINDOWING_MODE_FULLSCREEN}.
          */
-        void exitFreeformMode() throws RemoteException;
+        void toggleFreeformWindowingMode() throws RemoteException;
 
         /**
          * Puts the activity in picture-in-picture mode if the activity supports.
@@ -732,6 +744,7 @@ public abstract class Window {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public final boolean isDestroyed() {
         return mDestroyed;
     }
@@ -752,20 +765,16 @@ public abstract class Window {
      * display panels.  This is <em>not</em> used for displaying the
      * Window itself -- that must be done by the client.
      *
-     * 添加窗口管理器（一个是创建Activity另一个是创建Dialog）
-     *
      * @param wm The window manager for adding new windows.
      */
     public void setWindowManager(WindowManager wm, IBinder appToken, String appName,
             boolean hardwareAccelerated) {
         mAppToken = appToken;
         mAppName = appName;
-        mHardwareAccelerated = hardwareAccelerated
-                || SystemProperties.getBoolean(PROPERTY_HARDWARE_UI, false);
+        mHardwareAccelerated = hardwareAccelerated;
         if (wm == null) {
             wm = (WindowManager)mContext.getSystemService(Context.WINDOW_SERVICE);
         }
-        // 创建WindowManager的实现类WindowManagerImpl
         mWindowManager = ((WindowManagerImpl)wm).createLocalWindowManager(this);
     }
 
@@ -861,7 +870,7 @@ public abstract class Window {
     }
 
     /**
-     * Set an observer to collect frame stats for each frame rendererd in this window.
+     * Set an observer to collect frame stats for each frame rendered in this window.
      *
      * Must be in hardware rendering mode.
      */
@@ -1072,9 +1081,34 @@ public abstract class Window {
         setFlags(flags, flags);
     }
 
-    /** @hide */
+    /**
+     * Add private flag bits.
+     *
+     * <p>Refer to the individual flags for the permissions needed.
+     *
+     * @param flags The flag bits to add.
+     *
+     * @hide
+     */
+    @UnsupportedAppUsage
     public void addPrivateFlags(int flags) {
         setPrivateFlags(flags, flags);
+    }
+
+    /**
+     * Add system flag bits.
+     *
+     * <p>Refer to the individual flags for the permissions needed.
+     *
+     * <p>Note: Only for updateable system components (aka. mainline modules)
+     *
+     * @param flags The flag bits to add.
+     *
+     * @hide
+     */
+    @SystemApi
+    public void addSystemFlags(@WindowManager.LayoutParams.SystemFlags int flags) {
+        addPrivateFlags(flags);
     }
 
     /**
@@ -1123,6 +1157,7 @@ public abstract class Window {
     /**
      * {@hide}
      */
+    @UnsupportedAppUsage
     protected void setNeedsMenuKey(int value) {
         final WindowManager.LayoutParams attrs = getAttributes();
         attrs.needsMenuKey = value;
@@ -1243,12 +1278,14 @@ public abstract class Window {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setCloseOnTouchOutside(boolean close) {
         mCloseOnTouchOutside = close;
         mSetCloseOnTouchOutside = true;
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setCloseOnTouchOutsideIfNotSet(boolean close) {
         if (!mSetCloseOnTouchOutside) {
             mCloseOnTouchOutside = close;
@@ -1257,15 +1294,15 @@ public abstract class Window {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public abstract void alwaysReadCloseOnTouchAttr();
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public boolean shouldCloseOnTouch(Context context, MotionEvent event) {
-        // down事件并且在Activity占用View之外，返回true；其他事件并且在View之外，返回true
         final boolean isOutside =
-                event.getAction() == MotionEvent.ACTION_DOWN && isOutOfBounds(context, event)
-                || event.getAction() == MotionEvent.ACTION_OUTSIDE;// 当前View之外
-        // 设置触摸外面关闭，并且Activity的DecorView存在，并且满足上面的事件，返回true，关闭触摸事件
+                event.getAction() == MotionEvent.ACTION_UP && isOutOfBounds(context, event)
+                || event.getAction() == MotionEvent.ACTION_OUTSIDE;
         if (mCloseOnTouchOutside && peekDecorView() != null && isOutside) {
             return true;
         }
@@ -1666,7 +1703,7 @@ public abstract class Window {
      *
      * @return Returns the top-level window decor view.
      */
-    public abstract View getDecorView();
+    public abstract @NonNull View getDecorView();
 
     /**
      * Retrieve the current decor view, but only if it has already been created;
@@ -2294,6 +2331,121 @@ public abstract class Window {
         return 0;
     }
 
+    /**
+     * Sets whether the system should ensure that the status bar has enough
+     * contrast when a fully transparent background is requested.
+     *
+     * <p>If set to this value, the system will determine whether a scrim is necessary
+     * to ensure that the status bar has enough contrast with the contents of
+     * this app, and set an appropriate effective bar background color accordingly.
+     *
+     * <p>When the status bar color has a non-zero alpha value, the value of this
+     * property has no effect.
+     *
+     * @see android.R.attr#enforceStatusBarContrast
+     * @see #isStatusBarContrastEnforced
+     * @see #setStatusBarColor
+     */
+    public void setStatusBarContrastEnforced(boolean ensureContrast) {
+    }
+
+    /**
+     * Returns whether the system is ensuring that the status bar has enough contrast when a
+     * fully transparent background is requested.
+     *
+     * <p>When the status bar color has a non-zero alpha value, the value of this
+     * property has no effect.
+     *
+     * @return true, if the system is ensuring contrast, false otherwise.
+     * @see android.R.attr#enforceStatusBarContrast
+     * @see #setStatusBarContrastEnforced
+     * @see #setStatusBarColor
+     */
+    public boolean isStatusBarContrastEnforced() {
+        return false;
+    }
+
+    /**
+     * Sets whether the system should ensure that the navigation bar has enough
+     * contrast when a fully transparent background is requested.
+     *
+     * <p>If set to this value, the system will determine whether a scrim is necessary
+     * to ensure that the navigation bar has enough contrast with the contents of
+     * this app, and set an appropriate effective bar background color accordingly.
+     *
+     * <p>When the navigation bar color has a non-zero alpha value, the value of this
+     * property has no effect.
+     *
+     * @see android.R.attr#enforceNavigationBarContrast
+     * @see #isNavigationBarContrastEnforced
+     * @see #setNavigationBarColor
+     */
+    public void setNavigationBarContrastEnforced(boolean enforceContrast) {
+    }
+
+    /**
+     * Returns whether the system is ensuring that the navigation bar has enough contrast when a
+     * fully transparent background is requested.
+     *
+     * <p>When the navigation bar color has a non-zero alpha value, the value of this
+     * property has no effect.
+     *
+     * @return true, if the system is ensuring contrast, false otherwise.
+     * @see android.R.attr#enforceNavigationBarContrast
+     * @see #setNavigationBarContrastEnforced
+     * @see #setNavigationBarColor
+     */
+    public boolean isNavigationBarContrastEnforced() {
+        return false;
+    }
+
+    /**
+     * Sets a list of areas within this window's coordinate space where the system should not
+     * intercept touch or other pointing device gestures.
+     *
+     * <p>This method should be used by apps that make use of
+     * {@link #takeSurface(SurfaceHolder.Callback2)} and do not have a view hierarchy available.
+     * Apps that do have a view hierarchy should use
+     * {@link View#setSystemGestureExclusionRects(List)} instead. This method does not modify or
+     * replace the gesture exclusion rects populated by individual views in this window's view
+     * hierarchy using {@link View#setSystemGestureExclusionRects(List)}.</p>
+     *
+     * <p>Use this to tell the system which specific sub-areas of a view need to receive gesture
+     * input in order to function correctly in the presence of global system gestures that may
+     * conflict. For example, if the system wishes to capture swipe-in-from-screen-edge gestures
+     * to provide system-level navigation functionality, a view such as a navigation drawer
+     * container can mark the left (or starting) edge of itself as requiring gesture capture
+     * priority using this API. The system may then choose to relax its own gesture recognition
+     * to allow the app to consume the user's gesture. It is not necessary for an app to register
+     * exclusion rects for broadly spanning regions such as the entirety of a
+     * <code>ScrollView</code> or for simple press and release click targets such as
+     * <code>Button</code>. Mark an exclusion rect when interacting with a view requires
+     * a precision touch gesture in a small area in either the X or Y dimension, such as
+     * an edge swipe or dragging a <code>SeekBar</code> thumb.</p>
+     *
+     * <p>Do not modify the provided list after this method is called.</p>
+     *
+     * @param rects A list of precision gesture regions that this window needs to function correctly
+     */
+    @SuppressWarnings("unused")
+    public void setSystemGestureExclusionRects(@NonNull List<Rect> rects) {
+        throw new UnsupportedOperationException("window does not support gesture exclusion rects");
+    }
+
+    /**
+     * Retrieve the list of areas within this window's coordinate space where the system should not
+     * intercept touch or other pointing device gestures. This is the list as set by
+     * {@link #setSystemGestureExclusionRects(List)} or an empty list if
+     * {@link #setSystemGestureExclusionRects(List)} has not been called. It does not include
+     * exclusion rects set by this window's view hierarchy.
+     *
+     * @return a list of system gesture exclusion rects specific to this window
+     */
+    @NonNull
+    public List<Rect> getSystemGestureExclusionRects() {
+        return Collections.emptyList();
+    }
+
     /** @hide */
     public void setTheme(int resId) {
     }
@@ -2375,4 +2527,11 @@ public abstract class Window {
     public boolean isCloseOnSwipeEnabled() {
         return mCloseOnSwipeEnabled;
     }
+
+    /**
+     * @return The {@link WindowInsetsController} associated with this window
+     * @see View#getWindowInsetsController()
+     * @hide pending unhide
+     */
+    public abstract @NonNull WindowInsetsController getInsetsController();
 }

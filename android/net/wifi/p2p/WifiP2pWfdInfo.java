@@ -16,6 +16,8 @@
 
 package android.net.wifi.p2p;
 
+import android.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcelable;
 import android.os.Parcel;
 
@@ -53,9 +55,11 @@ public class WifiP2pWfdInfo implements Parcelable {
 
     private int mMaxThroughput;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public WifiP2pWfdInfo() {
     }
 
+    @UnsupportedAppUsage
     public WifiP2pWfdInfo(int devInfo, int ctrlPort, int maxTput) {
         mWfdEnabled = true;
         mDeviceInfo = devInfo;
@@ -63,18 +67,22 @@ public class WifiP2pWfdInfo implements Parcelable {
         mMaxThroughput = maxTput;
     }
 
+    @UnsupportedAppUsage
     public boolean isWfdEnabled() {
         return mWfdEnabled;
     }
 
+    @UnsupportedAppUsage
     public void setWfdEnabled(boolean enabled) {
         mWfdEnabled = enabled;
     }
 
+    @UnsupportedAppUsage
     public int getDeviceType() {
         return (mDeviceInfo & DEVICE_TYPE);
     }
 
+    @UnsupportedAppUsage
     public boolean setDeviceType(int deviceType) {
         if (deviceType >= WFD_SOURCE && deviceType <= SOURCE_OR_PRIMARY_SINK) {
             mDeviceInfo &= ~DEVICE_TYPE;
@@ -112,6 +120,7 @@ public class WifiP2pWfdInfo implements Parcelable {
         return (mDeviceInfo & SESSION_AVAILABLE) != 0;
     }
 
+    @UnsupportedAppUsage
     public void setSessionAvailable(boolean enabled) {
         if (enabled) {
             mDeviceInfo |= SESSION_AVAILABLE_BIT1;
@@ -125,10 +134,12 @@ public class WifiP2pWfdInfo implements Parcelable {
         return mCtrlPort;
     }
 
+    @UnsupportedAppUsage
     public void setControlPort(int port) {
         mCtrlPort = port;
     }
 
+    @UnsupportedAppUsage
     public void setMaxThroughput(int maxThroughput) {
         mMaxThroughput = maxThroughput;
     }
@@ -157,6 +168,7 @@ public class WifiP2pWfdInfo implements Parcelable {
     }
 
     /** copy constructor */
+    @UnsupportedAppUsage
     public WifiP2pWfdInfo(WifiP2pWfdInfo source) {
         if (source != null) {
             mWfdEnabled = source.mWfdEnabled;
@@ -182,7 +194,8 @@ public class WifiP2pWfdInfo implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<WifiP2pWfdInfo> CREATOR =
+    @UnsupportedAppUsage
+    public static final @android.annotation.NonNull Creator<WifiP2pWfdInfo> CREATOR =
         new Creator<WifiP2pWfdInfo>() {
             public WifiP2pWfdInfo createFromParcel(Parcel in) {
                 WifiP2pWfdInfo device = new WifiP2pWfdInfo();

@@ -25,6 +25,7 @@ import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.annotation.UserIdInt;
 import android.annotation.WorkerThread;
 import android.app.Activity;
@@ -69,6 +70,7 @@ import java.util.List;
 public class UserManager {
 
     private static final String TAG = "UserManager";
+    @UnsupportedAppUsage
     private final IUserManager mService;
     private final Context mContext;
 
@@ -256,6 +258,7 @@ public class UserManager {
     /**
      * Specifies if a user is disallowed from enabling the
      * "Unknown Sources" setting, that allows installation of apps from unknown sources.
+     * Unknown sources exclude adb and special apps such as trusted app stores.
      * The default value is <code>false</code>.
      *
      * <p>Key for user restrictions.
@@ -265,6 +268,26 @@ public class UserManager {
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_INSTALL_UNKNOWN_SOURCES = "no_install_unknown_sources";
+
+    /**
+     * This restriction is a device-wide version of {@link #DISALLOW_INSTALL_UNKNOWN_SOURCES}.
+     *
+     * Specifies if all users on the device are disallowed from enabling the
+     * "Unknown Sources" setting, that allows installation of apps from unknown sources.
+     *
+     * This restriction can be enabled by the profile owner, in which case all accounts and
+     * profiles will be affected.
+     *
+     * The default value is <code>false</code>.
+     *
+     * <p>Key for user restrictions.
+     * <p>Type: Boolean
+     * @see DevicePolicyManager#addUserRestriction(ComponentName, String)
+     * @see DevicePolicyManager#clearUserRestriction(ComponentName, String)
+     * @see #getUserRestrictions()
+     */
+    public static final String DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY =
+            "no_install_unknown_sources_globally";
 
     /**
      * Specifies if a user is disallowed from configuring bluetooth.
@@ -367,8 +390,12 @@ public class UserManager {
     public static final String DISALLOW_REMOVE_MANAGED_PROFILE = "no_remove_managed_profile";
 
     /**
-     * Specifies if a user is disallowed from enabling or
-     * accessing debugging features. The default value is <code>false</code>.
+     * Specifies if a user is disallowed from enabling or accessing debugging features. When set on
+     * the primary user, disables debugging features altogether, including USB debugging. When set
+     * on a managed profile or a secondary user, blocks debugging for that user only, including
+     * starting activities, making service calls, accessing content providers, sending broadcasts,
+     * installing/uninstalling packages, clearing user data, etc.
+     * The default value is <code>false</code>.
      *
      * <p>Key for user restrictions.
      * <p>Type: Boolean
@@ -709,10 +736,13 @@ public class UserManager {
     public static final String DISALLOW_SYSTEM_ERROR_DIALOGS = "no_system_error_dialogs";
 
     /**
-     * Specifies if what is copied in the clipboard of this profile can
-     * be pasted in related profiles. Does not restrict if the clipboard of related profiles can be
-     * pasted in this profile.
-     * The default value is <code>false</code>.
+     * Specifies if the clipboard contents can be exported by pasting the data into other users or
+     * profiles. This restriction doesn't prevent import, such as someone pasting clipboard data
+     * from other profiles or users. The default value is {@code false}.
+     *
+     * <p><strong>Note</strong>: Because it's possible to extract data from screenshots using
+     * optical character recognition (OCR), we strongly recommend combining this user restriction
+     * with {@link DevicePolicyManager#setScreenCaptureDisabled(ComponentName, boolean)}.
      *
      * <p>Key for user restrictions.
      * <p>Type: Boolean
@@ -781,6 +811,7 @@ public class UserManager {
      * @see #getUserRestrictions()
      * @hide
      */
+    @UnsupportedAppUsage
     public static final String DISALLOW_RECORD_AUDIO = "no_record_audio";
 
     /**
@@ -911,6 +942,36 @@ public class UserManager {
     public static final String DISALLOW_AUTOFILL = "no_autofill";
 
     /**
+     * Specifies if the contents of a user's screen is not allowed to be captured for artificial
+     * intelligence purposes.
+     *
+     * <p>Device owner and profile owner can set this restriction. When it is set by device owner,
+     * only the target user will be affected.
+     *
+     * <p>The default value is <code>false</code>.
+     *
+     * @see DevicePolicyManager#addUserRestriction(ComponentName, String)
+     * @see DevicePolicyManager#clearUserRestriction(ComponentName, String)
+     * @see #getUserRestrictions()
+     */
+    public static final String DISALLOW_CONTENT_CAPTURE = "no_content_capture";
+
+    /**
+     * Specifies if the current user is able to receive content suggestions for selections based on
+     * the contents of their screen.
+     *
+     * <p>Device owner and profile owner can set this restriction. When it is set by device owner,
+     * only the target user will be affected.
+     *
+     * <p>The default value is <code>false</code>.
+     *
+     * @see DevicePolicyManager#addUserRestriction(ComponentName, String)
+     * @see DevicePolicyManager#clearUserRestriction(ComponentName, String)
+     * @see #getUserRestrictions()
+     */
+    public static final String DISALLOW_CONTENT_SUGGESTIONS = "no_content_suggestions";
+
+    /**
      * Specifies if user switching is blocked on the current user.
      *
      * <p> This restriction can only be set by the device owner, it will be applied to all users.
@@ -960,6 +1021,21 @@ public class UserManager {
      * @see #getUserRestrictions()
      */
     public static final String DISALLOW_PRINTING = "no_printing";
+
+    /**
+     * Specifies whether the user is allowed to modify private DNS settings.
+     *
+     * <p>The default value is <code>false</code>.
+     *
+     * <p>This user restriction can only be applied by the Device Owner.
+     * <p>Key for user restrictions.
+     * <p>Type: Boolean
+     * @see DevicePolicyManager#addUserRestriction(ComponentName, String)
+     * @see DevicePolicyManager#clearUserRestriction(ComponentName, String)
+     * @see #getUserRestrictions()
+     */
+    public static final String DISALLOW_CONFIG_PRIVATE_DNS =
+            "disallow_config_private_dns";
 
     /**
      * Application restriction key that is used to indicate the pending arrival
@@ -1044,6 +1120,47 @@ public class UserManager {
     public static final int USER_CREATION_FAILED_NO_MORE_USERS = Activity.RESULT_FIRST_USER + 1;
 
     /**
+     * Indicates that users are switchable.
+     * @hide
+     */
+    @SystemApi
+    public static final int SWITCHABILITY_STATUS_OK = 0;
+
+    /**
+     * Indicated that the user is in a phone call.
+     * @hide
+     */
+    @SystemApi
+    public static final int SWITCHABILITY_STATUS_USER_IN_CALL = 1 << 0;
+
+    /**
+     * Indicates that user switching is disallowed ({@link #DISALLOW_USER_SWITCH} is set).
+     * @hide
+     */
+    @SystemApi
+    public static final int SWITCHABILITY_STATUS_USER_SWITCH_DISALLOWED = 1 << 1;
+
+    /**
+     * Indicates that the system user is locked and user switching is not allowed.
+     * @hide
+     */
+    @SystemApi
+    public static final int SWITCHABILITY_STATUS_SYSTEM_USER_LOCKED = 1 << 2;
+
+    /**
+     * Result returned in {@link #getUserSwitchability()} indicating user swichability.
+     * @hide
+     */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(flag = true, prefix = { "SWITCHABILITY_STATUS_" }, value = {
+            SWITCHABILITY_STATUS_OK,
+            SWITCHABILITY_STATUS_USER_IN_CALL,
+            SWITCHABILITY_STATUS_USER_SWITCH_DISALLOWED,
+            SWITCHABILITY_STATUS_SYSTEM_USER_LOCKED
+    })
+    public @interface UserSwitchabilityResult {}
+
+    /**
      * Indicates user operation is successful.
      */
     public static final int USER_OPERATION_SUCCESS = 0;
@@ -1123,6 +1240,7 @@ public class UserManager {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public static UserManager get(Context context) {
         return (UserManager) context.getSystemService(Context.USER_SERVICE);
     }
@@ -1165,11 +1283,13 @@ public class UserManager {
     }
 
     /**
-     * Returns whether switching users is currently allowed.
-     * <p>For instance switching users is not allowed if the current user is in a phone call,
-     * system user hasn't been unlocked yet, or {@link #DISALLOW_USER_SWITCH} is set.
+     * @deprecated use {@link #getUserSwitchability()} instead.
+     *
+     * @removed
      * @hide
      */
+    @Deprecated
+    @UnsupportedAppUsage
     public boolean canSwitchUsers() {
         boolean allowUserSwitchingWhenSystemUserLocked = Settings.Global.getInt(
                 mContext.getContentResolver(),
@@ -1183,11 +1303,48 @@ public class UserManager {
     }
 
     /**
+     * Returns whether switching users is currently allowed.
+     * <p>
+     * Switching users is not allowed in the following cases:
+     * <li>the user is in a phone call</li>
+     * <li>{@link #DISALLOW_USER_SWITCH} is set</li>
+     * <li>system user hasn't been unlocked yet</li>
+     *
+     * @return A {@link UserSwitchabilityResult} flag indicating if the user is switchable.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(allOf = {Manifest.permission.READ_PHONE_STATE,
+            android.Manifest.permission.MANAGE_USERS,
+            android.Manifest.permission.INTERACT_ACROSS_USERS}, conditional = true)
+    public @UserSwitchabilityResult int getUserSwitchability() {
+        final boolean allowUserSwitchingWhenSystemUserLocked = Settings.Global.getInt(
+                mContext.getContentResolver(),
+                Settings.Global.ALLOW_USER_SWITCHING_WHEN_SYSTEM_USER_LOCKED, 0) != 0;
+        final boolean systemUserUnlocked = isUserUnlocked(UserHandle.SYSTEM);
+        final TelephonyManager tm =
+                (TelephonyManager) mContext.getSystemService(Context.TELEPHONY_SERVICE);
+
+        int flags = SWITCHABILITY_STATUS_OK;
+        if (tm.getCallState() != TelephonyManager.CALL_STATE_IDLE) {
+            flags |= SWITCHABILITY_STATUS_USER_IN_CALL;
+        }
+        if (hasUserRestriction(DISALLOW_USER_SWITCH)) {
+            flags |= SWITCHABILITY_STATUS_USER_SWITCH_DISALLOWED;
+        }
+        if (!allowUserSwitchingWhenSystemUserLocked && !systemUserUnlocked) {
+            flags |= SWITCHABILITY_STATUS_SYSTEM_USER_LOCKED;
+        }
+        return flags;
+    }
+
+    /**
      * Returns the user handle for the user that this process is running under.
      *
      * @return the user handle of this process.
      * @hide
      */
+    @UnsupportedAppUsage
     public @UserIdInt int getUserHandle() {
         return UserHandle.myUserId();
     }
@@ -1195,12 +1352,16 @@ public class UserManager {
     /**
      * Returns the user name of the user making this call.  This call is only
      * available to applications on the system image; it requires the
-     * MANAGE_USERS permission.
+     * {@code android.permission.MANAGE_USERS} or {@code android.permission.GET_ACCOUNTS_PRIVILEGED}
+     * permissions.
      * @return the user name
      */
     public String getUserName() {
-        UserInfo user = getUserInfo(getUserHandle());
-        return user == null ? "" : user.name;
+        try {
+            return mService.getUserName();
+        } catch (RemoteException re) {
+            throw re.rethrowFromSystemServer();
+        }
     }
 
     /**
@@ -1238,6 +1399,8 @@ public class UserManager {
      * @return whether this process is running under the primary user.
      * @hide
      */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.MANAGE_USERS)
     public boolean isPrimaryUser() {
         UserInfo user = getUserInfo(UserHandle.myUserId());
         return user != null && user.isPrimary();
@@ -1255,10 +1418,15 @@ public class UserManager {
     }
 
     /**
+     * Used to check if this process is running as an admin user. An admin user is allowed to
+     * modify or configure certain settings that aren't available to non-admin users,
+     * create and delete additional users, etc. There can be more than one admin users.
+     *
+     * @return whether this process is running under an admin user.
      * @hide
-     * Returns whether the caller is running as an admin user. There can be more than one admin
-     * user.
      */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.MANAGE_USERS)
     public boolean isAdminUser() {
         return isUserAdmin(UserHandle.myUserId());
     }
@@ -1268,6 +1436,7 @@ public class UserManager {
      * Returns whether the provided user is an admin user. There can be more than one admin
      * user.
      */
+    @UnsupportedAppUsage
     public boolean isUserAdmin(@UserIdInt int userId) {
         UserInfo user = getUserInfo(userId);
         return user != null && user.isAdmin();
@@ -1277,21 +1446,42 @@ public class UserManager {
      * @hide
      * @deprecated Use {@link #isRestrictedProfile()}
      */
+    @UnsupportedAppUsage
     @Deprecated
     public boolean isLinkedUser() {
         return isRestrictedProfile();
     }
 
     /**
-     * Returns whether the caller is running as restricted profile. Restricted profile may have
-     * a reduced number of available apps, app restrictions and account restrictions.
-     * @return whether the user making this call is a linked user
+     * Used to check if this process is running under a restricted profile. Restricted profiles
+     * may have a reduced number of available apps, app restrictions, and account restrictions.
+     *
+     * @return whether this process is running under a restricted profile.
      * @hide
      */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.MANAGE_USERS)
     public boolean isRestrictedProfile() {
         try {
             return mService.isRestricted();
+        } catch (RemoteException re) {
+            throw re.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Check if a user is a restricted profile. Restricted profiles may have a reduced number of
+     * available apps, app restrictions, and account restrictions.
+     *
+     * @param user the user to check
+     * @return whether the user is a restricted profile.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.MANAGE_USERS)
+    public boolean isRestrictedProfile(@NonNull UserHandle user) {
+        try {
+            return mService.getUserInfo(user.getIdentifier()).isRestricted();
         } catch (RemoteException re) {
             throw re.rethrowFromSystemServer();
         }
@@ -1328,16 +1518,20 @@ public class UserManager {
      * @return whether user is a guest user.
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean isGuestUser(int id) {
         UserInfo user = getUserInfo(id);
         return user != null && user.isGuest();
     }
 
     /**
-     * Checks if the calling app is running as a guest user.
-     * @return whether the caller is a guest user.
+     * Used to check if this process is running under a guest user. A guest user may be transient.
+     *
+     * @return whether this process is running under a guest user.
      * @hide
      */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.MANAGE_USERS)
     public boolean isGuestUser() {
         UserInfo user = getUserInfo(UserHandle.myUserId());
         return user != null && user.isGuest();
@@ -1445,11 +1639,11 @@ public class UserManager {
      * background user; the result here does not distinguish between the two.
      *
      * <p>Note prior to Android Nougat MR1 (SDK version <= 24;
-     * {@link android.os.Build.VERSION_CODES#N), this API required a system permission
+     * {@link android.os.Build.VERSION_CODES#N}, this API required a system permission
      * in order to check other profile's status.
      * Since Android Nougat MR1 (SDK version >= 25;
-     * {@link android.os.Build.VERSION_CODES#N_MR1)), the restriction has been relaxed, and now
-     * it'll accept any {@link UserHandle} within the same profile group as the caller.
+     * {@link android.os.Build.VERSION_CODES#N_MR1}), the restriction has been relaxed, and now
+     * it'll accept any {@link android.os.UserHandle} within the same profile group as the caller.
      *
      * @param user The user to retrieve the running state for.
      */
@@ -1474,11 +1668,11 @@ public class UserManager {
      * (but is not yet fully stopped, and still running some code).
      *
      * <p>Note prior to Android Nougat MR1 (SDK version <= 24;
-     * {@link android.os.Build.VERSION_CODES#N), this API required a system permission
+     * {@link android.os.Build.VERSION_CODES#N}, this API required a system permission
      * in order to check other profile's status.
      * Since Android Nougat MR1 (SDK version >= 25;
-     * {@link android.os.Build.VERSION_CODES#N_MR1)), the restriction has been relaxed, and now
-     * it'll accept any {@link UserHandle} within the same profile group as the caller.
+     * {@link android.os.Build.VERSION_CODES#N_MR1}), the restriction has been relaxed, and now
+     * it'll accept any {@link android.os.UserHandle} within the same profile group as the caller.
      *
      * @param user The user to retrieve the running state for.
      */
@@ -1534,6 +1728,7 @@ public class UserManager {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public boolean isUserUnlocked(@UserIdInt int userId) {
         try {
             return mService.isUserUnlocked(userId);
@@ -1562,6 +1757,7 @@ public class UserManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public long getUserStartRealtime() {
         try {
             return mService.getUserStartRealtime();
@@ -1576,6 +1772,7 @@ public class UserManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public long getUserUnlockRealtime() {
         try {
             return mService.getUserUnlockRealtime();
@@ -1591,6 +1788,7 @@ public class UserManager {
      * @return the UserInfo object for a specific user.
      * @hide
      */
+    @UnsupportedAppUsage
     public UserInfo getUserInfo(@UserIdInt int userHandle) {
         try {
             return mService.getUserInfo(userHandle);
@@ -1665,11 +1863,13 @@ public class UserManager {
      /**
      * @hide
      * Returns whether the given user has been disallowed from performing certain actions
-     * or setting certain settings through UserManager. This method disregards restrictions
-     * set by device policy.
+     * or setting certain settings through UserManager (e.g. this type of restriction would prevent
+     * the guest user from doing certain things, such as making calls). This method disregards
+     * restrictions set by device policy.
      * @param restrictionKey the string key representing the restriction
      * @param userHandle the UserHandle of the user for whom to retrieve the restrictions.
      */
+    @UnsupportedAppUsage
     public boolean hasBaseUserRestriction(String restrictionKey, UserHandle userHandle) {
         try {
             return mService.hasBaseUserRestriction(restrictionKey, userHandle.getIdentifier());
@@ -1752,6 +1952,7 @@ public class UserManager {
      * @param restrictionKey the string key representing the restriction
      * @param userHandle the UserHandle of the user for whom to retrieve the restrictions.
      */
+    @UnsupportedAppUsage
     public boolean hasUserRestriction(String restrictionKey, UserHandle userHandle) {
         try {
             return mService.hasUserRestriction(restrictionKey,
@@ -1812,6 +2013,7 @@ public class UserManager {
      * @return the UserInfo object for the created user, or null if the user could not be created.
      * @hide
      */
+    @UnsupportedAppUsage
     public UserInfo createUser(String name, int flags) {
         UserInfo user = null;
         try {
@@ -1860,6 +2062,7 @@ public class UserManager {
      *         could not be created.
      * @hide
      */
+    @UnsupportedAppUsage
     public UserInfo createProfileForUser(String name, int flags, @UserIdInt int userHandle) {
         return createProfileForUser(name, flags, userHandle, null);
     }
@@ -2148,6 +2351,7 @@ public class UserManager {
      * @return the list of users that exist on the device.
      * @hide
      */
+    @UnsupportedAppUsage
     public List<UserInfo> getUsers() {
         try {
             return mService.getUsers(false);
@@ -2273,6 +2477,7 @@ public class UserManager {
      * @return the list of profiles.
      * @hide
      */
+    @UnsupportedAppUsage
     public List<UserInfo> getProfiles(@UserIdInt int userHandle) {
         try {
             return mService.getProfiles(userHandle, false /* enabledOnly */);
@@ -2306,6 +2511,7 @@ public class UserManager {
      * @return the list of profiles.
      * @hide
      */
+    @UnsupportedAppUsage
     public List<UserInfo> getEnabledProfiles(@UserIdInt int userHandle) {
         try {
             return mService.getProfiles(userHandle, true /* enabledOnly */);
@@ -2339,7 +2545,9 @@ public class UserManager {
      *
      * @hide
      */
-    public int[] getProfileIds(@UserIdInt int userId, boolean enabledOnly) {
+    @RequiresPermission(anyOf = {Manifest.permission.MANAGE_USERS,
+            Manifest.permission.CREATE_USERS}, conditional = true)
+    public @NonNull int[] getProfileIds(@UserIdInt int userId, boolean enabledOnly) {
         try {
             return mService.getProfileIds(userId, enabledOnly);
         } catch (RemoteException re) {
@@ -2351,6 +2559,7 @@ public class UserManager {
      * @see #getProfileIds(int, boolean)
      * @hide
      */
+    @UnsupportedAppUsage
     public int[] getProfileIdsWithDisabled(@UserIdInt int userId) {
         return getProfileIds(userId, false /* enabledOnly */);
     }
@@ -2384,12 +2593,34 @@ public class UserManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public UserInfo getProfileParent(@UserIdInt int userHandle) {
         try {
             return mService.getProfileParent(userHandle);
         } catch (RemoteException re) {
             throw re.rethrowFromSystemServer();
         }
+    }
+
+    /**
+     * Get the parent of a user profile.
+     *
+     * @param user the handle of the user profile
+     *
+     * @return the parent of the user or {@code null} if the user is not profile
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.MANAGE_USERS)
+    public @Nullable UserHandle getProfileParent(@NonNull UserHandle user) {
+        UserInfo info = getProfileParent(user.getIdentifier());
+
+        if (info == null) {
+            return null;
+        }
+
+        return UserHandle.of(info.id);
     }
 
     /**
@@ -2532,6 +2763,7 @@ public class UserManager {
      * @return the list of users that were created.
      * @hide
      */
+    @UnsupportedAppUsage
     public @NonNull List<UserInfo> getUsers(boolean excludeDying) {
         try {
             return mService.getUsers(excludeDying);
@@ -2546,6 +2778,7 @@ public class UserManager {
      * @param userHandle the integer handle of the user, where 0 is the primary user.
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean removeUser(@UserIdInt int userHandle) {
         try {
             return mService.removeUser(userHandle);
@@ -2553,6 +2786,24 @@ public class UserManager {
             throw re.rethrowFromSystemServer();
         }
     }
+
+    /**
+     * Removes a user and all associated data.
+     *
+     * @param user the user that needs to be removed.
+     * @return {@code true} if the user was successfully removed, {@code false} otherwise.
+     * @throws IllegalArgumentException if {@code user} is {@code null}
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.MANAGE_USERS)
+    public boolean removeUser(@NonNull UserHandle user) {
+        if (user == null) {
+            throw new IllegalArgumentException("user cannot be null");
+        }
+        return removeUser(user.getIdentifier());
+    }
+
 
     /**
      * Similar to {@link #removeUser(int)} except bypassing the checking of
@@ -2587,6 +2838,19 @@ public class UserManager {
     }
 
     /**
+     * Updates the calling user's name.
+     * Requires {@link android.Manifest.permission#MANAGE_USERS} permission.
+     *
+     * @param name the new name for the user
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.MANAGE_USERS)
+    public void setUserName(@Nullable String name) {
+        setUserName(getUserHandle(), name);
+    }
+
+    /**
      * Sets the user's photo.
      * @param userHandle the user for whom to change the photo.
      * @param icon the bitmap to set as the photo.
@@ -2601,12 +2865,26 @@ public class UserManager {
     }
 
     /**
+     * Sets the calling user's photo.
+     * Requires {@link android.Manifest.permission#MANAGE_USERS} permission.
+     *
+     * @param icon the bitmap to set as the photo.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.MANAGE_USERS)
+    public void setUserIcon(@NonNull Bitmap icon) {
+        setUserIcon(getUserHandle(), icon);
+    }
+
+    /**
      * Returns a file descriptor for the user's photo. PNG data can be read from this file.
      * @param userHandle the user whose photo we want to read.
      * @return a {@link Bitmap} of the user's photo, or null if there's no photo.
      * @see com.android.internal.util.UserIcons#getDefaultUserIcon for a default.
      * @hide
      */
+    @UnsupportedAppUsage
     public Bitmap getUserIcon(@UserIdInt int userHandle) {
         try {
             ParcelFileDescriptor fd = mService.getUserIcon(userHandle);
@@ -2627,11 +2905,28 @@ public class UserManager {
     }
 
     /**
+     * Returns a Bitmap for the calling user's photo.
+     * Requires {@link android.Manifest.permission#MANAGE_USERS}
+     * or {@link android.Manifest.permission#GET_ACCOUNTS_PRIVILEGED} permissions.
+     *
+     * @return a {@link Bitmap} of the user's photo, or null if there's no photo.
+     * @see com.android.internal.util.UserIcons#getDefaultUserIcon for a default.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(anyOf = {android.Manifest.permission.MANAGE_USERS,
+            android.Manifest.permission.GET_ACCOUNTS_PRIVILEGED})
+    public @Nullable Bitmap getUserIcon() {
+        return getUserIcon(getUserHandle());
+    }
+
+    /**
      * Returns the maximum number of users that can be created on this device. A return value
      * of 1 means that it is a single user device.
      * @hide
      * @return a value greater than or equal to 1
      */
+    @UnsupportedAppUsage
     public static int getMaxSupportedUsers() {
         // Don't allow multiple users on certain builds
         if (android.os.Build.ID.startsWith("JVP")) return 1;
@@ -2663,6 +2958,12 @@ public class UserManager {
         if (isDeviceInDemoMode(mContext)) {
             return false;
         }
+        // If user disabled this feature, don't show switcher
+        final boolean userSwitcherEnabled = Settings.Global.getInt(mContext.getContentResolver(),
+                Settings.Global.USER_SWITCHER_ENABLED, 1) != 0;
+        if (!userSwitcherEnabled) {
+            return false;
+        }
         List<UserInfo> users = getUsers(true);
         if (users == null) {
            return false;
@@ -2681,6 +2982,7 @@ public class UserManager {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public static boolean isDeviceInDemoMode(Context context) {
         return Settings.Global.getInt(context.getContentResolver(),
                 Settings.Global.DEVICE_DEMO_MODE, 0) > 0;
@@ -2693,6 +2995,7 @@ public class UserManager {
      * @return a serial number associated with that user, or -1 if the userHandle is not valid.
      * @hide
      */
+    @UnsupportedAppUsage
     public int getUserSerialNumber(@UserIdInt int userHandle) {
         try {
             return mService.getUserSerialNumber(userHandle);
@@ -2710,6 +3013,7 @@ public class UserManager {
      * is not valid.
      * @hide
      */
+    @UnsupportedAppUsage
     public @UserIdInt int getUserHandle(int userSerialNumber) {
         try {
             return mService.getUserHandle(userSerialNumber);
@@ -2865,7 +3169,7 @@ public class UserManager {
             userRestrictionSource = in.readInt();
         }
 
-        public static final Creator<EnforcingUser> CREATOR = new Creator<EnforcingUser>() {
+        public static final @android.annotation.NonNull Creator<EnforcingUser> CREATOR = new Creator<EnforcingUser>() {
             @Override
             public EnforcingUser createFromParcel(Parcel in) {
                 return new EnforcingUser(in);

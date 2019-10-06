@@ -16,23 +16,29 @@
 
 package com.android.server.wifi;
 
+import static android.net.wifi.WifiManager.WIFI_FEATURE_OWE;
+
 import android.annotation.NonNull;
-import android.net.MacAddress;
+import android.app.AlarmManager;
 import android.net.wifi.IApInterface;
 import android.net.wifi.IApInterfaceEventCallback;
 import android.net.wifi.IClientInterface;
 import android.net.wifi.IPnoScanEvent;
 import android.net.wifi.IScanEvent;
+import android.net.wifi.ISendMgmtFrameEvent;
 import android.net.wifi.IWifiScannerImpl;
 import android.net.wifi.IWificond;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiScanner;
 import android.net.wifi.WifiSsid;
 import android.os.Binder;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.RemoteException;
 import android.util.Log;
 
+import com.android.server.wifi.WifiNative.SendMgmtFrameCallback;
 import com.android.server.wifi.WifiNative.SoftApListener;
 import com.android.server.wifi.hotspot2.NetworkDetail;
 import com.android.server.wifi.util.InformationElementUtil;
@@ -48,8 +54,10 @@ import com.android.server.wifi.wificond.SingleScanSettings;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * This class provides methods for WifiNative to send control commands to wificond.
@@ -58,7 +66,17 @@ import java.util.Set;
 public class WificondControl implements IBinder.DeathRecipient {
     private boolean mVerboseLoggingEnabled = false;
 
+    /**
+     * The {@link #sendMgmtFrame(String, byte[], SendMgmtFrameCallback, int) sendMgmtFrame()}
+     * timeout, in milliseconds, after which
+     * {@link SendMgmtFrameCallback#onFailure(int)} will be called with reason
+     * {@link WifiNative#SEND_MGMT_FRAME_ERROR_TIMEOUT}.
+     */
+    public static final int SEND_MGMT_FRAME_TIMEOUT_MS = 1000;
+
     private static final String TAG = "WificondControl";
+
+    private static final String TIMEOUT_ALARM_TAG = TAG + " Send Management Frame Timeout";
 
     /* Get scan results for a single scan */
     public static final int SCAN_TYPE_SINGLE_SCAN = 0;
@@ -69,6 +87,10 @@ public class WificondControl implements IBinder.DeathRecipient {
     private WifiInjector mWifiInjector;
     private WifiMonitor mWifiMonitor;
     private final CarrierNetworkConfig mCarrierNetworkConfig;
+    private AlarmManager mAlarmManager;
+    private Handler mEventHandler;
+    private Clock mClock;
+    private WifiNative mWifiNative = null;
 
     // Cached wificond binder handlers.
     private IWificond mWificond;
@@ -79,6 +101,12 @@ public class WificondControl implements IBinder.DeathRecipient {
     private HashMap<String, IPnoScanEvent> mPnoScanEventHandlers = new HashMap<>();
     private HashMap<String, IApInterfaceEventCallback> mApInterfaceListeners = new HashMap<>();
     private WifiNative.WificondDeathEventHandler mDeathEventHandler;
+    /**
+     * Ensures that no more than one sendMgmtFrame operation runs concurrently.
+     */
+    private AtomicBoolean mSendMgmtFrameInProgress = new AtomicBoolean(false);
+    private boolean mIsEnhancedOpenSupportedInitialized = false;
+    private boolean mIsEnhancedOpenSupported;
 
     private class ScanEventHandler extends IScanEvent.Stub {
         private String mIfaceName;
@@ -101,10 +129,14 @@ public class WificondControl implements IBinder.DeathRecipient {
     }
 
     WificondControl(WifiInjector wifiInjector, WifiMonitor wifiMonitor,
-            CarrierNetworkConfig carrierNetworkConfig) {
+            CarrierNetworkConfig carrierNetworkConfig, AlarmManager alarmManager, Looper looper,
+            Clock clock) {
         mWifiInjector = wifiInjector;
         mWifiMonitor = wifiMonitor;
         mCarrierNetworkConfig = carrierNetworkConfig;
+        mAlarmManager = alarmManager;
+        mEventHandler = new Handler(looper);
+        mClock = clock;
     }
 
     private class PnoScanEventHandler extends IPnoScanEvent.Stub {
@@ -162,19 +194,77 @@ public class WificondControl implements IBinder.DeathRecipient {
     }
 
     /**
+     * Callback triggered by wificond.
+     */
+    private class SendMgmtFrameEvent extends ISendMgmtFrameEvent.Stub {
+        private SendMgmtFrameCallback mCallback;
+        private AlarmManager.OnAlarmListener mTimeoutCallback;
+        /**
+         * ensures that mCallback is only called once
+         */
+        private boolean mWasCalled;
+
+        private void runIfFirstCall(Runnable r) {
+            if (mWasCalled) return;
+            mWasCalled = true;
+
+            mSendMgmtFrameInProgress.set(false);
+            r.run();
+        }
+
+        SendMgmtFrameEvent(@NonNull SendMgmtFrameCallback callback) {
+            mCallback = callback;
+            // called in main thread
+            mTimeoutCallback = () -> runIfFirstCall(() -> {
+                if (mVerboseLoggingEnabled) {
+                    Log.e(TAG, "Timed out waiting for ACK");
+                }
+                mCallback.onFailure(WifiNative.SEND_MGMT_FRAME_ERROR_TIMEOUT);
+            });
+            mWasCalled = false;
+
+            mAlarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    mClock.getElapsedSinceBootMillis() + SEND_MGMT_FRAME_TIMEOUT_MS,
+                    TIMEOUT_ALARM_TAG, mTimeoutCallback, mEventHandler);
+        }
+
+        // called in binder thread
+        @Override
+        public void OnAck(int elapsedTimeMs) {
+            // post to main thread
+            mEventHandler.post(() -> runIfFirstCall(() -> {
+                mAlarmManager.cancel(mTimeoutCallback);
+                mCallback.onAck(elapsedTimeMs);
+            }));
+        }
+
+        // called in binder thread
+        @Override
+        public void OnFailure(int reason) {
+            // post to main thread
+            mEventHandler.post(() -> runIfFirstCall(() -> {
+                mAlarmManager.cancel(mTimeoutCallback);
+                mCallback.onFailure(reason);
+            }));
+        }
+    }
+
+    /**
      * Called by the binder subsystem upon remote object death.
      * Invoke all the register death handlers and clear state.
      */
     @Override
     public void binderDied() {
-        Log.e(TAG, "Wificond died!");
-        clearState();
-        // Invalidate the global wificond handle on death. Will be refreshed
-        // on the next setup call.
-        mWificond = null;
-        if (mDeathEventHandler != null) {
-            mDeathEventHandler.onDeath();
-        }
+        mEventHandler.post(() -> {
+            Log.e(TAG, "Wificond died!");
+            clearState();
+            // Invalidate the global wificond handle on death. Will be refreshed
+            // on the next setup call.
+            mWificond = null;
+            if (mDeathEventHandler != null) {
+                mDeathEventHandler.onDeath();
+            }
+        });
     }
 
     /** Enable or disable verbose logging of WificondControl.
@@ -403,38 +493,6 @@ public class WificondControl implements IBinder.DeathRecipient {
     }
 
     /**
-    * Disable wpa_supplicant via wificond.
-    * @return Returns true on success.
-    */
-    public boolean disableSupplicant() {
-        if (!retrieveWificondAndRegisterForDeath()) {
-            return false;
-        }
-        try {
-            return mWificond.disableSupplicant();
-        } catch (RemoteException e) {
-            Log.e(TAG, "Failed to disable supplicant due to remote exception");
-        }
-        return false;
-    }
-
-    /**
-    * Enable wpa_supplicant via wificond.
-    * @return Returns true on success.
-    */
-    public boolean enableSupplicant() {
-        if (!retrieveWificondAndRegisterForDeath()) {
-            return false;
-        }
-        try {
-            return mWificond.enableSupplicant();
-        } catch (RemoteException e) {
-            Log.e(TAG, "Failed to enable supplicant due to remote exception");
-        }
-        return false;
-    }
-
-    /**
      * Request signal polling to wificond.
      * @param ifaceName Name of the interface.
      * Returns an SignalPollResult object.
@@ -450,7 +508,7 @@ public class WificondControl implements IBinder.DeathRecipient {
         int[] resultArray;
         try {
             resultArray = iface.signalPoll();
-            if (resultArray == null || resultArray.length != 3) {
+            if (resultArray == null || resultArray.length != 4) {
                 Log.e(TAG, "Invalid signal poll result from wificond");
                 return null;
             }
@@ -462,6 +520,7 @@ public class WificondControl implements IBinder.DeathRecipient {
         pollResult.currentRssi = resultArray[0];
         pollResult.txBitrate = resultArray[1];
         pollResult.associationFrequency = resultArray[2];
+        pollResult.rxBitrate = resultArray[3];
         return pollResult;
     }
 
@@ -537,7 +596,7 @@ public class WificondControl implements IBinder.DeathRecipient {
                         InformationElementUtil.parseInformationElements(result.infoElement);
                 InformationElementUtil.Capabilities capabilities =
                         new InformationElementUtil.Capabilities();
-                capabilities.from(ies, result.capability);
+                capabilities.from(ies, result.capability, isEnhancedOpenSupported());
                 String flags = capabilities.generateCapabilitiesString();
                 NetworkDetail networkDetail;
                 try {
@@ -611,7 +670,7 @@ public class WificondControl implements IBinder.DeathRecipient {
     public boolean scan(@NonNull String ifaceName,
                         int scanType,
                         Set<Integer> freqs,
-                        Set<String> hiddenNetworkSSIDs) {
+                        List<String> hiddenNetworkSSIDs) {
         IWifiScannerImpl scannerImpl = getScannerImpl(ifaceName);
         if (scannerImpl == null) {
             Log.e(TAG, "No valid wificond scanner interface handler");
@@ -643,7 +702,11 @@ public class WificondControl implements IBinder.DeathRecipient {
                     Log.e(TAG, "Illegal argument " + ssid, e);
                     continue;
                 }
-                settings.hiddenNetworks.add(network);
+                // settings.hiddenNetworks is expected to be very small, so this shouldn't cause
+                // any performance issues.
+                if (!settings.hiddenNetworks.contains(network)) {
+                    settings.hiddenNetworks.add(network);
+                }
             }
         }
 
@@ -684,6 +747,7 @@ public class WificondControl implements IBinder.DeathRecipient {
                     Log.e(TAG, "Illegal argument " + network.ssid, e);
                     continue;
                 }
+                condNetwork.frequencies = network.frequencies;
                 settings.pnoNetworks.add(condNetwork);
             }
         }
@@ -777,15 +841,13 @@ public class WificondControl implements IBinder.DeathRecipient {
     }
 
     /**
-     * Start hostapd
-     * TODO(b/71513606): Move this to a global operation.
+     * Register the provided listener for SoftAp events.
      *
      * @param ifaceName Name of the interface.
      * @param listener Callback for AP events.
      * @return true on success, false otherwise.
      */
-    public boolean startHostapd(@NonNull String ifaceName,
-                               SoftApListener listener) {
+    public boolean registerApListener(@NonNull String ifaceName, SoftApListener listener) {
         IApInterface iface = getApInterface(ifaceName);
         if (iface == null) {
             Log.e(TAG, "No valid ap interface handler");
@@ -794,66 +856,58 @@ public class WificondControl implements IBinder.DeathRecipient {
         try {
             IApInterfaceEventCallback  callback = new ApInterfaceEventCallback(listener);
             mApInterfaceListeners.put(ifaceName, callback);
-            boolean success = iface.startHostapd(callback);
+            boolean success = iface.registerCallback(callback);
             if (!success) {
-                Log.e(TAG, "Failed to start hostapd.");
+                Log.e(TAG, "Failed to register ap callback.");
                 return false;
             }
         } catch (RemoteException e) {
-            Log.e(TAG, "Exception in starting soft AP: " + e);
+            Log.e(TAG, "Exception in registering AP callback: " + e);
             return false;
         }
         return true;
     }
 
     /**
-     * Stop hostapd
-     * TODO(b/71513606): Move this to a global operation.
-     *
-     * @param ifaceName Name of the interface.
-     * @return true on success, false otherwise.
+     * See {@link WifiNative#sendMgmtFrame(String, byte[], SendMgmtFrameCallback, int)}
      */
-    public boolean stopHostapd(@NonNull String ifaceName) {
-        IApInterface iface = getApInterface(ifaceName);
-        if (iface == null) {
-            Log.e(TAG, "No valid ap interface handler");
-            return false;
-        }
-        try {
-            boolean success = iface.stopHostapd();
-            if (!success) {
-                Log.e(TAG, "Failed to stop hostapd.");
-                return false;
-            }
-        } catch (RemoteException e) {
-            Log.e(TAG, "Exception in stopping soft AP: " + e);
-            return false;
-        }
-        mApInterfaceListeners.remove(ifaceName);
-        return true;
-    }
+    public void sendMgmtFrame(@NonNull String ifaceName, @NonNull byte[] frame,
+            @NonNull SendMgmtFrameCallback callback, int mcs) {
 
-    /**
-     * Set Mac address on the given interface
-     * @param interfaceName Name of the interface.
-     * @param mac Mac address to change into
-     * @return true on success, false otherwise.
-     */
-    public boolean setMacAddress(@NonNull String interfaceName, @NonNull MacAddress mac) {
-        IClientInterface mClientInterface = getClientInterface(interfaceName);
-        if (mClientInterface == null) {
+        if (callback == null) {
+            Log.e(TAG, "callback cannot be null!");
+            return;
+        }
+
+        if (frame == null) {
+            Log.e(TAG, "frame cannot be null!");
+            callback.onFailure(WifiNative.SEND_MGMT_FRAME_ERROR_UNKNOWN);
+            return;
+        }
+
+        // TODO (b/112029045) validate mcs
+        IClientInterface clientInterface = getClientInterface(ifaceName);
+        if (clientInterface == null) {
             Log.e(TAG, "No valid wificond client interface handler");
-            return false;
+            callback.onFailure(WifiNative.SEND_MGMT_FRAME_ERROR_UNKNOWN);
+            return;
         }
-        byte[] macByteArray = mac.toByteArray();
 
-        try {
-            mClientInterface.setMacAddress(macByteArray);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Failed to setMacAddress due to remote exception");
-            return false;
+        if (!mSendMgmtFrameInProgress.compareAndSet(false, true)) {
+            Log.e(TAG, "An existing management frame transmission is in progress!");
+            callback.onFailure(WifiNative.SEND_MGMT_FRAME_ERROR_ALREADY_STARTED);
+            return;
         }
-        return true;
+
+        SendMgmtFrameEvent sendMgmtFrameEvent = new SendMgmtFrameEvent(callback);
+        try {
+            clientInterface.SendMgmtFrame(frame, sendMgmtFrameEvent, mcs);
+        } catch (RemoteException e) {
+            Log.e(TAG, "Exception while starting link probe: " + e);
+            // Call sendMgmtFrameEvent.OnFailure() instead of callback.onFailure() so that
+            // sendMgmtFrameEvent can clean up internal state, such as cancelling the timer.
+            sendMgmtFrameEvent.OnFailure(WifiNative.SEND_MGMT_FRAME_ERROR_UNKNOWN);
+        }
     }
 
     /**
@@ -867,5 +921,36 @@ public class WificondControl implements IBinder.DeathRecipient {
         mScanEventHandlers.clear();
         mApInterfaces.clear();
         mApInterfaceListeners.clear();
+        mSendMgmtFrameInProgress.set(false);
+    }
+
+    /**
+     * Check if OWE (Enhanced Open) is supported on the device
+     *
+     * @return true if OWE is supported
+     */
+    private boolean isEnhancedOpenSupported() {
+        if (mIsEnhancedOpenSupportedInitialized) {
+            return mIsEnhancedOpenSupported;
+        }
+
+        // WifiNative handle might be null, check this here
+        if (mWifiNative == null) {
+            mWifiNative = mWifiInjector.getWifiNative();
+            if (mWifiNative == null) {
+                return false;
+            }
+        }
+
+        String iface = mWifiNative.getClientInterfaceName();
+        if (iface == null) {
+            // Client interface might not be initialized during boot or Wi-Fi off
+            return false;
+        }
+
+        mIsEnhancedOpenSupportedInitialized = true;
+        mIsEnhancedOpenSupported = (mWifiNative.getSupportedFeatureSet(iface)
+                & WIFI_FEATURE_OWE) != 0;
+        return mIsEnhancedOpenSupported;
     }
 }

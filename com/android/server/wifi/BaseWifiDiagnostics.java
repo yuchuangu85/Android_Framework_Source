@@ -11,6 +11,7 @@ public class BaseWifiDiagnostics {
     public static final byte CONNECTION_EVENT_STARTED = 0;
     public static final byte CONNECTION_EVENT_SUCCEEDED = 1;
     public static final byte CONNECTION_EVENT_FAILED = 2;
+    public static final byte CONNECTION_EVENT_TIMEOUT = 3;
 
     protected final WifiNative mWifiNative;
 
@@ -36,10 +37,9 @@ public class BaseWifiDiagnostics {
 
     /**
      * Inform the diagnostics module of a connection event.
-     * @param connectionId A strictly increasing, non-negative, connection identifier
      * @param event The type of connection event (see CONNECTION_EVENT_* constants)
      */
-    synchronized void reportConnectionEvent(long connectionId, byte event) {}
+    public synchronized void reportConnectionEvent(byte event) {}
 
     public synchronized void captureBugReportData(int reason) { }
 
@@ -47,8 +47,7 @@ public class BaseWifiDiagnostics {
 
     public synchronized void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         dump(pw);
-        pw.println("*** firmware logging disabled, no debug data ****");
-        pw.println("set config_wifi_enable_wifi_firmware_debugging to enable");
+        pw.println("*** logging disabled, no debug data ****");
     }
 
     /**

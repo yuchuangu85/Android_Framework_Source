@@ -16,8 +16,7 @@
 
 package com.android.internal.telephony;
 
-import android.hardware.radio.config.V1_0.IRadioConfigIndication;
-import android.hardware.radio.config.V1_0.SimSlotStatus;
+import android.hardware.radio.config.V1_2.IRadioConfigIndication;
 import android.os.AsyncResult;
 import android.telephony.Rlog;
 
@@ -39,8 +38,22 @@ public class RadioConfigIndication extends IRadioConfigIndication.Stub {
     /**
      * Unsolicited indication for slot status changed
      */
-    public void simSlotsStatusChanged(int indicationType, ArrayList<SimSlotStatus> slotStatus) {
+    public void simSlotsStatusChanged(int indicationType,
+            ArrayList<android.hardware.radio.config.V1_0.SimSlotStatus> slotStatus) {
         ArrayList<IccSlotStatus> ret = RadioConfig.convertHalSlotStatus(slotStatus);
+        Rlog.d(TAG, "[UNSL]< " + " UNSOL_SIM_SLOT_STATUS_CHANGED " + ret.toString());
+        if (mRadioConfig.mSimSlotStatusRegistrant != null) {
+            mRadioConfig.mSimSlotStatusRegistrant.notifyRegistrant(
+                    new AsyncResult(null, ret, null));
+        }
+    }
+
+    /**
+     * Unsolicited indication for slot status changed
+     */
+    public void simSlotsStatusChanged_1_2(int indicationType,
+            ArrayList<android.hardware.radio.config.V1_2.SimSlotStatus> slotStatus) {
+        ArrayList<IccSlotStatus> ret = RadioConfig.convertHalSlotStatus_1_2(slotStatus);
         Rlog.d(TAG, "[UNSL]< " + " UNSOL_SIM_SLOT_STATUS_CHANGED " + ret.toString());
         if (mRadioConfig.mSimSlotStatusRegistrant != null) {
             mRadioConfig.mSimSlotStatusRegistrant.notifyRegistrant(

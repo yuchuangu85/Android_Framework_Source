@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UnsupportedAppUsage;
 import java.util.ArrayList;
 import java.util.Iterator;
 
@@ -176,6 +177,7 @@ public abstract class IntRangeManager {
     /**
      * List of integer ranges, one per client, sorted by start id.
      */
+    @UnsupportedAppUsage
     private ArrayList<IntRange> mRanges = new ArrayList<IntRange>();
 
     protected IntRangeManager() {}

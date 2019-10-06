@@ -60,9 +60,18 @@ public class ModemPowerMetrics {
             m.rxTimeMs = stats.getRxTimeMs();
             long[] t = stats.getTxTimeMs();
             m.txTimeMs = new long[t.length];
-            for (int i = 0; i < t.length; i++) {
-                m.txTimeMs[i] = t[i];
-            }
+            System.arraycopy(t, 0, m.txTimeMs, 0, t.length);
+            m.numBytesTx = stats.getNumBytesTx();
+            m.numPacketsRx = stats.getNumPacketsRx();
+            m.numBytesRx = stats.getNumBytesRx();
+            long[] tr = stats.getTimeInRatMs();
+            m.timeInRatMs = new long[tr.length];
+            System.arraycopy(tr, 0, m.timeInRatMs, 0, tr.length);
+            long[] trx = stats.getTimeInRxSignalStrengthLevelMs();
+            m.timeInRxSignalStrengthLevelMs = new long[trx.length];
+            System.arraycopy(trx, 0, m.timeInRxSignalStrengthLevelMs, 0, trx.length);
+            m.monitoredRailEnergyConsumedMah = stats.getMonitoredRailChargeConsumedMaMs()
+                / ((double) DateUtils.HOUR_IN_MILLIS);
         }
         return m;
     }

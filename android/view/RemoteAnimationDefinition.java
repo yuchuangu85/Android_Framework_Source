@@ -19,6 +19,7 @@ package android.view;
 import static android.app.WindowConfiguration.ACTIVITY_TYPE_UNDEFINED;
 
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.app.WindowConfiguration;
 import android.app.WindowConfiguration.ActivityType;
 import android.os.Parcel;
@@ -36,6 +37,7 @@ public class RemoteAnimationDefinition implements Parcelable {
 
     private final SparseArray<RemoteAnimationAdapterEntry> mTransitionAnimationMap;
 
+    @UnsupportedAppUsage
     public RemoteAnimationDefinition() {
         mTransitionAnimationMap = new SparseArray<>();
     }
@@ -48,6 +50,7 @@ public class RemoteAnimationDefinition implements Parcelable {
      *                           parameter is involved in the transition.
      * @param adapter The adapter that described how to run the remote animation.
      */
+    @UnsupportedAppUsage
     public void addRemoteAnimation(@TransitionType int transition,
             @ActivityType int activityTypeFilter, RemoteAnimationAdapter adapter) {
         mTransitionAnimationMap.put(transition,
@@ -61,6 +64,7 @@ public class RemoteAnimationDefinition implements Parcelable {
      * @param transition The transition type. Must be one of WindowManager.TRANSIT_* values.
      * @param adapter The adapter that described how to run the remote animation.
      */
+    @UnsupportedAppUsage
     public void addRemoteAnimation(@TransitionType int transition, RemoteAnimationAdapter adapter) {
         addRemoteAnimation(transition, ACTIVITY_TYPE_UNDEFINED, adapter);
     }
@@ -135,7 +139,7 @@ public class RemoteAnimationDefinition implements Parcelable {
         }
     }
 
-    public static final Creator<RemoteAnimationDefinition> CREATOR =
+    public static final @android.annotation.NonNull Creator<RemoteAnimationDefinition> CREATOR =
             new Creator<RemoteAnimationDefinition>() {
         public RemoteAnimationDefinition createFromParcel(Parcel in) {
             return new RemoteAnimationDefinition(in);
@@ -177,7 +181,7 @@ public class RemoteAnimationDefinition implements Parcelable {
             return 0;
         }
 
-        private static final Creator<RemoteAnimationAdapterEntry> CREATOR
+        private static final @android.annotation.NonNull Creator<RemoteAnimationAdapterEntry> CREATOR
                 = new Creator<RemoteAnimationAdapterEntry>() {
 
             @Override

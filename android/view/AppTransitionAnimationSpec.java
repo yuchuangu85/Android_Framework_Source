@@ -1,5 +1,6 @@
 package android.view;
 
+import android.annotation.UnsupportedAppUsage;
 import android.graphics.GraphicBuffer;
 import android.graphics.Rect;
 import android.os.Parcel;
@@ -18,6 +19,7 @@ public class AppTransitionAnimationSpec implements Parcelable {
     public final GraphicBuffer buffer;
     public final Rect rect;
 
+    @UnsupportedAppUsage
     public AppTransitionAnimationSpec(int taskId, GraphicBuffer buffer, Rect rect) {
         this.taskId = taskId;
         this.rect = rect;
@@ -42,7 +44,7 @@ public class AppTransitionAnimationSpec implements Parcelable {
         dest.writeParcelable(buffer, 0);
     }
 
-    public static final Parcelable.Creator<AppTransitionAnimationSpec> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<AppTransitionAnimationSpec> CREATOR
             = new Parcelable.Creator<AppTransitionAnimationSpec>() {
         public AppTransitionAnimationSpec createFromParcel(Parcel in) {
             return new AppTransitionAnimationSpec(in);

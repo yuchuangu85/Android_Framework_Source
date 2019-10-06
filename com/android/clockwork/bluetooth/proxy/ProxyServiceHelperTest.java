@@ -1,42 +1,37 @@
 package com.android.clockwork.bluetooth.proxy;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Matchers.anyObject;
+import static org.mockito.ArgumentMatchers.anyObject;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.content.Context;
 import android.net.NetworkCapabilities;
-import android.os.RemoteException;
-import com.android.clockwork.WearRobolectricTestRunner;
 import com.android.internal.util.IndentingPrintWriter;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.robolectric.annotation.Config;
+import org.robolectric.RobolectricTestRunner;
 
 /** Test for {@link ProxyServiceHelper} */
-@RunWith(WearRobolectricTestRunner.class)
-@Config(manifest = Config.NONE,
-        sdk = 26)
+@RunWith(RobolectricTestRunner.class)
 public class ProxyServiceHelperTest {
     private static final int NETWORK_SCORE = 123;
-    private static final String COMPANION_NAME = "CompanionName";
     private static final String REASON = "Reason";
 
-    @Mock Context mockContext;
-    @Mock IndentingPrintWriter mockIndentingPrintWriter;
-    @Mock NetworkCapabilities mockCapabilities;
-    @Mock ProxyLinkProperties mockProxyLinkProperties;
-    @Mock ProxyNetworkFactory mockProxyNetworkFactory;
-    @Mock ProxyNetworkAgent mockProxyNetworkAgent;
+    private @Mock Context mockContext;
+    private @Mock IndentingPrintWriter mockIndentingPrintWriter;
+    private @Mock NetworkCapabilities mockCapabilities;
+    private @Mock ProxyLinkProperties mockProxyLinkProperties;
+    private @Mock ProxyNetworkFactory mockProxyNetworkFactory;
+    private @Mock ProxyNetworkAgent mockProxyNetworkAgent;
 
     private ProxyServiceHelperTestClass mProxyServiceHelper;
 
     @Before
-    public void setUp() throws RemoteException {
+    public void setUp() {
         MockitoAnnotations.initMocks(this);
         mProxyServiceHelper = new ProxyServiceHelperTestClass(
                 mockContext,
@@ -84,7 +79,7 @@ public class ProxyServiceHelperTest {
     }
 
     private class ProxyServiceHelperTestClass extends ProxyServiceHelper {
-        public ProxyServiceHelperTestClass(
+        private ProxyServiceHelperTestClass(
                 final Context context,
                 final NetworkCapabilities capabilities,
                 final ProxyLinkProperties proxyLinkProperties) {

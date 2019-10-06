@@ -18,13 +18,13 @@ package com.android.internal.telephony.uicc;
 
 import static com.android.internal.telephony.TelephonyProperties.PROPERTY_TEST_CSIM;
 
+import android.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.os.AsyncResult;
 import android.os.Message;
 import android.os.SystemProperties;
 import android.telephony.Rlog;
-import android.telephony.ServiceState;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.text.TextUtils;
@@ -59,13 +59,17 @@ public class RuimRecords extends IccRecords {
 
     private String mPrlVersion;
     // From CSIM application
+    @UnsupportedAppUsage
     private byte[] mEFpl = null;
+    @UnsupportedAppUsage
     private byte[] mEFli = null;
     boolean mCsimSpnDisplayCondition = false;
     private String mMdn;
+    @UnsupportedAppUsage
     private String mMin;
     private String mHomeSystemId;
     private String mHomeNetworkId;
+    @UnsupportedAppUsage
     private String mNai;
 
     @Override
@@ -160,6 +164,7 @@ public class RuimRecords extends IccRecords {
         mLoaded.set(false);
     }
 
+    @UnsupportedAppUsage
     public String getMdnNumber() {
         return mMyMobileNumber;
     }
@@ -203,6 +208,7 @@ public class RuimRecords extends IccRecords {
         }
     }
 
+    @UnsupportedAppUsage
     private int adjstMinDigits (int digits) {
         // Per C.S0005 section 2.3.1.
         digits += 111;
@@ -216,6 +222,7 @@ public class RuimRecords extends IccRecords {
      * Returns the 5 or 6 digit MCC/MNC of the operator that
      *  provided the RUIM card. Returns null of RUIM is not yet ready
      */
+    @UnsupportedAppUsage
     public String getRUIMOperatorNumeric() {
         String imsi = getIMSI();
 
@@ -399,7 +406,7 @@ public class RuimRecords extends IccRecords {
                 builder.append(String.format(Locale.US, "%d", digit7));
                 builder.append(String.format(Locale.US, "%03d", last3digits));
                 mMin = builder.toString();
-                if (DBG) log("min present=" + mMin);
+                if (DBG) log("min present=" + Rlog.pii(LOG_TAG, mMin));
             } else {
                 if (DBG) log("min not present");
             }
@@ -451,6 +458,7 @@ public class RuimRecords extends IccRecords {
         }
     }
 
+    @UnsupportedAppUsage
     private void onGetCSimEprlDone(AsyncResult ar) {
         // C.S0065 section 5.2.57 for EFeprl encoding
         // C.S0016 section 3.5.5 for PRL format.
@@ -645,7 +653,7 @@ public class RuimRecords extends IccRecords {
                     if (operatorNumeric != null) {
                         if (operatorNumeric.length() <= 6) {
                             log("update mccmnc=" + operatorNumeric);
-                            MccTable.updateMccMncConfiguration(mContext, operatorNumeric, false);
+                            MccTable.updateMccMncConfiguration(mContext, operatorNumeric);
                         }
                     }
                 } else {
@@ -726,6 +734,7 @@ public class RuimRecords extends IccRecords {
      * NOTE: This array will have duplicates. If this method will be caused
      * frequently or in a tight loop, it can be rewritten for efficiency.
      */
+    @UnsupportedAppUsage
     private static String[] getAssetLanguages(Context ctx) {
         final String[] locales = ctx.getAssets().getLocales();
         final String[] localeLangs = new String[locales.length];
@@ -794,10 +803,8 @@ public class RuimRecords extends IccRecords {
 
             if (!TextUtils.isEmpty(imsi)) {
                 log("onAllRecordsLoaded set mcc imsi=" + (VDBG ? ("=" + imsi) : ""));
-                mTelephonyManager.setSimCountryIsoForPhone(
-                        mParentApp.getPhoneId(),
-                        MccTable.countryCodeForMcc(
-                        Integer.parseInt(imsi.substring(0, 3))));
+                mTelephonyManager.setSimCountryIsoForPhone(mParentApp.getPhoneId(),
+                        MccTable.countryCodeForMcc(imsi.substring(0, 3)));
             } else {
                 log("onAllRecordsLoaded empty imsi skipping setting mcc");
             }
@@ -839,6 +846,7 @@ public class RuimRecords extends IccRecords {
         mRecordsToLoad++;
     }
 
+    @UnsupportedAppUsage
     private void fetchRuimRecords() {
         mRecordsRequested = true;
 
@@ -889,17 +897,6 @@ public class RuimRecords extends IccRecords {
         // Further records that can be inserted are Operator/OEM dependent
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * No Display rule for RUIMs yet.
-     */
-    @Override
-    public int getDisplayRule(ServiceState serviceState) {
-        // TODO together with spn
-        return 0;
-    }
-
     @Override
     public boolean isProvisioned() {
         // If UICC card has CSIM app, look for MDN and MIN field
@@ -944,6 +941,7 @@ public class RuimRecords extends IccRecords {
         fetchRuimRecords();
     }
 
+    @UnsupportedAppUsage
     public String getMdn() {
         return mMdn;
     }
@@ -960,14 +958,17 @@ public class RuimRecords extends IccRecords {
         return mHomeNetworkId;
     }
 
+    @UnsupportedAppUsage
     public boolean getCsimSpnDisplayCondition() {
         return mCsimSpnDisplayCondition;
     }
+    @UnsupportedAppUsage
     @Override
     protected void log(String s) {
         Rlog.d(LOG_TAG, "[RuimRecords] " + s);
     }
 
+    @UnsupportedAppUsage
     @Override
     protected void loge(String s) {
         Rlog.e(LOG_TAG, "[RuimRecords] " + s);

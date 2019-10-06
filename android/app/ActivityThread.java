@@ -16,6 +16,7 @@
 
 package android.app;
 
+import static android.app.ActivityManager.PROCESS_STATE_UNKNOWN;
 import static android.app.servertransaction.ActivityLifecycleItem.ON_CREATE;
 import static android.app.servertransaction.ActivityLifecycleItem.ON_DESTROY;
 import static android.app.servertransaction.ActivityLifecycleItem.ON_PAUSE;
@@ -23,10 +24,15 @@ import static android.app.servertransaction.ActivityLifecycleItem.ON_RESUME;
 import static android.app.servertransaction.ActivityLifecycleItem.ON_START;
 import static android.app.servertransaction.ActivityLifecycleItem.ON_STOP;
 import static android.app.servertransaction.ActivityLifecycleItem.PRE_ON_CREATE;
+import static android.content.ContentResolver.DEPRECATE_DATA_COLUMNS;
+import static android.content.ContentResolver.DEPRECATE_DATA_PREFIX;
 import static android.view.Display.INVALID_DISPLAY;
+
+import static com.android.internal.annotations.VisibleForTesting.Visibility.PACKAGE;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.UnsupportedAppUsage;
 import android.app.assist.AssistContent;
 import android.app.assist.AssistStructure;
 import android.app.backup.BackupAgent;
@@ -35,14 +41,18 @@ import android.app.servertransaction.ActivityLifecycleItem.LifecycleState;
 import android.app.servertransaction.ActivityRelaunchItem;
 import android.app.servertransaction.ActivityResultItem;
 import android.app.servertransaction.ClientTransaction;
+import android.app.servertransaction.ClientTransactionItem;
 import android.app.servertransaction.PendingTransactionActions;
 import android.app.servertransaction.PendingTransactionActions.StopInfo;
 import android.app.servertransaction.TransactionExecutor;
 import android.app.servertransaction.TransactionExecutorHelper;
+import android.content.AutofillOptions;
 import android.content.BroadcastReceiver;
 import android.content.ComponentCallbacks2;
 import android.content.ComponentName;
+import android.content.ContentCaptureOptions;
 import android.content.ContentProvider;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.IContentProvider;
 import android.content.IIntentReceiver;
@@ -67,25 +77,26 @@ import android.database.sqlite.SQLiteDebug;
 import android.database.sqlite.SQLiteDebug.DbStats;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.HardwareRenderer;
 import android.graphics.ImageDecoder;
 import android.hardware.display.DisplayManagerGlobal;
 import android.net.ConnectivityManager;
 import android.net.IConnectivityManager;
-import android.net.Network;
 import android.net.Proxy;
-import android.net.ProxyInfo;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.CancellationSignal;
 import android.os.Debug;
-import android.os.DropBoxManager;
 import android.os.Environment;
+import android.os.FileUtils;
 import android.os.GraphicsEnvironment;
 import android.os.Handler;
 import android.os.HandlerExecutor;
 import android.os.IBinder;
+import android.os.ICancellationSignal;
 import android.os.LocaleList;
 import android.os.Looper;
 import android.os.Message;
@@ -94,6 +105,7 @@ import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.os.PersistableBundle;
 import android.os.Process;
+import android.os.RemoteCallback;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.StrictMode;
@@ -111,6 +123,9 @@ import android.provider.Settings;
 import android.renderscript.RenderScriptCacheDir;
 import android.security.NetworkSecurityPolicy;
 import android.security.net.config.NetworkSecurityConfigProvider;
+import android.system.ErrnoException;
+import android.system.OsConstants;
+import android.system.StructStat;
 import android.util.AndroidRuntimeException;
 import android.util.ArrayMap;
 import android.util.DisplayMetrics;
@@ -121,8 +136,10 @@ import android.util.MergedConfiguration;
 import android.util.Pair;
 import android.util.PrintWriterPrinter;
 import android.util.Slog;
+import android.util.SparseArray;
 import android.util.SparseIntArray;
 import android.util.SuperNotCalledException;
+import android.util.UtilConfig;
 import android.util.proto.ProtoOutputStream;
 import android.view.Choreographer;
 import android.view.ContextThemeWrapper;
@@ -146,41 +163,44 @@ import com.android.internal.os.RuntimeInit;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.FastPrintWriter;
+import com.android.internal.util.Preconditions;
 import com.android.internal.util.function.pooled.PooledLambda;
 import com.android.org.conscrypt.OpenSSLSocketImpl;
 import com.android.org.conscrypt.TrustedCertificateStore;
 import com.android.server.am.MemInfoDumpProto;
 
-import dalvik.system.BaseDexClassLoader;
 import dalvik.system.CloseGuard;
 import dalvik.system.VMDebug;
 import dalvik.system.VMRuntime;
 
-import libcore.io.DropBox;
-import libcore.io.EventLogger;
+import libcore.io.ForwardingOs;
 import libcore.io.IoUtils;
+import libcore.io.Os;
 import libcore.net.event.NetworkEventDispatcher;
 
 import org.apache.harmony.dalvik.ddmc.DdmVmInternal;
 
 import java.io.File;
 import java.io.FileDescriptor;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetAddress;
+import java.nio.file.Files;
 import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TimeZone;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
 
 final class RemoteServiceException extends AndroidRuntimeException {
     public RemoteServiceException(String msg) {
@@ -193,10 +213,7 @@ final class RemoteServiceException extends AndroidRuntimeException {
  * application process, scheduling and executing activities,
  * broadcasts, and other operations on it as the activity
  * manager requests.
- * <p>
- * ActivityThread负责管理应用进程中的主线程的执行，并且负责在ActivityManager请求时调度和执行Activity,
- * 广播以及其他操作。
- * <p>
+ *
  * {@hide}
  */
 public final class ActivityThread extends ClientTransactionHandler {
@@ -215,6 +232,17 @@ public final class ActivityThread extends ClientTransactionHandler {
     private static final boolean DEBUG_PROVIDER = false;
     public static final boolean DEBUG_ORDER = false;
     private static final long MIN_TIME_BETWEEN_GCS = 5*1000;
+    /**
+     * If the activity doesn't become idle in time, the timeout will ensure to apply the pending top
+     * process state.
+     */
+    private static final long PENDING_TOP_PROCESS_STATE_TIMEOUT = 1000;
+    /**
+     * The delay to release the provider when it has no more references. It reduces the number of
+     * transactions for acquiring and releasing provider if the client accesses the provider
+     * frequently in a short time.
+     */
+    private static final long CONTENT_PROVIDER_RETAIN_TIME = 1000;
     private static final int SQLITE_MEM_RELEASED_EVENT_LOG_TAG = 75003;
 
     /** Type for IActivityManager.serviceDoneExecuting: anonymous operation */
@@ -226,6 +254,11 @@ public final class ActivityThread extends ClientTransactionHandler {
 
     // Whether to invoke an activity callback after delivering new configuration.
     private static final boolean REPORT_TO_ACTIVITY = true;
+
+    /** Use foreground GC policy (less pause time) and higher JIT weight. */
+    private static final int VM_PROCESS_STATE_JANK_PERCEPTIBLE = 0;
+    /** Use background GC policy and default JIT threshold. */
+    private static final int VM_PROCESS_STATE_JANK_IMPERCEPTIBLE = 1;
 
     /**
      * Denotes an invalid sequence number corresponding to a process state change.
@@ -249,47 +282,85 @@ public final class ActivityThread extends ClientTransactionHandler {
     @GuardedBy("mNetworkPolicyLock")
     private long mNetworkBlockSeq = INVALID_PROC_STATE_SEQ;
 
+    @UnsupportedAppUsage
     private ContextImpl mSystemContext;
     private ContextImpl mSystemUiContext;
 
+    @UnsupportedAppUsage
     static volatile IPackageManager sPackageManager;
 
+    @UnsupportedAppUsage
     final ApplicationThread mAppThread = new ApplicationThread();
+    @UnsupportedAppUsage
     final Looper mLooper = Looper.myLooper();
+    @UnsupportedAppUsage
     final H mH = new H();
     final Executor mExecutor = new HandlerExecutor(mH);
+    /**
+     * Maps from activity token to local record of running activities in this process.
+     *
+     * This variable is readable if the code is running in activity thread or holding {@link
+     * #mResourcesManager}. It's only writable if the code is running in activity thread and holding
+     * {@link #mResourcesManager}.
+     */
+    @UnsupportedAppUsage
     final ArrayMap<IBinder, ActivityClientRecord> mActivities = new ArrayMap<>();
+    /** The activities to be truly destroyed (not include relaunch). */
+    final Map<IBinder, ClientTransactionItem> mActivitiesToBeDestroyed =
+            Collections.synchronizedMap(new ArrayMap<IBinder, ClientTransactionItem>());
     // List of new activities (via ActivityRecord.nextIdle) that should
     // be reported when next we idle.
     ActivityClientRecord mNewActivities = null;
     // Number of activities that are currently visible on-screen.
+    @UnsupportedAppUsage
     int mNumVisibleActivities = 0;
+    private final AtomicInteger mNumLaunchingActivities = new AtomicInteger();
+    @GuardedBy("mAppThread")
+    private int mLastProcessState = PROCESS_STATE_UNKNOWN;
+    @GuardedBy("mAppThread")
+    private int mPendingProcessState = PROCESS_STATE_UNKNOWN;
     ArrayList<WeakReference<AssistStructure>> mLastAssistStructures = new ArrayList<>();
     private int mLastSessionId;
+    @UnsupportedAppUsage
     final ArrayMap<IBinder, Service> mServices = new ArrayMap<>();
+    @UnsupportedAppUsage
     AppBindData mBoundApplication;
     Profiler mProfiler;
+    @UnsupportedAppUsage
     int mCurDefaultDisplayDpi;
+    @UnsupportedAppUsage
     boolean mDensityCompatMode;
+    @UnsupportedAppUsage
     Configuration mConfiguration;
     Configuration mCompatConfiguration;
+    @UnsupportedAppUsage
     Application mInitialApplication;
+    @UnsupportedAppUsage
     final ArrayList<Application> mAllApplications
             = new ArrayList<Application>();
-    // set of instantiated backup agents, keyed by package name
-    final ArrayMap<String, BackupAgent> mBackupAgents = new ArrayMap<String, BackupAgent>();
+    /**
+     * Bookkeeping of instantiated backup agents indexed first by user id, then by package name.
+     * Indexing by user id supports parallel backups across users on system packages as they run in
+     * the same process with the same package name. Indexing by package name supports multiple
+     * distinct applications running in the same process.
+     */
+    private final SparseArray<ArrayMap<String, BackupAgent>> mBackupAgentsByUser =
+            new SparseArray<>();
     /** Reference to singleton {@link ActivityThread} */
+    @UnsupportedAppUsage
     private static volatile ActivityThread sCurrentActivityThread;
+    @UnsupportedAppUsage
     Instrumentation mInstrumentation;
     String mInstrumentationPackageName = null;
+    @UnsupportedAppUsage
     String mInstrumentationAppDir = null;
     String[] mInstrumentationSplitAppDirs = null;
     String mInstrumentationLibDir = null;
+    @UnsupportedAppUsage
     String mInstrumentedAppDir = null;
     String[] mInstrumentedSplitAppDirs = null;
     String mInstrumentedLibDir = null;
     boolean mSystemThread = false;
-    boolean mJitEnabled = false;
     boolean mSomeActivitiesChanged = false;
     boolean mUpdatingSystemConfig = false;
     /* package */ boolean mHiddenApiWarningShown = false;
@@ -304,17 +375,25 @@ public final class ActivityThread extends ClientTransactionHandler {
     // or window manager or anything that depends on them while holding this lock.
     // These LoadedApk are only valid for the userId that we're running as.
     @GuardedBy("mResourcesManager")
+    @UnsupportedAppUsage
     final ArrayMap<String, WeakReference<LoadedApk>> mPackages = new ArrayMap<>();
     @GuardedBy("mResourcesManager")
+    @UnsupportedAppUsage
     final ArrayMap<String, WeakReference<LoadedApk>> mResourcePackages = new ArrayMap<>();
     @GuardedBy("mResourcesManager")
     final ArrayList<ActivityClientRecord> mRelaunchingActivities = new ArrayList<>();
     @GuardedBy("mResourcesManager")
+    @UnsupportedAppUsage
     Configuration mPendingConfiguration = null;
     // An executor that performs multi-step transactions.
     private final TransactionExecutor mTransactionExecutor = new TransactionExecutor(this);
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final ResourcesManager mResourcesManager;
+
+    // Registry of remote cancellation transports pending a reply with reply handles.
+    @GuardedBy("this")
+    private @Nullable Map<SafeCancellationTransport, CancellationSignal> mRemoteCancellations;
 
     private static final class ProviderKey {
         final String authority;
@@ -341,12 +420,16 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     // The lock of mProviderMap protects the following variables.
+    @UnsupportedAppUsage
     final ArrayMap<ProviderKey, ProviderClientRecord> mProviderMap
         = new ArrayMap<ProviderKey, ProviderClientRecord>();
+    @UnsupportedAppUsage
     final ArrayMap<IBinder, ProviderRefCount> mProviderRefCountMap
         = new ArrayMap<IBinder, ProviderRefCount>();
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     final ArrayMap<IBinder, ProviderClientRecord> mLocalProviders
         = new ArrayMap<IBinder, ProviderClientRecord>();
+    @UnsupportedAppUsage
     final ArrayMap<ComponentName, ProviderClientRecord> mLocalProvidersByName
             = new ArrayMap<ComponentName, ProviderClientRecord>();
 
@@ -361,43 +444,68 @@ public final class ActivityThread extends ClientTransactionHandler {
         = new ArrayMap<Activity, ArrayList<OnActivityPausedListener>>();
 
     final GcIdler mGcIdler = new GcIdler();
+    final PurgeIdler mPurgeIdler = new PurgeIdler();
+
+    boolean mPurgeIdlerScheduled = false;
     boolean mGcIdlerScheduled = false;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     static volatile Handler sMainThreadHandler;  // set once in main()
 
     Bundle mCoreSettings = null;
 
     /** Activity client record, used for bookkeeping for the real {@link Activity} instance. */
     public static final class ActivityClientRecord {
+        @UnsupportedAppUsage
         public IBinder token;
+        public IBinder assistToken;
         int ident;
+        @UnsupportedAppUsage
         Intent intent;
         String referrer;
         IVoiceInteractor voiceInteractor;
         Bundle state;
         PersistableBundle persistentState;
+        @UnsupportedAppUsage
         Activity activity;
         Window window;
         Activity parent;
-        String embeddedID;  // Unique name of this record
+        String embeddedID;
         Activity.NonConfigurationInstances lastNonConfigurationInstances;
         // TODO(lifecycler): Use mLifecycleState instead.
+        @UnsupportedAppUsage
         boolean paused;
+        @UnsupportedAppUsage
         boolean stopped;
         boolean hideForNow;
         Configuration newConfig;
         Configuration createdConfig;
         Configuration overrideConfig;
+        // Used to save the last reported configuration from server side so that activity
+        // configuration transactions can always use the latest configuration.
+        @GuardedBy("this")
+        private Configuration mPendingOverrideConfig;
         // Used for consolidating configs before sending on to Activity.
         private Configuration tmpConfig = new Configuration();
         // Callback used for updating activity override config.
         ViewRootImpl.ActivityConfigCallback configCallback;
         ActivityClientRecord nextIdle;
 
+        // Indicates whether this activity is currently the topmost resumed one in the system.
+        // This holds the last reported value from server.
+        boolean isTopResumedActivity;
+        // This holds the value last sent to the activity. This is needed, because an update from
+        // server may come at random time, but we always need to report changes between ON_RESUME
+        // and ON_PAUSE to the app.
+        boolean lastReportedTopResumedState;
+
         ProfilerInfo profilerInfo;
 
+        @UnsupportedAppUsage
         ActivityInfo activityInfo;
+        @UnsupportedAppUsage
         CompatibilityInfo compatInfo;
+        @UnsupportedAppUsage
         public LoadedApk packageInfo;
 
         List<ResultInfo> pendingResults;
@@ -407,15 +515,16 @@ public final class ActivityThread extends ClientTransactionHandler {
         public final boolean isForward;
         int pendingConfigChanges;
 
-        // 等待被移除的窗口，也就是要销毁的Activity的窗口
         Window mPendingRemoveWindow;
         WindowManager mPendingRemoveWindowManager;
+        @UnsupportedAppUsage
         boolean mPreserveWindow;
 
         @LifecycleState
         private int mLifecycleState = PRE_ON_CREATE;
 
         @VisibleForTesting
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
         public ActivityClientRecord() {
             this.isForward = false;
             init();
@@ -426,8 +535,10 @@ public final class ActivityThread extends ClientTransactionHandler {
                 String referrer, IVoiceInteractor voiceInteractor, Bundle state,
                 PersistableBundle persistentState, List<ResultInfo> pendingResults,
                 List<ReferrerIntent> pendingNewIntents, boolean isForward,
-                ProfilerInfo profilerInfo, ClientTransactionHandler client) {
+                ProfilerInfo profilerInfo, ClientTransactionHandler client,
+                IBinder assistToken) {
             this.token = token;
+            this.assistToken = assistToken;
             this.ident = ident;
             this.intent = intent;
             this.referrer = referrer;
@@ -540,7 +651,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                 sb.append(", finished=").append(activity.isFinishing());
                 sb.append(", destroyed=").append(activity.isDestroyed());
                 sb.append(", startedActivity=").append(activity.mStartedActivity);
-                sb.append(", temporaryPause=").append(activity.mTemporaryPause);
                 sb.append(", changingConfigurations=").append(activity.mChangingConfigurations);
                 sb.append("}");
             }
@@ -551,8 +661,11 @@ public final class ActivityThread extends ClientTransactionHandler {
 
     final class ProviderClientRecord {
         final String[] mNames;
+        @UnsupportedAppUsage
         final IContentProvider mProvider;
+        @UnsupportedAppUsage
         final ContentProvider mLocalProvider;
+        @UnsupportedAppUsage
         final ContentProviderHolder mHolder;
 
         ProviderClientRecord(String[] names, IContentProvider provider,
@@ -572,8 +685,11 @@ public final class ActivityThread extends ClientTransactionHandler {
             this.intent = intent;
         }
 
+        @UnsupportedAppUsage
         Intent intent;
+        @UnsupportedAppUsage
         ActivityInfo info;
+        @UnsupportedAppUsage
         CompatibilityInfo compatInfo;
         public String toString() {
             return "ReceiverData{intent=" + intent + " packageName=" +
@@ -587,17 +703,22 @@ public final class ActivityThread extends ClientTransactionHandler {
         ApplicationInfo appInfo;
         CompatibilityInfo compatInfo;
         int backupMode;
+        int userId;
         public String toString() {
             return "CreateBackupAgentData{appInfo=" + appInfo
                     + " backupAgent=" + appInfo.backupAgentName
-                    + " mode=" + backupMode + "}";
+                    + " mode=" + backupMode + " userId=" + userId + "}";
         }
     }
 
     static final class CreateServiceData {
+        @UnsupportedAppUsage
         IBinder token;
+        @UnsupportedAppUsage
         ServiceInfo info;
+        @UnsupportedAppUsage
         CompatibilityInfo compatInfo;
+        @UnsupportedAppUsage
         Intent intent;
         public String toString() {
             return "CreateServiceData{token=" + token + " className="
@@ -607,7 +728,9 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     static final class BindServiceData {
+        @UnsupportedAppUsage
         IBinder token;
+        @UnsupportedAppUsage
         Intent intent;
         boolean rebind;
         public String toString() {
@@ -616,10 +739,12 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     static final class ServiceArgsData {
+        @UnsupportedAppUsage
         IBinder token;
         boolean taskRemoved;
         int startId;
         int flags;
+        @UnsupportedAppUsage
         Intent args;
         public String toString() {
             return "ServiceArgsData{token=" + token + " startId=" + startId
@@ -628,28 +753,44 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     static final class AppBindData {
+        @UnsupportedAppUsage
         LoadedApk info;
+        @UnsupportedAppUsage
         String processName;
+        @UnsupportedAppUsage
         ApplicationInfo appInfo;
+        @UnsupportedAppUsage
         List<ProviderInfo> providers;
         ComponentName instrumentationName;
+        @UnsupportedAppUsage
         Bundle instrumentationArgs;
         IInstrumentationWatcher instrumentationWatcher;
         IUiAutomationConnection instrumentationUiAutomationConnection;
         int debugMode;
         boolean enableBinderTracking;
         boolean trackAllocation;
+        @UnsupportedAppUsage
         boolean restrictedBackupMode;
+        @UnsupportedAppUsage
         boolean persistent;
         Configuration config;
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
         CompatibilityInfo compatInfo;
         String buildSerial;
 
         /** Initial values for {@link Profiler}. */
         ProfilerInfo initProfilerInfo;
 
-        boolean autofillCompatibilityEnabled;
+        AutofillOptions autofillOptions;
 
+        /**
+         * Content capture options for the application - when null, it means ContentCapture is not
+         * enabled for the package.
+         */
+        @Nullable
+        ContentCaptureOptions contentCaptureOptions;
+
+        @Override
         public String toString() {
             return "AppBindData{appInfo=" + appInfo + "}";
         }
@@ -738,11 +879,13 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     static final class DumpHeapData {
+        // Whether to dump the native or managed heap.
         public boolean managed;
         public boolean mallocInfo;
         public boolean runGc;
         String path;
         ParcelFileDescriptor fd;
+        RemoteCallback finishCallback;
     }
 
     static final class UpdateCompatibilityData {
@@ -758,26 +901,13 @@ public final class ActivityThread extends ClientTransactionHandler {
         int flags;
     }
 
-    // 是一个Binder本地对象，AMS是通过它来和应用进程通讯的
     private class ApplicationThread extends IApplicationThread.Stub {
         private static final String DB_INFO_FORMAT = "  %8s %8s %14s %14s  %s";
-
-        private int mLastProcessState = -1;
-
-        private void updatePendingConfiguration(Configuration config) {
-            synchronized (mResourcesManager) {
-                if (mPendingConfiguration == null ||
-                        mPendingConfiguration.isOtherSeqNewer(config)) {
-                    mPendingConfiguration = config;
-                }
-            }
-        }
 
         public final void scheduleSleeping(IBinder token, boolean sleeping) {
             sendMessage(H.SLEEPING, token, sleeping ? 1 : 0);
         }
 
-        // 处理应用进程中接收到的静态广播消息，实际处理该广播的是ActivityThread.handleReceiver函数
         public final void scheduleReceiver(Intent intent, ActivityInfo info,
                 CompatibilityInfo compatInfo, int resultCode, String data, Bundle extras,
                 boolean sync, int sendingUser, int processState) {
@@ -790,20 +920,22 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
 
         public final void scheduleCreateBackupAgent(ApplicationInfo app,
-                CompatibilityInfo compatInfo, int backupMode) {
+                CompatibilityInfo compatInfo, int backupMode, int userId) {
             CreateBackupAgentData d = new CreateBackupAgentData();
             d.appInfo = app;
             d.compatInfo = compatInfo;
             d.backupMode = backupMode;
+            d.userId = userId;
 
             sendMessage(H.CREATE_BACKUP_AGENT, d);
         }
 
         public final void scheduleDestroyBackupAgent(ApplicationInfo app,
-                CompatibilityInfo compatInfo) {
+                CompatibilityInfo compatInfo, int userId) {
             CreateBackupAgentData d = new CreateBackupAgentData();
             d.appInfo = app;
             d.compatInfo = compatInfo;
+            d.userId = userId;
 
             sendMessage(H.DESTROY_BACKUP_AGENT, d);
         }
@@ -853,7 +985,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                 s.flags = ssa.flags;
                 s.args = ssa.args;
 
-            	// 发送关于服务的消息
                 sendMessage(H.SERVICE_ARGS, s);
             }
         }
@@ -870,8 +1001,8 @@ public final class ActivityThread extends ClientTransactionHandler {
                 boolean enableBinderTracking, boolean trackAllocation,
                 boolean isRestrictedBackupMode, boolean persistent, Configuration config,
                 CompatibilityInfo compatInfo, Map services, Bundle coreSettings,
-                String buildSerial, boolean autofillCompatibilityEnabled) {
-
+                String buildSerial, AutofillOptions autofillOptions,
+                ContentCaptureOptions contentCaptureOptions) {
             if (services != null) {
                 if (false) {
                     // Test code to make sure the app could see the passed-in services.
@@ -917,7 +1048,8 @@ public final class ActivityThread extends ClientTransactionHandler {
             data.compatInfo = compatInfo;
             data.initProfilerInfo = profilerInfo;
             data.buildSerial = buildSerial;
-            data.autofillCompatibilityEnabled = autofillCompatibilityEnabled;
+            data.autofillOptions = autofillOptions;
+            data.contentCaptureOptions = contentCaptureOptions;
             sendMessage(H.BIND_APPLICATION, data);
         }
 
@@ -937,6 +1069,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
 
         public void scheduleApplicationInfoChanged(ApplicationInfo ai) {
+            mH.removeMessages(H.APPLICATION_INFO_CHANGED, ai);
             sendMessage(H.APPLICATION_INFO_CHANGED, ai);
         }
 
@@ -952,15 +1085,9 @@ public final class ActivityThread extends ClientTransactionHandler {
             NetworkEventDispatcher.getInstance().onNetworkConfigurationChanged();
         }
 
-        public void setHttpProxy(String host, String port, String exclList, Uri pacFileUrl) {
-            final ConnectivityManager cm = ConnectivityManager.from(
+        public void updateHttpProxy() {
+            ActivityThread.updateHttpProxy(
                     getApplication() != null ? getApplication() : getSystemContext());
-            final Network network = cm.getBoundNetworkForProcess();
-            if (network != null) {
-                Proxy.setHttpProxySystemProperty(cm.getDefaultProxy());
-            } else {
-                Proxy.setHttpProxySystemProperty(host, port, exclList, pacFileUrl);
-            }
         }
 
         public void processInBackground() {
@@ -982,8 +1109,6 @@ public final class ActivityThread extends ClientTransactionHandler {
             }
         }
 
-        // 处理非串行化动态广播,非串化ordered是false，这里的receiver对应的是
-        // LoadedApk.ReceiverDispatcher.InnerReceiver对象
         // This function exists to make sure all receiver dispatching is
         // correctly ordered, since these are one-way calls and the binder driver
         // applies transaction ordering per object for such calls.
@@ -991,7 +1116,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                 int resultCode, String dataStr, Bundle extras, boolean ordered,
                 boolean sticky, int sendingUser, int processState) throws RemoteException {
             updateProcessState(processState, false);
-            // 调用LoadedApk.ReceiverDispatcher.InnerReceiver.performReceive函数
             receiver.performReceive(intent, resultCode, dataStr, extras, ordered,
                     sticky, sendingUser);
         }
@@ -1008,13 +1132,21 @@ public final class ActivityThread extends ClientTransactionHandler {
 
         @Override
         public void dumpHeap(boolean managed, boolean mallocInfo, boolean runGc, String path,
-                ParcelFileDescriptor fd) {
+                ParcelFileDescriptor fd, RemoteCallback finishCallback) {
             DumpHeapData dhd = new DumpHeapData();
             dhd.managed = managed;
             dhd.mallocInfo = mallocInfo;
             dhd.runGc = runGc;
             dhd.path = path;
-            dhd.fd = fd;
+            try {
+                // Since we're going to dump the heap asynchronously, dup the file descriptor before
+                // it's closed on returning from the IPC call.
+                dhd.fd = fd.dup();
+            } catch (IOException e) {
+                Slog.e(TAG, "Failed to duplicate heap dump file descriptor", e);
+                return;
+            }
+            dhd.finishCallback = finishCallback;
             sendMessage(H.DUMP_HEAP, dhd, 0, 0, true /*async*/);
         }
 
@@ -1357,11 +1489,16 @@ public final class ActivityThread extends ClientTransactionHandler {
             IoUtils.closeQuietly(pfd);
         }
 
-        private void dumpDatabaseInfo(ParcelFileDescriptor pfd, String[] args) {
+        private File getDatabasesDir(Context context) {
+            // There's no simple way to get the databases/ path, so do it this way.
+            return context.getDatabasePath("a").getParentFile();
+        }
+
+        private void dumpDatabaseInfo(ParcelFileDescriptor pfd, String[] args, boolean isSystem) {
             PrintWriter pw = new FastPrintWriter(
                     new FileOutputStream(pfd.getFileDescriptor()));
             PrintWriterPrinter printer = new PrintWriterPrinter(pw);
-            SQLiteDebug.dump(printer, args);
+            SQLiteDebug.dump(printer, args, isSystem);
             pw.flush();
         }
 
@@ -1385,14 +1522,14 @@ public final class ActivityThread extends ClientTransactionHandler {
                     @Override
                     public void run() {
                         try {
-                            dumpDatabaseInfo(dup, args);
+                            dumpDatabaseInfo(dup, args, true);
                         } finally {
                             IoUtils.closeQuietly(dup);
                         }
                     }
                 });
             } else {
-                dumpDatabaseInfo(pfd, args);
+                dumpDatabaseInfo(pfd, args, false);
                 IoUtils.closeQuietly(pfd);
             }
         }
@@ -1427,7 +1564,7 @@ public final class ActivityThread extends ClientTransactionHandler {
 
         public void scheduleTrimMemory(int level) {
             final Runnable r = PooledLambda.obtainRunnable(ActivityThread::handleTrimMemory,
-                    ActivityThread.this, level);
+                    ActivityThread.this, level).recycleOnUse();
             // Schedule trimming memory after drawing the frame to minimize jank-risk.
             Choreographer choreographer = Choreographer.getMainThreadInstance();
             if (choreographer != null) {
@@ -1448,27 +1585,6 @@ public final class ActivityThread extends ClientTransactionHandler {
 
         public void setProcessState(int state) {
             updateProcessState(state, true);
-        }
-
-        public void updateProcessState(int processState, boolean fromIpc) {
-            synchronized (this) {
-                if (mLastProcessState != processState) {
-                    mLastProcessState = processState;
-                    // Update Dalvik state based on ActivityManager.PROCESS_STATE_* constants.
-                    final int DALVIK_PROCESS_STATE_JANK_PERCEPTIBLE = 0;
-                    final int DALVIK_PROCESS_STATE_JANK_IMPERCEPTIBLE = 1;
-                    int dalvikProcessState = DALVIK_PROCESS_STATE_JANK_IMPERCEPTIBLE;
-                    // TODO: Tune this since things like gmail sync are important background but not jank perceptible.
-                    if (processState <= ActivityManager.PROCESS_STATE_IMPORTANT_FOREGROUND) {
-                        dalvikProcessState = DALVIK_PROCESS_STATE_JANK_PERCEPTIBLE;
-                    }
-                    VMRuntime.getRuntime().updateProcessState(dalvikProcessState);
-                    if (false) {
-                        Slog.i(TAG, "******************* PROCESS STATE CHANGED TO: " + processState
-                                + (fromIpc ? " (from ipc": ""));
-                    }
-                }
-            }
         }
 
         /**
@@ -1549,31 +1665,108 @@ public final class ActivityThread extends ClientTransactionHandler {
         public void scheduleTransaction(ClientTransaction transaction) throws RemoteException {
             ActivityThread.this.scheduleTransaction(transaction);
         }
+
+        @Override
+        public void requestDirectActions(@NonNull IBinder activityToken,
+                @NonNull IVoiceInteractor interactor, @Nullable RemoteCallback cancellationCallback,
+                @NonNull RemoteCallback callback) {
+            final CancellationSignal cancellationSignal = new CancellationSignal();
+            if (cancellationCallback != null) {
+                final ICancellationSignal transport = createSafeCancellationTransport(
+                        cancellationSignal);
+                final Bundle cancellationResult = new Bundle();
+                cancellationResult.putBinder(VoiceInteractor.KEY_CANCELLATION_SIGNAL,
+                        transport.asBinder());
+                cancellationCallback.sendResult(cancellationResult);
+            }
+            mH.sendMessage(PooledLambda.obtainMessage(ActivityThread::handleRequestDirectActions,
+                    ActivityThread.this, activityToken, interactor, cancellationSignal, callback));
+        }
+
+        @Override
+        public void performDirectAction(@NonNull IBinder activityToken, @NonNull String actionId,
+                @Nullable Bundle arguments, @Nullable RemoteCallback cancellationCallback,
+                @NonNull RemoteCallback resultCallback) {
+            final CancellationSignal cancellationSignal = new CancellationSignal();
+            if (cancellationCallback != null) {
+                final ICancellationSignal transport = createSafeCancellationTransport(
+                        cancellationSignal);
+                final Bundle cancellationResult = new Bundle();
+                cancellationResult.putBinder(VoiceInteractor.KEY_CANCELLATION_SIGNAL,
+                        transport.asBinder());
+                cancellationCallback.sendResult(cancellationResult);
+            }
+            mH.sendMessage(PooledLambda.obtainMessage(ActivityThread::handlePerformDirectAction,
+                    ActivityThread.this, activityToken, actionId, arguments,
+                    cancellationSignal, resultCallback));
+        }
     }
 
-    @Override
-    public void updatePendingConfiguration(Configuration config) {
-        mAppThread.updatePendingConfiguration(config);
+    private @NonNull SafeCancellationTransport createSafeCancellationTransport(
+            @NonNull CancellationSignal cancellationSignal) {
+        synchronized (ActivityThread.this) {
+            if (mRemoteCancellations == null) {
+                mRemoteCancellations = new ArrayMap<>();
+            }
+            final SafeCancellationTransport transport = new SafeCancellationTransport(
+                    this, cancellationSignal);
+            mRemoteCancellations.put(transport, cancellationSignal);
+            return transport;
+        }
     }
 
-    @Override
-    public void updateProcessState(int processState, boolean fromIpc) {
-        mAppThread.updateProcessState(processState, fromIpc);
+    private @NonNull CancellationSignal removeSafeCancellationTransport(
+            @NonNull SafeCancellationTransport transport) {
+        synchronized (ActivityThread.this) {
+            final CancellationSignal cancellation = mRemoteCancellations.remove(transport);
+            if (mRemoteCancellations.isEmpty()) {
+                mRemoteCancellations = null;
+            }
+            return cancellation;
+        }
     }
 
-	// 四大组件的回调都在这里面完成
+    private static final class SafeCancellationTransport extends ICancellationSignal.Stub {
+        private final @NonNull WeakReference<ActivityThread> mWeakActivityThread;
+
+        SafeCancellationTransport(@NonNull ActivityThread activityThread,
+                @NonNull CancellationSignal cancellation) {
+            mWeakActivityThread = new WeakReference<>(activityThread);
+        }
+
+        @Override
+        public void cancel() {
+            final ActivityThread activityThread = mWeakActivityThread.get();
+            if (activityThread != null) {
+                final CancellationSignal cancellation = activityThread
+                        .removeSafeCancellationTransport(this);
+                if (cancellation != null) {
+                    cancellation.cancel();
+                }
+            }
+        }
+    }
+
     class H extends Handler {
         public static final int BIND_APPLICATION        = 110;
+        @UnsupportedAppUsage
         public static final int EXIT_APPLICATION        = 111;
+        @UnsupportedAppUsage
         public static final int RECEIVER                = 113;
+        @UnsupportedAppUsage
         public static final int CREATE_SERVICE          = 114;
+        @UnsupportedAppUsage
         public static final int SERVICE_ARGS            = 115;
+        @UnsupportedAppUsage
         public static final int STOP_SERVICE            = 116;
 
         public static final int CONFIGURATION_CHANGED   = 118;
         public static final int CLEAN_UP_CONTEXT        = 119;
+        @UnsupportedAppUsage
         public static final int GC_WHEN_IDLE            = 120;
+        @UnsupportedAppUsage
         public static final int BIND_SERVICE            = 121;
+        @UnsupportedAppUsage
         public static final int UNBIND_SERVICE          = 122;
         public static final int DUMP_SERVICE            = 123;
         public static final int LOW_MEMORY              = 124;
@@ -1581,21 +1774,25 @@ public final class ActivityThread extends ClientTransactionHandler {
         public static final int CREATE_BACKUP_AGENT     = 128;
         public static final int DESTROY_BACKUP_AGENT    = 129;
         public static final int SUICIDE                 = 130;
+        @UnsupportedAppUsage
         public static final int REMOVE_PROVIDER         = 131;
-        public static final int ENABLE_JIT              = 132;
         public static final int DISPATCH_PACKAGE_BROADCAST = 133;
+        @UnsupportedAppUsage
         public static final int SCHEDULE_CRASH          = 134;
         public static final int DUMP_HEAP               = 135;
         public static final int DUMP_ACTIVITY           = 136;
         public static final int SLEEPING                = 137;
         public static final int SET_CORE_SETTINGS       = 138;
         public static final int UPDATE_PACKAGE_COMPATIBILITY_INFO = 139;
+        @UnsupportedAppUsage
         public static final int DUMP_PROVIDER           = 141;
         public static final int UNSTABLE_PROVIDER_DIED  = 142;
         public static final int REQUEST_ASSIST_CONTEXT_EXTRAS = 143;
         public static final int TRANSLUCENT_CONVERSION_COMPLETE = 144;
+        @UnsupportedAppUsage
         public static final int INSTALL_PROVIDER        = 145;
         public static final int ON_NEW_ACTIVITY_OPTIONS = 146;
+        @UnsupportedAppUsage
         public static final int ENTER_ANIMATION_COMPLETE = 149;
         public static final int START_BINDER_TRACKING = 150;
         public static final int STOP_BINDER_TRACKING_AND_DUMP = 151;
@@ -1605,6 +1802,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         public static final int RUN_ISOLATED_ENTRY_POINT = 158;
         public static final int EXECUTE_TRANSACTION = 159;
         public static final int RELAUNCH_ACTIVITY = 160;
+        public static final int PURGE_RESOURCES = 161;
 
         String codeToString(int code) {
             if (DEBUG_MESSAGES) {
@@ -1627,7 +1825,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                     case DESTROY_BACKUP_AGENT: return "DESTROY_BACKUP_AGENT";
                     case SUICIDE: return "SUICIDE";
                     case REMOVE_PROVIDER: return "REMOVE_PROVIDER";
-                    case ENABLE_JIT: return "ENABLE_JIT";
                     case DISPATCH_PACKAGE_BROADCAST: return "DISPATCH_PACKAGE_BROADCAST";
                     case SCHEDULE_CRASH: return "SCHEDULE_CRASH";
                     case DUMP_HEAP: return "DUMP_HEAP";
@@ -1648,6 +1845,7 @@ public final class ActivityThread extends ClientTransactionHandler {
                     case RUN_ISOLATED_ENTRY_POINT: return "RUN_ISOLATED_ENTRY_POINT";
                     case EXECUTE_TRANSACTION: return "EXECUTE_TRANSACTION";
                     case RELAUNCH_ACTIVITY: return "RELAUNCH_ACTIVITY";
+                    case PURGE_RESOURCES: return "PURGE_RESOURCES";
                 }
             }
             return Integer.toString(code);
@@ -1685,6 +1883,7 @@ public final class ActivityThread extends ClientTransactionHandler {
                 case UNBIND_SERVICE:
                     Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "serviceUnbind");
                     handleUnbindService((BindServiceData)msg.obj);
+                    schedulePurgeIdler();
                     Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
                     break;
                 case SERVICE_ARGS:
@@ -1695,6 +1894,7 @@ public final class ActivityThread extends ClientTransactionHandler {
                 case STOP_SERVICE:
                     Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "serviceStop");
                     handleStopService((IBinder)msg.obj);
+                    schedulePurgeIdler();
                     Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
                     break;
                 case CONFIGURATION_CHANGED:
@@ -1735,9 +1935,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                     Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "providerRemove");
                     completeRemoveProvider((ProviderRefCount)msg.obj);
                     Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
-                    break;
-                case ENABLE_JIT:
-                    ensureJitEnabled();
                     break;
                 case DISPATCH_PACKAGE_BROADCAST:
                     Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "broadcastPackage");
@@ -1828,6 +2025,9 @@ public final class ActivityThread extends ClientTransactionHandler {
                 case RELAUNCH_ACTIVITY:
                     handleRelaunchActivityLocally((IBinder) msg.obj);
                     break;
+                case PURGE_RESOURCES:
+                    schedulePurgeIdler();
+                    break;
             }
             Object obj = msg.obj;
             if (obj instanceof SomeArgs) {
@@ -1848,7 +2048,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             }
             if (a != null) {
                 mNewActivities = null;
-                IActivityManager am = ActivityManager.getService();
+                IActivityTaskManager am = ActivityTaskManager.getService();
                 ActivityClientRecord prev;
                 do {
                     if (localLOGV) Slog.v(
@@ -1871,7 +2071,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             if (stopProfiling) {
                 mProfiler.stopProfiling();
             }
-            ensureJitEnabled();
+            applyPendingProcessState();
             return false;
         }
     }
@@ -1880,10 +2080,20 @@ public final class ActivityThread extends ClientTransactionHandler {
         @Override
         public final boolean queueIdle() {
             doGcIfNeeded();
+            purgePendingResources();
             return false;
         }
     }
 
+    final class PurgeIdler implements MessageQueue.IdleHandler {
+        @Override
+        public boolean queueIdle() {
+            purgePendingResources();
+            return false;
+        }
+    }
+
+    @UnsupportedAppUsage
     public static ActivityThread currentActivityThread() {
         return sCurrentActivityThread;
     }
@@ -1898,23 +2108,27 @@ public final class ActivityThread extends ClientTransactionHandler {
                 ? am.getApplication().getOpPackageName() : null;
     }
 
+    @UnsupportedAppUsage
     public static String currentPackageName() {
         ActivityThread am = currentActivityThread();
         return (am != null && am.mBoundApplication != null)
             ? am.mBoundApplication.appInfo.packageName : null;
     }
 
+    @UnsupportedAppUsage
     public static String currentProcessName() {
         ActivityThread am = currentActivityThread();
         return (am != null && am.mBoundApplication != null)
             ? am.mBoundApplication.processName : null;
     }
 
+    @UnsupportedAppUsage
     public static Application currentApplication() {
         ActivityThread am = currentActivityThread();
         return am != null ? am.mInitialApplication : null;
     }
 
+    @UnsupportedAppUsage
     public static IPackageManager getPackageManager() {
         if (sPackageManager != null) {
             //Slog.v("PackageManager", "returning cur default = " + sPackageManager);
@@ -1952,10 +2166,12 @@ public final class ActivityThread extends ClientTransactionHandler {
                 displayId, null, pkgInfo.getCompatibilityInfo(), pkgInfo.getClassLoader());
     }
 
+    @UnsupportedAppUsage
     final Handler getHandler() {
         return mH;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public final LoadedApk getPackageInfo(String packageName, CompatibilityInfo compatInfo,
             int flags) {
         return getPackageInfo(packageName, compatInfo, flags, UserHandle.myUserId());
@@ -1964,6 +2180,16 @@ public final class ActivityThread extends ClientTransactionHandler {
     public final LoadedApk getPackageInfo(String packageName, CompatibilityInfo compatInfo,
             int flags, int userId) {
         final boolean differentUser = (UserHandle.myUserId() != userId);
+        ApplicationInfo ai;
+        try {
+            ai = getPackageManager().getApplicationInfo(packageName,
+                    PackageManager.GET_SHARED_LIBRARY_FILES
+                            | PackageManager.MATCH_DEBUG_TRIAGED_MISSING,
+                    (userId < 0) ? UserHandle.myUserId() : userId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+
         synchronized (mResourcesManager) {
             WeakReference<LoadedApk> ref;
             if (differentUser) {
@@ -1976,11 +2202,11 @@ public final class ActivityThread extends ClientTransactionHandler {
             }
 
             LoadedApk packageInfo = ref != null ? ref.get() : null;
-            //Slog.i(TAG, "getPackageInfo " + packageName + ": " + packageInfo);
-            //if (packageInfo != null) Slog.i(TAG, "isUptoDate " + packageInfo.mResDir
-            //        + ": " + packageInfo.mResources.getAssets().isUpToDate());
-            if (packageInfo != null && (packageInfo.mResources == null
-                    || packageInfo.mResources.getAssets().isUpToDate())) {
+            if (ai != null && packageInfo != null) {
+                if (!isLoadedApkResourceDirsUpToDate(packageInfo, ai)) {
+                    packageInfo.updateApplicationInfo(ai, null);
+                }
+
                 if (packageInfo.isSecurityViolation()
                         && (flags&Context.CONTEXT_IGNORE_SECURITY) == 0) {
                     throw new SecurityException(
@@ -1993,16 +2219,6 @@ public final class ActivityThread extends ClientTransactionHandler {
             }
         }
 
-        ApplicationInfo ai = null;
-        try {
-            ai = getPackageManager().getApplicationInfo(packageName,
-                    PackageManager.GET_SHARED_LIBRARY_FILES
-                            | PackageManager.MATCH_DEBUG_TRIAGED_MISSING,
-                    userId);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-
         if (ai != null) {
             return getPackageInfo(ai, compatInfo, flags);
         }
@@ -2010,6 +2226,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         return null;
     }
 
+    @UnsupportedAppUsage
     public final LoadedApk getPackageInfo(ApplicationInfo ai, CompatibilityInfo compatInfo,
             int flags) {
         boolean includeCode = (flags&Context.CONTEXT_INCLUDE_CODE) != 0;
@@ -2037,11 +2254,13 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     @Override
+    @UnsupportedAppUsage
     public final LoadedApk getPackageInfoNoCheck(ApplicationInfo ai,
             CompatibilityInfo compatInfo) {
         return getPackageInfo(ai, compatInfo, null, false, true, false);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public final LoadedApk peekPackageInfo(String packageName, boolean includeCode) {
         synchronized (mResourcesManager) {
             WeakReference<LoadedApk> ref;
@@ -2070,46 +2289,70 @@ public final class ActivityThread extends ClientTransactionHandler {
             }
 
             LoadedApk packageInfo = ref != null ? ref.get() : null;
-            if (packageInfo == null || (packageInfo.mResources != null
-                    && !packageInfo.mResources.getAssets().isUpToDate())) {
-                if (localLOGV) Slog.v(TAG, (includeCode ? "Loading code package "
+
+            if (packageInfo != null) {
+                if (!isLoadedApkResourceDirsUpToDate(packageInfo, aInfo)) {
+                    packageInfo.updateApplicationInfo(aInfo, null);
+                }
+
+                return packageInfo;
+            }
+
+            if (localLOGV) {
+                Slog.v(TAG, (includeCode ? "Loading code package "
                         : "Loading resource-only package ") + aInfo.packageName
                         + " (in " + (mBoundApplication != null
-                                ? mBoundApplication.processName : null)
+                        ? mBoundApplication.processName : null)
                         + ")");
-                packageInfo =
-                    new LoadedApk(this, aInfo, compatInfo, baseLoader,
-                            securityViolation, includeCode &&
-                            (aInfo.flags&ApplicationInfo.FLAG_HAS_CODE) != 0, registerPackage);
-
-                if (mSystemThread && "android".equals(aInfo.packageName)) {
-                    packageInfo.installSystemApplicationInfo(aInfo,
-                            getSystemContext().mPackageInfo.getClassLoader());
-                }
-
-                if (differentUser) {
-                    // Caching not supported across users
-                } else if (includeCode) {
-                    mPackages.put(aInfo.packageName,
-                            new WeakReference<LoadedApk>(packageInfo));
-                } else {
-                    mResourcePackages.put(aInfo.packageName,
-                            new WeakReference<LoadedApk>(packageInfo));
-                }
             }
+
+            packageInfo =
+                    new LoadedApk(this, aInfo, compatInfo, baseLoader,
+                            securityViolation, includeCode
+                            && (aInfo.flags & ApplicationInfo.FLAG_HAS_CODE) != 0, registerPackage);
+
+            if (mSystemThread && "android".equals(aInfo.packageName)) {
+                packageInfo.installSystemApplicationInfo(aInfo,
+                        getSystemContext().mPackageInfo.getClassLoader());
+            }
+
+            if (differentUser) {
+                // Caching not supported across users
+            } else if (includeCode) {
+                mPackages.put(aInfo.packageName,
+                        new WeakReference<LoadedApk>(packageInfo));
+            } else {
+                mResourcePackages.put(aInfo.packageName,
+                        new WeakReference<LoadedApk>(packageInfo));
+            }
+
             return packageInfo;
         }
     }
 
+    private static boolean isLoadedApkResourceDirsUpToDate(LoadedApk loadedApk,
+            ApplicationInfo appInfo) {
+        Resources packageResources = loadedApk.mResources;
+        String[] overlayDirs = ArrayUtils.defeatNullable(loadedApk.getOverlayDirs());
+        String[] resourceDirs = ArrayUtils.defeatNullable(appInfo.resourceDirs);
+
+        return (packageResources == null || packageResources.getAssets().isUpToDate())
+                && overlayDirs.length == resourceDirs.length
+                && ArrayUtils.containsAll(overlayDirs, resourceDirs);
+    }
+
+    @UnsupportedAppUsage
     ActivityThread() {
         mResourcesManager = ResourcesManager.getInstance();
     }
 
+    @UnsupportedAppUsage
     public ApplicationThread getApplicationThread()
     {
         return mAppThread;
     }
 
+    @UnsupportedAppUsage
     public Instrumentation getInstrumentation()
     {
         return mInstrumentation;
@@ -2124,6 +2367,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         return mProfiler.profileFile;
     }
 
+    @UnsupportedAppUsage
     public Looper getLooper() {
         return mLooper;
     }
@@ -2132,14 +2376,17 @@ public final class ActivityThread extends ClientTransactionHandler {
         return mExecutor;
     }
 
+    @UnsupportedAppUsage
     public Application getApplication() {
         return mInitialApplication;
     }
 
+    @UnsupportedAppUsage
     public String getProcessName() {
         return mBoundApplication.processName;
     }
 
+    @UnsupportedAppUsage
     public ContextImpl getSystemContext() {
         synchronized (this) {
             if (mSystemContext == null) {
@@ -2158,6 +2405,15 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    /**
+     * Create the context instance base on system resources & display information which used for UI.
+     * @param displayId The ID of the display where the UI is shown.
+     * @see ContextImpl#createSystemUiContext(ContextImpl, int)
+     */
+    public ContextImpl createSystemUiContext(int displayId) {
+        return ContextImpl.createSystemUiContext(getSystemUiContext(), displayId);
+    }
+
     public void installSystemApplicationInfo(ApplicationInfo info, ClassLoader classLoader) {
         synchronized (this) {
             getSystemContext().installSystemApplicationInfo(info, classLoader);
@@ -2168,13 +2424,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
-    void ensureJitEnabled() {
-        if (!mJitEnabled) {
-            mJitEnabled = true;
-            dalvik.system.VMRuntime.getRuntime().startJitCompilation();
-        }
-    }
-
+    @UnsupportedAppUsage
     void scheduleGcIdler() {
         if (!mGcIdlerScheduled) {
             mGcIdlerScheduled = true;
@@ -2191,14 +2441,34 @@ public final class ActivityThread extends ClientTransactionHandler {
         mH.removeMessages(H.GC_WHEN_IDLE);
     }
 
+    void schedulePurgeIdler() {
+        if (!mPurgeIdlerScheduled) {
+            mPurgeIdlerScheduled = true;
+            Looper.myQueue().addIdleHandler(mPurgeIdler);
+        }
+        mH.removeMessages(H.PURGE_RESOURCES);
+    }
+
+    void unschedulePurgeIdler() {
+        if (mPurgeIdlerScheduled) {
+            mPurgeIdlerScheduled = false;
+            Looper.myQueue().removeIdleHandler(mPurgeIdler);
+        }
+        mH.removeMessages(H.PURGE_RESOURCES);
+    }
+
     void doGcIfNeeded() {
+        doGcIfNeeded("bg");
+    }
+
+    void doGcIfNeeded(String reason) {
         mGcIdlerScheduled = false;
         final long now = SystemClock.uptimeMillis();
         //Slog.i(TAG, "**** WE MIGHT WANT TO GC: then=" + Binder.getLastGcTime()
         //        + "m now=" + now);
         if ((BinderInternal.getLastGcTime()+MIN_TIME_BETWEEN_GCS) < now) {
             //Slog.i(TAG, "**** WE DO, WE DO WANT TO GC!");
-            BinderInternal.forceGc("bg");
+            BinderInternal.forceGc(reason);
         }
     }
 
@@ -2671,6 +2941,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         proto.end(asToken);
     }
 
+    @UnsupportedAppUsage
     public void registerOnActivityPausedListener(Activity activity,
             OnActivityPausedListener listener) {
         synchronized (mOnPauseListeners) {
@@ -2683,6 +2954,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    @UnsupportedAppUsage
     public void unregisterOnActivityPausedListener(Activity activity,
             OnActivityPausedListener listener) {
         synchronized (mOnPauseListeners) {
@@ -2704,11 +2976,13 @@ public final class ActivityThread extends ClientTransactionHandler {
         return aInfo;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public final Activity startActivityNow(Activity parent, String id,
         Intent intent, ActivityInfo activityInfo, IBinder token, Bundle state,
-        Activity.NonConfigurationInstances lastNonConfigurationInstances) {
+        Activity.NonConfigurationInstances lastNonConfigurationInstances, IBinder assistToken) {
         ActivityClientRecord r = new ActivityClientRecord();
             r.token = token;
+            r.assistToken = assistToken;
             r.ident = 0;
             r.intent = intent;
             r.state = state;
@@ -2734,8 +3008,10 @@ public final class ActivityThread extends ClientTransactionHandler {
         return performLaunchActivity(r, null /* customIntent */);
     }
 
+    @UnsupportedAppUsage
     public final Activity getActivity(IBinder token) {
-        return mActivities.get(token).activity;
+        final ActivityClientRecord activityRecord = mActivities.get(token);
+        return activityRecord != null ? activityRecord.activity : null;
     }
 
     @Override
@@ -2743,6 +3019,69 @@ public final class ActivityThread extends ClientTransactionHandler {
         return mActivities.get(token);
     }
 
+    @Override
+    public void updatePendingConfiguration(Configuration config) {
+        synchronized (mResourcesManager) {
+            if (mPendingConfiguration == null || mPendingConfiguration.isOtherSeqNewer(config)) {
+                mPendingConfiguration = config;
+            }
+        }
+    }
+
+    @Override
+    public void updateProcessState(int processState, boolean fromIpc) {
+        synchronized (mAppThread) {
+            if (mLastProcessState == processState) {
+                return;
+            }
+            mLastProcessState = processState;
+            // Defer the top state for VM to avoid aggressive JIT compilation affecting activity
+            // launch time.
+            if (processState == ActivityManager.PROCESS_STATE_TOP
+                    && mNumLaunchingActivities.get() > 0) {
+                mPendingProcessState = processState;
+                mH.postDelayed(this::applyPendingProcessState, PENDING_TOP_PROCESS_STATE_TIMEOUT);
+            } else {
+                mPendingProcessState = PROCESS_STATE_UNKNOWN;
+                updateVmProcessState(processState);
+            }
+            if (localLOGV) {
+                Slog.i(TAG, "******************* PROCESS STATE CHANGED TO: " + processState
+                        + (fromIpc ? " (from ipc" : ""));
+            }
+        }
+    }
+
+    /** Update VM state based on ActivityManager.PROCESS_STATE_* constants. */
+    private void updateVmProcessState(int processState) {
+        // TODO: Tune this since things like gmail sync are important background but not jank
+        // perceptible.
+        final int state = processState <= ActivityManager.PROCESS_STATE_IMPORTANT_FOREGROUND
+                ? VM_PROCESS_STATE_JANK_PERCEPTIBLE
+                : VM_PROCESS_STATE_JANK_IMPERCEPTIBLE;
+        VMRuntime.getRuntime().updateProcessState(state);
+    }
+
+    private void applyPendingProcessState() {
+        synchronized (mAppThread) {
+            if (mPendingProcessState == PROCESS_STATE_UNKNOWN) {
+                return;
+            }
+            final int pendingState = mPendingProcessState;
+            mPendingProcessState = PROCESS_STATE_UNKNOWN;
+            // Only apply the pending state if the last state doesn't change.
+            if (pendingState == mLastProcessState) {
+                updateVmProcessState(pendingState);
+            }
+        }
+    }
+
+    @Override
+    public void countLaunchingActivities(int num) {
+        mNumLaunchingActivities.getAndAdd(num);
+    }
+
+    @UnsupportedAppUsage
     public final void sendActivityResult(
             IBinder token, String id, int requestCode,
             int resultCode, Intent data) {
@@ -2777,9 +3116,10 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     private void sendMessage(int what, Object obj, int arg1, int arg2, boolean async) {
-        if (DEBUG_MESSAGES) Slog.v(
-            TAG, "SCHEDULE " + what + " " + mH.codeToString(what)
-            + ": " + arg1 + " / " + obj);
+        if (DEBUG_MESSAGES) {
+            Slog.v(TAG,
+                    "SCHEDULE " + what + " " + mH.codeToString(what) + ": " + arg1 + " / " + obj);
+        }
         Message msg = Message.obtain();
         msg.what = what;
         msg.obj = obj;
@@ -2823,7 +3163,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                     Context.CONTEXT_INCLUDE_CODE);
         }
 
-        // 获取要启动Activity组件的包名以及类名，它们使用一个ComponentName组件来描述
         ComponentName component = r.intent.getComponent();
         if (component == null) {
             component = r.intent.resolveActivity(
@@ -2839,8 +3178,6 @@ public final class ActivityThread extends ClientTransactionHandler {
         ContextImpl appContext = createBaseContextForActivity(r);
         Activity activity = null;
         try {
-            // 将目标Activity的类文件加载到内存中，并创建一个实例。由于所有Activity组件都是从Activity类
-            // 继承下来的，因此，我们就可以将前面创建的Activity组件保存在Activity对象activity中
             java.lang.ClassLoader cl = appContext.getClassLoader();
             activity = mInstrumentation.newActivity(
                     cl, component.getClassName(), r.intent);
@@ -2859,7 +3196,6 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
 
         try {
-            // 创建Application对象
             Application app = r.packageInfo.makeApplication(false, mInstrumentation);
 
             if (localLOGV) Slog.v(TAG, "Performing launch of " + r);
@@ -2871,8 +3207,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                     + ", dir=" + r.packageInfo.getAppDir());
 
             if (activity != null) {
-                // 创建和初始化一个ContextImpl对象appContext，用来作为前面所创建的Activity对象activity
-                // 的运行上下文环境，通过它可以访问的特定的资源，以及启动其他应用的程序组件
                 CharSequence title = r.activityInfo.loadLabel(appContext.getPackageManager());
                 Configuration config = new Configuration(mCompatConfiguration);
                 if (r.overrideConfig != null) {
@@ -2886,11 +3220,12 @@ public final class ActivityThread extends ClientTransactionHandler {
                     r.mPendingRemoveWindow = null;
                     r.mPendingRemoveWindowManager = null;
                 }
-                // 使用ContextImpl对象appContext和ActivityClientRecord对象r来初始化Activity对象activity
+                appContext.setOuterContext(activity);
                 activity.attach(appContext, this, getInstrumentation(), r.token,
                         r.ident, app, r.intent, r.activityInfo, title, r.parent,
                         r.embeddedID, r.lastNonConfigurationInstances, config,
-                        r.referrer, r.voiceInteractor, window, r.configCallback);
+                        r.referrer, r.voiceInteractor, window, r.configCallback,
+                        r.assistToken);
 
                 if (customIntent != null) {
                     activity.mIntent = customIntent;
@@ -2904,8 +3239,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                 }
 
                 activity.mCalled = false;
-                // 调用成员变量mInstrumentation的callActivityOnCreate方法将Activity对象activity启动起来，
-                // 会调用Activity的onCreate方法
                 if (r.isPersistable()) {
                     mInstrumentation.callActivityOnCreate(activity, r.state, r.persistentState);
                 } else {
@@ -2919,9 +3252,13 @@ public final class ActivityThread extends ClientTransactionHandler {
                 r.activity = activity;
             }
             r.setState(ON_CREATE);
-            // 初始化完成后会以ActivityClientRecord对象r的token为关键字将ActivityClientRecord对象r
-            // 保存在mActivities中
-            mActivities.put(r.token, r);
+
+            // updatePendingActivityConfiguration() reads from mActivities to update
+            // ActivityClientRecord which runs in a different thread. Protect modifications to
+            // mActivities to avoid race.
+            synchronized (mResourcesManager) {
+                mActivities.put(r.token, r);
+            }
 
         } catch (SuperNotCalledException e) {
             throw e;
@@ -3010,7 +3347,7 @@ public final class ActivityThread extends ClientTransactionHandler {
     private ContextImpl createBaseContextForActivity(ActivityClientRecord r) {
         final int displayId;
         try {
-            displayId = ActivityManager.getService().getActivityDisplayId(r.token);
+            displayId = ActivityTaskManager.getService().getActivityDisplayId(r.token);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -3038,7 +3375,6 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     /**
-	 * 启动Activity
      * Extended implementation of activity launch. Used when server requests a launch or relaunch.
      */
     @Override
@@ -3055,19 +3391,21 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
 
         // Make sure we are running with the most recent config.
-        // 最终回调目标Activity的onConfigurationChanged()
         handleConfigurationChanged(null, null);
 
         if (localLOGV) Slog.v(
             TAG, "Handling launch of " + r);
 
         // Initialize before creating the activity
-        // 初始化WMS
-            GraphicsEnvironment.earlyInitEGL();
+        if (!ThreadedRenderer.sRendererDisabled
+                && (r.activityInfo.flags & ActivityInfo.FLAG_HARDWARE_ACCELERATED) != 0) {
+            HardwareRenderer.preload();
         }
         WindowManagerGlobal.initialize();
 
-        // 首先调用performLaunchActivity方法将目标Activity组件启动起来，最终调用目标Activity的onCreate方法
+        // Hint the GraphicsEnvironment that an activity is launching on the process.
+        GraphicsEnvironment.hintActivityLaunch();
+
         final Activity a = performLaunchActivity(r, customIntent);
 
         if (a != null) {
@@ -3081,8 +3419,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         } else {
             // If there was an error, for any reason, tell the activity manager to stop us.
             try {
-                // 存在error则停止该Activity
-                ActivityManager.getService()
+                ActivityTaskManager.getService()
                         .finishActivity(r.token, Activity.RESULT_CANCELED, null,
                                 Activity.DONT_FINISH_TASK_WITH_ACTIVITY);
             } catch (RemoteException ex) {
@@ -3094,6 +3431,10 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     private void reportSizeConfigurations(ActivityClientRecord r) {
+        if (mActivitiesToBeDestroyed.containsKey(r.token)) {
+            // Size configurations of a destroyed activity is meaningless.
+            return;
+        }
         Configuration[] configurations = r.activity.getResources().getSizeConfigurations();
         if (configurations == null) {
             return;
@@ -3114,12 +3455,11 @@ public final class ActivityThread extends ClientTransactionHandler {
             }
         }
         try {
-            ActivityManager.getService().reportSizeConfigurations(r.token,
+            ActivityTaskManager.getService().reportSizeConfigurations(r.token,
                     horizontal.copyKeys(), vertical.copyKeys(), smallest.copyKeys());
         } catch (RemoteException ex) {
             throw ex.rethrowFromSystemServer();
         }
-
     }
 
     private void deliverNewIntents(ActivityClientRecord r, List<ReferrerIntent> intents) {
@@ -3133,38 +3473,15 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
-    void performNewIntents(IBinder token, List<ReferrerIntent> intents, boolean andPause) {
+    @Override
+    public void handleNewIntent(IBinder token, List<ReferrerIntent> intents) {
         final ActivityClientRecord r = mActivities.get(token);
         if (r == null) {
             return;
         }
 
-        final boolean resumed = !r.paused;
-        if (resumed) {// 如果没有暂停，先调用暂定状态
-            r.activity.mTemporaryPause = true;
-            mInstrumentation.callActivityOnPause(r.activity);
-        }
-        // 调用onNewIntent方法
+        checkAndBlockForNetworkAccess();
         deliverNewIntents(r, intents);
-        if (resumed) {// 如果没有暂停再调用onResume方法
-            r.activity.performResume();
-            r.activity.mTemporaryPause = false;
-        }
-
-        if (r.paused && andPause) {
-            // 如果已经暂停了为了保证在调完onNewIntent之后调用onResume方法，
-            // 这里就要先调用onResume方法，然后调用onPause方法
-            // In this case the activity was in the paused state when we delivered the intent,
-            // to guarantee（保证） onResume gets called after onNewIntent we temporarily（暂时） resume the
-            // activity and pause again as the caller wanted.
-            performResumeActivity(token, false, "performNewIntents");
-            performPauseActivityIfNeeded(r, "performNewIntents");
-        }
-    }
-
-    @Override
-    public void handleNewIntent(IBinder token, List<ReferrerIntent> intents, boolean andPause) {
-        performNewIntents(token, intents, andPause);
     }
 
     public void handleRequestAssistContextExtras(RequestAssistContextExtras cmd) {
@@ -3222,6 +3539,7 @@ public final class ActivityThread extends ClientTransactionHandler {
                     r.activity.onProvideAssistContent(content);
                 }
             }
+
         }
         if (structure == null) {
             structure = new AssistStructure();
@@ -3233,11 +3551,75 @@ public final class ActivityThread extends ClientTransactionHandler {
         structure.setAcquisitionEndTime(SystemClock.uptimeMillis());
 
         mLastAssistStructures.add(new WeakReference<>(structure));
-        IActivityManager mgr = ActivityManager.getService();
+        IActivityTaskManager mgr = ActivityTaskManager.getService();
         try {
             mgr.reportAssistContextExtras(cmd.requestToken, data, structure, content, referrer);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /** Fetches the user actions for the corresponding activity */
+    private void handleRequestDirectActions(@NonNull IBinder activityToken,
+            @NonNull IVoiceInteractor interactor, @NonNull CancellationSignal cancellationSignal,
+            @NonNull RemoteCallback callback) {
+        final ActivityClientRecord r = mActivities.get(activityToken);
+        if (r == null) {
+            Log.w(TAG, "requestDirectActions(): no activity for " + activityToken);
+            callback.sendResult(null);
+            return;
+        }
+        final int lifecycleState = r.getLifecycleState();
+        if (lifecycleState < ON_START || lifecycleState >= ON_STOP) {
+            Log.w(TAG, "requestDirectActions(" + r + "): wrong lifecycle: " + lifecycleState);
+            callback.sendResult(null);
+            return;
+        }
+        if (r.activity.mVoiceInteractor == null
+                || r.activity.mVoiceInteractor.mInteractor.asBinder()
+                != interactor.asBinder()) {
+            if (r.activity.mVoiceInteractor != null) {
+                r.activity.mVoiceInteractor.destroy();
+            }
+            r.activity.mVoiceInteractor = new VoiceInteractor(interactor, r.activity,
+                    r.activity, Looper.myLooper());
+        }
+        r.activity.onGetDirectActions(cancellationSignal, (actions) -> {
+            Preconditions.checkNotNull(actions);
+            Preconditions.checkCollectionElementsNotNull(actions, "actions");
+            if (!actions.isEmpty()) {
+                final int actionCount = actions.size();
+                for (int i = 0; i < actionCount; i++) {
+                    final DirectAction action = actions.get(i);
+                    action.setSource(r.activity.getTaskId(), r.activity.getAssistToken());
+                }
+                final Bundle result = new Bundle();
+                result.putParcelable(DirectAction.KEY_ACTIONS_LIST,
+                        new ParceledListSlice<>(actions));
+                callback.sendResult(result);
+            } else {
+                callback.sendResult(null);
+            }
+        });
+    }
+
+    /** Performs an actions in the corresponding activity */
+    private void handlePerformDirectAction(@NonNull IBinder activityToken,
+            @NonNull String actionId, @Nullable Bundle arguments,
+            @NonNull CancellationSignal cancellationSignal,
+            @NonNull RemoteCallback resultCallback) {
+        final ActivityClientRecord r = mActivities.get(activityToken);
+        if (r != null) {
+            final int lifecycleState = r.getLifecycleState();
+            if (lifecycleState < ON_START || lifecycleState >= ON_STOP) {
+                resultCallback.sendResult(null);
+                return;
+            }
+            final Bundle nonNullArguments = (arguments != null) ? arguments : Bundle.EMPTY;
+            r.activity.onPerformDirectAction(actionId, nonNullArguments, cancellationSignal,
+                    resultCallback::sendResult);
+        } else {
+            resultCallback.sendResult(null);
         }
     }
 
@@ -3355,18 +3737,12 @@ public final class ActivityThread extends ClientTransactionHandler {
         return sCurrentBroadcastIntent.get();
     }
 
-    // 主要包括三步：
-    // 1） 创建BroadcastReceiver对象
-    // 2） 执行onReceive函数
-    // 3） 向AMS发送处理结束消息
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private void handleReceiver(ReceiverData data) {
         // If we are getting ready to gc after going to the background, well
         // we are back active so skip it.
         unscheduleGcIdler();
 
-        // 1） 创建BroadcastReceiver对象
-        // 这里处理的是静态广播接收者，默认认为接收者BroadcastReceiver对象不存在
-        // 每次接受都会创建一个新的BroadcastReceiver对象
         String component = data.intent.getComponent().getClassName();
 
         LoadedApk packageInfo = getPackageInfoNoCheck(
@@ -3378,8 +3754,6 @@ public final class ActivityThread extends ClientTransactionHandler {
         BroadcastReceiver receiver;
         ContextImpl context;
         try {
-			// 首先从AMS传递的intent中获取当前处理该广播的组件名称，然后通过反射创建一个BroadcastReceiver
-            // 对象，从这里可以看出来，静态广播处理的时候，每次都会创建一个新的BroadcastReceiver对象
             app = packageInfo.makeApplication(false, mInstrumentation);
             context = (ContextImpl) app.getBaseContext();
             if (data.info.splitName != null) {
@@ -3400,9 +3774,7 @@ public final class ActivityThread extends ClientTransactionHandler {
                 + ": " + e.toString(), e);
         }
 
-        // 2） 执行onReceive函数
         try {
-            // 创建Application对象，如果进程已经启动，Application对象已经创建
             if (localLOGV) Slog.v(
                 TAG, "Performing receive of " + data.intent
                 + ": app=" + app
@@ -3412,8 +3784,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                 + ", dir=" + packageInfo.getAppDir());
 
             sCurrentBroadcastIntent.set(data.intent);
-            // 调用接收者的onReceive方法，这里还调用了setPendingResult方法，详细内容请看
-            // BroadcastReceiver.goAsync方法。
             receiver.setPendingResult(data);
             receiver.onReceive(context.getReceiverRestrictedContext(),
                     data.intent);
@@ -3430,7 +3800,6 @@ public final class ActivityThread extends ClientTransactionHandler {
             sCurrentBroadcastIntent.set(null);
         }
 
-        // 3） 向AMS发送处理结束消息
         if (receiver.getPendingResult() != null) {
             data.finish();
         }
@@ -3473,7 +3842,8 @@ public final class ActivityThread extends ClientTransactionHandler {
 
         try {
             IBinder binder = null;
-            BackupAgent agent = mBackupAgents.get(packageName);
+            ArrayMap<String, BackupAgent> backupAgents = getBackupAgentsForUser(data.userId);
+            BackupAgent agent = backupAgents.get(packageName);
             if (agent != null) {
                 // reusing the existing instance
                 if (DEBUG_BACKUP) {
@@ -3492,9 +3862,9 @@ public final class ActivityThread extends ClientTransactionHandler {
                     context.setOuterContext(agent);
                     agent.attach(context);
 
-                    agent.onCreate();
+                    agent.onCreate(UserHandle.of(data.userId));
                     binder = agent.onBind();
-                    mBackupAgents.put(packageName, agent);
+                    backupAgents.put(packageName, agent);
                 } catch (Exception e) {
                     // If this is during restore, fail silently; otherwise go
                     // ahead and let the user see the crash.
@@ -3510,7 +3880,7 @@ public final class ActivityThread extends ClientTransactionHandler {
 
             // tell the OS that we're live now
             try {
-                ActivityManager.getService().backupAgentCreated(packageName, binder);
+                ActivityManager.getService().backupAgentCreated(packageName, binder, data.userId);
             } catch (RemoteException e) {
                 throw e.rethrowFromSystemServer();
             }
@@ -3526,7 +3896,8 @@ public final class ActivityThread extends ClientTransactionHandler {
 
         LoadedApk packageInfo = getPackageInfoNoCheck(data.appInfo, data.compatInfo);
         String packageName = packageInfo.mPackageName;
-        BackupAgent agent = mBackupAgents.get(packageName);
+        ArrayMap<String, BackupAgent> backupAgents = getBackupAgentsForUser(data.userId);
+        BackupAgent agent = backupAgents.get(packageName);
         if (agent != null) {
             try {
                 agent.onDestroy();
@@ -3534,28 +3905,32 @@ public final class ActivityThread extends ClientTransactionHandler {
                 Slog.w(TAG, "Exception thrown in onDestroy by backup agent of " + data.appInfo);
                 e.printStackTrace();
             }
-            mBackupAgents.remove(packageName);
+            backupAgents.remove(packageName);
         } else {
             Slog.w(TAG, "Attempt to destroy unknown backup agent " + data);
         }
     }
 
+    private ArrayMap<String, BackupAgent> getBackupAgentsForUser(int userId) {
+        ArrayMap<String, BackupAgent> backupAgents = mBackupAgentsByUser.get(userId);
+        if (backupAgents == null) {
+            backupAgents = new ArrayMap<>();
+            mBackupAgentsByUser.put(userId, backupAgents);
+        }
+        return backupAgents;
+    }
+
+    @UnsupportedAppUsage
     private void handleCreateService(CreateServiceData data) {
         // If we are getting ready to gc after going to the background, well
         // we are back active so skip it.
         unscheduleGcIdler();
 
-        // 获取一个用来描述即将要启动的Service组件所在的应用程序的LoadedApk对象，并将它保存在packageInfo
-        // 变量中（每一个应用程序都使用一个LoadedApk对象来描述，通过它就能方位到它所描述的应用程序的资源）
         LoadedApk packageInfo = getPackageInfoNoCheck(
                 data.info.applicationInfo, data.compatInfo);
         Service service = null;
         try {
-            // 获取类加载器
             java.lang.ClassLoader cl = packageInfo.getClassLoader();
-			// 通过类加载器将CreateServiceData对象data描述的一个Service组件加载的内存中，并且创建它的一个
-            // 实例，保存在Service对象service中。因为CreateServiceData对象data描述的Service组件即为应用
-            // 程序的Ashmem中的Server组件，因此，Service对象service指向的Service组件实际上是一个Server组件
             service = packageInfo.getAppFactory()
                     .instantiateService(cl, data.info.name, data.intent);
         } catch (Exception e) {
@@ -3569,23 +3944,15 @@ public final class ActivityThread extends ClientTransactionHandler {
         try {
             if (localLOGV) Slog.v(TAG, "Creating service " + data.info.name);
 
-            // 初始化一个ContextImpl对象context，用来为前面所创建的Service对象service的运行上下文环境，
-            // 通过它可以访问特定的应用程序资源，以及启动其他应用程序组件
             ContextImpl context = ContextImpl.createAppContext(this, packageInfo);
             context.setOuterContext(service);
 
-            // 创建一个Application对象app，用来描述Service对象service所属的应用程序。
             Application app = packageInfo.makeApplication(false, mInstrumentation);
-            // 使用Application对象app，ContextImpl对象context和CreateServiceData对象data来初始化
-            // Service对象service
             service.attach(context, this, data.info.name, data.token, app,
                     ActivityManager.getService());
-            // 调用Service的onCreate方法
             service.onCreate();
-            // 以token为关键字保存Service对象service到mServices中，服务启动完成
             mServices.put(data.token, service);
             try {
-                // 服务创建完成
                 ActivityManager.getService().serviceDoneExecuting(
                         data.token, SERVICE_DONE_EXECUTING_ANON, 0, 0);
             } catch (RemoteException e) {
@@ -3601,7 +3968,6 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     private void handleBindService(BindServiceData data) {
-        // 通过token来获得一个描述Service组件的Service对象
         Service s = mServices.get(data.token);
         if (DEBUG_SERVICE)
             Slog.v(TAG, "handleBindService s=" + s + " rebind=" + data.rebind);
@@ -3610,10 +3976,8 @@ public final class ActivityThread extends ClientTransactionHandler {
                 data.intent.setExtrasClassLoader(s.getClassLoader());
                 data.intent.prepareToEnterProcess();
                 try {
-                    if (!data.rebind) {// 首次绑定
-                        // 获取一个实现了IBinder接口的Binder对象
+                    if (!data.rebind) {
                         IBinder binder = s.onBind(data.intent);
-                        // 调用AMS代理对象的成员函数publishService，将前面得到的Binder本地对象传递给AMS
                         ActivityManager.getService().publishService(
                                 data.token, data.intent, binder);
                     } else {
@@ -3621,7 +3985,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                         ActivityManager.getService().serviceDoneExecuting(
                                 data.token, SERVICE_DONE_EXECUTING_ANON, 0, 0);
                     }
-                    ensureJitEnabled();
                 } catch (RemoteException ex) {
                     throw ex.rethrowFromSystemServer();
                 }
@@ -3641,7 +4004,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             try {
                 data.intent.setExtrasClassLoader(s.getClassLoader());
                 data.intent.prepareToEnterProcess();
-                boolean doRebind = s.onUnbind(data.intent);// 调用解绑回调
+                boolean doRebind = s.onUnbind(data.intent);
                 try {
                     if (doRebind) {
                         ActivityManager.getService().unbindFinished(
@@ -3712,19 +4075,17 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     private void handleServiceArgs(ServiceArgsData data) {
-        // 获取Service对象
         Service s = mServices.get(data.token);
         if (s != null) {
             try {
                 if (data.args != null) {
                     data.args.setExtrasClassLoader(s.getClassLoader());
-                    // 准备进入进程
                     data.args.prepareToEnterProcess();
                 }
                 int res;
-                if (!data.taskRemoved) {// 任务没有被移除的话，调用Service.onStartCommand方法
+                if (!data.taskRemoved) {
                     res = s.onStartCommand(data.args, data.flags, data.startId);
-                } else {// 否则调用被移除方法
+                } else {
                     s.onTaskRemoved(data.args);
                     res = Service.START_TASK_REMOVED_COMPLETE;
                 }
@@ -3732,13 +4093,11 @@ public final class ActivityThread extends ClientTransactionHandler {
                 QueuedWork.waitToFinish();
 
                 try {
-                    // 服务已经执行
                     ActivityManager.getService().serviceDoneExecuting(
                             data.token, SERVICE_DONE_EXECUTING_START, data.startId, res);
                 } catch (RemoteException e) {
                     throw e.rethrowFromSystemServer();
                 }
-                ensureJitEnabled();
             } catch (Exception e) {
                 if (!mInstrumentation.onException(s, e)) {
                     throw new RuntimeException(
@@ -3838,6 +4197,8 @@ public final class ActivityThread extends ClientTransactionHandler {
             r.state = null;
             r.persistentState = null;
             r.setState(ON_RESUME);
+
+            reportTopResumedActivityChanged(r, r.isTopResumedActivity, "topWhenResuming");
         } catch (Exception e) {
             if (!mInstrumentation.onException(r.activity, e)) {
                 throw new RuntimeException("Unable to resume activity "
@@ -3878,6 +4239,13 @@ public final class ActivityThread extends ClientTransactionHandler {
             // We didn't actually resume the activity, so skipping any follow-up actions.
             return;
         }
+        if (mActivitiesToBeDestroyed.containsKey(token)) {
+            // Although the activity is resumed, it is going to be destroyed. So the following
+            // UI operations are unnecessary and also prevents exception because its token may
+            // be gone that window manager cannot recognize it. All necessary cleanup actions
+            // performed below will be done while handling destruction.
+            return;
+        }
 
         final Activity a = r.activity;
 
@@ -3895,7 +4263,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         boolean willBeVisible = !a.mStartedActivity;
         if (!willBeVisible) {
             try {
-                willBeVisible = ActivityManager.getService().willActivityBeVisible(
+                willBeVisible = ActivityTaskManager.getService().willActivityBeVisible(
                         a.getActivityToken());
             } catch (RemoteException e) {
                 throw e.rethrowFromSystemServer();
@@ -3903,10 +4271,8 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
         if (r.window == null && !a.mFinished && willBeVisible) {
             r.window = r.activity.getWindow();
-                // 获取DecorView，此处r.window是PhoneWindow
             View decor = r.window.getDecorView();
             decor.setVisibility(View.INVISIBLE);
-                // ViewManager是WindowManagerImpl
             ViewManager wm = a.getWindowManager();
             WindowManager.LayoutParams l = r.window.getAttributes();
             a.mDecor = decor;
@@ -3927,7 +4293,6 @@ public final class ActivityThread extends ClientTransactionHandler {
             if (a.mVisibleFromClient) {
                 if (!a.mWindowAdded) {
                     a.mWindowAdded = true;
-                    // 将DecorView添加到窗口中，调用的是WindowManagerImpl中的addView方法
                     wm.addView(decor, l);
                 } else {
                     // The activity will get a callback for this {@link LayoutParams} change
@@ -3978,7 +4343,6 @@ public final class ActivityThread extends ClientTransactionHandler {
             r.activity.mVisibleFromServer = true;
             mNumVisibleActivities++;
             if (r.activity.mVisibleFromClient) {
-                // 显示Activity
                 r.activity.makeVisible();
             }
         }
@@ -3989,38 +4353,60 @@ public final class ActivityThread extends ClientTransactionHandler {
         Looper.myQueue().addIdleHandler(new Idler());
     }
 
+
     @Override
+    public void handleTopResumedActivityChanged(IBinder token, boolean onTop, String reason) {
+        ActivityClientRecord r = mActivities.get(token);
+        if (r == null || r.activity == null) {
+            Slog.w(TAG, "Not found target activity to report position change for token: " + token);
+            return;
+        }
+
+        if (DEBUG_ORDER) {
+            Slog.d(TAG, "Received position change to top: " + onTop + " for activity: " + r);
+        }
+
+        if (r.isTopResumedActivity == onTop) {
+            throw new IllegalStateException("Activity top position already set to onTop=" + onTop);
+        }
+
+        r.isTopResumedActivity = onTop;
+
+        if (r.getLifecycleState() == ON_RESUME) {
+            reportTopResumedActivityChanged(r, onTop, "topStateChangedWhenResumed");
+        } else {
+            if (DEBUG_ORDER) {
+                Slog.d(TAG, "Won't deliver top position change in state=" + r.getLifecycleState());
+            }
+        }
+    }
+
     /**
-     * @param token         指向AMS中与源Activity组件对应的一个ActivityRecord对象
-     * @param finished      false
-     * @param userLeaving   true
-     * @param configChanges
-     * @param dontReport
-     * @param seq
+     * Call {@link Activity#onTopResumedActivityChanged(boolean)} if its top resumed state changed
+     * since the last report.
      */
+    private void reportTopResumedActivityChanged(ActivityClientRecord r, boolean onTop,
+            String reason) {
+        if (r.lastReportedTopResumedState != onTop) {
+            r.lastReportedTopResumedState = onTop;
+            r.activity.performTopResumedActivityChanged(onTop, reason);
+        }
+    }
+
+    @Override
     public void handlePauseActivity(IBinder token, boolean finished, boolean userLeaving,
             int configChanges, PendingTransactionActions pendingActions, String reason) {
-        // 在应用进程中启动的每一个Activity组件都使用一个ActivityClientRecord对象来描述，这些
-        // ActivityClientRecord对象对应于AMS中的ActivityRecord对象，并且保存在ActivityThread类的
-        // 成员变量mActivities中
         ActivityClientRecord r = mActivities.get(token);
         if (r != null) {
             if (userLeaving) {
-                // 1.调用成员函数performUserLeavingActivity向源Activity组件发送一个用户离开事件通知，
-                // 即调用源Activity的成员函数onUserLeaveHint
                 performUserLeavingActivity(r);
             }
 
             r.activity.mConfigChangeFlags |= configChanges;
-            // 2.调用成员函数performPauseActivity向源Activity组件发送一个中止通知，即调用源
-            // Activity的onPause函数
             performPauseActivity(r, finished, reason, pendingActions);
 
             // Make sure any pending writes are now committed.
             if (r.isPreHoneycomb()) {
-                // 3.调用QueuedWork类静态成员函数waitToFinish等待完成前面一些数据写入操作。由于现在
-                // 的源Activity组件即将进入Paused状态了，因此要保证它前面的所有数据写入操作都完成，否
-                // 则等它重新进入onResumed状态时，就无法恢复之前保存的一些状态数据
                 QueuedWork.waitToFinish();
             }
             mSomeActivitiesChanged = true;
@@ -4098,6 +4484,10 @@ public final class ActivityThread extends ClientTransactionHandler {
             return;
         }
 
+        // Always reporting top resumed position loss when pausing an activity. If necessary, it
+        // will be restored in performResumeActivity().
+        reportTopResumedActivityChanged(r, false /* onTop */, "pausing");
+
         try {
             r.activity.mCalled = false;
             mInstrumentation.callActivityOnPause(r.activity);
@@ -4117,6 +4507,7 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     /** Called from {@link LocalActivityManager}. */
+    @UnsupportedAppUsage
     final void performStopActivity(IBinder token, boolean saveState, String reason) {
         ActivityClientRecord r = mActivities.get(token);
         performStopActivityInner(r, null /* stopInfo */, false /* keepShown */, saveState,
@@ -4222,7 +4613,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
 
         try {
-            r.activity.performStop(false /*preserveWindow*/, reason);
+            r.activity.performStop(r.mPreserveWindow, reason);
         } catch (SuperNotCalledException e) {
             throw e;
         } catch (Exception e) {
@@ -4330,7 +4721,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         if (!show && !r.stopped) {
             performStopActivityInner(r, null /* stopInfo */, show, false /* saveState */,
                     false /* finalStateRequest */, "handleWindowVisibility");
-        } else if (show && r.stopped) {
+        } else if (show && r.getLifecycleState() == ON_STOP) {
             // If we are getting ready to gc after going to the background, well
             // we are back active so skip it.
             unscheduleGcIdler();
@@ -4369,7 +4760,7 @@ public final class ActivityThread extends ClientTransactionHandler {
 
             // Tell activity manager we slept.
             try {
-                ActivityManager.getService().activitySlept(r.token);
+                ActivityTaskManager.getService().activitySlept(r.token);
             } catch (RemoteException ex) {
                 throw ex.rethrowFromSystemServer();
             }
@@ -4389,20 +4780,32 @@ public final class ActivityThread extends ClientTransactionHandler {
     }
 
     private void onCoreSettingsChange() {
-        boolean debugViewAttributes =
-                mCoreSettings.getInt(Settings.Global.DEBUG_VIEW_ATTRIBUTES, 0) != 0;
-        if (debugViewAttributes != View.mDebugViewAttributes) {
-            View.mDebugViewAttributes = debugViewAttributes;
-
+        if (updateDebugViewAttributeState()) {
             // request all activities to relaunch for the changes to take place
-            relaunchAllActivities();
+            relaunchAllActivities(false /* preserveWindows */);
         }
     }
 
-    private void relaunchAllActivities() {
+    private boolean updateDebugViewAttributeState() {
+        boolean previousState = View.sDebugViewAttributes;
+
+        View.sDebugViewAttributesApplicationPackage = mCoreSettings.getString(
+                Settings.Global.DEBUG_VIEW_ATTRIBUTES_APPLICATION_PACKAGE, "");
+        String currentPackage = (mBoundApplication != null && mBoundApplication.appInfo != null)
+                ? mBoundApplication.appInfo.packageName : "";
+        View.sDebugViewAttributes =
+                mCoreSettings.getInt(Settings.Global.DEBUG_VIEW_ATTRIBUTES, 0) != 0
+                        || View.sDebugViewAttributesApplicationPackage.equals(currentPackage);
+        return previousState != View.sDebugViewAttributes;
+    }
+
+    private void relaunchAllActivities(boolean preserveWindows) {
         for (Map.Entry<IBinder, ActivityClientRecord> entry : mActivities.entrySet()) {
-            final Activity activity = entry.getValue().activity;
-            if (!activity.mFinished) {
+            final ActivityClientRecord r = entry.getValue();
+            if (!r.activity.mFinished) {
+                if (preserveWindows && r.window != null) {
+                    r.mPreserveWindow = true;
+                }
                 scheduleRelaunchActivity(entry.getKey());
             }
         }
@@ -4462,7 +4865,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                 try {
                     // Now we are idle.
                     r.activity.mCalled = false;
-                    r.activity.mTemporaryPause = true;
                     mInstrumentation.callActivityOnPause(r.activity);
                     if (!r.activity.mCalled) {
                         throw new SuperNotCalledException(
@@ -4484,7 +4886,6 @@ public final class ActivityThread extends ClientTransactionHandler {
             deliverResults(r, results, reason);
             if (resumed) {
                 r.activity.performResume(false, reason);
-                r.activity.mTemporaryPause = false;
             }
         }
     }
@@ -4542,7 +4943,13 @@ public final class ActivityThread extends ClientTransactionHandler {
             }
             r.setState(ON_DESTROY);
         }
-        mActivities.remove(token);
+        schedulePurgeIdler();
+        // updatePendingActivityConfiguration() reads from mActivities to update
+        // ActivityClientRecord which runs in a different thread. Protect modifications to
+        // mActivities to avoid race.
+        synchronized (mResourcesManager) {
+            mActivities.remove(token);
+        }
         StrictMode.decrementExpectedActivityCount(activityClass);
         return r;
     }
@@ -4550,6 +4957,11 @@ public final class ActivityThread extends ClientTransactionHandler {
     private static String safeToComponentShortString(Intent intent) {
         ComponentName component = intent.getComponent();
         return component == null ? "[Unknown]" : component.toShortString();
+    }
+
+    @Override
+    public Map<IBinder, ClientTransactionItem> getActivitiesToBeDestroyed() {
+        return mActivitiesToBeDestroyed;
     }
 
     @Override
@@ -4616,7 +5028,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
         if (finishing) {
             try {
-                ActivityManager.getService().activityDestroyed(token);
+                ActivityTaskManager.getService().activityDestroyed(token);
             } catch (RemoteException ex) {
                 throw ex.rethrowFromSystemServer();
             }
@@ -4788,6 +5200,7 @@ public final class ActivityThread extends ClientTransactionHandler {
      * handling current transaction item before relaunching the activity.
      */
     void scheduleRelaunchActivity(IBinder token) {
+        mH.removeMessages(H.RELAUNCH_ACTIVITY, token);
         sendMessage(H.RELAUNCH_ACTIVITY, token);
     }
 
@@ -4869,7 +5282,7 @@ public final class ActivityThread extends ClientTransactionHandler {
     @Override
     public void reportRelaunch(IBinder token, PendingTransactionActions pendingActions) {
         try {
-            ActivityManager.getService().activityRelaunched(token);
+            ActivityTaskManager.getService().activityRelaunched(token);
             final ActivityClientRecord r = mActivities.get(token);
             if (pendingActions.shouldReportRelaunchToWindowManager() && r != null
                     && r.window != null) {
@@ -4955,7 +5368,7 @@ public final class ActivityThread extends ClientTransactionHandler {
     private void performConfigurationChangedForActivity(ActivityClientRecord r,
             Configuration newBaseConfig) {
         performConfigurationChangedForActivity(r, newBaseConfig,
-                r.activity.getDisplay().getDisplayId(), false /* movedToDifferentDisplay */);
+                r.activity.getDisplayId(), false /* movedToDifferentDisplay */);
     }
 
     /**
@@ -5153,15 +5566,9 @@ public final class ActivityThread extends ClientTransactionHandler {
 
     private void handleConfigurationChanged(Configuration config, CompatibilityInfo compat) {
 
-        int configDiff = 0;
+        int configDiff;
+        boolean equivalent;
 
-        // This flag tracks whether the new configuration is fundamentally equivalent to the
-        // existing configuration. This is necessary to determine whether non-activity
-        // callbacks should receive notice when the only changes are related to non-public fields.
-        // We do not gate calling {@link #performActivityConfigurationChanged} based on this flag
-        // as that method uses the same check on the activity config override as well.
-        final boolean equivalent = config != null && mConfiguration != null
-                && (0 == mConfiguration.diffPublicOnly(config));
         final Theme systemTheme = getSystemContext().getTheme();
         final Theme systemUiTheme = getSystemUiContext().getTheme();
 
@@ -5178,6 +5585,13 @@ public final class ActivityThread extends ClientTransactionHandler {
             if (config == null) {
                 return;
             }
+
+            // This flag tracks whether the new configuration is fundamentally equivalent to the
+            // existing configuration. This is necessary to determine whether non-activity callbacks
+            // should receive notice when the only changes are related to non-public fields.
+            // We do not gate calling {@link #performActivityConfigurationChanged} based on this
+            // flag as that method uses the same check on the activity config override as well.
+            equivalent = mConfiguration != null && (0 == mConfiguration.diffPublicOnly(config));
 
             if (DEBUG_CONFIGURATION) Slog.v(TAG, "Handle configuration changed: "
                     + config);
@@ -5226,7 +5640,18 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
-    void handleApplicationInfoChanged(@NonNull final ApplicationInfo ai) {
+    /**
+     * Updates the application info.
+     *
+     * This only works in the system process. Must be called on the main thread.
+     */
+    public void handleSystemApplicationInfoChanged(@NonNull ApplicationInfo ai) {
+        Preconditions.checkState(mSystemThread, "Must only be called in the system process");
+        handleApplicationInfoChanged(ai);
+    }
+
+    @VisibleForTesting(visibility = PACKAGE)
+    public void handleApplicationInfoChanged(@NonNull final ApplicationInfo ai) {
         // Updates triggered by package installation go through a package update
         // receiver. Here we try to capture ApplicationInfo changes that are
         // caused by other sources, such as overlays. That means we want to be as conservative
@@ -5241,19 +5666,25 @@ public final class ActivityThread extends ClientTransactionHandler {
             ref = mResourcePackages.get(ai.packageName);
             resApk = ref != null ? ref.get() : null;
         }
+
+        final String[] oldResDirs = new String[2];
+
         if (apk != null) {
+            oldResDirs[0] = apk.getResDir();
             final ArrayList<String> oldPaths = new ArrayList<>();
             LoadedApk.makePaths(this, apk.getApplicationInfo(), oldPaths);
             apk.updateApplicationInfo(ai, oldPaths);
         }
         if (resApk != null) {
+            oldResDirs[1] = resApk.getResDir();
             final ArrayList<String> oldPaths = new ArrayList<>();
             LoadedApk.makePaths(this, resApk.getApplicationInfo(), oldPaths);
             resApk.updateApplicationInfo(ai, oldPaths);
         }
+
         synchronized (mResourcesManager) {
             // Update all affected Resources objects to use new ResourcesImpl
-            mResourcesManager.applyNewResourceDirsLocked(ai.sourceDir, ai.resourceDirs);
+            mResourcesManager.applyNewResourceDirsLocked(ai, oldResDirs);
         }
 
         ApplicationPackageManager.configurationChanged();
@@ -5266,7 +5697,8 @@ public final class ActivityThread extends ClientTransactionHandler {
         newConfig.assetsSeq = (mConfiguration != null ? mConfiguration.assetsSeq : 0) + 1;
         handleConfigurationChanged(newConfig, null);
 
-        relaunchAllActivities();
+        // Preserve windows to avoid black flickers when overlays change.
+        relaunchAllActivities(true /* preserveWindows */);
     }
 
     static void freeTextLayoutCachesIfNeeded(int configDiff) {
@@ -5277,6 +5709,26 @@ public final class ActivityThread extends ClientTransactionHandler {
                 Canvas.freeTextLayoutCaches();
                 if (DEBUG_CONFIGURATION) Slog.v(TAG, "Cleared TextLayout Caches");
             }
+        }
+    }
+
+    @Override
+    public void updatePendingActivityConfiguration(IBinder activityToken,
+            Configuration overrideConfig) {
+        final ActivityClientRecord r;
+        synchronized (mResourcesManager) {
+            r = mActivities.get(activityToken);
+        }
+
+        if (r == null) {
+            if (DEBUG_CONFIGURATION) {
+                Slog.w(TAG, "Not found target activity to update its pending config.");
+            }
+            return;
+        }
+
+        synchronized (r) {
+            r.mPendingOverrideConfig = overrideConfig;
         }
     }
 
@@ -5297,7 +5749,25 @@ public final class ActivityThread extends ClientTransactionHandler {
             return;
         }
         final boolean movedToDifferentDisplay = displayId != INVALID_DISPLAY
-                && displayId != r.activity.getDisplay().getDisplayId();
+                && displayId != r.activity.getDisplayId();
+
+        synchronized (r) {
+            if (r.mPendingOverrideConfig != null
+                    && !r.mPendingOverrideConfig.isOtherSeqNewer(overrideConfig)) {
+                overrideConfig = r.mPendingOverrideConfig;
+            }
+            r.mPendingOverrideConfig = null;
+        }
+
+        if (r.overrideConfig != null && !r.overrideConfig.isOtherSeqNewer(overrideConfig)
+                && !movedToDifferentDisplay) {
+            if (DEBUG_CONFIGURATION) {
+                Slog.v(TAG, "Activity already handled newer configuration so drop this"
+                        + " transaction. overrideConfig=" + overrideConfig + " r.overrideConfig="
+                        + r.overrideConfig);
+            }
+            return;
+        }
 
         // Perform updates.
         r.overrideConfig = overrideConfig;
@@ -5369,28 +5839,32 @@ public final class ActivityThread extends ClientTransactionHandler {
             System.runFinalization();
             System.gc();
         }
-        if (dhd.managed) {
-            try {
-                Debug.dumpHprofData(dhd.path, dhd.fd.getFileDescriptor());
-            } catch (IOException e) {
-                Slog.w(TAG, "Managed heap dump failed on path " + dhd.path
-                        + " -- can the process access this path?");
-            } finally {
-                try {
-                    dhd.fd.close();
-                } catch (IOException e) {
-                    Slog.w(TAG, "Failure closing profile fd", e);
-                }
+        try (ParcelFileDescriptor fd = dhd.fd) {
+            if (dhd.managed) {
+                Debug.dumpHprofData(dhd.path, fd.getFileDescriptor());
+            } else if (dhd.mallocInfo) {
+                Debug.dumpNativeMallocInfo(fd.getFileDescriptor());
+            } else {
+                Debug.dumpNativeHeap(fd.getFileDescriptor());
             }
-        } else if (dhd.mallocInfo) {
-            Debug.dumpNativeMallocInfo(dhd.fd.getFileDescriptor());
-        } else {
-            Debug.dumpNativeHeap(dhd.fd.getFileDescriptor());
+        } catch (IOException e) {
+            if (dhd.managed) {
+                Slog.w(TAG, "Managed heap dump failed on path " + dhd.path
+                        + " -- can the process access this path?", e);
+            } else {
+                Slog.w(TAG, "Failed to dump heap", e);
+            }
+        } catch (RuntimeException e) {
+            // This should no longer happening now that we're copying the file descriptor.
+            Slog.wtf(TAG, "Heap dumper threw a runtime exception", e);
         }
         try {
             ActivityManager.getService().dumpHeapFinished(dhd.path);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
+        }
+        if (dhd.finishCallback != null) {
+            dhd.finishCallback.sendResult(null);
         }
     }
 
@@ -5430,14 +5904,18 @@ public final class ActivityThread extends ClientTransactionHandler {
                 if (packages == null) {
                     break;
                 }
+
+                List<String> packagesHandled = new ArrayList<>();
+
                 synchronized (mResourcesManager) {
                     for (int i = packages.length - 1; i >= 0; i--) {
-                        WeakReference<LoadedApk> ref = mPackages.get(packages[i]);
+                        String packageName = packages[i];
+                        WeakReference<LoadedApk> ref = mPackages.get(packageName);
                         LoadedApk pkgInfo = ref != null ? ref.get() : null;
                         if (pkgInfo != null) {
                             hasPkgInfo = true;
                         } else {
-                            ref = mResourcePackages.get(packages[i]);
+                            ref = mResourcePackages.get(packageName);
                             pkgInfo = ref != null ? ref.get() : null;
                             if (pkgInfo != null) {
                                 hasPkgInfo = true;
@@ -5448,8 +5926,8 @@ public final class ActivityThread extends ClientTransactionHandler {
                         // Adjust it's internal references to the application info and
                         // resources.
                         if (pkgInfo != null) {
+                            packagesHandled.add(packageName);
                             try {
-                                final String packageName = packages[i];
                                 final ApplicationInfo aInfo =
                                         sPackageManager.getApplicationInfo(
                                                 packageName,
@@ -5465,14 +5943,29 @@ public final class ActivityThread extends ClientTransactionHandler {
                                         }
                                     }
                                 }
+
+                                final String[] oldResDirs = { pkgInfo.getResDir() };
+
                                 final ArrayList<String> oldPaths = new ArrayList<>();
                                 LoadedApk.makePaths(this, pkgInfo.getApplicationInfo(), oldPaths);
                                 pkgInfo.updateApplicationInfo(aInfo, oldPaths);
+
+                                synchronized (mResourcesManager) {
+                                    // Update affected Resources objects to use new ResourcesImpl
+                                    mResourcesManager.applyNewResourceDirsLocked(aInfo, oldResDirs);
+                                }
                             } catch (RemoteException e) {
                             }
                         }
                     }
                 }
+
+                try {
+                    getPackageManager().notifyPackagesReplacedReceived(
+                            packagesHandled.toArray(new String[0]));
+                } catch (RemoteException ignored) {
+                }
+
                 break;
             }
         }
@@ -5515,6 +6008,16 @@ public final class ActivityThread extends ClientTransactionHandler {
 
         WindowManagerGlobal.getInstance().trimMemory(level);
         Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+
+        if (SystemProperties.getInt("debug.am.run_gc_trim_level", Integer.MAX_VALUE) <= level) {
+            unscheduleGcIdler();
+            doGcIfNeeded("tm");
+        }
+        if (SystemProperties.getInt("debug.am.run_mallopt_trim_level", Integer.MAX_VALUE)
+                <= level) {
+            unschedulePurgeIdler();
+            purgePendingResources();
+        }
     }
 
     private void setupGraphicsSupport(Context context) {
@@ -5542,7 +6045,7 @@ public final class ActivityThread extends ClientTransactionHandler {
                     int uid = Process.myUid();
                     String[] packages = getPackageManager().getPackagesForUid(uid);
                     if (packages != null) {
-                        ThreadedRenderer.setupDiskCache(codeCacheDir);
+                        HardwareRenderer.setupDiskCache(codeCacheDir);
                         RenderScriptCacheDir.setupDiskCache(codeCacheDir);
                     }
                 } catch (RemoteException e) {
@@ -5554,7 +6057,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             }
         }
 
-        GraphicsEnvironment.getInstance().setup(context);
+        GraphicsEnvironment.getInstance().setup(context, mCoreSettings);
         Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
     }
 
@@ -5615,9 +6118,15 @@ public final class ActivityThread extends ClientTransactionHandler {
         LocaleList.setDefault(new LocaleList(bestLocale, newLocaleList));
     }
 
+    @UnsupportedAppUsage
     private void handleBindApplication(AppBindData data) {
         // Register the UI Thread as a sensitive thread to the runtime.
         VMRuntime.registerSensitiveThread();
+        // In the case the stack depth property exists, pass it down to the runtime.
+        String property = SystemProperties.get("debug.allocTracker.stackDepth");
+        if (property.length() != 0) {
+            VMDebug.setAllocTrackerStackDepth(Integer.parseInt(property));
+        }
         if (data.trackAllocation) {
             DdmVmInternal.enableRecentAllocations(true);
         }
@@ -5648,6 +6157,10 @@ public final class ActivityThread extends ClientTransactionHandler {
                                                 UserHandle.myUserId());
         VMRuntime.setProcessPackageName(data.appInfo.packageName);
 
+        // Pass data directory path to ART. This is used for caching information and
+        // should be set before any application code is loaded.
+        VMRuntime.setProcessDataDirectory(data.appInfo.dataDir);
+
         if (mProfiler.profileFd != null) {
             mProfiler.startProfiling();
         }
@@ -5659,6 +6172,10 @@ public final class ActivityThread extends ClientTransactionHandler {
         if (data.appInfo.targetSdkVersion <= android.os.Build.VERSION_CODES.HONEYCOMB_MR1) {
             AsyncTask.setDefaultExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
         }
+
+        // Let the util.*Array classes maintain "undefined" for apps targeting Pie or earlier.
+        UtilConfig.setThrowExceptionForUpperArrayOutOfBounds(
+                data.appInfo.targetSdkVersion >= Build.VERSION_CODES.Q);
 
         Message.updateCheckRecycle(data.appInfo.targetSdkVersion);
 
@@ -5721,23 +6238,10 @@ public final class ActivityThread extends ClientTransactionHandler {
         // true : use 24 hour format.
         DateFormat.set24HourTimePref(is24Hr);
 
-        View.mDebugViewAttributes =
-                mCoreSettings.getInt(Settings.Global.DEBUG_VIEW_ATTRIBUTES, 0) != 0;
+        updateDebugViewAttributeState();
 
         StrictMode.initThreadDefaults(data.appInfo);
         StrictMode.initVmDefaults(data.appInfo);
-
-        // We deprecated Build.SERIAL and only apps that target pre NMR1
-        // SDK can see it. Since access to the serial is now behind a
-        // permission we push down the value and here we fix it up
-        // before any app code has been loaded.
-        try {
-            Field field = Build.class.getDeclaredField("SERIAL");
-            field.setAccessible(true);
-            field.set(Build.class, data.buildSerial);
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            /* ignore */
-        }
 
         if (data.debugMode != ApplicationThreadConstants.DEBUG_OFF) {
             // XXX should have option to change the port.
@@ -5767,13 +6271,22 @@ public final class ActivityThread extends ClientTransactionHandler {
             }
         }
 
-        // Allow application-generated systrace messages if we're debuggable.
-        boolean isAppDebuggable = (data.appInfo.flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
-        Trace.setAppTracingAllowed(isAppDebuggable);
-        ThreadedRenderer.setDebuggingEnabled(isAppDebuggable || Build.IS_DEBUGGABLE);
-        if (isAppDebuggable && data.enableBinderTracking) {
+        // Allow binder tracing, and application-generated systrace messages if we're profileable.
+        boolean isAppProfileable = data.appInfo.isProfileableByShell();
+        Trace.setAppTracingAllowed(isAppProfileable);
+        if (isAppProfileable && data.enableBinderTracking) {
             Binder.enableTracing();
         }
+
+        // Initialize heap profiling.
+        if (isAppProfileable || Build.IS_DEBUGGABLE) {
+            nInitZygoteChildHeapProfiling();
+        }
+
+        // Allow renderer debugging features if we're debuggable.
+        boolean isAppDebuggable = (data.appInfo.flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        HardwareRenderer.setDebuggingEnabled(isAppDebuggable || Build.IS_DEBUGGABLE);
+        HardwareRenderer.setPackageName(data.appInfo.packageName);
 
         /**
          * Initialize the default http proxy in this process for the reasons we set the time zone.
@@ -5786,8 +6299,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             // crash if we can't get it.
             final IConnectivityManager service = IConnectivityManager.Stub.asInterface(b);
             try {
-                final ProxyInfo proxyInfo = service.getProxyForNetwork(null);
-                Proxy.setHttpProxySystemProperty(proxyInfo);
+                Proxy.setHttpProxySystemProperty(service.getProxyForNetwork(null));
             } catch (RemoteException e) {
                 Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
                 throw e.rethrowFromSystemServer();
@@ -5840,17 +6352,7 @@ public final class ActivityThread extends ClientTransactionHandler {
                 StrictMode.setThreadPolicyMask(oldMask);
             }
         } else {
-            ThreadedRenderer.setIsolatedProcess(true);
-        }
-
-        // If we use profiles, setup the dex reporter to notify package manager
-        // of any relevant dex loads. The idle maintenance job will use the information
-        // reported to optimize the loaded dex files.
-        // Note that we only need one global reporter per app.
-        // Make sure we do this before calling onCreate so that we can capture the
-        // complete application startup.
-        if (SystemProperties.getBoolean("dalvik.vm.usejitprofiles", false)) {
-            BaseDexClassLoader.setReporter(DexLoadReporter.getInstance());
+            HardwareRenderer.setIsolatedProcess(true);
         }
 
         // Install the Network Security Config Provider. This must happen before the application
@@ -5876,7 +6378,12 @@ public final class ActivityThread extends ClientTransactionHandler {
             instrApp.initForUser(UserHandle.myUserId());
             final LoadedApk pi = getPackageInfo(instrApp, data.compatInfo,
                     appContext.getClassLoader(), false, true, false);
-            final ContextImpl instrContext = ContextImpl.createAppContext(this, pi);
+
+            // The test context's op package name == the target app's op package name, because
+            // the app ops manager checks the op package name against the real calling UID,
+            // which is what the target package name is associated with.
+            final ContextImpl instrContext = ContextImpl.createAppContext(this, pi,
+                    appContext.getOpPackageName());
 
             try {
                 final ClassLoader cl = instrContext.getClassLoader();
@@ -5922,9 +6429,12 @@ public final class ActivityThread extends ClientTransactionHandler {
             // If the app is being launched for full backup or restore, bring it up in
             // a restricted environment with the base application class.
             app = data.info.makeApplication(data.restrictedBackupMode, null);
-            // 获取Application
+
             // Propagate autofill compat state
-            app.setAutofillCompatibilityEnabled(data.autofillCompatibilityEnabled);
+            app.setAutofillOptions(data.autofillOptions);
+
+            // Propagate Content Capture options
+            app.setContentCaptureOptions(data.contentCaptureOptions);
 
             mInitialApplication = app;
 
@@ -5932,12 +6442,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             // app's custom Application class
             if (!data.restrictedBackupMode) {
                 if (!ArrayUtils.isEmpty(data.providers)) {
-                    // 加载ContentProvider，然后调用ContentProvider的onCreate方法，后面开始调用
-                    // Application的onCreate方法，因此ContentProvider要早于Application的onCreate方法
                     installContentProviders(app, data.providers);
-                    // For process that contains content providers, we want to
-                    // ensure that the JIT is enabled "at some point".
-                    mH.sendEmptyMessageDelayed(H.ENABLE_JIT, 10*1000);
                 }
             }
 
@@ -5952,7 +6457,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                     + data.instrumentationName + ": " + e.toString(), e);
             }
             try {
-                // 调用Application的onCreate方法
                 mInstrumentation.callApplicationOnCreate(app);
             } catch (Exception e) {
                 if (!mInstrumentation.onException(app, e)) {
@@ -6007,6 +6511,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    @UnsupportedAppUsage
     private void installContentProviders(
             Context context, List<ProviderInfo> providers) {
         final ArrayList<ContentProviderHolder> results = new ArrayList<>();
@@ -6020,7 +6525,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                 buf.append(cpi.name);
                 Log.i(TAG, buf.toString());
             }
-            // 加载ContentProvider，然后调用ContentProvider的onCreate方法
             ContentProviderHolder cph = installProvider(context, null, cpi,
                     false /*noisy*/, true /*noReleaseNeeded*/, true /*stable*/);
             if (cph != null) {
@@ -6037,11 +6541,11 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    @UnsupportedAppUsage
     public final IContentProvider acquireProvider(
             Context c, String auth, int userId, boolean stable) {
-        // 返回的是ContentProvider的中的mTransport（Transport）
         final IContentProvider provider = acquireExistingProvider(c, auth, userId, stable);
-        if (provider != null) {// 如果不为空，说明访问过，如果是第一次访问，为空
+        if (provider != null) {
             return provider;
         }
 
@@ -6055,7 +6559,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         try {
             synchronized (getGetProviderLock(auth, userId)) {
                 holder = ActivityManager.getService().getContentProvider(
-                        getApplicationThread(), auth, userId, stable);
+                        getApplicationThread(), c.getOpPackageName(), auth, userId, stable);
             }
         } catch (RemoteException ex) {
             throw ex.rethrowFromSystemServer();
@@ -6152,20 +6656,18 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    @UnsupportedAppUsage
     public final IContentProvider acquireExistingProvider(
             Context c, String auth, int userId, boolean stable) {
         synchronized (mProviderMap) {
             final ProviderKey key = new ProviderKey(auth, userId);
-            // mProviderMap保存当前应用程序进程访问过的ContentProvider组件代理对象
             final ProviderClientRecord pr = mProviderMap.get(key);
-            if (pr == null) {// 如果不存在说明还没有访问过
+            if (pr == null) {
                 return null;
             }
 
-            // 返回的是ContentProvider的中的mTransport（Transport）
             IContentProvider provider = pr.mProvider;
             IBinder jBinder = provider.asBinder();
-            // 检查线程是否还存在
             if (!jBinder.isBinderAlive()) {
                 // The hosting process of the provider has died; we can't
                 // use this one.
@@ -6179,13 +6681,13 @@ public final class ActivityThread extends ClientTransactionHandler {
             // provider is not reference counted and never needs to be released.
             ProviderRefCount prc = mProviderRefCountMap.get(jBinder);
             if (prc != null) {
-                // 增加引用计数
                 incProviderRefLocked(prc, stable);
             }
             return provider;
         }
     }
 
+    @UnsupportedAppUsage
     public final boolean releaseProvider(IContentProvider provider, boolean stable) {
         if (provider == null) {
             return false;
@@ -6257,16 +6759,13 @@ public final class ActivityThread extends ClientTransactionHandler {
                 if (!prc.removePending) {
                     // Schedule the actual remove asynchronously, since we don't know the context
                     // this will be called in.
-                    // TODO: it would be nice to post a delayed message, so
-                    // if we come back and need the same provider quickly
-                    // we will still have it available.
                     if (DEBUG_PROVIDER) {
                         Slog.v(TAG, "releaseProvider: Enqueueing pending removal - "
                                 + prc.holder.info.name);
                     }
                     prc.removePending = true;
                     Message msg = mH.obtainMessage(H.REMOVE_PROVIDER, prc);
-                    mH.sendMessage(msg);
+                    mH.sendMessageDelayed(msg, CONTENT_PROVIDER_RETAIN_TIME);
                 } else {
                     Slog.w(TAG, "Duplicate remove pending of provider " + prc.holder.info.name);
                 }
@@ -6318,6 +6817,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
+    @UnsupportedAppUsage
     final void handleUnstableProviderDied(IBinder provider, boolean fromClient) {
         synchronized (mProviderMap) {
             handleUnstableProviderDiedLocked(provider, fromClient);
@@ -6419,6 +6919,7 @@ public final class ActivityThread extends ClientTransactionHandler {
      * and returns the existing provider.  This can happen due to concurrent
      * attempts to acquire the same provider.
      */
+    @UnsupportedAppUsage
     private ContentProviderHolder installProvider(Context context,
             ContentProviderHolder holder, ProviderInfo info,
             boolean noisy, boolean noReleaseNeeded, boolean stable) {
@@ -6467,10 +6968,8 @@ public final class ActivityThread extends ClientTransactionHandler {
                     // System startup case.
                     packageInfo = getSystemContext().mPackageInfo;
                 }
-				 // 根据名字通过类加载方式加载ContentProvider
                 localProvider = packageInfo.getAppFactory()
                         .instantiateProvider(cl, info.name);
-                // 获取provider，也就是ContentProvider中的mTransport（Transport）
                 provider = localProvider.getIContentProvider();
                 if (provider == null) {
                     Slog.e(TAG, "Failed to instantiate class " +
@@ -6481,7 +6980,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                 if (DEBUG_PROVIDER) Slog.v(
                     TAG, "Instantiating local provider " + info.name);
                 // XXX Need to create the correct context for this provider.
-                // 添加ProviderInfo，然后调用ContentProvider的onCreate方法
                 localProvider.attachInfo(c, info);
             } catch (java.lang.Exception e) {
                 if (!mInstrumentation.onException(null, e)) {
@@ -6569,35 +7067,21 @@ public final class ActivityThread extends ClientTransactionHandler {
         System.exit(0);
     }
 
+    @UnsupportedAppUsage
     private void attach(boolean system, long startSeq) {
         sCurrentActivityThread = this;
         mSystemThread = system;
-        if (!system) {// 非系统进程
-            ViewRootImpl.addFirstDrawHandler(new Runnable() {
-                @Override
-                public void run() {
-                    ensureJitEnabled();
-                }
-            });
+        if (!system) {
             android.ddm.DdmHandleAppName.setAppName("<pre-initialized>",
                                                     UserHandle.myUserId());
             RuntimeInit.setApplicationObject(mAppThread.asBinder());
-            // 获取AMS的代理对象，下面会调用它的成员函数attachApplication向AMS发送一个进程间通信请求，并且
-            // 将前面所创建的ApplicationThread（mAppThread）对象传递给AMS
             final IActivityManager mgr = ActivityManager.getService();
             try {
-                // 这里向ActivityManagerService注册Client端的binder对象，它是一个binder线程
-                // ActivityManagerService中有关Activity生命周期的消息都会发送到ActivityThread中的
-                // 主线程mH处理
-                // mAppThread是一个Binder本地对象，AMS是通过它来和应用进程通讯的。（AMS的代理对象类型为
-                // ActivityManagerProxy，因此，接下来会调用ActivityManagerProxy类的成员函数向AMS发送一个
-                // 进程间通信请求）
                 mgr.attachApplication(mAppThread, startSeq);
             } catch (RemoteException ex) {
                 throw ex.rethrowFromSystemServer();
             }
             // Watch for getting close to heap limit.
-            // 接收来自ViewRoot的ConfigurationChanged消息，派发给mH处理，只要配置发生变化就会收到消息
             BinderInternal.addGcWatcher(new Runnable() {
                 @Override public void run() {
                     if (!mSomeActivitiesChanged) {
@@ -6612,14 +7096,14 @@ public final class ActivityThread extends ClientTransactionHandler {
                                 + " used=" + (dalvikUsed/1024));
                         mSomeActivitiesChanged = false;
                         try {
-                            mgr.releaseSomeActivities(mAppThread);
+                            ActivityTaskManager.getService().releaseSomeActivities(mAppThread);
                         } catch (RemoteException e) {
                             throw e.rethrowFromSystemServer();
                         }
                     }
                 }
             });
-        } else {// system thread
+        } else {
             // Don't set application object here -- if the system crashes,
             // we can't display an alert, we just want to die die die.
             android.ddm.DdmHandleAppName.setAppName("system_process",
@@ -6636,9 +7120,6 @@ public final class ActivityThread extends ClientTransactionHandler {
                         "Unable to instantiate Application():" + e.toString(), e);
             }
         }
-
-        // add dropbox logging to libcore
-        DropBox.setReporter(new DropBoxReporter());
 
         ViewRootImpl.ConfigChangedCallback configChangedCallback
                 = (Configuration globalConfig) -> {
@@ -6662,7 +7143,7 @@ public final class ActivityThread extends ClientTransactionHandler {
         ViewRootImpl.addConfigCallback(configChangedCallback);
     }
 
-    // 这里是系统调用，创建ActivityThread
+    @UnsupportedAppUsage
     public static ActivityThread systemMain() {
         // The system process on low-memory devices do not get to use hardware
         // accelerated drawing, since this can add too much overhead to the
@@ -6677,6 +7158,12 @@ public final class ActivityThread extends ClientTransactionHandler {
         return thread;
     }
 
+    public static void updateHttpProxy(@NonNull Context context) {
+        final ConnectivityManager cm = ConnectivityManager.from(context);
+        Proxy.setHttpProxySystemProperty(cm.getDefaultProxy());
+    }
+
+    @UnsupportedAppUsage
     public final void installSystemProviders(List<ProviderInfo> providers) {
         if (providers != null) {
             installContentProviders(mInitialApplication, providers);
@@ -6692,52 +7179,139 @@ public final class ActivityThread extends ClientTransactionHandler {
         }
     }
 
-    private static class EventLoggingReporter implements EventLogger.Reporter {
-        @Override
-        public void report (int code, Object... list) {
-            EventLog.writeEvent(code, list);
-        }
-    }
+    private static class AndroidOs extends ForwardingOs {
+        /**
+         * Install selective syscall interception. For example, this is used to
+         * implement special filesystem paths that will be redirected to
+         * {@link ContentResolver#openFileDescriptor(Uri, String)}.
+         */
+        public static void install() {
+            // If feature is disabled, we don't need to install
+            if (!DEPRECATE_DATA_COLUMNS) return;
 
-    private class DropBoxReporter implements DropBox.Reporter {
-
-        private DropBoxManager dropBox;
-
-        public DropBoxReporter() {}
-
-        @Override
-        public void addData(String tag, byte[] data, int flags) {
-            ensureInitialized();
-            dropBox.addData(tag, data, flags);
+            // Install interception and make sure it sticks!
+            Os def = null;
+            do {
+                def = Os.getDefault();
+            } while (!Os.compareAndSetDefault(def, new AndroidOs(def)));
         }
 
-        @Override
-        public void addText(String tag, String data) {
-            ensureInitialized();
-            dropBox.addText(tag, data);
+        private AndroidOs(Os os) {
+            super(os);
         }
 
-        private synchronized void ensureInitialized() {
-            if (dropBox == null) {
-                dropBox = (DropBoxManager) getSystemContext().getSystemService(Context.DROPBOX_SERVICE);
+        private FileDescriptor openDeprecatedDataPath(String path, int mode) throws ErrnoException {
+            final Uri uri = ContentResolver.translateDeprecatedDataPath(path);
+            Log.v(TAG, "Redirecting " + path + " to " + uri);
+
+            final ContentResolver cr = currentActivityThread().getApplication()
+                    .getContentResolver();
+            try {
+                final FileDescriptor fd = new FileDescriptor();
+                fd.setInt$(cr.openFileDescriptor(uri,
+                        FileUtils.translateModePosixToString(mode)).detachFd());
+                return fd;
+            } catch (SecurityException e) {
+                throw new ErrnoException(e.getMessage(), OsConstants.EACCES);
+            } catch (FileNotFoundException e) {
+                throw new ErrnoException(e.getMessage(), OsConstants.ENOENT);
+            }
+        }
+
+        private void deleteDeprecatedDataPath(String path) throws ErrnoException {
+            final Uri uri = ContentResolver.translateDeprecatedDataPath(path);
+            Log.v(TAG, "Redirecting " + path + " to " + uri);
+
+            final ContentResolver cr = currentActivityThread().getApplication()
+                    .getContentResolver();
+            try {
+                if (cr.delete(uri, null, null) == 0) {
+                    throw new FileNotFoundException();
+                }
+            } catch (SecurityException e) {
+                throw new ErrnoException(e.getMessage(), OsConstants.EACCES);
+            } catch (FileNotFoundException e) {
+                throw new ErrnoException(e.getMessage(), OsConstants.ENOENT);
+            }
+        }
+
+        @Override
+        public boolean access(String path, int mode) throws ErrnoException {
+            if (path != null && path.startsWith(DEPRECATE_DATA_PREFIX)) {
+                // If we opened it okay, then access check succeeded
+                IoUtils.closeQuietly(
+                        openDeprecatedDataPath(path, FileUtils.translateModeAccessToPosix(mode)));
+                return true;
+            } else {
+                return super.access(path, mode);
+            }
+        }
+
+        @Override
+        public FileDescriptor open(String path, int flags, int mode) throws ErrnoException {
+            if (path != null && path.startsWith(DEPRECATE_DATA_PREFIX)) {
+                return openDeprecatedDataPath(path, mode);
+            } else {
+                return super.open(path, flags, mode);
+            }
+        }
+
+        @Override
+        public StructStat stat(String path) throws ErrnoException {
+            if (path != null && path.startsWith(DEPRECATE_DATA_PREFIX)) {
+                final FileDescriptor fd = openDeprecatedDataPath(path, OsConstants.O_RDONLY);
+                try {
+                    return android.system.Os.fstat(fd);
+                } finally {
+                    IoUtils.closeQuietly(fd);
+                }
+            } else {
+                return super.stat(path);
+            }
+        }
+
+        @Override
+        public void unlink(String path) throws ErrnoException {
+            if (path != null && path.startsWith(DEPRECATE_DATA_PREFIX)) {
+                deleteDeprecatedDataPath(path);
+            } else {
+                super.unlink(path);
+            }
+        }
+
+        @Override
+        public void remove(String path) throws ErrnoException {
+            if (path != null && path.startsWith(DEPRECATE_DATA_PREFIX)) {
+                deleteDeprecatedDataPath(path);
+            } else {
+                super.remove(path);
+            }
+        }
+
+        @Override
+        public void rename(String oldPath, String newPath) throws ErrnoException {
+            try {
+                super.rename(oldPath, newPath);
+            } catch (ErrnoException e) {
+                if (e.errno == OsConstants.EXDEV) {
+                    Log.v(TAG, "Recovering failed rename " + oldPath + " to " + newPath);
+                    try {
+                        Files.move(new File(oldPath).toPath(), new File(newPath).toPath());
+                    } catch (IOException e2) {
+                        throw e;
+                    }
+                } else {
+                    throw e;
+                }
             }
         }
     }
 
-
-    /**
-     * 这里是应用调用，创建ActivityThread
-     * <p>
-     * 启动新的进程时调用Process的start方法会最终调用该函数(AMS.startProcessLocked开始)
-     * 启动新的进程主要做了两件事：
-     * 1.在进程中创建了一个ActivityThread对象，并调用了它的成员函数attach向AMS发送一个启动完成的通知
-     * 2.调用Looper类的静态成员函数prepareMainLooper创建一个消息循环，并且在向AMS发送启动完成通知后，
-     * 使得当前进程进入到这个消息循环中
-     *
-     * @param args
-     */
     public static void main(String[] args) {
         Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "ActivityThreadMain");
+
+        // Install selective syscall interception
+        AndroidOs.install();
 
         // CloseGuard defaults to true and can be quite spammy.  We
         // disable it here, but selectively enable it later (via
@@ -6746,16 +7320,12 @@ public final class ActivityThread extends ClientTransactionHandler {
 
         Environment.initForCurrentUser();
 
-        // Set the reporter for event logging in libcore
-        EventLogger.setReporter(new EventLoggingReporter());
-
         // Make sure TrustedCertificateStore looks in the right place for CA certificates
         final File configDir = Environment.getUserConfigDirectory(UserHandle.myUserId());
         TrustedCertificateStore.setDefaultUserDirectory(configDir);
 
         Process.setArgV0("<pre-initialized>");
 
-        // 创建Looper（每一个线程对应一个Looper，当前线程为App的主线程），因此主线程使用Handler的时候不需要创建Looper
         Looper.prepareMainLooper();
 
         // Find the value for {@link #PROC_START_SEQ_IDENT} if provided on the command line.
@@ -6773,7 +7343,6 @@ public final class ActivityThread extends ClientTransactionHandler {
         thread.attach(false, startSeq);
 
         if (sMainThreadHandler == null) {
-            // 获取主线程的Handler
             sMainThreadHandler = thread.getHandler();
         }
 
@@ -6784,13 +7353,19 @@ public final class ActivityThread extends ClientTransactionHandler {
 
         // End of event ActivityThreadMain.
         Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
-        // 开始无限循环
         Looper.loop();
 
         throw new RuntimeException("Main thread loop unexpectedly exited");
     }
 
-    // ------------------ Regular JNI ------------------------
+    private void purgePendingResources() {
+        Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "purgePendingResources");
+        nPurgePendingResources();
+        Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+    }
 
+    // ------------------ Regular JNI ------------------------
+    private native void nPurgePendingResources();
     private native void nDumpGraphicsInfo(FileDescriptor fd);
+    private native void nInitZygoteChildHeapProfiling();
 }

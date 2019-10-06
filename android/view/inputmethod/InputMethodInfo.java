@@ -17,6 +17,7 @@
 package android.view.inputmethod;
 
 import android.annotation.NonNull;
+import android.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
@@ -94,6 +95,7 @@ public final class InputMethodInfo implements Parcelable {
     /**
      * An array-like container of the subtypes.
      */
+    @UnsupportedAppUsage
     private final InputMethodSubtypeArray mSubtypes;
 
     private final boolean mIsAuxIme;
@@ -445,6 +447,7 @@ public final class InputMethodInfo implements Parcelable {
      * Return whether or not this ime is a default ime or not.
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean isDefault(Context context) {
         if (mForceDefault) {
             return true;
@@ -503,6 +506,14 @@ public final class InputMethodInfo implements Parcelable {
 
     /**
      * @hide
+     * @return {@code true} if the IME is a trusted system component (e.g. pre-installed)
+     */
+    public boolean isSystem() {
+        return (mService.serviceInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+    }
+
+    /**
+     * @hide
      */
     public boolean isAuxiliaryIme() {
         return mIsAuxIme;
@@ -537,7 +548,7 @@ public final class InputMethodInfo implements Parcelable {
     /**
      * Used to make this class parcelable.
      */
-    public static final Parcelable.Creator<InputMethodInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<InputMethodInfo> CREATOR
             = new Parcelable.Creator<InputMethodInfo>() {
         @Override
         public InputMethodInfo createFromParcel(Parcel source) {

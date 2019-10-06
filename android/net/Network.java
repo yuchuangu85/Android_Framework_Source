@@ -16,6 +16,10 @@
 
 package android.net;
 
+import android.annotation.NonNull;
+import android.annotation.SystemApi;
+import android.annotation.TestApi;
+import android.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.system.ErrnoException;
@@ -59,6 +63,7 @@ public class Network implements Parcelable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public final int netId;
 
     // Objects used to perform per-network operations such as getSocketFactory
@@ -98,20 +103,31 @@ public class Network implements Parcelable {
     // anytime and (b) receivers should be explicit about attempts to bypass
     // Private DNS so that the intent of the code is easily determined and
     // code search audits are possible.
-    private boolean mPrivateDnsBypass = false;
+    private final transient boolean mPrivateDnsBypass;
 
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public Network(int netId) {
-        this.netId = netId;
+        this(netId, false);
     }
 
     /**
      * @hide
      */
-    public Network(Network that) {
-        this.netId = that.netId;
+    public Network(int netId, boolean privateDnsBypass) {
+        this.netId = netId;
+        this.mPrivateDnsBypass = privateDnsBypass;
+    }
+
+    /**
+     * @hide
+     */
+    @SystemApi
+    @TestApi
+    public Network(@NonNull Network that) {
+        this(that.netId, that.mPrivateDnsBypass);
     }
 
     /**
@@ -130,8 +146,7 @@ public class Network implements Parcelable {
      * Operates the same as {@code InetAddress.getByName} except that host
      * resolution is done on this network.
      *
-     * @param host
-     *            the hostName to be resolved to an address or {@code null}.
+     * @param host the hostname to be resolved to an address or {@code null}.
      * @return the {@code InetAddress} instance representing the host.
      * @throws UnknownHostException
      *             if the address lookup fails.
@@ -141,14 +156,16 @@ public class Network implements Parcelable {
     }
 
     /**
-     * Specify whether or not Private DNS should be bypassed when attempting
-     * to use {@link getAllByName()}/{@link getByName()} methods on the given
+     * Obtain a Network object for which Private DNS is to be bypassed when attempting
+     * to use {@link #getAllByName(String)}/{@link #getByName(String)} methods on the given
      * instance for hostname resolution.
      *
      * @hide
      */
-    public void setPrivateDnsBypass(boolean bypass) {
-        mPrivateDnsBypass = bypass;
+    @TestApi
+    @SystemApi
+    public @NonNull Network getPrivateDnsBypassingCopy() {
+        return new Network(netId, true);
     }
 
     /**
@@ -169,13 +186,6 @@ public class Network implements Parcelable {
      * A {@code SocketFactory} that produces {@code Socket}'s bound to this network.
      */
     private class NetworkBoundSocketFactory extends SocketFactory {
-        private final int mNetId;
-
-        public NetworkBoundSocketFactory(int netId) {
-            super();
-            mNetId = netId;
-        }
-
         private Socket connectToHost(String host, int port, SocketAddress localAddress)
                 throws IOException {
             // Lookup addresses only on this Network.
@@ -201,7 +211,8 @@ public class Network implements Parcelable {
         }
 
         @Override
-        public Socket createSocket(String host, int port, InetAddress localHost, int localPort) throws IOException {
+        public Socket createSocket(String host, int port, InetAddress localHost, int localPort)
+                throws IOException {
             return connectToHost(host, port, new InetSocketAddress(localHost, localPort));
         }
 
@@ -265,7 +276,7 @@ public class Network implements Parcelable {
         if (mNetworkBoundSocketFactory == null) {
             synchronized (mLock) {
                 if (mNetworkBoundSocketFactory == null) {
-                    mNetworkBoundSocketFactory = new NetworkBoundSocketFactory(netId);
+                    mNetworkBoundSocketFactory = new NetworkBoundSocketFactory();
                 }
             }
         }
@@ -460,7 +471,7 @@ public class Network implements Parcelable {
         dest.writeInt(netId);
     }
 
-    public static final Creator<Network> CREATOR =
+    public static final @android.annotation.NonNull Creator<Network> CREATOR =
         new Creator<Network>() {
             public Network createFromParcel(Parcel in) {
                 int netId = in.readInt();
@@ -475,7 +486,7 @@ public class Network implements Parcelable {
 
     @Override
     public boolean equals(Object obj) {
-        if (obj instanceof Network == false) return false;
+        if (!(obj instanceof Network)) return false;
         Network other = (Network)obj;
         return this.netId == other.netId;
     }

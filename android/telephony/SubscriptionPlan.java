@@ -45,7 +45,6 @@ import java.util.Objects;
  * @see SubscriptionManager#setSubscriptionPlans(int, java.util.List)
  * @see SubscriptionManager#getSubscriptionPlans(int)
  */
-@SystemApi
 public final class SubscriptionPlan implements Parcelable {
     /** {@hide} */
     @IntDef(prefix = "LIMIT_BEHAVIOR_", value = {
@@ -146,7 +145,7 @@ public final class SubscriptionPlan implements Parcelable {
         return false;
     }
 
-    public static final Parcelable.Creator<SubscriptionPlan> CREATOR = new Parcelable.Creator<SubscriptionPlan>() {
+    public static final @android.annotation.NonNull Parcelable.Creator<SubscriptionPlan> CREATOR = new Parcelable.Creator<SubscriptionPlan>() {
         @Override
         public SubscriptionPlan createFromParcel(Parcel source) {
             return new SubscriptionPlan(source);

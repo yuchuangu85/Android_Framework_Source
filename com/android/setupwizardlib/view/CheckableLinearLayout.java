@@ -19,73 +19,67 @@ package com.android.setupwizardlib.view;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.os.Build.VERSION_CODES;
-import android.support.annotation.Nullable;
+import androidx.annotation.Nullable;
 import android.util.AttributeSet;
 import android.widget.Checkable;
 import android.widget.LinearLayout;
 
 /**
- * A LinearLayout which is checkable. This will set the checked state when
- * {@link #onCreateDrawableState(int)} is called, and can be used with
- * {@code android:duplicateParentState} to propagate the drawable state to child views.
+ * A LinearLayout which is checkable. This will set the checked state when {@link
+ * #onCreateDrawableState(int)} is called, and can be used with {@code android:duplicateParentState}
+ * to propagate the drawable state to child views.
  */
 public class CheckableLinearLayout extends LinearLayout implements Checkable {
 
-    private boolean mChecked = false;
+  private boolean checked = false;
 
-    public CheckableLinearLayout(Context context) {
-        super(context);
-    }
+  public CheckableLinearLayout(Context context) {
+    super(context);
+  }
 
-    public CheckableLinearLayout(Context context, @Nullable AttributeSet attrs) {
-        super(context, attrs);
-    }
+  public CheckableLinearLayout(Context context, @Nullable AttributeSet attrs) {
+    super(context, attrs);
+  }
 
-    @TargetApi(VERSION_CODES.HONEYCOMB)
-    public CheckableLinearLayout(
-            Context context,
-            @Nullable AttributeSet attrs,
-            int defStyleAttr) {
-        super(context, attrs, defStyleAttr);
-    }
+  @TargetApi(VERSION_CODES.HONEYCOMB)
+  public CheckableLinearLayout(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
+    super(context, attrs, defStyleAttr);
+  }
 
-    @TargetApi(VERSION_CODES.LOLLIPOP)
-    public CheckableLinearLayout(
-            Context context,
-            AttributeSet attrs,
-            int defStyleAttr,
-            int defStyleRes) {
-        super(context, attrs, defStyleAttr, defStyleRes);
-    }
+  @TargetApi(VERSION_CODES.LOLLIPOP)
+  public CheckableLinearLayout(
+      Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
+    super(context, attrs, defStyleAttr, defStyleRes);
+  }
 
-    {
-        setFocusable(true);
-    }
+  {
+    setFocusable(true);
+  }
 
-    @Override
-    protected int[] onCreateDrawableState(int extraSpace) {
-        if (mChecked) {
-            final int[] superStates = super.onCreateDrawableState(extraSpace + 1);
-            final int[] checked = new int[] { android.R.attr.state_checked };
-            return mergeDrawableStates(superStates, checked);
-        } else {
-            return super.onCreateDrawableState(extraSpace);
-        }
+  @Override
+  protected int[] onCreateDrawableState(int extraSpace) {
+    if (this.checked) {
+      final int[] superStates = super.onCreateDrawableState(extraSpace + 1);
+      final int[] checked = new int[] {android.R.attr.state_checked};
+      return mergeDrawableStates(superStates, checked);
+    } else {
+      return super.onCreateDrawableState(extraSpace);
     }
+  }
 
-    @Override
-    public void setChecked(boolean checked) {
-        mChecked = checked;
-        refreshDrawableState();
-    }
+  @Override
+  public void setChecked(boolean checked) {
+    this.checked = checked;
+    refreshDrawableState();
+  }
 
-    @Override
-    public boolean isChecked() {
-        return mChecked;
-    }
+  @Override
+  public boolean isChecked() {
+    return checked;
+  }
 
-    @Override
-    public void toggle() {
-        setChecked(!isChecked());
-    }
+  @Override
+  public void toggle() {
+    setChecked(!isChecked());
+  }
 }

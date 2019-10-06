@@ -17,7 +17,6 @@
 package android.accounts;
 
 import android.Manifest;
-import android.annotation.SystemApi;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -32,8 +31,8 @@ import java.util.Arrays;
 
 /**
  * Abstract base class for creating AccountAuthenticators.
- * In order to be an authenticator one must extend this class, provider implementations for the
- * abstract methods and write a service that returns the result of {@link #getIBinder()}
+ * In order to be an authenticator one must extend this class, provide implementations for the
+ * abstract methods, and write a service that returns the result of {@link #getIBinder()}
  * in the service's {@link android.app.Service#onBind(android.content.Intent)} when invoked
  * with an intent with action {@link AccountManager#ACTION_AUTHENTICATOR_INTENT}. This service
  * must specify the following intent filter and metadata tags in its AndroidManifest.xml file
@@ -974,7 +973,8 @@ public abstract class AbstractAccountAuthenticator {
      *
      * @param response to send the result back to the AccountManager, will never be null.
      * @param account the account to check, will never be null
-     * @param statusToken a String of token to check if update of credentials is suggested.
+     * @param statusToken a String of token which can be used to check the status of locally
+     *            stored credentials and if update of credentials is suggested
      * @return a Bundle result or null if the result is to be returned via the response. The result
      *         will contain either:
      *         <ul>
