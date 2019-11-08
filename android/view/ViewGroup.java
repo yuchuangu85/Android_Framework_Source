@@ -2749,6 +2749,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
                     if (alreadyDispatchedToNewTouchTarget && target == newTouchTarget) {
                         handled = true;
                     } else {
+                        // 被拦截也表示取消子View事件
                         final boolean cancelChild = resetCancelNextUpFlag(target.child)
                                 || intercepted;
                         // 派发事件给事件对应的子View
@@ -3044,6 +3045,8 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         // or filtering.  The important part is the action, not the contents.
         final int oldAction = event.getAction();
         if (cancel || oldAction == MotionEvent.ACTION_CANCEL) {
+            // 如果父View拦截或者取消了该View的触摸事件，那么这里要设置为ACTION_CANCEL，
+            // 所以事件被拦截后面得到的事件是ACTION_CANCEL
             event.setAction(MotionEvent.ACTION_CANCEL);
             if (child == null) {// 没有子View，调用超类的分发事件
                 handled = super.dispatchTouchEvent(event);
