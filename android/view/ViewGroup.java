@@ -5127,6 +5127,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             mTransition.addChild(this, child);
         }
 
+        // params 为空的话走if里面
         if (!checkLayoutParams(params)) {
             params = generateLayoutParams(params);
         }
@@ -5144,7 +5145,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         // 添加到mChildren[]数组中
         addInArray(child, index);
 
-        // tell our children
+        // tell our children 赋值child的mParent引用
         if (preventRequestLayout) {
             child.assignParent(this);
         } else {
