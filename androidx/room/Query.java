@@ -89,13 +89,17 @@ import java.lang.annotation.Target;
  * </pre>
  * You can write a query like this:
  * <pre>
+ *     {@literal @}Query("SELECT　*　FROM user")
+ *     public fun selectAll(): Array<User>    // 查询所有数据
  *     {@literal @}Query("SELECT last_name, name FROM user WHERE uid = :userId LIMIT 1")
- *     public abstract UserName findOneUserName(int userId);
+ *     public abstract UserName findOneUserName(int userId);// 条件查询(只返回name和last_name的值)
  * </pre>
  * And Room will create the correct implementation to convert the query result into a
  * {@code UserName} object. If there is a mismatch between the query result and the fields of the
  * POJO, as long as there is at least 1 field match, Room prints a
  * {@link RoomWarnings#CURSOR_MISMATCH} warning and sets as many fields as it can.
+ *
+ * 查找数据:
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.CLASS)

@@ -32,6 +32,7 @@ public class ReportFragment extends Fragment {
     private static final String REPORT_FRAGMENT_TAG = "androidx.lifecycle"
             + ".LifecycleDispatcher.report_fragment_tag";
 
+    // 如果没有添加过ReportFragment才进行添加
     public static void injectIfNeededIn(Activity activity) {
         // ProcessLifecycleOwner should always correctly work and some activities may not extend
         // FragmentActivity from support lib, so we use framework fragments for activities

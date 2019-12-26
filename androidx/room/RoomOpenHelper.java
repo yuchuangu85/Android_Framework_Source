@@ -18,6 +18,8 @@ package androidx.room;
 
 import android.database.Cursor;
 
+import java.util.List;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
@@ -26,10 +28,11 @@ import androidx.sqlite.db.SimpleSQLiteQuery;
 import androidx.sqlite.db.SupportSQLiteDatabase;
 import androidx.sqlite.db.SupportSQLiteOpenHelper;
 
-import java.util.List;
-
 /**
  * An open helper that holds a reference to the configuration until the database is opened.
+ *
+ * 参考:
+ * https://www.jianshu.com/p/8c0071f34756
  *
  * @hide
  */
@@ -75,23 +78,40 @@ public class RoomOpenHelper extends SupportSQLiteOpenHelper.Callback {
         mDelegate.onCreate(db);
     }
 
+    /**
+     * 将数据库的升降级抽象为一个类Migration，它包含了数据库升降级的全部信息：startVersion、endVersion和migrate。
+     * 通过扩展Migration类，我们可以方便地定义一个个具体的升降级“行为”。数据库升降级在使用层面被大大简化。
+     * 把各个Migration存储在MigrationContainer的二维SparseArray中。这种数据结构方便查找出最佳的升降级路径，高效升降级。
+     * 数据库升降级之后，Room会通过RoomOpenHelper.Delegate的validateMigration方法帮我们验证升降级后数据库表结构的正确性。
+     * Room提供了测试工具方便我们测试数据库，特别适合于验证数据库升降级前后数据迁移的正确性。
+     *
+     * @param db         The database.
+     * @param oldVersion The old database version.
+     * @param newVersion The new database version.
+     */
     @Override
     public void onUpgrade(SupportSQLiteDatabase db, int oldVersion, int newVersion) {
         boolean migrated = false;
         if (mConfiguration != null) {
+            // 查找数据库迁移列表
             List<Migration> migrations = mConfiguration.migrationContainer.findMigrationPath(
                     oldVersion, newVersion);
             if (migrations != null) {
+                // 执行配置的每一个迁移命令
                 for (Migration migration : migrations) {
                     migration.migrate(db);
                 }
+                // 验证数据库完整性
                 mDelegate.validateMigration(db);
                 updateIdentity(db);
                 migrated = true;
             }
         }
+        //如果数据库版本发生变化，必须定义相应的 Migration
+        //除非我们通过RoomDatabase.Builder设置了可以通过destruct进行升级
         if (!migrated) {
             if (mConfiguration != null && !mConfiguration.isMigrationRequiredFrom(oldVersion)) {
+                //destruct指的就是丢弃旧表，创建新表；所有之前的数据都会被丢弃
                 mDelegate.dropAllTables(db);
                 mDelegate.createAllTables(db);
             } else {
@@ -107,6 +127,7 @@ public class RoomOpenHelper extends SupportSQLiteOpenHelper.Callback {
 
     @Override
     public void onDowngrade(SupportSQLiteDatabase db, int oldVersion, int newVersion) {
+        // 升降级一起处理
         onUpgrade(db, oldVersion, newVersion);
     }
 
@@ -170,6 +191,7 @@ public class RoomOpenHelper extends SupportSQLiteOpenHelper.Callback {
             this.version = version;
         }
 
+        //丢弃原有的数据库表，创建新的表，也是一种升级策略
         protected abstract void dropAllTables(SupportSQLiteDatabase database);
 
         protected abstract void createAllTables(SupportSQLiteDatabase database);
@@ -180,6 +202,7 @@ public class RoomOpenHelper extends SupportSQLiteOpenHelper.Callback {
 
         /**
          * Called after a migration run to validate database integrity.
+         * //验证数据库升级的完整性
          *
          * @param db The SQLite database.
          */

@@ -3836,6 +3836,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
 
         final int count = mChildrenCount;
         final View[] children = mChildren;
+        // for循环移除所有子View
         for (int i = 0; i < count; i++) {
             children[i].dispatchDetachedFromWindow();
         }
@@ -3845,6 +3846,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             View view = mTransientViews.get(i);
             view.dispatchDetachedFromWindow();
         }
+        // 调用自己的onDetachedFromWindow
         super.dispatchDetachedFromWindow();
     }
 
@@ -5161,6 +5163,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         if (ai != null && (mGroupFlags & FLAG_PREVENT_DISPATCH_ATTACHED_TO_WINDOW) == 0) {
             boolean lastKeepOn = ai.mKeepScreenOn;
             ai.mKeepScreenOn = false;
+            // 调用子view的添加窗口方法
             child.dispatchAttachedToWindow(mAttachInfo, (mViewFlags & VISIBILITY_MASK));
             if (ai.mKeepScreenOn) {
                 needGlobalAttributesUpdate(true);

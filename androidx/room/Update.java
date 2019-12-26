@@ -24,16 +24,30 @@ package androidx.room;
  * <p>
  * All of the parameters of the Update method must either be classes annotated with {@link Entity}
  * or collections/array of it.
+ * <p>
+ * {@literal @}Dao
+ * public interface MyDao {
+ * {@literal @}Update(onConflict = OnConflictStrategy.REPLACE)
+ * public void insertUsers(User... users);// 更新数组
+ * {@literal @}Update
+ * public void insertBoth(User user1, User user2);// 更新单个或者多个
+ * {@literal @}Update
+ * public void insertWithFriends(User user, List&lt;User&gt; friends);// 更新单个或者列表
+ * }
+ * </p>
  *
  * @see Insert
  * @see Delete
+ * <p>
+ * 更新数据(单个,多个,列表,数组),同insert
  */
 public @interface Update {
     /**
      * What to do if a conflict happens.
-     * @see <a href="https://sqlite.org/lang_conflict.html">SQLite conflict documentation</a>
      *
      * @return How to handle conflicts. Defaults to {@link OnConflictStrategy#ABORT}.
+     *
+     * @see <a href="https://sqlite.org/lang_conflict.html">SQLite conflict documentation</a>
      */
     @OnConflictStrategy
     int onConflict() default OnConflictStrategy.ABORT;

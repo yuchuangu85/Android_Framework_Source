@@ -24,6 +24,8 @@ import androidx.sqlite.db.SupportSQLiteStatement;
  * <p>
  * This is an internal library class and all of its implementations are auto-generated.
  *
+ * 删除、更新Entity
+ *
  * @param <T> The type parameter of the entity to be deleted
  * @hide
  */

@@ -44,6 +44,9 @@ import java.lang.annotation.Target;
  *    }
  *}
  * </pre>
+ *
+ * 使用TypeConverter，它将自定义类转换为Room可以保留的已知类型，
+ * 如：想保存Date类型，而Room无法持久化实例Date却可以实例long，因此提供和long的相互转换
  * @see TypeConverters
  */
 @Target({ElementType.METHOD})

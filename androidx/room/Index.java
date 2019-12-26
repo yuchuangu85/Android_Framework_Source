@@ -39,6 +39,7 @@ import java.lang.annotation.Target;
  * Similarly, if an {@link Entity} extends another class, indices from the super classes are
  * <b>NOT</b> inherited. You must re-declare them in the child {@link Entity} or set
  * {@link Entity#inheritSuperIndices()} to {@code true}.
+ *
  * */
 @Target({})
 @Retention(RetentionPolicy.CLASS)

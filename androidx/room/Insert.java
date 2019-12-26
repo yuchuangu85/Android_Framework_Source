@@ -34,16 +34,18 @@ import java.lang.annotation.Target;
  * {@literal @}Dao
  * public interface MyDao {
  *     {@literal @}Insert(onConflict = OnConflictStrategy.REPLACE)
- *     public void insertUsers(User... users);
+ *     public void insertUsers(User... users);// 插入数组
  *     {@literal @}Insert
- *     public void insertBoth(User user1, User user2);
+ *     public void insertBoth(User user1, User user2);// 插入单个或者多个
  *     {@literal @}Insert
- *     public void insertWithFriends(User user, List&lt;User&gt; friends);
+ *     public void insertWithFriends(User user, List&lt;User&gt; friends);// 插入单个或者列表
  * }
  * </pre>
  *
  * @see Update
  * @see Delete
+ *
+ * 使用注解@Insert，Room会自动将所有参数在单个事物中插入数据库
  */
 @Target({ElementType.METHOD})
 @Retention(RetentionPolicy.CLASS)

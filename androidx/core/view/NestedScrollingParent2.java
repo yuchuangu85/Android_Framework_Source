@@ -36,9 +36,9 @@ import androidx.core.view.ViewCompat.ScrollAxis;
  * {@link ViewCompat}, {@link ViewGroupCompat} or {@link ViewParentCompat} compatibility
  * shim static methods. This ensures interoperability with nested scrolling views on all versions
  * of Android.</p>
- *
+ * <p>
  * 嵌套滑动父View需要实现的接口
- *
+ * <p>
  * 参考：
  * https://blog.csdn.net/qq_42944793/article/details/88417127
  */
@@ -58,19 +58,20 @@ public interface NestedScrollingParent2 extends NestedScrollingParent {
      * of the scroll operation in progress. When the nested scroll is finished this ViewParent
      * will receive a call to {@link #onStopNestedScroll(View, int)}.
      * </p>
-     *
+     * <p>
      * 在嵌套滑动子View开始滑动前通知嵌套滑动父View，回调嵌套滑动父View的onStartNestedScroll()，
      * 嵌套滑动父View需要嵌套滑动（一起滑动）则返回true，否则返回false(不配合嵌套滑动)
      *
-     * @param child Direct child of this ViewParent containing target（嵌套滑动父View的直接子View）
+     * @param child  Direct child of this ViewParent containing target（嵌套滑动父View的直接子View）
      * @param target View that initiated the nested scroll（嵌套子View）
-     * @param axes Flags consisting of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL},（滑动方向）
-     *                         {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both
-     * @param type the type of input which cause this scroll event（滑动类型）
+     * @param axes   Flags consisting of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL},（滑动方向）
+     *               {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both
+     * @param type   the type of input which cause this scroll event（滑动类型）
+     *
      * @return true if this ViewParent accepts the nested scroll operation（嵌套父View是否接受嵌套滑动）
      */
     boolean onStartNestedScroll(@NonNull View child, @NonNull View target, @ScrollAxis int axes,
-            @NestedScrollType int type);
+                                @NestedScrollType int type);
 
     /**
      * React to the successful claiming of a nested scroll operation.
@@ -80,17 +81,21 @@ public interface NestedScrollingParent2 extends NestedScrollingParent {
      * offers an opportunity for the view and its superclasses to perform initial configuration
      * for the nested scroll. Implementations of this method should always call their superclass's
      * implementation of this method if one is present.</p>
+     * <p>
+     * 反应嵌套滑动的成功声明
+     * onStartNestedScroll()方法返回true会调用该函数，参数与onStartNestedScroll一致
      *
-     * @param child Direct child of this ViewParent containing target
+     * @param child  Direct child of this ViewParent containing target
      * @param target View that initiated the nested scroll
-     * @param axes Flags consisting of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL},
-     *                         {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both
-     * @param type the type of input which cause this scroll event
+     * @param axes   Flags consisting of {@link ViewCompat#SCROLL_AXIS_HORIZONTAL},
+     *               {@link ViewCompat#SCROLL_AXIS_VERTICAL} or both
+     * @param type   the type of input which cause this scroll event
+     *
      * @see #onStartNestedScroll(View, View, int, int)
      * @see #onStopNestedScroll(View, int)
      */
     void onNestedScrollAccepted(@NonNull View child, @NonNull View target, @ScrollAxis int axes,
-            @NestedScrollType int type);
+                                @NestedScrollType int type);
 
     /**
      * React to a nested scroll operation ending.
@@ -102,12 +107,16 @@ public interface NestedScrollingParent2 extends NestedScrollingParent {
      * method if one is present.</p>
      *
      * @param target View that initiated the nested scroll
-     * @param type the type of input which cause this scroll event
+     * @param type   the type of input which cause this scroll event
      */
     void onStopNestedScroll(@NonNull View target, @NestedScrollType int type);
 
     /**
      * React to a nested scroll in progress.
+     * <p>
+     * 反应嵌套滑动进程
+     * <p>
+     * 子View滚动后回调
      *
      * <p>This method will be called when the ViewParent's current nested scrolling child view
      * dispatches a nested scroll event. To receive calls to this method the ViewParent must have
@@ -121,18 +130,26 @@ public interface NestedScrollingParent2 extends NestedScrollingParent {
      * a list within a vertical drawer where the drawer begins dragging once the edge of inner
      * scrolling content is reached.</p>
      *
-     * @param target The descendent view controlling the nested scroll
-     * @param dxConsumed Horizontal scroll distance in pixels already consumed by target
-     * @param dyConsumed Vertical scroll distance in pixels already consumed by target
+     * @param target       The descendent view controlling the nested scroll
+     * @param dxConsumed   Horizontal scroll distance in pixels already consumed by target
+     * @param dyConsumed   Vertical scroll distance in pixels already consumed by target
      * @param dxUnconsumed Horizontal scroll distance in pixels not consumed by target
+     *                     水平方向上嵌套滑动的子View未消耗(未滑动)的距离
      * @param dyUnconsumed Vertical scroll distance in pixels not consumed by target
-     * @param type the type of input which cause this scroll event
+     *                     竖直方向上嵌套滑动的子View未消耗(未滑动)的距离
+     * @param type         the type of input which cause this scroll event
      */
     void onNestedScroll(@NonNull View target, int dxConsumed, int dyConsumed,
-            int dxUnconsumed, int dyUnconsumed, @NestedScrollType int type);
+                        int dxUnconsumed, int dyUnconsumed, @NestedScrollType int type);
 
     /**
      * React to a nested scroll in progress before the target view consumes a portion of the scroll.
+     * <p>
+     * 在嵌套滑动子View滑动前，先要通知父View，看看父View是否需要消费滑动事件，也就是子View之前父View是否先要滑动，
+     * 如果父View需要滑动，那么父View的该方法根据子View传递过来的滑动距离dx或者dy来计算父View在嵌套滑动消耗的
+     * 距离并保存在consumed中。
+     * <p>
+     * 子View滚动前回调
      *
      * <p>When working with nested scrolling often the parent view may want an opportunity
      * to consume the scroll before the nested scrolling child does. An example of this is a
@@ -146,14 +163,14 @@ public interface NestedScrollingParent2 extends NestedScrollingParent {
      * This parameter will never be null. Initial values for consumed[0] and consumed[1]
      * will always be 0.</p>
      *
-     * @param target View that initiated the nested scroll（嵌套滑动子View）
-     * @param dx Horizontal scroll distance in pixels（手指滑动变量）
-     * @param dy Vertical scroll distance in pixels（手指滑动变量）
+     * @param target   View that initiated the nested scroll（嵌套滑动子View）
+     * @param dx       Horizontal scroll distance in pixels（手指滑动变量）
+     * @param dy       Vertical scroll distance in pixels（手指滑动变量）
      * @param consumed Output. The horizontal and vertical scroll distance consumed by this parent
      *                 用来保存嵌套滑动父View需要消费的距离
-     * @param type the type of input which cause this scroll event滑动类型
+     * @param type     the type of input which cause this scroll event滑动类型
      */
     void onNestedPreScroll(@NonNull View target, int dx, int dy, @NonNull int[] consumed,
-            @NestedScrollType int type);
+                           @NestedScrollType int type);
 
 }

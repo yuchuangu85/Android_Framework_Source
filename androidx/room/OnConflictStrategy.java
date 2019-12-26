@@ -16,11 +16,11 @@
 
 package androidx.room;
 
-import static java.lang.annotation.RetentionPolicy.SOURCE;
+import java.lang.annotation.Retention;
 
 import androidx.annotation.IntDef;
 
-import java.lang.annotation.Retention;
+import static java.lang.annotation.RetentionPolicy.SOURCE;
 
 /**
  * Set of conflict handling strategies for various {@link Dao} methods.
@@ -34,22 +34,27 @@ import java.lang.annotation.Retention;
 public @interface OnConflictStrategy {
     /**
      * OnConflict strategy constant to replace the old data and continue the transaction.
+     * 冲突替换
      */
     int REPLACE = 1;
     /**
      * OnConflict strategy constant to rollback the transaction.
+     * 冲突回滚
      */
     int ROLLBACK = 2;
     /**
      * OnConflict strategy constant to abort the transaction.
+     * 冲突放弃
      */
     int ABORT = 3;
     /**
      * OnConflict strategy constant to fail the transaction.
+     * 冲突失败
      */
     int FAIL = 4;
     /**
      * OnConflict strategy constant to ignore the conflict.
+     * 冲突忽略
      */
     int IGNORE = 5;
 

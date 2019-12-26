@@ -35,6 +35,12 @@ import java.lang.annotation.Target;
  * <li>If you put it on a {@link Dao} method, all parameters of the method will be able to use it.
  * <li>If you put it on a {@link Dao} method parameter, just that field will be able to use it.
  * </ul>
+ *
+ * <p>
+ *     // TypeConverter中的Converters
+ *     {@literal @}TypeConverters({Converters.class})
+ * </p>
+ *
  * @see TypeConverter
  */
 @Target({ElementType.METHOD, ElementType.PARAMETER, ElementType.TYPE, ElementType.FIELD})

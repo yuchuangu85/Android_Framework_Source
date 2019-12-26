@@ -15,10 +15,10 @@
  */
 package androidx.room;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import androidx.annotation.RestrictTo;
 import androidx.sqlite.db.SupportSQLiteStatement;
-
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Represents a prepared SQLite state that can be re-used multiple times.
@@ -34,6 +34,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @SuppressWarnings({"WeakerAccess", "unused"})
 @RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public abstract class SharedSQLiteStatement {
+
+    // 多线程重用的标记
     private final AtomicBoolean mLock = new AtomicBoolean(false);
 
     private final RoomDatabase mDatabase;
@@ -42,6 +44,8 @@ public abstract class SharedSQLiteStatement {
     /**
      * Creates an SQLite prepared statement that can be re-used across threads. If it is in use,
      * it automatically creates a new one.
+     *
+     * statement会跨线程重用，如果statement正在使用就会再新建一个
      *
      * @param database The database to create the statement in.
      */
@@ -65,6 +69,7 @@ public abstract class SharedSQLiteStatement {
         return mDatabase.compileStatement(query);
     }
 
+    // 如果 mStmt存在并且没有在使用就重用，不然就新建一个
     private SupportSQLiteStatement getStmt(boolean canUseCached) {
         final SupportSQLiteStatement stmt;
         if (canUseCached) {
@@ -81,6 +86,7 @@ public abstract class SharedSQLiteStatement {
 
     /**
      * Call this to get the statement. Must call {@link #release(SupportSQLiteStatement)} once done.
+     * 通过这个方法获取 SupportSQLiteStatement，使用完之后必须调用 release
      */
     public SupportSQLiteStatement acquire() {
         assertNotMainThread();

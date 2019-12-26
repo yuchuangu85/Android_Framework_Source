@@ -27,6 +27,7 @@ import androidx.annotation.NonNull;
  * http://how2j.cn/k/annotation/annotation-customize/1056.html#nowhere
  * https://blog.csdn.net/Alexwll/article/details/82852377
  * https://blog.csdn.net/Alexwll/article/details/83033460
+ * https://www.jianshu.com/p/4cb6ccf09350
  */
 @SuppressWarnings("unused")
 public class Room {

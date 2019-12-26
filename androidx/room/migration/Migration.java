@@ -20,7 +20,7 @@ import androidx.annotation.NonNull;
 import androidx.sqlite.db.SupportSQLiteDatabase;
 
 /**
- * Base class for a database migration.
+ * Base class for a database migration(迁移).
  * <p>
  * Each migration can move between 2 versions that are defined by {@link #startVersion} and
  * {@link #endVersion}.
@@ -56,6 +56,8 @@ public abstract class Migration {
      * <p>
      * This method is already called inside a transaction and that transaction might actually be a
      * composite transaction of all necessary {@code Migration}s.
+     *
+     * 数据库版本升级需要做的处理:删除数据库,更新数据库,插入列等
      *
      * @param database The database instance
      */

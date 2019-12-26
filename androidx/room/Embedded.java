@@ -68,6 +68,9 @@ import java.lang.annotation.Target;
  * <p>
  * You can override this behavior by annotating the embedded field with
  * {@link androidx.annotation.NonNull}.
+ *
+ * 使用 @Embedded 注释来表示要分解到表中子字段的对象（此时数据库的列为两个类中所有的字段）
+ *
  */
 @Target(ElementType.FIELD)
 @Retention(RetentionPolicy.CLASS)

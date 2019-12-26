@@ -15,11 +15,11 @@
  */
 package androidx.room;
 
-import static java.lang.annotation.RetentionPolicy.SOURCE;
+import java.lang.annotation.Retention;
 
 import androidx.annotation.IntDef;
 
-import java.lang.annotation.Retention;
+import static java.lang.annotation.RetentionPolicy.SOURCE;
 
 /**
  * Declares a foreign key on another {@link Entity}.
@@ -45,6 +45,13 @@ import java.lang.annotation.Retention;
  * <p>
  * Please refer to the SQLite <a href="https://sqlite.org/foreignkeys.html">foreign keys</a>
  * documentation for details.
+ *
+ * 使用@ForeignKey 注释定义其与实体的 关系；
+ * ForeignKey中:
+ * entity 为要关联的父实体类；
+ * parentColumns 为关联父实体类的列名；
+ * childColumns 此实体类中的列名
+ *
  */
 public @interface ForeignKey {
     /**

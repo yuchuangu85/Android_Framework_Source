@@ -16,12 +16,12 @@
 
 package androidx.room;
 
-import androidx.annotation.RestrictTo;
-import androidx.sqlite.db.SupportSQLiteStatement;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+
+import androidx.annotation.RestrictTo;
+import androidx.sqlite.db.SupportSQLiteStatement;
 
 /**
  * Implementations of this class knows how to insert a particular entity.
@@ -45,6 +45,7 @@ public abstract class EntityInsertionAdapter<T> extends SharedSQLiteStatement {
 
     /**
      * Binds the entity into the given statement.
+     * 绑定参数
      *
      * @param statement The SQLite statement that prepared for the query returned from
      *                  createInsertQuery.
@@ -58,11 +59,15 @@ public abstract class EntityInsertionAdapter<T> extends SharedSQLiteStatement {
      * @param entity The entity to insert
      */
     public final void insert(T entity) {
+        // 获取，可能会重用之前的 SupportSQLiteStatement
         final SupportSQLiteStatement stmt = acquire();
         try {
+            // 绑定
             bind(stmt, entity);
+            // 执行 executeInsert
             stmt.executeInsert();
         } finally {
+            // 释放
             release(stmt);
         }
     }

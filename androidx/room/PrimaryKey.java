@@ -34,6 +34,12 @@ import java.lang.annotation.Target;
  * If {@code PrimaryKey} annotation is used on a {@link Embedded}d field, all columns inherited
  * from that embedded field becomes the composite primary key (including its grand children
  * fields).
+ *
+ * 1. @PrimaryKey ：至少定义一个字段作为主键
+ * 2.如果自增长ID 使用设置@PrimaryKey的 autoGenerate 属性(@PrimaryKey(autoGenerate = true)// 单个主键设置为自增长)
+ * 3.使用组合主键 使用@Entity 的@primaryKeys属性
+ * 4.Room 默认使用字段名成作为列名，要修改使用 @ColumnInfo(name = "***") 
+ *
  */
 @Target(ElementType.FIELD)
 @Retention(RetentionPolicy.CLASS)

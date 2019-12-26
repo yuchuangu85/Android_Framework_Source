@@ -37,6 +37,11 @@ import java.lang.annotation.Target;
  * It is recommended to have multiple {@code Dao} classes in your codebase depending on the tables
  * they touch.
  *
+ * 包含用于访问数据库的方法
+ *
+ * 参考:
+ * https://www.jianshu.com/p/10ad5d8ace43
+ *
  * @see Query
  * @see Delete
  * @see Insert

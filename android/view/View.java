@@ -12682,7 +12682,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
      * Called when the user-visibility of this View is potentially affected by a change
      * to this view itself, an ancestor view or the window this view is attached to.
      *
-     * @param isVisible true if this view and all of its ancestors are {@link #VISIBLE}
+     * @param isVisible true if this view and all of its ancestors(祖先) are {@link #VISIBLE}
      *                  and this view's window is also visible
      */
     @CallSuper
@@ -15721,7 +15721,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     }
 
     /**
-     * If some part of this view is not clipped by any of its parents, then
+     * If some part of this view is not clipped(裁切) by any of its parents, then
      * return that area in r in global (root) coordinates. To convert r to local
      * coordinates (without taking possible View rotations into account), offset
      * it by -globalOffset (e.g. r.offset(-globalOffset.x, -globalOffset.y)).
@@ -18169,6 +18169,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             }
         }
 
+        // 调用onDetachedFromWindow方法
         onDetachedFromWindow();
         onDetachedFromWindowInternal();
 

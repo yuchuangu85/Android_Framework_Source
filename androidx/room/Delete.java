@@ -44,6 +44,8 @@ import java.lang.annotation.Target;
  *
  * @see Insert
  * @see Query
+ *
+ * 删除数据(单个,多个,数组,列表)
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.CLASS)

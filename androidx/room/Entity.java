@@ -39,6 +39,10 @@ import java.lang.annotation.Target;
  * If a field is {@code transient}, it is automatically ignored <b>unless</b> it is annotated with
  * {@link ColumnInfo}, {@link Embedded} or {@link Relation}.
  * <p>
+ *
+ * 1.使用@Entity注解实体类，Room会为实体中定义的每个字段创建一列，如果想避免使用@Ignore注解
+ * 2.Room默认使用类名作为数据库表名，要修改表名使用 @Entity 的 tableName属性
+ *
  * Example:
  * <pre>
  * {@literal @}Entity
@@ -79,6 +83,10 @@ public @interface Entity {
 
     /**
      * List of indices on the table.
+     * 列出要包含在索引或复合索引中的列的名称
+     *
+     * @Entity(indices = [Index("nameUser"), Index(value = ["name"])])  // 创建索引
+     * @Entity(indices = [Index("nameUser"), Index(value = ["name"] ,unique = true)]) //唯一索引
      *
      * @return The list of indices on the table.
      */

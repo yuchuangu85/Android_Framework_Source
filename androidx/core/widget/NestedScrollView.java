@@ -255,7 +255,7 @@ public class NestedScrollView extends FrameLayout implements NestedScrollingPare
     @Override
     public boolean dispatchNestedPreScroll(int dx, int dy, int[] consumed, int[] offsetInWindow,
                                            int type) {
-        // 这里向父View申请，父View是欧服先消费滑动事件，如果消费，把消费事件保存到consumed中，并返回true
+        // 这里向父View申请，父View是否先消费滑动事件，如果消费，把消费事件保存到consumed中，并返回true
         return mChildHelper.dispatchNestedPreScroll(dx, dy, consumed, offsetInWindow, type);
     }
 

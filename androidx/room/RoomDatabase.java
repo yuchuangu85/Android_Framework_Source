@@ -69,6 +69,7 @@ public abstract class RoomDatabase {
     @RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
     public static final int MAX_BIND_PARAMETER_CNT = 999;
     // set by the generated open helper.
+    //包含有 SupportSQLiteDatabase(采用组合方式而不是继承)
     protected volatile SupportSQLiteDatabase mDatabase;
     private SupportSQLiteOpenHelper mOpenHelper;
     private final InvalidationTracker mInvalidationTracker;
@@ -211,6 +212,8 @@ public abstract class RoomDatabase {
     // methods we are using and also helps unit tests to mock this class without mocking
     // all SQLite database methods.
 
+    // 以下方法是对 SupportSQLiteDatabase 方法的包装，只保留了少量用得到的方法
+    // 同时也方便我们在单元测试时 mock RoomDatabase
     /**
      * Convenience method to query the database with arguments.
      *
@@ -230,12 +233,14 @@ public abstract class RoomDatabase {
      * @return Result of the query.
      */
     public Cursor query(SupportSQLiteQuery query) {
+        // 不允许在主线程
         assertNotMainThread();
         return mOpenHelper.getWritableDatabase().query(query);
     }
 
     /**
      * Wrapper for {@link SupportSQLiteDatabase#compileStatement(String)}.
+     * 把SQL语句(String类型)编译成可以执行的SQL语句(SupportSQLiteStatement类型)
      *
      * @param sql The query to compile.
      * @return The compiled query.
@@ -486,6 +491,8 @@ public abstract class RoomDatabase {
          * thread.
          * <p>
          * You may want to turn this check off for testing.
+         *
+         * 允许在主线程调用,通常不适用,在主线程会造成锁死或者ANR
          *
          * @return this
          */
