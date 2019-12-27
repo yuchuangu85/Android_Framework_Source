@@ -1282,6 +1282,7 @@ public class ListView extends AbsListView {
         mItemCount = mAdapter == null ? 0 : mAdapter.getCount();
         if (mItemCount > 0 && (widthMode == MeasureSpec.UNSPECIFIED
                 || heightMode == MeasureSpec.UNSPECIFIED)) {
+            // 获取第一个子View
             final View child = obtainView(0, mIsScrap);
 
             // Lay out child directly against the parent measure spec so that
@@ -2239,7 +2240,7 @@ public class ListView extends AbsListView {
         // mAreAllItemsSelectable默认为true，不过会根据header、footer以及
         // Adapter.areAllItemsEnabled()方法来重新设置
         if (!mAreAllItemsSelectable) {
-            if (lookDown) {// 向下找，positon累加
+            if (lookDown) {// 向下找，position累加
                 position = Math.max(0, position);
                 while (position < count && !adapter.isEnabled(position)) {
                     position++;

@@ -169,6 +169,8 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
 
     /**
      * Indicates the touch gesture is an overscroll - a scroll beyond the beginning or end.
+     *
+     * 滑动超过了开始位置或者结束位置
      */
     static final int TOUCH_MODE_OVERSCROLL = 5;
 
@@ -393,11 +395,13 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
 
     /**
      * The X value associated with the the down motion event
+     * down事件X值
      */
     int mMotionX;
 
     /**
      * The Y value associated with the the down motion event
+     * down事件Y值
      */
     int mMotionY;
 
@@ -2338,26 +2342,27 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
 
         outMetadata[0] = false;
 
-        // Check whether we have a transient state view. Attempt to re-bind the
-        // data and discard the view if we fail.
+        // Check whether we have a transient(短暂的) state view. Attempt to re-bind the
+        // data and discard(丢弃) the view if we fail.
         final View transientView = mRecycler.getTransientStateView(position);
         if (transientView != null) {
             final LayoutParams params = (LayoutParams) transientView.getLayoutParams();
 
             // If the view type hasn't changed, attempt to re-bind the data.
-            if (params.viewType == mAdapter.getItemViewType(position)) {
+            if (params.viewType == mAdapter.getItemViewType(position)) {// 类型相同
                 final View updatedView = mAdapter.getView(position, transientView, this);
 
-                // If we failed to re-bind the data, scrap the obtained view.
+                // If we failed to re-bind the data, scrap(废弃) the obtained view.
                 if (updatedView != transientView) {
                     setItemViewLayoutParams(updatedView, position);
+                    // 回收废弃的视图
                     mRecycler.addScrapView(updatedView, position);
                 }
             }
 
             outMetadata[0] = true;
 
-            // Finish the temporary detach started in addScrapView().
+            // Finish the temporary(临时的) detach(分离) started in addScrapView().
             transientView.dispatchFinishTemporaryDetach();
             return transientView;
         }
@@ -3518,7 +3523,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
     private void scrollIfNeeded(int x, int y, MotionEvent vtev) {
         int rawDeltaY = y - mMotionY;
         int scrollOffsetCorrection = 0;
-        int scrollConsumedCorrection = 0;
+        int scrollConsumedCorrection = 0;// Y方向嵌套滑动消耗的事件
         if (mLastY == Integer.MIN_VALUE) {
             rawDeltaY -= mMotionCorrection;
         }
@@ -3533,11 +3538,12 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
             }
         }
         final int deltaY = rawDeltaY;
+        // 相邻两个事件的滑动增量（手指下滑为正，反之为负）
         int incrementalDeltaY =
                 mLastY != Integer.MIN_VALUE ? y - mLastY + scrollConsumedCorrection : deltaY;
         int lastYCorrection = 0;
 
-        if (mTouchMode == TOUCH_MODE_SCROLL) {
+        if (mTouchMode == TOUCH_MODE_SCROLL) {// 滚动
             if (PROFILE_SCROLLING) {
                 if (!mScrollProfilingStarted) {
                     Debug.startMethodTracing("AbsListViewScroll");
@@ -5084,11 +5090,13 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
     }
 
     /**
-     * Track a motion scroll
+     * Track a motion scroll（跟踪滚动事件）
      *
      * @param deltaY Amount to offset mMotionView. This is the accumulated delta since the motion
      *        began. Positive numbers mean the user's finger is moving down the screen.
+     *               当前事件和down事件对比的变化量
      * @param incrementalDeltaY Change in deltaY from the previous event.
+     *                          当前事件和上一个事件对比的变化量
      * @return true if we're already at the beginning/end of the list and have nothing to do.
      */
     boolean trackMotionScroll(int deltaY, int incrementalDeltaY) {
@@ -5118,15 +5126,15 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
         final int spaceBelow = lastBottom - end;
 
         final int height = getHeight() - mPaddingBottom - mPaddingTop;
-        if (deltaY < 0) {
+        if (deltaY < 0) {// 上滑
             deltaY = Math.max(-(height - 1), deltaY);
-        } else {
+        } else {// 下滑
             deltaY = Math.min(height - 1, deltaY);
         }
 
-        if (incrementalDeltaY < 0) {
+        if (incrementalDeltaY < 0) {// 上滑
             incrementalDeltaY = Math.max(-(height - 1), incrementalDeltaY);
-        } else {
+        } else {// 下滑
             incrementalDeltaY = Math.min(height - 1, incrementalDeltaY);
         }
 
@@ -5166,7 +5174,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
         int start = 0;
         int count = 0;
 
-        if (down) {
+        if (down) {// 上滑
             int top = -incrementalDeltaY;
             if ((mGroupFlags & CLIP_TO_PADDING_MASK) == CLIP_TO_PADDING_MASK) {
                 top += listPadding.top;
@@ -5186,7 +5194,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
                     }
                 }
             }
-        } else {
+        } else {// 下滑
             int bottom = getHeight() - incrementalDeltaY;
             if ((mGroupFlags & CLIP_TO_PADDING_MASK) == CLIP_TO_PADDING_MASK) {
                 bottom -= listPadding.bottom;
@@ -6638,7 +6646,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
 
         /**
          * Unsorted views that can be used by the adapter as a convert view.
-         * 不可见的的View数组,是一个集合数组，每一种type的item都有一个集合来缓存
+         * 废弃的View数组(不可见的的View数组),是一个集合数组，每一种type的item都有一个集合来缓存
          */
         private ArrayList<View>[] mScrapViews;
 
@@ -7291,6 +7299,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
                 return;
             }
 
+            // 第一个View在数据中的位置
             final int firstPos = mFirstPosition;
             final int lastPos = firstPos + childCount - 1;
 
