@@ -321,7 +321,7 @@ public class NestedScrollView extends FrameLayout implements NestedScrollingPare
                                        int type) {
         // 设置滑动方向
         mParentHelper.onNestedScrollAccepted(child, target, axes, type);
-        // 这个不在起作用，因为里面已经设置了嵌套父View
+        // 开始嵌套滑动
         startNestedScroll(ViewCompat.SCROLL_AXIS_VERTICAL, type);
     }
 
@@ -1605,7 +1605,7 @@ public class NestedScrollView extends FrameLayout implements NestedScrollingPare
             // Finally update the scroll positions and post an invalidation
             mLastScrollerY = y;
             ViewCompat.postInvalidateOnAnimation(this);
-        } else {
+        } else {// 停止滑动
             // We can't scroll any more, so stop any indirect scrolling
             if (hasNestedScrollingParent(ViewCompat.TYPE_NON_TOUCH)) {
                 stopNestedScroll(ViewCompat.TYPE_NON_TOUCH);

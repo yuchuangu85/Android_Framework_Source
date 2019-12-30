@@ -16,7 +16,9 @@
 
 package androidx.coordinatorlayout.widget;
 
-import static androidx.annotation.RestrictTo.Scope.LIBRARY;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -24,12 +26,10 @@ import androidx.annotation.RestrictTo;
 import androidx.collection.SimpleArrayMap;
 import androidx.core.util.Pools;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
+import static androidx.annotation.RestrictTo.Scope.LIBRARY;
 
 /**
- * A class which represents a simple directed acyclic graph.
+ * A class which represents a simple directed acyclic graph(简单的定向无循环图).
  *
  * @param <T> Class for the data objects of this graph.
  *

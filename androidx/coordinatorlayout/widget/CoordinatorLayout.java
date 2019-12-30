@@ -3020,7 +3020,7 @@ public class CoordinatorLayout extends ViewGroup implements NestedScrollingParen
         }
 
         /**
-         * Locate the appropriate anchor view by the current {@link #setAnchorId(int) anchor id}
+         * Locate the appropriate anchor view(找到合适的锚) by the current {@link #setAnchorId(int) anchor id}
          * or return the cached anchor view if already known.
          *
          * @param parent the parent CoordinatorLayout
@@ -3041,8 +3041,8 @@ public class CoordinatorLayout extends ViewGroup implements NestedScrollingParen
         }
 
         /**
-         * Determine the anchor view for the child view this LayoutParams is assigned to.
-         * Assumes mAnchorId is valid.
+         * Determine the anchor view for the child view this LayoutParams is assigned(分配) to.
+         * Assumes(假设) mAnchorId is valid.
          */
         private void resolveAnchorView(final View forChild, final CoordinatorLayout parent) {
             mAnchorView = parent.findViewById(mAnchorId);
@@ -3086,11 +3086,11 @@ public class CoordinatorLayout extends ViewGroup implements NestedScrollingParen
 
         /**
          * Verify that the previously resolved anchor view is still valid - that it is still
-         * a descendant of the expected parent view, it is not the child this LayoutParams
+         * a descendant(后代) of the expected parent view, it is not the child this LayoutParams
          * is assigned to or a descendant of it, and it has the expected id.
          */
         private boolean verifyAnchorView(View forChild, CoordinatorLayout parent) {
-            if (mAnchorView.getId() != mAnchorId) {
+            if (mAnchorView.getId() != mAnchorId) {// 无效的锚
                 return false;
             }
 
