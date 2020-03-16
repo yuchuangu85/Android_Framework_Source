@@ -336,6 +336,9 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * cheapest possible way to reduce systematic lossage, as well as
      * to incorporate impact of the highest bits that would otherwise
      * never be used in index calculations because of table bounds.
+     *
+     * ^ (位异或运算)两个数转为二进制，然后从高位开始比较，如果相同则为0，不相同则为1。
+     * ~ (位非运算符)如果位为0，结果是1，如果位为1，结果是0.
      */
     static final int hash(Object key) {
         int h;

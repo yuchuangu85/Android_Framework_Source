@@ -1378,6 +1378,7 @@ public final class Integer extends Number implements Comparable<Integer> {
      * @return an {@code int} value with a single one-bit, in the position
      *     of the highest-order one-bit in the specified value, or zero if
      *     the specified value is itself equal to zero.
+     *     它将返回小于等于这个数字的一个2的幂次方数
      * @since 1.5
      */
     public static int highestOneBit(int i) {
