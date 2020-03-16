@@ -295,6 +295,7 @@ public class OverScroller {
     /**
      * Call this when you want to know the new location. If it returns true, the
      * animation is not yet finished.
+     * 通过调用该方法知道最新的滑动距离。如果返回true，说明动画还没有停止
      */
     public boolean computeScrollOffset() {
         if (isFinished()) {
@@ -302,10 +303,11 @@ public class OverScroller {
         }
 
         switch (mMode) {
-            case SCROLL_MODE:
+            case SCROLL_MODE:// 滚动模式
                 long time = AnimationUtils.currentAnimationTimeMillis();
                 // Any scroller can be used for time, since they were started
                 // together in scroll mode. We use X here.
+                // 已经运行的时间
                 final long elapsedTime = time - mScrollerX.mStartTime;
 
                 final int duration = mScrollerX.mDuration;
@@ -318,7 +320,7 @@ public class OverScroller {
                 }
                 break;
 
-            case FLING_MODE:
+            case FLING_MODE:// 惯性滚动模式
                 if (!mScrollerX.mFinished) {
                     if (!mScrollerX.update()) {
                         if (!mScrollerX.continueWhenFinished()) {

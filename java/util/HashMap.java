@@ -669,6 +669,10 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     }
 
     /**
+     * 1.7的transfer方法会存在扩容死循环问题
+     * 参考：https://www.jianshu.com/p/4d1cad21853b
+     * https://zhuanlan.zhihu.com/p/67915754
+     *
      * Initializes or doubles table size.  If null, allocates in
      * accord with initial capacity target held in field threshold.
      * Otherwise, because we are using power-of-two expansion, the

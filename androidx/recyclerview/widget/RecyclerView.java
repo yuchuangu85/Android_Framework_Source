@@ -5000,7 +5000,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
             // cause unexpected behaviors
             final OverScroller scroller = mScroller;
             final SmoothScroller smoothScroller = mLayout.mSmoothScroller;
-            if (scroller.computeScrollOffset()) {
+            if (scroller.computeScrollOffset()) {// 如果还在继续滚动
                 final int[] scrollConsumed = mScrollConsumed;
                 final int x = scroller.getCurrX();
                 final int y = scroller.getCurrY();
@@ -11433,7 +11433,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
 
     /**
      * Base class for smooth scrolling. Handles basic tracking of the target view position and
-     * provides methods to trigger a programmatic scroll.
+     * provides methods to trigger(触发) a programmatic(有计划的) scroll.
      *
      * <p>An instance of SmoothScroller is only intended to be used once.  You should create a new
      * instance for each call to {@link LayoutManager#startSmoothScroll(SmoothScroller)}.
