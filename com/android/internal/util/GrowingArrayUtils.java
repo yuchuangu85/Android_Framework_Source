@@ -146,12 +146,13 @@ public final class GrowingArrayUtils {
     public static int[] insert(int[] array, int currentSize, int index, int element) {
         assert currentSize <= array.length;
 
-        if (currentSize + 1 <= array.length) {
+        if (currentSize + 1 <= array.length) {// 数组位置充足
             System.arraycopy(array, index, array, index + 1, currentSize - index);
             array[index] = element;
             return array;
         }
 
+        // 数组已经满了，需要扩充容量
         int[] newArray = ArrayUtils.newUnpaddedIntArray(growSize(currentSize));
         System.arraycopy(array, 0, newArray, 0, index);
         newArray[index] = element;
@@ -203,6 +204,7 @@ public final class GrowingArrayUtils {
      * future.
      */
     public static int growSize(int currentSize) {
+        //扩容计算规则，当前容量小于5返回8；否则返回2倍的容量
         return currentSize <= 4 ? 8 : currentSize * 2;
     }
 
