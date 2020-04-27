@@ -23,13 +23,13 @@ import libcore.util.EmptyArray;
 
 /**
  * SparseArrays map integers to Objects.  Unlike a normal array of Objects,
- * there can be gaps in the indices.  It is intended to be more memory efficient
+ * there can be gaps（差距，间隙） in the indices（索引）.  It is intended to be more memory efficient（节约内存）
  * than using a HashMap to map Integers to Objects, both because it avoids
  * auto-boxing keys and its data structure doesn't rely on an extra entry object
  * for each mapping.
  *
  * <p>Note that this container keeps its mappings in an array data structure,
- * using a binary search to find keys.  The implementation is not intended to be appropriate for
+ * using a binary search to find keys.  The implementation is not intended to be appropriate（合适的） for
  * data structures
  * that may contain large numbers of items.  It is generally slower than a traditional
  * HashMap, since lookups require a binary search and adds and removes require inserting
@@ -48,12 +48,26 @@ import libcore.util.EmptyArray;
  * <code>keyAt(int)</code> with ascending values of the index will return the
  * keys in ascending order, or the values corresponding to the keys in ascending
  * order in the case of <code>valueAt(int)</code>.</p>
+ * <p>
+ * 稀疏数组（大部分数组未被使用或者为零）
+ * 1.key 和 value单独存入各自数组，内存是按照顺序排列的
+ * 2.比HashMap更节省内存，避免了封箱，和依赖额外的Entry对象
+ * 3.不适合存储大量的数据，比HashMap慢，因为增删查找都需要对数组进行二分查找，对于数百条数据的存储，性能影响不太严重
+ * 4.正序插入比倒序插入快的多
+ * 5.相同数据内存占用比HashMap少
+ * <p>
+ * 参考：
+ * https://www.jianshu.com/p/081b78dfe9f6
+ * https://www.jianshu.com/p/30a2bfb202b4
  */
 public class SparseArray<E> implements Cloneable {
     private static final Object DELETED = new Object();
+    // 是否需要GC
     private boolean mGarbage = false;
 
+    // 存储key的数组，有序的
     private int[] mKeys;
+    // 存储value的数组
     private Object[] mValues;
     private int mSize;
 
@@ -110,6 +124,7 @@ public class SparseArray<E> implements Cloneable {
      */
     @SuppressWarnings("unchecked")
     public E get(int key, E valueIfKeyNotFound) {
+        // 二分查找
         int i = ContainerHelpers.binarySearch(mKeys, mSize, key);
 
         if (i < 0 || mValues[i] == DELETED) {
@@ -123,6 +138,7 @@ public class SparseArray<E> implements Cloneable {
      * Removes the mapping from the specified key, if there was any.
      */
     public void delete(int key) {
+        // 二分查找
         int i = ContainerHelpers.binarySearch(mKeys, mSize, key);
 
         if (i >= 0) {
@@ -134,10 +150,10 @@ public class SparseArray<E> implements Cloneable {
     }
 
     /**
-     * @hide
-     * Removes the mapping from the specified key, if there was any, returning the old value.
+     *
      */
     public E removeReturnOld(int key) {
+        // 二分查找
         int i = ContainerHelpers.binarySearch(mKeys, mSize, key);
 
         if (i >= 0) {
@@ -175,10 +191,10 @@ public class SparseArray<E> implements Cloneable {
      * Remove a range of mappings as a batch.
      *
      * @param index Index to begin at
-     * @param size Number of mappings to remove
+     * @param size  Number of mappings to remove
      *
-     * <p>For indices outside of the range <code>0...size()-1</code>,
-     * the behavior is undefined.</p>
+     *              <p>For indices outside of the range <code>0...size()-1</code>,
+     *              the behavior is undefined.</p>
      */
     public void removeAtRange(int index, int size) {
         final int end = Math.min(mSize, index + size);
@@ -221,12 +237,13 @@ public class SparseArray<E> implements Cloneable {
      * was one.
      */
     public void put(int key, E value) {
+        // 二分超找是否有相同的key，返回index
         int i = ContainerHelpers.binarySearch(mKeys, mSize, key);
 
         if (i >= 0) {
             mValues[i] = value;
         } else {
-            i = ~i;
+            i = ~i;// 取反为要插入的位置
 
             if (i < mSize && mValues[i] == DELETED) {
                 mKeys[i] = key;
@@ -363,7 +380,6 @@ public class SparseArray<E> implements Cloneable {
      * and that multiple keys can map to the same value and this will
      * find only one of them.
      * <p>Note also that this method uses {@code equals} unlike {@code indexOfValue}.
-     * @hide
      */
     public int indexOfValueByValue(E value) {
         if (mGarbage) {
@@ -433,7 +449,7 @@ public class SparseArray<E> implements Cloneable {
 
         StringBuilder buffer = new StringBuilder(mSize * 28);
         buffer.append('{');
-        for (int i=0; i<mSize; i++) {
+        for (int i = 0; i < mSize; i++) {
             if (i > 0) {
                 buffer.append(", ");
             }

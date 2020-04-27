@@ -22,8 +22,8 @@ package androidx.collection;
  */
 public final class CircularArray<E> {
     private E[] mElements;
-    private int mHead;
-    private int mTail;
+    private int mHead;// 头
+    private int mTail;// 尾
     private int mCapacityBitmask;
 
     private void doubleCapacity() {

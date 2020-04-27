@@ -12679,7 +12679,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     }
 
     /**
-     * Called when the user-visibility of this View is potentially affected by a change
+     * Called when the user-visibility of this View is potentially(潜在的) affected by a change
      * to this view itself, an ancestor view or the window this view is attached to.
      *
      * @param isVisible true if this view and all of its ancestors(祖先) are {@link #VISIBLE}
