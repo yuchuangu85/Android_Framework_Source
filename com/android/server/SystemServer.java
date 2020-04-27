@@ -558,6 +558,7 @@ public final class SystemServer {
         // create critical directories such as /data/user with the appropriate
         // permissions.  We need this to complete before we initialize other services.
         traceBeginAndSlog("StartInstaller");
+        // 启动安装器
         Installer installer = mSystemServiceManager.startService(Installer.class);
         traceEnd();
 
