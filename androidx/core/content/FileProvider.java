@@ -16,9 +16,6 @@
 
 package androidx.core.content;
 
-import static org.xmlpull.v1.XmlPullParser.END_DOCUMENT;
-import static org.xmlpull.v1.XmlPullParser.START_TAG;
-
 import android.content.ContentProvider;
 import android.content.ContentValues;
 import android.content.Context;
@@ -36,10 +33,6 @@ import android.provider.OpenableColumns;
 import android.text.TextUtils;
 import android.webkit.MimeTypeMap;
 
-import androidx.annotation.GuardedBy;
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.File;
@@ -47,6 +40,13 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+
+import androidx.annotation.GuardedBy;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
+import static org.xmlpull.v1.XmlPullParser.END_DOCUMENT;
+import static org.xmlpull.v1.XmlPullParser.START_TAG;
 
 /**
  * FileProvider is a special subclass of {@link ContentProvider} that facilitates secure sharing
@@ -393,7 +393,7 @@ public class FileProvider extends ContentProvider {
     }
 
     /**
-     * Return a content URI for a given {@link File}. Specific temporary
+     * Return a content URI for a given {@link File}. Specific temporary(临时)
      * permissions for the content URI can be set with
      * {@link Context#grantUriPermission(String, Uri, int)}, or added
      * to an {@link Intent} by calling {@link Intent#setData(Uri) setData()} and then
@@ -414,6 +414,7 @@ public class FileProvider extends ContentProvider {
      */
     public static Uri getUriForFile(@NonNull Context context, @NonNull String authority,
             @NonNull File file) {
+        // 根据authority属性解析配置的Provider对应的xml文件
         final PathStrategy strategy = getPathStrategy(context, authority);
         return strategy.getUriForFile(file);
     }
@@ -594,6 +595,39 @@ public class FileProvider extends ContentProvider {
      * Parse and return {@link PathStrategy} for given authority as defined in
      * {@link #META_DATA_FILE_PROVIDER_PATHS} {@code <meta-data>}.
      *
+     * 在AndroidManifest.xml中配置：
+     *
+     * <provider
+     *  android:name="com.code.DownloadProvider"
+     *  android:authorities="${applicationId}.fileProvider"
+     *  android:exported="false"
+     *  android:grantUriPermissions="true">
+     *  <mete-data
+     *      android:name="android.support.FILE_PROVIDER_PATHS"
+     *      android:resource="@xml/app_file_paths"/>
+     *
+     * </provider>
+     *
+     * app_file_paths.xml
+     *
+     * <?xml version="1.0" encoding="utf-8"?>
+     * <paths>
+     *     <!-- new File("/") -->
+     *     <root-path name="root" path="my_root/" />
+     *     <!-- context.getFilesDir() -->
+     *     <files-path name="internal_files" path="my_internal_files/" />
+     *     <!-- context.getCacheDir() -->
+     *     <cache-path name="internal_cache" path="my_internal_cache/" />
+     *     <!-- Environment.getExternalStorageDirectory() -->
+     *     <external-path name="external" path="my_external/" />
+     *     <!-- Context.getExternalFilesDirs(context, null) -->
+     *     <external-files-path name="external_files" path="my_external_files/" />
+     *     <!-- Context.getExternalCacheDirs(context) -->
+     *     <external-cache-path name="external_cache" path="my_external_cache/" />
+     *     <!-- context.getExternalMediaDirs() -->
+     *     <external-media-path name="external_media" path="my_external_media/" />
+     * </paths>
+     *
      * @see #getPathStrategy(Context, String)
      */
     private static PathStrategy parsePathStrategy(Context context, String authority)
@@ -614,30 +648,32 @@ public class FileProvider extends ContentProvider {
             if (type == START_TAG) {
                 final String tag = in.getName();
 
+                // 解析配置xml中的name标签
                 final String name = in.getAttributeValue(null, ATTR_NAME);
+                // 解析配置xml中的path标签
                 String path = in.getAttributeValue(null, ATTR_PATH);
 
                 File target = null;
-                if (TAG_ROOT_PATH.equals(tag)) {
-                    target = DEVICE_ROOT;
-                } else if (TAG_FILES_PATH.equals(tag)) {
+                if (TAG_ROOT_PATH.equals(tag)) {// root-path
+                    target = DEVICE_ROOT; // new File("/")
+                } else if (TAG_FILES_PATH.equals(tag)) {// files-path
                     target = context.getFilesDir();
                 } else if (TAG_CACHE_PATH.equals(tag)) {
                     target = context.getCacheDir();
-                } else if (TAG_EXTERNAL.equals(tag)) {
+                } else if (TAG_EXTERNAL.equals(tag)) {// cache-path
                     target = Environment.getExternalStorageDirectory();
-                } else if (TAG_EXTERNAL_FILES.equals(tag)) {
+                } else if (TAG_EXTERNAL_FILES.equals(tag)) {// external-files-path
                     File[] externalFilesDirs = ContextCompat.getExternalFilesDirs(context, null);
                     if (externalFilesDirs.length > 0) {
                         target = externalFilesDirs[0];
                     }
-                } else if (TAG_EXTERNAL_CACHE.equals(tag)) {
+                } else if (TAG_EXTERNAL_CACHE.equals(tag)) {// external-cache-path
                     File[] externalCacheDirs = ContextCompat.getExternalCacheDirs(context);
                     if (externalCacheDirs.length > 0) {
                         target = externalCacheDirs[0];
                     }
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
-                        && TAG_EXTERNAL_MEDIA.equals(tag)) {
+                        && TAG_EXTERNAL_MEDIA.equals(tag)) {// external-media-path
                     File[] externalMediaDirs = context.getExternalMediaDirs();
                     if (externalMediaDirs.length > 0) {
                         target = externalMediaDirs[0];
@@ -706,7 +742,7 @@ public class FileProvider extends ContentProvider {
             }
 
             try {
-                // Resolve to canonical path to keep path checking fast
+                // Resolve to canonical（规范） path to keep path checking fast
                 root = root.getCanonicalFile();
             } catch (IOException e) {
                 throw new IllegalArgumentException(
@@ -725,7 +761,7 @@ public class FileProvider extends ContentProvider {
                 throw new IllegalArgumentException("Failed to resolve canonical path for " + file);
             }
 
-            // Find the most-specific root path
+            // Find the most-specific（具体的） root path
             Map.Entry<String, File> mostSpecific = null;
             for (Map.Entry<String, File> root : mRoots.entrySet()) {
                 final String rootPath = root.getValue().getPath();
