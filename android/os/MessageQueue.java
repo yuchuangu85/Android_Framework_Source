@@ -324,7 +324,8 @@ public final class MessageQueue {
             if (nextPollTimeoutMillis != 0) {
                 Binder.flushPendingCommands();
             }
-            // 进入阻塞状态，从而等待合适的时长
+            // 此时主线程会释放CPU资源进入休眠状态，直到下个消息到达或者有事务发生，
+            // 通过往pipe管道写端写入数据来唤醒主线程工作
             nativePollOnce(ptr, nextPollTimeoutMillis);
 
             synchronized (this) {
@@ -363,10 +364,15 @@ public final class MessageQueue {
                         return msg;
                     }
                 } else {
+                    // 通过前面的一步没有找到消息，说明消息队列已经空了
+                    // 先设置为-1,如果后面的没有可以执行的 IdleHandler，那么就一直阻塞下去
+                    // 直到有新的消息被唤醒
+                    // 如果后面有 可以执行的 IdleHandler，nextPollTimeoutMillis被赋值为 0
                     // No more messages.
                     nextPollTimeoutMillis = -1;
                 }
 
+                // 消息队列正在退出时返回null
                 // Process the quit message now that all pending messages have been handled.
                 if (mQuitting) {
                     dispose();
@@ -394,7 +400,7 @@ public final class MessageQueue {
 
             // Run the idle handlers.
             // We only ever reach this code block during the first iteration.
-            //只有第一次循环时，会运行idle handlers，执行完成后，重置pendingIdleHandlerCount为0
+            // 只有第一次循环时，会运行idle handlers，执行完成后，重置pendingIdleHandlerCount为0
             for (int i = 0; i < pendingIdleHandlerCount; i++) {
                 final IdleHandler idler = mPendingIdleHandlers[i];
                 mPendingIdleHandlers[i] = null; // release the reference to the handler
@@ -406,20 +412,20 @@ public final class MessageQueue {
                     Log.wtf(TAG, "IdleHandler threw exception", t);
                 }
 
-                if (!keep) {
+                if (!keep) {// 返回false移除
                     synchronized (this) {
                         mIdleHandlers.remove(idler);
                     }
                 }
             }
 
-            //重置idle handler个数为0，以保证不会再次重复运行
+            // 重置idle handler个数为0，以保证不会再次重复运行
             // Reset the idle handler count to 0 so we do not run them again.
             pendingIdleHandlerCount = 0;
 
             // While calling an idle handler, a new message could have been delivered
             // so go back and look again for a pending message without waiting.
-            //当调用一个空闲handler时，一个新message能够被分发，因此无需等待可以直接查询pending message.
+            // 当调用一个空闲handler时，一个新message能够被分发，因此无需等待可以直接查询pending message.
             nextPollTimeoutMillis = 0;
         }
     }
@@ -803,6 +809,8 @@ public final class MessageQueue {
     /**
      * Callback interface for discovering when a thread is going to block
      * waiting for more messages.
+     *
+     * https://wetest.qq.com/lab/view/352.html
      */
     public static interface IdleHandler {
         /**

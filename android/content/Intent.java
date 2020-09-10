@@ -8912,7 +8912,7 @@ public class Intent implements Parcelable, Cloneable {
                 case ACTION_PACKAGE_VERIFIED:
                     // Ignore legacy actions
                     break;
-                default:
+                default:// 检查是否是file:// 路径
                     mData.checkFileUriExposed("Intent.getData()");
             }
         }

@@ -891,7 +891,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
     static final int SCROLLBARS_MASK = 0x00000300;
 
     /**
-     * Indicates that the view should filter touches when its window is obscured.
+     * Indicates that the view should filter touches when its window is obscured(隐藏).
      * Refer to the class comments for more information about this security feature.
      * {@hide}
      */

@@ -5433,7 +5433,7 @@ public class PackageManagerService extends IPackageManager.Stub {
             }
         }
 
-        if (comp != null) {// 组件不为空也就是包含了包名类名
+        if (comp != null) {// 组件不为空也就是包含了包名类名（安装应用时是空的）
             final List<ResolveInfo> list = new ArrayList<ResolveInfo>(1);
             // 获取对应的Activity信息
             final ActivityInfo ai = getActivityInfo(comp, flags, userId);

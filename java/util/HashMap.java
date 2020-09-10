@@ -458,7 +458,7 @@ public class HashMap<K,V>
         for (HashMapEntry<K,V> e = table[i]; e != null; e = e.next) {
             Object k;
             /**
-             * 先判断hash值是否一样，如果一样，再判断key是否一样
+             * 先判断HASH值是否一样，如果一样，再判断key是否一样
              * 这里为什么判断两个：
              * 1.因为不同对象的hash值可能一样
              * 2.因为equal可能被重写了，重写后的equal的效率要低于hash的直接比较

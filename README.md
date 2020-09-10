@@ -2,17 +2,28 @@
 
 基于Android 25版本的framework源码，添加了详细注释。
 
-### 更新时间：
+## 更新时间：
 
----
-
-2019-04-10
+2020-07-28
 
 
+## 注释对应的系统版本
 
-###  博客：
+|类名或功能|系统版本名|sdk版本|分支|备注|
+|---|---|:---:|---|---|
+| Handler-Message-Looper | Android 7.1.1 | 25 | android_25 |  |
+| 四大组件 | Android 7.1.1 | 25 | android_25 |  |
+| 进程Process | Android 7.1.1 | 25 | android_25 |  |
+| View绘制流程 | Android 7.1.1 | 25 | android_25 |  |
+| IntentService | Android 7.1.1 | 25 | android_25 |  |
+| LocalBroadcastManager | Android 7.1.1 | 25 | android_25 |  |
+| AsyncTask | Android 7.1.1 | 25 | android_25 |  |
+| WindowManager | Android 7.1.1 | 25 | android_25 |  |
 
-----
+
+
+
+##  博客：
 
 * [Android系统源码分析--消息循环机制](http://codemx.cn/2017/07/13/AndroidOS004-HandleMessageLooper/)
 * [Android系统源码分析--Process启动过程](http://codemx.cn/2017/09/13/AndroidOS005-Process/)
@@ -27,9 +38,7 @@
 
 
 
-### 流程图：
-
-----
+## 流程图：
 
 <img src="/source/images/Android/AndroidOS.png" width="" height="" alt="Android系统结构"/>
 <img src="/source/images/Android/Zygote.jpg" width="" height="" alt="Zygote启动流程"/>

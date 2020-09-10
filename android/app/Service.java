@@ -612,7 +612,11 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
 
     /**
      * Old version of {@link #stopSelfResult} that doesn't return a result.
-     *  
+     *
+     * 注意下：回调完成后回调用 stopSelf(msg.arg1)，注意这个msg.arg1是个int值，相当于一个请求的唯一标识。
+     * 每发送一个请求，会生成一个唯一的标识，然后将请求放入队列，当全部执行完成(最后一个请求也就相当于getLastStartId == startId)，
+     * 或者当前发送的标识是最近发出的那一个（getLastStartId == startId），则会销毁我们的Service.如果传入的是-1则直接销毁。
+     *
      * @see #stopSelfResult
      */
     public final void stopSelf(int startId) {
@@ -620,6 +624,7 @@ public abstract class Service extends ContextWrapper implements ComponentCallbac
             return;
         }
         try {
+            // 调到ActivityManagerService中的stopServiceToken方法
             mActivityManager.stopServiceToken(
                     new ComponentName(this, mClassName), mToken, startId);
         } catch (RemoteException ex) {

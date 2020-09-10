@@ -2173,8 +2173,9 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             final boolean intercepted;
             if (actionMasked == MotionEvent.ACTION_DOWN
                     || mFirstTouchTarget != null) {
+                // 不允许拦截
                 final boolean disallowIntercept = (mGroupFlags & FLAG_DISALLOW_INTERCEPT) != 0;
-                if (!disallowIntercept) {
+                if (!disallowIntercept) {// 允许拦截
                     intercepted = onInterceptTouchEvent(ev);
                     ev.setAction(action); // restore action in case it was changed
                 } else {

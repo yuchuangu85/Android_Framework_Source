@@ -443,6 +443,7 @@ final class ServiceRecord extends Binder {
         return lastStartId;
     }
 
+    // 生成一个唯一的id
     public int makeNextStartId() {
         lastStartId++;
         if (lastStartId < 1) {

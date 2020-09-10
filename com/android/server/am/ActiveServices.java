@@ -400,7 +400,7 @@ public final class ActiveServices {
         r.lastActivity = SystemClock.uptimeMillis();
         r.startRequested = true;// 显示启动
         r.delayedStop = false;
-        // 加入启动服务列表
+        // 加入启动服务列表，r.makeNextStartId()会生成一个唯一的id对应相应的Service
         r.pendingStarts.add(new ServiceRecord.StartItem(r, false, r.makeNextStartId(),
                 service, neededGrants));
 
