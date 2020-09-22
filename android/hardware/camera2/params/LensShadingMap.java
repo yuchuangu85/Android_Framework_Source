@@ -16,13 +16,21 @@
 
 package android.hardware.camera2.params;
 
-import static com.android.internal.util.Preconditions.*;
-import static android.hardware.camera2.params.RggbChannelVector.*;
+import static android.hardware.camera2.params.RggbChannelVector.BLUE;
+import static android.hardware.camera2.params.RggbChannelVector.COUNT;
+import static android.hardware.camera2.params.RggbChannelVector.GREEN_EVEN;
+import static android.hardware.camera2.params.RggbChannelVector.GREEN_ODD;
+import static android.hardware.camera2.params.RggbChannelVector.RED;
+
+import static com.android.internal.util.Preconditions.checkArgumentNonnegative;
+import static com.android.internal.util.Preconditions.checkArgumentPositive;
+import static com.android.internal.util.Preconditions.checkArrayElementsInRange;
 
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.utils.HashCodeHelpers;
 
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Immutable class for describing a {@code 4 x N x M} lens shading map of floats.
@@ -62,7 +70,7 @@ public final class LensShadingMap {
 
         mRows = checkArgumentPositive(rows, "rows must be positive");
         mColumns = checkArgumentPositive(columns, "columns must be positive");
-        mElements = checkNotNull(elements, "elements must not be null");
+        mElements = Objects.requireNonNull(elements, "elements must not be null");
 
         if (elements.length != getGainFactorCount()) {
             throw new IllegalArgumentException("elements must be " + getGainFactorCount() +
@@ -117,10 +125,10 @@ public final class LensShadingMap {
      *
      * @throws IllegalArgumentException if any of the parameters was out of range
      *
-     * @see #RED
-     * @see #GREEN_EVEN
-     * @see #GREEN_ODD
-     * @see #BLUE
+     * @see RggbChannelVector#RED
+     * @see RggbChannelVector#GREEN_EVEN
+     * @see RggbChannelVector#GREEN_ODD
+     * @see RggbChannelVector#BLUE
      * @see #getRowCount
      * @see #getColumnCount
      */
@@ -191,11 +199,11 @@ public final class LensShadingMap {
      *          If there's not enough room to write the elements at the specified destination and
      *          offset.
      *
-     * @see CaptureResult#STATISTICS_LENS_SHADING_MAP
+     * @see CaptureResult#STATISTICS_LENS_SHADING_CORRECTION_MAP
      */
     public void copyGainFactors(final float[] destination, final int offset) {
         checkArgumentNonnegative(offset, "offset must not be negative");
-        checkNotNull(destination, "destination must not be null");
+        Objects.requireNonNull(destination, "destination must not be null");
         if (destination.length + offset < getGainFactorCount()) {
             throw new ArrayIndexOutOfBoundsException("destination too small to fit elements");
         }

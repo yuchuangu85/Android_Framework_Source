@@ -16,23 +16,31 @@
 
 package android.text.format;
 
-import com.android.internal.R;
-
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.icu.text.MeasureFormat;
+import android.icu.text.MeasureFormat.FormatWidth;
+import android.icu.util.Measure;
+import android.icu.util.MeasureUnit;
+
+import com.android.internal.R;
+
+import libcore.icu.DateIntervalFormat;
+import libcore.icu.LocaleData;
+import libcore.icu.RelativeDateTimeFormatter;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Formatter;
 import java.util.GregorianCalendar;
 import java.util.Locale;
 import java.util.TimeZone;
-
-import libcore.icu.DateIntervalFormat;
-import libcore.icu.LocaleData;
-import libcore.icu.RelativeDateTimeFormatter;
 
 /**
  * This class contains various date-related utilities for creating text for things like
@@ -51,8 +59,12 @@ public class DateUtils
     public static final long DAY_IN_MILLIS = HOUR_IN_MILLIS * 24;
     public static final long WEEK_IN_MILLIS = DAY_IN_MILLIS * 7;
     /**
-     * This constant is actually the length of 364 days, not of a year!
+     * @deprecated Not all years have the same number of days, and this constant is actually the
+     * length of 364 days. Please use other date/time constructs such as
+     * {@link java.util.concurrent.TimeUnit}, {@link java.util.Calendar} or
+     * {@link java.time.Duration} instead.
      */
+    @Deprecated
     public static final long YEAR_IN_MILLIS = WEEK_IN_MILLIS * 52;
 
     // The following FORMAT_* symbols are used for specifying the format of
@@ -116,9 +128,11 @@ public class DateUtils
     public static final String ABBREV_WEEKDAY_FORMAT = "%a";
 
     /** @deprecated Do not use. */
+    @Deprecated
     public static final int[] sameYearTable = null;
 
     /** @deprecated Do not use. */
+    @Deprecated
     public static final int[] sameMonthTable = null;
 
     /**
@@ -349,26 +363,56 @@ public class DateUtils
     }
 
     /**
-     * Return given duration in a human-friendly format. For example, "4
-     * minutes" or "1 second". Returns only largest meaningful unit of time,
+     * Returns the given duration in a human-friendly format. For example,
+     * "4 minutes" or "1 second". Returns only the largest meaningful unit of time,
      * from seconds up to hours.
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static CharSequence formatDuration(long millis) {
-        final Resources res = Resources.getSystem();
+        return formatDuration(millis, LENGTH_LONG);
+    }
+
+    /**
+     * Returns the given duration in a human-friendly format. For example,
+     * "4 minutes" or "1 second". Returns only the largest meaningful unit of time,
+     * from seconds up to hours.
+     * <p>
+     * You can use abbrev to specify a preference for abbreviations (but note that some
+     * locales may not have abbreviations). Use LENGTH_LONG for the full spelling (e.g. "2 hours"),
+     * LENGTH_SHORT for the abbreviated spelling if available (e.g. "2 hr"), and LENGTH_SHORTEST for
+     * the briefest form available (e.g. "2h").
+     * @hide
+     */
+    @UnsupportedAppUsage
+    public static CharSequence formatDuration(long millis, int abbrev) {
+        final FormatWidth width;
+        switch (abbrev) {
+            case LENGTH_LONG:
+                width = FormatWidth.WIDE;
+                break;
+            case LENGTH_SHORT:
+            case LENGTH_SHORTER:
+            case LENGTH_MEDIUM:
+                width = FormatWidth.SHORT;
+                break;
+            case LENGTH_SHORTEST:
+                width = FormatWidth.NARROW;
+                break;
+            default:
+                width = FormatWidth.WIDE;
+        }
+        final MeasureFormat formatter = MeasureFormat.getInstance(Locale.getDefault(), width);
         if (millis >= HOUR_IN_MILLIS) {
             final int hours = (int) ((millis + 1800000) / HOUR_IN_MILLIS);
-            return res.getQuantityString(
-                    com.android.internal.R.plurals.duration_hours, hours, hours);
+            return formatter.format(new Measure(hours, MeasureUnit.HOUR));
         } else if (millis >= MINUTE_IN_MILLIS) {
             final int minutes = (int) ((millis + 30000) / MINUTE_IN_MILLIS);
-            return res.getQuantityString(
-                    com.android.internal.R.plurals.duration_minutes, minutes, minutes);
+            return formatter.format(new Measure(minutes, MeasureUnit.MINUTE));
         } else {
             final int seconds = (int) ((millis + 500) / SECOND_IN_MILLIS);
-            return res.getQuantityString(
-                    com.android.internal.R.plurals.duration_seconds, seconds, seconds);
+            return formatter.format(new Measure(seconds, MeasureUnit.SECOND));
         }
     }
 
@@ -465,17 +509,21 @@ public class DateUtils
      * @return true if the supplied when is today else false
      */
     public static boolean isToday(long when) {
-        Time time = new Time();
-        time.set(when);
+        return isSameDate(when, System.currentTimeMillis());
+    }
 
-        int thenYear = time.year;
-        int thenMonth = time.month;
-        int thenMonthDay = time.monthDay;
+    private static boolean isSameDate(long oneMillis, long twoMillis) {
+        ZoneId zoneId = ZoneId.systemDefault();
 
-        time.set(System.currentTimeMillis());
-        return (thenYear == time.year)
-                && (thenMonth == time.month)
-                && (thenMonthDay == time.monthDay);
+        Instant oneInstant = Instant.ofEpochMilli(oneMillis);
+        LocalDateTime oneLocalDateTime = LocalDateTime.ofInstant(oneInstant, zoneId);
+
+        Instant twoInstant = Instant.ofEpochMilli(twoMillis);
+        LocalDateTime twoLocalDateTime = LocalDateTime.ofInstant(twoInstant, zoneId);
+
+        return (oneLocalDateTime.getYear() == twoLocalDateTime.getYear())
+                && (oneLocalDateTime.getMonthValue() == twoLocalDateTime.getMonthValue())
+                && (oneLocalDateTime.getDayOfMonth() == twoLocalDateTime.getDayOfMonth());
     }
 
     /**

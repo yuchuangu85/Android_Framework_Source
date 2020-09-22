@@ -17,7 +17,10 @@
 package android.net.metrics;
 
 import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.annotation.TestApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.SparseArray;
@@ -32,63 +35,111 @@ import java.lang.annotation.RetentionPolicy;
  * {@hide}
  */
 @SystemApi
-public final class ValidationProbeEvent implements Parcelable {
+@TestApi
+public final class ValidationProbeEvent implements IpConnectivityLog.Event {
 
     public static final int PROBE_DNS       = 0;
     public static final int PROBE_HTTP      = 1;
     public static final int PROBE_HTTPS     = 2;
     public static final int PROBE_PAC       = 3;
-    /** {@hide} */
     public static final int PROBE_FALLBACK  = 4;
+    public static final int PROBE_PRIVDNS   = 5;
 
     public static final int DNS_FAILURE = 0;
     public static final int DNS_SUCCESS = 1;
 
-    /** {@hide} */
-    @IntDef(value = {PROBE_DNS, PROBE_HTTP, PROBE_HTTPS, PROBE_PAC})
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface ProbeType {}
+    private static final int FIRST_VALIDATION  = 1 << 8;
+    private static final int REVALIDATION      = 2 << 8;
 
-    /** {@hide} */
+    /** @hide */
     @IntDef(value = {DNS_FAILURE, DNS_SUCCESS})
     @Retention(RetentionPolicy.SOURCE)
     public @interface ReturnCode {}
 
-    public final int netId;
+    /** @hide */
     public final long durationMs;
-    public final @ProbeType int probeType;
+    // probeType byte format (MSB to LSB):
+    // byte 0: unused
+    // byte 1: unused
+    // byte 2: 0 = UNKNOWN, 1 = FIRST_VALIDATION, 2 = REVALIDATION
+    // byte 3: PROBE_* constant
+    /** @hide */
+    public final int probeType;
+    /** @hide */
     public final @ReturnCode int returnCode;
 
-    /** {@hide} */
-    public ValidationProbeEvent(
-            int netId, long durationMs, @ProbeType int probeType, @ReturnCode int returnCode) {
-        this.netId = netId;
+    private ValidationProbeEvent(long durationMs, int probeType, int returnCode) {
         this.durationMs = durationMs;
         this.probeType = probeType;
         this.returnCode = returnCode;
     }
 
     private ValidationProbeEvent(Parcel in) {
-        netId = in.readInt();
         durationMs = in.readLong();
         probeType = in.readInt();
         returnCode = in.readInt();
     }
 
+    /**
+     * Utility to create an instance of {@link ValidationProbeEvent}.
+     */
+    public static final class Builder {
+        private long mDurationMs;
+        private int mProbeType;
+        private int mReturnCode;
+
+        /**
+         * Set the duration of the probe in milliseconds.
+         */
+        @NonNull
+        public Builder setDurationMs(long durationMs) {
+            mDurationMs = durationMs;
+            return this;
+        }
+
+        /**
+         * Set the probe type based on whether it was the first validation.
+         */
+        @NonNull
+        public Builder setProbeType(int probeType, boolean firstValidation) {
+            mProbeType = makeProbeType(probeType, firstValidation);
+            return this;
+        }
+
+        /**
+         * Set the return code of the probe.
+         */
+        @NonNull
+        public Builder setReturnCode(int returnCode) {
+            mReturnCode = returnCode;
+            return this;
+        }
+
+        /**
+         * Create a new {@link ValidationProbeEvent}.
+         */
+        @NonNull
+        public ValidationProbeEvent build() {
+            return new ValidationProbeEvent(mDurationMs, mProbeType, mReturnCode);
+        }
+    }
+
+    /** @hide */
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        out.writeInt(netId);
         out.writeLong(durationMs);
         out.writeInt(probeType);
         out.writeInt(returnCode);
     }
 
+    /** @hide */
     @Override
     public int describeContents() {
         return 0;
     }
 
-    public static final Parcelable.Creator<ValidationProbeEvent> CREATOR
+    /** @hide */
+    public static final @android.annotation.NonNull Parcelable.Creator<ValidationProbeEvent> CREATOR
         = new Parcelable.Creator<ValidationProbeEvent>() {
         public ValidationProbeEvent createFromParcel(Parcel in) {
             return new ValidationProbeEvent(in);
@@ -99,22 +150,40 @@ public final class ValidationProbeEvent implements Parcelable {
         }
     };
 
-    /** @hide */
-    public static String getProbeName(int probeType) {
-        return Decoder.constants.get(probeType, "PROBE_???");
+    private static int makeProbeType(int probeType, boolean firstValidation) {
+        return (probeType & 0xff) | (firstValidation ? FIRST_VALIDATION : REVALIDATION);
     }
 
-    public static void logEvent(int netId, long durationMs, int probeType, int returnCode) {
+    /**
+     * Get the name of a probe specified by its probe type.
+     */
+    public static @NonNull String getProbeName(int probeType) {
+        return Decoder.constants.get(probeType & 0xff, "PROBE_???");
+    }
+
+    private static @NonNull String getValidationStage(int probeType) {
+        return Decoder.constants.get(probeType & 0xff00, "UNKNOWN");
+    }
+
+    @NonNull
+    @Override
+    public String toString() {
+        return String.format("ValidationProbeEvent(%s:%d %s, %dms)",
+                getProbeName(probeType), returnCode, getValidationStage(probeType), durationMs);
     }
 
     @Override
-    public String toString() {
-        return String.format("ValidationProbeEvent(%d, %s:%d, %dms)",
-                netId, getProbeName(probeType), returnCode, durationMs);
+    public boolean equals(@Nullable Object obj) {
+        if (obj == null || !(obj.getClass().equals(ValidationProbeEvent.class))) return false;
+        final ValidationProbeEvent other = (ValidationProbeEvent) obj;
+        return durationMs == other.durationMs
+                && probeType == other.probeType
+                && returnCode == other.returnCode;
     }
 
     final static class Decoder {
         static final SparseArray<String> constants = MessageUtils.findMessageNames(
-                new Class[]{ValidationProbeEvent.class}, new String[]{"PROBE_"});
+                new Class[]{ValidationProbeEvent.class},
+                new String[]{"PROBE_", "FIRST_", "REVALIDATION"});
     }
 }

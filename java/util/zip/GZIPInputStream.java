@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@ package java.util.zip;
 
 import java.io.SequenceInputStream;
 import java.io.ByteArrayInputStream;
+import java.io.FilterInputStream;
 import java.io.InputStream;
 import java.io.IOException;
 import java.io.EOFException;
@@ -70,11 +71,21 @@ class GZIPInputStream extends InflaterInputStream {
      * @exception ZipException if a GZIP format error has occurred or the
      *                         compression method used is unsupported
      * @exception IOException if an I/O error has occurred
-     * @exception IllegalArgumentException if size is <= 0
+     * @exception IllegalArgumentException if {@code size <= 0}
      */
     public GZIPInputStream(InputStream in, int size) throws IOException {
         super(in, new Inflater(true), size);
-        readHeader(in);
+        // Android-removed: Unconditionally close external inflaters (b/26462400)
+        // usesDefaultInflater = true;
+        // BEGIN Android-changed: Do not rely on finalization to inf.end().
+        // readHeader(in);
+        try {
+            readHeader(in);
+        } catch (Exception e) {
+            inf.end();
+            throw e;
+        }
+        // END Android-changed: Do not rely on finalization to inf.end().
     }
 
     /**
@@ -211,7 +222,10 @@ class GZIPInputStream extends InflaterInputStream {
         int n = inf.getRemaining();
         if (n > 0) {
             in = new SequenceInputStream(
-                        new ByteArrayInputStream(buf, len - n, n), in);
+                        new ByteArrayInputStream(buf, len - n, n),
+                        new FilterInputStream(in) {
+                            public void close() throws IOException {}
+                        });
         }
         // Uses left-to-right evaluation order
         if ((readUInt(in) != crc.getValue()) ||
@@ -251,7 +265,7 @@ class GZIPInputStream extends InflaterInputStream {
      */
     private int readUShort(InputStream in) throws IOException {
         int b = readUByte(in);
-        return ((int)readUByte(in) << 8) | b;
+        return (readUByte(in) << 8) | b;
     }
 
     /*

@@ -16,10 +16,12 @@
 
 package android.media;
 
-import java.nio.ByteBuffer;
-import java.lang.AutoCloseable;
-
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Rect;
+import android.hardware.HardwareBuffer;
+
+import java.nio.ByteBuffer;
 
 /**
  * <p>A single complete image buffer to use with a media source such as a
@@ -31,7 +33,7 @@ import android.graphics.Rect;
  * {@link java.nio.ByteBuffer ByteBuffers}. Each buffer is encapsulated in a
  * {@link Plane} that describes the layout of the pixel data in that plane. Due
  * to this direct access, and unlike the {@link android.graphics.Bitmap Bitmap} class,
- * Images are not directly usable as as UI resources.</p>
+ * Images are not directly usable as UI resources.</p>
  *
  * <p>Since Images are often directly produced or consumed by hardware
  * components, they are a limited resource shared across the system, and should
@@ -55,6 +57,7 @@ public abstract class Image implements AutoCloseable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     protected Image() {
     }
 
@@ -71,7 +74,7 @@ public abstract class Image implements AutoCloseable {
     /**
      * Get the format for this image. This format determines the number of
      * ByteBuffers needed to represent the image, and the general layout of the
-     * pixel data in each in ByteBuffer.
+     * pixel data in each ByteBuffer.
      *
      * <p>
      * The format is one of the values from
@@ -151,6 +154,13 @@ public abstract class Image implements AutoCloseable {
      *   UnSupportedOperationException being thrown.
      *   </td>
      * </tr>
+     * <tr>
+     *   <td>{@link android.graphics.ImageFormat#HEIC HEIC}</td>
+     *   <td>1</td>
+     *   <td>Compressed data, so row and pixel strides are 0. To uncompress, use
+     *      {@link android.graphics.BitmapFactory#decodeByteArray BitmapFactory#decodeByteArray}.
+     *   </td>
+     * </tr>
      * </table>
      *
      * @see android.graphics.ImageFormat
@@ -182,6 +192,38 @@ public abstract class Image implements AutoCloseable {
      * </p>
      */
     public abstract long getTimestamp();
+
+    /**
+     * Get the transformation associated with this frame.
+     * @return The window transformation that needs to be applied for this frame.
+     * @hide
+     */
+    public abstract int getTransform();
+
+    /**
+     * Get the scaling mode associated with this frame.
+     * @return The scaling mode that needs to be applied for this frame.
+     * @hide
+     */
+    public abstract int getScalingMode();
+
+    /**
+     * Get the {@link android.hardware.HardwareBuffer HardwareBuffer} handle of the input image
+     * intended for GPU and/or hardware access.
+     * <p>
+     * The returned {@link android.hardware.HardwareBuffer HardwareBuffer} shall not be used
+     * after  {@link Image#close Image.close()} has been called.
+     * </p>
+     * @return the HardwareBuffer associated with this Image or null if this Image doesn't support
+     * this feature. (Unsupported use cases include Image instances obtained through
+     * {@link android.media.MediaCodec MediaCodec}, and on versions prior to Android P,
+     * {@link android.media.ImageWriter ImageWriter}).
+     */
+    @Nullable
+    public HardwareBuffer getHardwareBuffer() {
+        throwISEIfImageIsInvalid();
+        return null;
+    }
 
     /**
      * Set the timestamp associated with this frame.
@@ -344,6 +386,7 @@ public abstract class Image implements AutoCloseable {
         /**
          * @hide
          */
+        @UnsupportedAppUsage
         protected Plane() {
         }
 
@@ -351,7 +394,7 @@ public abstract class Image implements AutoCloseable {
          * <p>The row stride for this color plane, in bytes.</p>
          *
          * <p>This is the distance between the start of two consecutive rows of
-         * pixels in the image. Note that row stried is undefined for some formats
+         * pixels in the image. Note that row stride is undefined for some formats
          * such as
          * {@link android.graphics.ImageFormat#RAW_PRIVATE RAW_PRIVATE},
          * and calling getRowStride on images of these formats will

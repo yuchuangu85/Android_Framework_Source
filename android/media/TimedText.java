@@ -16,13 +16,15 @@
 
 package android.media;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Rect;
 import android.os.Parcel;
 import android.util.Log;
-import java.util.HashMap;
-import java.util.Set;
-import java.util.List;
+
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Class to hold the timed text's metadata, including:
@@ -360,6 +362,16 @@ public final class TimedText
             mKeyObjectMap.clear();
             throw new IllegalArgumentException("parseParcel() fails");
         }
+    }
+
+    /**
+     * @param text the characters in the timed text.
+     * @param bounds the rectangle area or region for rendering the timed text.
+     * {@hide}
+     */
+    public TimedText(String text, Rect bounds) {
+        mTextChars = text;
+        mTextBounds = bounds;
     }
 
     /**
@@ -724,6 +736,7 @@ public final class TimedText
      * List of CharPos, Karaoke, Font, Style, and HyperText, or 3) an instance of
      * Justification.
      */
+    @UnsupportedAppUsage
     private Object getObject(final int key) {
         if (containsKey(key)) {
             return mKeyObjectMap.get(key);

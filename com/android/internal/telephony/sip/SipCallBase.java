@@ -17,21 +17,12 @@
 package com.android.internal.telephony.sip;
 
 import com.android.internal.telephony.Call;
-import com.android.internal.telephony.Connection;
-import java.util.Iterator;
-import java.util.List;
 
 abstract class SipCallBase extends Call {
 
     @Override
-    public List<Connection> getConnections() {
-        // FIXME should return Collections.unmodifiableList();
-        return mConnections;
-    }
-
-    @Override
     public boolean isMultiparty() {
-        return mConnections.size() > 1;
+        return getConnectionsCount() > 1;
     }
 
     @Override

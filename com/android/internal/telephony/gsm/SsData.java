@@ -19,11 +19,9 @@
 
 package com.android.internal.telephony.gsm;
 
-import android.telephony.Rlog;
 import com.android.internal.telephony.CallForwardInfo;
 import com.android.internal.telephony.GsmCdmaPhone;
-
-import java.util.ArrayList;
+import com.android.telephony.Rlog;
 
 /**
  * See also RIL_StkCcUnsolSsResponse in include/telephony/ril.h

@@ -673,6 +673,13 @@ implements X509Extension {
     public void verify(PublicKey key, Provider sigProvider)
         throws CertificateException, NoSuchAlgorithmException,
         InvalidKeyException, SignatureException {
-        X509CertImpl.verify(this, key, sigProvider);
+        // Android-changed: Eliminate infinite recursion in default implementation.
+        // The method X509CertImpl calls this method, thus entering an
+        // infinite recursive loop. This strange behaviour was checked to be not
+        // specific to libcore by running a test with vogar --mode=jvm.
+        // This is fixed upstream in OpenJDK 10.
+        //
+        // X509CertImpl.verify(this, key, sigProvider);
+        super.verify(key, sigProvider);
     }
 }

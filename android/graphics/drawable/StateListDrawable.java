@@ -16,6 +16,15 @@
 
 package android.graphics.drawable;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.res.Resources;
+import android.content.res.Resources.Theme;
+import android.content.res.TypedArray;
+import android.util.AttributeSet;
+import android.util.StateSet;
+
 import com.android.internal.R;
 
 import org.xmlpull.v1.XmlPullParser;
@@ -23,14 +32,6 @@ import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
 import java.util.Arrays;
-
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.content.res.Resources;
-import android.content.res.TypedArray;
-import android.content.res.Resources.Theme;
-import android.util.AttributeSet;
-import android.util.StateSet;
 
 /**
  * Lets you assign a number of graphic images to a single Drawable and swap out the visible item by a string
@@ -63,6 +64,7 @@ public class StateListDrawable extends DrawableContainer {
 
     private static final boolean DEBUG = false;
 
+    @UnsupportedAppUsage
     private StateListState mStateListState;
     private boolean mMutated;
 
@@ -73,9 +75,11 @@ public class StateListDrawable extends DrawableContainer {
     /**
      * Add a new image/string ID to the set of images.
      *
-     * @param stateSet - An array of resource Ids to associate with the image.
+     * @param stateSet An array of resource Ids to associate with the image.
      *                 Switch to this image by calling setState().
-     * @param drawable -The image to show.
+     * @param drawable The image to show. Note this must be a unique Drawable that is not shared
+     *                 between any other View or Drawable otherwise the results are
+     *                 undefined and can lead to unexpected rendering behavior
      */
     public void addState(int[] stateSet, Drawable drawable) {
         if (drawable != null) {
@@ -88,6 +92,12 @@ public class StateListDrawable extends DrawableContainer {
     @Override
     public boolean isStateful() {
         return true;
+    }
+
+    /** @hide */
+    @Override
+    public boolean hasFocusStateSpecified() {
+        return mStateListState.hasFocusStateSpecified();
     }
 
     @Override
@@ -121,6 +131,7 @@ public class StateListDrawable extends DrawableContainer {
     /**
      * Updates the constant state from the values in the typed array.
      */
+    @UnsupportedAppUsage
     private void updateStateFromTypedArray(TypedArray a) {
         final StateListState state = mStateListState;
 
@@ -198,6 +209,7 @@ public class StateListDrawable extends DrawableContainer {
      * @param attrs The attribute set.
      * @return An array of state_ attributes.
      */
+    @UnsupportedAppUsage
     int[] extractStateSet(AttributeSet attrs) {
         int j = 0;
         final int numAttrs = attrs.getAttributeCount();
@@ -229,7 +241,6 @@ public class StateListDrawable extends DrawableContainer {
      * Gets the number of states contained in this drawable.
      *
      * @return The number of states contained in this drawable.
-     * @hide pending API council
      * @see #getStateSet(int)
      * @see #getStateDrawable(int)
      */
@@ -242,11 +253,10 @@ public class StateListDrawable extends DrawableContainer {
      *
      * @param index The index of the state set.
      * @return The state set at the index.
-     * @hide pending API council
      * @see #getStateCount()
      * @see #getStateDrawable(int)
      */
-    public int[] getStateSet(int index) {
+    public @NonNull int[] getStateSet(int index) {
         return mStateListState.mStateSets[index];
     }
 
@@ -255,11 +265,10 @@ public class StateListDrawable extends DrawableContainer {
      *
      * @param index The index of the drawable.
      * @return The drawable at the index.
-     * @hide pending API council
      * @see #getStateCount()
      * @see #getStateSet(int)
      */
-    public Drawable getStateDrawable(int index) {
+    public @Nullable Drawable getStateDrawable(int index) {
         return mStateListState.getChild(index);
     }
 
@@ -268,11 +277,10 @@ public class StateListDrawable extends DrawableContainer {
      *
      * @param stateSet the state set to look up
      * @return the index of the provided state set, or -1 if not found
-     * @hide pending API council
      * @see #getStateDrawable(int)
      * @see #getStateSet(int)
      */
-    public int getStateDrawableIndex(int[] stateSet) {
+    public int findStateDrawableIndex(@NonNull int[] stateSet) {
         return mStateListState.indexOfStateSet(stateSet);
     }
 
@@ -325,6 +333,7 @@ public class StateListDrawable extends DrawableContainer {
             mStateSets = stateSets;
         }
 
+        @UnsupportedAppUsage
         int addStateSet(int[] stateSet, Drawable drawable) {
             final int pos = addChild(drawable);
             mStateSets[pos] = stateSet;
@@ -340,6 +349,10 @@ public class StateListDrawable extends DrawableContainer {
                 }
             }
             return -1;
+        }
+
+        boolean hasFocusStateSpecified() {
+            return StateSet.containsAttribute(mStateSets, R.attr.state_focused);
         }
 
         @Override

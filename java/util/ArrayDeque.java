@@ -27,6 +27,7 @@
  * License version 2 only, as published by the Free Software Foundation.
  * However, the following notice accompanied the original version of this
  * file:
+ *
  * Written by Josh Bloch of Google Inc. and released to the public domain,
  * as explained at http://creativecommons.org/publicdomain/zero/1.0/.
  */
@@ -158,6 +159,12 @@ public class ArrayDeque<E> extends AbstractCollection<E>
         Object[] a = new Object[newCapacity];
         System.arraycopy(elements, p, a, 0, r);
         System.arraycopy(elements, 0, a, r, p);
+        // Android-added: Clear old array instance that's about to become eligible for GC.
+        // This ensures that array elements can be eligible for garbage collection even
+        // before the array itself is recognized as being eligible; the latter might
+        // take a while in some GC implementations, if the array instance is longer lived
+        // (its liveness rarely checked) than some of its contents.
+        Arrays.fill(elements, null);
         elements = a;
         head = 0;
         tail = n;
@@ -907,7 +914,7 @@ public class ArrayDeque<E> extends AbstractCollection<E>
      * @since 1.8
      */
     public Spliterator<E> spliterator() {
-        return new DeqSpliterator<E>(this, -1, -1);
+        return new DeqSpliterator<>(this, -1, -1);
     }
 
     static final class DeqSpliterator<E> implements Spliterator<E> {

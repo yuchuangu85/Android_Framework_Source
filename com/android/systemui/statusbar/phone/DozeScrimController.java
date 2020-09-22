@@ -16,64 +16,95 @@
 
 package com.android.systemui.statusbar.phone;
 
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
-import android.animation.ValueAnimator;
 import android.annotation.NonNull;
-import android.content.Context;
 import android.os.Handler;
 import android.util.Log;
-import android.view.animation.Interpolator;
 
-import com.android.systemui.Interpolators;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.systemui.Dependency;
 import com.android.systemui.doze.DozeHost;
 import com.android.systemui.doze.DozeLog;
+import com.android.systemui.plugins.statusbar.StatusBarStateController;
+import com.android.systemui.plugins.statusbar.StatusBarStateController.StateListener;
+
+import javax.inject.Inject;
+import javax.inject.Singleton;
 
 /**
  * Controller which handles all the doze animations of the scrims.
  */
-public class DozeScrimController {
+@Singleton
+public class DozeScrimController implements StateListener {
     private static final String TAG = "DozeScrimController";
     private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
+    private final DozeLog mDozeLog;
     private final DozeParameters mDozeParameters;
     private final Handler mHandler = new Handler();
-    private final ScrimController mScrimController;
 
     private boolean mDozing;
     private DozeHost.PulseCallback mPulseCallback;
     private int mPulseReason;
-    private Animator mInFrontAnimator;
-    private Animator mBehindAnimator;
-    private float mInFrontTarget;
-    private float mBehindTarget;
+    private boolean mFullyPulsing;
 
-    public DozeScrimController(ScrimController scrimController, Context context) {
-        mScrimController = scrimController;
-        mDozeParameters = new DozeParameters(context);
+    private final ScrimController.Callback mScrimCallback = new ScrimController.Callback() {
+        @Override
+        public void onDisplayBlanked() {
+            if (DEBUG) {
+                Log.d(TAG, "Pulse in, mDozing=" + mDozing + " mPulseReason="
+                        + DozeLog.reasonToString(mPulseReason));
+            }
+            if (!mDozing) {
+                return;
+            }
+
+            // Signal that the pulse is ready to turn the screen on and draw.
+            pulseStarted();
+        }
+
+        @Override
+        public void onFinished() {
+            if (DEBUG) {
+                Log.d(TAG, "Pulse in finished, mDozing=" + mDozing);
+            }
+            if (!mDozing) {
+                return;
+            }
+            // Notifications should time out on their own.  Pulses due to notifications should
+            // instead be managed externally based off the notification's lifetime.
+            // Dock also controls the time out by self.
+            if (mPulseReason != DozeLog.PULSE_REASON_NOTIFICATION
+                    && mPulseReason != DozeLog.PULSE_REASON_DOCKING) {
+                mHandler.postDelayed(mPulseOut, mDozeParameters.getPulseVisibleDuration());
+                mHandler.postDelayed(mPulseOutExtended,
+                        mDozeParameters.getPulseVisibleDurationExtended());
+            }
+            mFullyPulsing = true;
+        }
+
+        /**
+         * Transition was aborted before it was over.
+         */
+        @Override
+        public void onCancelled() {
+            pulseFinished();
+        }
+    };
+
+    @Inject
+    public DozeScrimController(DozeParameters dozeParameters, DozeLog dozeLog) {
+        mDozeParameters = dozeParameters;
+        //Never expected to be destroyed
+        Dependency.get(StatusBarStateController.class).addCallback(this);
+        mDozeLog = dozeLog;
     }
 
-    public void setDozing(boolean dozing, boolean animate) {
+    @VisibleForTesting
+    public void setDozing(boolean dozing) {
         if (mDozing == dozing) return;
         mDozing = dozing;
-        if (mDozing) {
-            abortAnimations();
-            mScrimController.setDozeBehindAlpha(1f);
-            mScrimController.setDozeInFrontAlpha(1f);
-        } else {
+        if (!mDozing) {
             cancelPulsing();
-            if (animate) {
-                startScrimAnimation(false /* inFront */, 0f /* target */,
-                        NotificationPanelView.DOZE_ANIMATION_DURATION,
-                        Interpolators.LINEAR_OUT_SLOW_IN);
-                startScrimAnimation(true /* inFront */, 0f /* target */,
-                        NotificationPanelView.DOZE_ANIMATION_DURATION,
-                        Interpolators.LINEAR_OUT_SLOW_IN);
-            } else {
-                abortAnimations();
-                mScrimController.setDozeBehindAlpha(0f);
-                mScrimController.setDozeInFrontAlpha(0f);
-            }
         }
     }
 
@@ -84,37 +115,24 @@ public class DozeScrimController {
         }
 
         if (!mDozing || mPulseCallback != null) {
+            if (DEBUG) {
+                Log.d(TAG, "Pulse supressed. Dozing: " + mDozeParameters + " had callback? "
+                        + (mPulseCallback != null));
+            }
             // Pulse suppressed.
             callback.onPulseFinished();
             return;
         }
 
-        // Begin pulse.  Note that it's very important that the pulse finished callback
+        // Begin pulse. Note that it's very important that the pulse finished callback
         // be invoked when we're done so that the caller can drop the pulse wakelock.
         mPulseCallback = callback;
         mPulseReason = reason;
-        mHandler.post(mPulseIn);
     }
 
-    /**
-     * Aborts pulsing immediately.
-     */
-    public void abortPulsing() {
-        cancelPulsing();
-        if (mDozing) {
-            mScrimController.setDozeBehindAlpha(1f);
-            mScrimController.setDozeInFrontAlpha(1f);
-        }
-    }
-
-    public void onScreenTurnedOn() {
-        if (isPulsing()) {
-            final boolean pickupOrDoubleTap = mPulseReason == DozeLog.PULSE_REASON_SENSOR_PICKUP
-                    || mPulseReason == DozeLog.PULSE_REASON_SENSOR_DOUBLE_TAP;
-            startScrimAnimation(true /* inFront */, 0f,
-                    mDozeParameters.getPulseInDuration(pickupOrDoubleTap),
-                    pickupOrDoubleTap ? Interpolators.LINEAR_OUT_SLOW_IN : Interpolators.ALPHA_OUT,
-                    mPulseInFinished);
+    public void pulseOutNow() {
+        if (mPulseCallback != null && mFullyPulsing) {
+            mPulseOut.run();
         }
     }
 
@@ -126,155 +144,74 @@ public class DozeScrimController {
         return mDozing;
     }
 
-    private void cancelPulsing() {
-        if (DEBUG) Log.d(TAG, "Cancel pulsing");
+    public void extendPulse() {
+        mHandler.removeCallbacks(mPulseOut);
+    }
 
+    /**
+     * When pulsing, cancel any timeouts that would take you out of the pulsing state.
+     */
+    public void cancelPendingPulseTimeout() {
+        mHandler.removeCallbacks(mPulseOut);
+        mHandler.removeCallbacks(mPulseOutExtended);
+    }
+
+    private void cancelPulsing() {
         if (mPulseCallback != null) {
-            mHandler.removeCallbacks(mPulseIn);
+            if (DEBUG) Log.d(TAG, "Cancel pulsing");
+            mFullyPulsing = false;
             mHandler.removeCallbacks(mPulseOut);
+            mHandler.removeCallbacks(mPulseOutExtended);
             pulseFinished();
         }
     }
 
     private void pulseStarted() {
+        mDozeLog.tracePulseStart(mPulseReason);
         if (mPulseCallback != null) {
             mPulseCallback.onPulseStarted();
         }
     }
 
     private void pulseFinished() {
+        mDozeLog.tracePulseFinish();
         if (mPulseCallback != null) {
             mPulseCallback.onPulseFinished();
             mPulseCallback = null;
         }
     }
 
-    private void abortAnimations() {
-        if (mInFrontAnimator != null) {
-            mInFrontAnimator.cancel();
-        }
-        if (mBehindAnimator != null) {
-            mBehindAnimator.cancel();
-        }
-    }
-
-    private void startScrimAnimation(final boolean inFront, float target, long duration,
-            Interpolator interpolator) {
-        startScrimAnimation(inFront, target, duration, interpolator, null /* endRunnable */);
-    }
-
-    private void startScrimAnimation(final boolean inFront, float target, long duration,
-            Interpolator interpolator, final Runnable endRunnable) {
-        Animator current = getCurrentAnimator(inFront);
-        if (current != null) {
-            float currentTarget = getCurrentTarget(inFront);
-            if (currentTarget == target) {
-                return;
-            }
-            current.cancel();
-        }
-        ValueAnimator anim = ValueAnimator.ofFloat(getDozeAlpha(inFront), target);
-        anim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-            @Override
-            public void onAnimationUpdate(ValueAnimator animation) {
-                float value = (float) animation.getAnimatedValue();
-                setDozeAlpha(inFront, value);
-            }
-        });
-        anim.setInterpolator(interpolator);
-        anim.setDuration(duration);
-        anim.addListener(new AnimatorListenerAdapter() {
-            @Override
-            public void onAnimationEnd(Animator animation) {
-                setCurrentAnimator(inFront, null);
-                if (endRunnable != null) {
-                    endRunnable.run();
-                }
-            }
-        });
-        anim.start();
-        setCurrentAnimator(inFront, anim);
-        setCurrentTarget(inFront, target);
-    }
-
-    private float getCurrentTarget(boolean inFront) {
-        return inFront ? mInFrontTarget : mBehindTarget;
-    }
-
-    private void setCurrentTarget(boolean inFront, float target) {
-        if (inFront) {
-            mInFrontTarget = target;
-        } else {
-            mBehindTarget = target;
-        }
-    }
-
-    private Animator getCurrentAnimator(boolean inFront) {
-        return inFront ? mInFrontAnimator : mBehindAnimator;
-    }
-
-    private void setCurrentAnimator(boolean inFront, Animator animator) {
-        if (inFront) {
-            mInFrontAnimator = animator;
-        } else {
-            mBehindAnimator = animator;
-        }
-    }
-
-    private void setDozeAlpha(boolean inFront, float alpha) {
-        if (inFront) {
-            mScrimController.setDozeInFrontAlpha(alpha);
-        } else {
-            mScrimController.setDozeBehindAlpha(alpha);
-        }
-    }
-
-    private float getDozeAlpha(boolean inFront) {
-        return inFront
-                ? mScrimController.getDozeInFrontAlpha()
-                : mScrimController.getDozeBehindAlpha();
-    }
-
-    private final Runnable mPulseIn = new Runnable() {
+    private final Runnable mPulseOutExtended = new Runnable() {
         @Override
         public void run() {
-            if (DEBUG) Log.d(TAG, "Pulse in, mDozing=" + mDozing + " mPulseReason="
-                    + DozeLog.pulseReasonToString(mPulseReason));
-            if (!mDozing) return;
-            DozeLog.tracePulseStart(mPulseReason);
-
-            // Signal that the pulse is ready to turn the screen on and draw.
-            pulseStarted();
-        }
-    };
-
-    private final Runnable mPulseInFinished = new Runnable() {
-        @Override
-        public void run() {
-            if (DEBUG) Log.d(TAG, "Pulse in finished, mDozing=" + mDozing);
-            if (!mDozing) return;
-            mHandler.postDelayed(mPulseOut, mDozeParameters.getPulseVisibleDuration());
+            mHandler.removeCallbacks(mPulseOut);
+            mPulseOut.run();
         }
     };
 
     private final Runnable mPulseOut = new Runnable() {
         @Override
         public void run() {
+            mFullyPulsing = false;
+            mHandler.removeCallbacks(mPulseOut);
+            mHandler.removeCallbacks(mPulseOutExtended);
             if (DEBUG) Log.d(TAG, "Pulse out, mDozing=" + mDozing);
             if (!mDozing) return;
-            startScrimAnimation(true /* inFront */, 1f, mDozeParameters.getPulseOutDuration(),
-                    Interpolators.ALPHA_IN, mPulseOutFinished);
-        }
-    };
-
-    private final Runnable mPulseOutFinished = new Runnable() {
-        @Override
-        public void run() {
-            if (DEBUG) Log.d(TAG, "Pulse out finished");
-            DozeLog.tracePulseFinish();
-
-            // Signal that the pulse is all finished so we can turn the screen off now.
             pulseFinished();
         }
     };
+
+    public ScrimController.Callback getScrimCallback() {
+        return mScrimCallback;
+    }
+
+    @Override
+    public void onStateChanged(int newState) {
+        // don't care
+    }
+
+    @Override
+    public void onDozingChanged(boolean isDozing) {
+        setDozing(isDozing);
+    }
 }

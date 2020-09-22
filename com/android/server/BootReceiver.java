@@ -31,25 +31,32 @@ import android.os.ServiceManager;
 import android.os.SystemProperties;
 import android.os.storage.StorageManager;
 import android.provider.Downloads;
+import android.text.TextUtils;
 import android.util.AtomicFile;
+import android.util.EventLog;
 import android.util.Slog;
 import android.util.Xml;
 
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.logging.MetricsLogger;
 import com.android.internal.util.FastXmlSerializer;
+import com.android.internal.util.FrameworkStatsLog;
 import com.android.internal.util.XmlUtils;
-
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.FileNotFoundException;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Iterator;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Performs a number of miscellaneous, non-system-critical actions
@@ -58,12 +65,18 @@ import org.xmlpull.v1.XmlSerializer;
 public class BootReceiver extends BroadcastReceiver {
     private static final String TAG = "BootReceiver";
 
+    private static final String TAG_TRUNCATED = "[[TRUNCATED]]\n";
+
     // Maximum size of a logged event (files get truncated if they're longer).
     // Give userdebug builds a larger max to capture extra debug, esp. for last_kmsg.
     private static final int LOG_SIZE =
         SystemProperties.getInt("ro.debuggable", 0) == 1 ? 98304 : 65536;
+    private static final int LASTK_LOG_SIZE =
+        SystemProperties.getInt("ro.debuggable", 0) == 1 ? 196608 : 65536;
+    private static final int GMSCORE_LASTK_LOG_SIZE = 196608;
 
     private static final File TOMBSTONE_DIR = new File("/data/tombstones");
+    private static final String TAG_TOMBSTONE = "SYSTEM_TOMBSTONE";
 
     // The pre-froyo package and class of the system updater, which
     // ran in the system process.  We need to remove its packages here
@@ -78,10 +91,35 @@ public class BootReceiver extends BroadcastReceiver {
 
     private static final String LOG_FILES_FILE = "log-files.xml";
     private static final AtomicFile sFile = new AtomicFile(new File(
-            Environment.getDataSystemDirectory(), LOG_FILES_FILE));
+            Environment.getDataSystemDirectory(), LOG_FILES_FILE), "log-files");
     private static final String LAST_HEADER_FILE = "last-header.txt";
     private static final File lastHeaderFile = new File(
             Environment.getDataSystemDirectory(), LAST_HEADER_FILE);
+
+    // example: fs_stat,/dev/block/platform/soc/by-name/userdata,0x5
+    private static final String FS_STAT_PATTERN = "fs_stat,[^,]*/([^/,]+),(0x[0-9a-fA-F]+)";
+    private static final int FS_STAT_FS_FIXED = 0x400; // should match with fs_mgr.cpp:FsStatFlags
+    private static final String FSCK_PASS_PATTERN = "Pass ([1-9]E?):";
+    private static final String FSCK_TREE_OPTIMIZATION_PATTERN =
+            "Inode [0-9]+ extent tree.*could be shorter";
+    private static final String FSCK_FS_MODIFIED = "FILE SYSTEM WAS MODIFIED";
+    // ro.boottime.init.mount_all. + postfix for mount_all duration
+    private static final String[] MOUNT_DURATION_PROPS_POSTFIX =
+            new String[] { "early", "default", "late" };
+    // for reboot, fs shutdown time is recorded in last_kmsg.
+    private static final String[] LAST_KMSG_FILES =
+            new String[] { "/sys/fs/pstore/console-ramoops", "/proc/last_kmsg" };
+    // first: fs shutdown time in ms, second: umount status defined in init/reboot.h
+    private static final String LAST_SHUTDOWN_TIME_PATTERN =
+            "powerctl_shutdown_time_ms:([0-9]+):([0-9]+)";
+    private static final int UMOUNT_STATUS_NOT_AVAILABLE = 4; // should match with init/reboot.h
+
+    // Location of file with metrics recorded during shutdown
+    private static final String SHUTDOWN_METRICS_FILE = "/data/system/shutdown-metrics.txt";
+
+    private static final String SHUTDOWN_TRON_METRICS_PREFIX = "shutdown_";
+    private static final String METRIC_SYSTEM_SERVER = "shutdown_system_server";
+    private static final String METRIC_SHUTDOWN_TIME_START = "begin_shutdown";
 
     @Override
     public void onReceive(final Context context, Intent intent) {
@@ -120,7 +158,6 @@ public class BootReceiver extends BroadcastReceiver {
         try {
             return FileUtils.readTextFile(lastHeaderFile, 0, null);
         } catch (IOException e) {
-            Slog.e(TAG, "Error reading " + lastHeaderFile, e);
             return null;
         }
     }
@@ -132,7 +169,7 @@ public class BootReceiver extends BroadcastReceiver {
             .append("Revision: ")
             .append(SystemProperties.get("ro.revision", "")).append("\n")
             .append("Bootloader: ").append(Build.BOOTLOADER).append("\n")
-            .append("Radio: ").append(Build.RADIO).append("\n")
+            .append("Radio: ").append(Build.getRadioVersion()).append("\n")
             .append("Kernel: ")
             .append(FileUtils.readTextFile(new File("/proc/version"), 1024, "...\n"))
             .append("\n").toString();
@@ -191,19 +228,26 @@ public class BootReceiver extends BroadcastReceiver {
             if (db != null) db.addText("SYSTEM_BOOT", headers);
 
             // Negative sizes mean to take the *tail* of the file (see FileUtils.readTextFile())
-            addFileWithFootersToDropBox(db, timestamps, headers, lastKmsgFooter,
-                    "/proc/last_kmsg", -LOG_SIZE, "SYSTEM_LAST_KMSG");
-            addFileWithFootersToDropBox(db, timestamps, headers, lastKmsgFooter,
-                    "/sys/fs/pstore/console-ramoops", -LOG_SIZE, "SYSTEM_LAST_KMSG");
+            addLastkToDropBox(db, timestamps, headers, lastKmsgFooter,
+                    "/proc/last_kmsg", -LASTK_LOG_SIZE, "SYSTEM_LAST_KMSG");
+            addLastkToDropBox(db, timestamps, headers, lastKmsgFooter,
+                    "/sys/fs/pstore/console-ramoops", -LASTK_LOG_SIZE, "SYSTEM_LAST_KMSG");
+            addLastkToDropBox(db, timestamps, headers, lastKmsgFooter,
+                    "/sys/fs/pstore/console-ramoops-0", -LASTK_LOG_SIZE, "SYSTEM_LAST_KMSG");
             addFileToDropBox(db, timestamps, headers, "/cache/recovery/log", -LOG_SIZE,
                     "SYSTEM_RECOVERY_LOG");
             addFileToDropBox(db, timestamps, headers, "/cache/recovery/last_kmsg",
                     -LOG_SIZE, "SYSTEM_RECOVERY_KMSG");
             addAuditErrorsToDropBox(db, timestamps, headers, -LOG_SIZE, "SYSTEM_AUDIT");
-            addFsckErrorsToDropBox(db, timestamps, headers, -LOG_SIZE, "SYSTEM_FSCK");
         } else {
             if (db != null) db.addText("SYSTEM_RESTART", headers);
         }
+        // log always available fs_stat last so that logcat collecting tools can wait until
+        // fs_stat to get all file system metrics.
+        logFsShutdownTime();
+        logFsMountTime();
+        addFsckErrorsToDropBoxAndLogFsStat(db, timestamps, headers, -LOG_SIZE, "SYSTEM_FSCK");
+        logSystemServerShutdownTimeMetrics();
 
         // Scan existing tombstones (in case any new ones appeared)
         File[] tombstoneFiles = TOMBSTONE_DIR.listFiles();
@@ -218,15 +262,15 @@ public class BootReceiver extends BroadcastReceiver {
 
         // Start watching for new tombstone files; will record them as they occur.
         // This gets registered with the singleton file observer thread.
-        sTombstoneObserver = new FileObserver(TOMBSTONE_DIR.getPath(), FileObserver.CLOSE_WRITE) {
+        sTombstoneObserver = new FileObserver(TOMBSTONE_DIR.getPath(), FileObserver.CREATE) {
             @Override
             public void onEvent(int event, String path) {
                 HashMap<String, Long> timestamps = readTimestamps();
                 try {
                     File file = new File(TOMBSTONE_DIR, path);
-                    if (file.isFile()) {
+                    if (file.isFile() && file.getName().startsWith("tombstone_")) {
                         addFileToDropBox(db, timestamps, headers, file.getPath(), LOG_SIZE,
-                                "SYSTEM_TOMBSTONE");
+                                TAG_TOMBSTONE);
                     }
                 } catch (IOException e) {
                     Slog.e(TAG, "Can't log tombstone", e);
@@ -236,6 +280,23 @@ public class BootReceiver extends BroadcastReceiver {
         };
 
         sTombstoneObserver.startWatching();
+    }
+
+    private static void addLastkToDropBox(
+            DropBoxManager db, HashMap<String, Long> timestamps,
+            String headers, String footers, String filename, int maxSize,
+            String tag) throws IOException {
+        int extraSize = headers.length() + TAG_TRUNCATED.length() + footers.length();
+        // GMSCore will do 2nd truncation to be 192KiB
+        // LASTK_LOG_SIZE + extraSize must be less than GMSCORE_LASTK_LOG_SIZE
+        if (LASTK_LOG_SIZE + extraSize > GMSCORE_LASTK_LOG_SIZE) {
+          if (GMSCORE_LASTK_LOG_SIZE > extraSize) {
+            maxSize = -(GMSCORE_LASTK_LOG_SIZE - extraSize);
+          } else {
+            maxSize = 0;
+          }
+        }
+        addFileWithFootersToDropBox(db, timestamps, headers, footers, filename, maxSize, tag);
     }
 
     private static void addFileToDropBox(
@@ -260,9 +321,24 @@ public class BootReceiver extends BroadcastReceiver {
 
         timestamps.put(filename, fileTime);
 
+
+        String fileContents = FileUtils.readTextFile(file, maxSize, TAG_TRUNCATED);
+        String text = headers + fileContents + footers;
+        // Create an additional report for system server native crashes, with a special tag.
+        if (tag.equals(TAG_TOMBSTONE) && fileContents.contains(">>> system_server <<<")) {
+            addTextToDropBox(db, "system_server_native_crash", text, filename, maxSize);
+        }
+        if (tag.equals(TAG_TOMBSTONE)) {
+            FrameworkStatsLog.write(FrameworkStatsLog.TOMB_STONE_OCCURRED);
+        }
+        addTextToDropBox(db, tag, text, filename, maxSize);
+    }
+
+    private static void addTextToDropBox(DropBoxManager db, String tag, String text,
+            String filename, int maxSize) {
         Slog.i(TAG, "Copying " + filename + " to DropBox (" + tag + ")");
-        db.addText(tag, headers + FileUtils.readTextFile(file, maxSize, "[[TRUNCATED]]\n") +
-                footers);
+        db.addText(tag, text);
+        EventLog.writeEvent(DropboxLogTags.DROPBOX_FILE_COPY, filename, maxSize, tag);
     }
 
     private static void addAuditErrorsToDropBox(DropBoxManager db,
@@ -276,6 +352,10 @@ public class BootReceiver extends BroadcastReceiver {
         if (fileTime <= 0) {
             file = new File("/sys/fs/pstore/console-ramoops");
             fileTime = file.lastModified();
+            if (fileTime <= 0) {
+                file = new File("/sys/fs/pstore/console-ramoops-0");
+                fileTime = file.lastModified();
+            }
         }
 
         if (fileTime <= 0) return;  // File does not exist
@@ -286,7 +366,7 @@ public class BootReceiver extends BroadcastReceiver {
 
         timestamps.put(tag, fileTime);
 
-        String log = FileUtils.readTextFile(file, maxSize, "[[TRUNCATED]]\n");
+        String log = FileUtils.readTextFile(file, maxSize, TAG_TRUNCATED);
         StringBuilder sb = new StringBuilder();
         for (String line : log.split("\n")) {
             if (line.contains("audit")) {
@@ -297,32 +377,334 @@ public class BootReceiver extends BroadcastReceiver {
         db.addText(tag, headers + sb.toString());
     }
 
-    private static void addFsckErrorsToDropBox(DropBoxManager db,
+    private static void addFsckErrorsToDropBoxAndLogFsStat(DropBoxManager db,
             HashMap<String, Long> timestamps, String headers, int maxSize, String tag)
             throws IOException {
-        boolean upload_needed = false;
-        if (db == null || !db.isTagEnabled(tag)) return;  // Logging disabled
+        boolean uploadEnabled = true;
+        if (db == null || !db.isTagEnabled(tag)) {
+            uploadEnabled = false;
+        }
+        boolean uploadNeeded = false;
         Slog.i(TAG, "Checking for fsck errors");
 
         File file = new File("/dev/fscklogs/log");
         long fileTime = file.lastModified();
         if (fileTime <= 0) return;  // File does not exist
 
-        String log = FileUtils.readTextFile(file, maxSize, "[[TRUNCATED]]\n");
-        StringBuilder sb = new StringBuilder();
-        for (String line : log.split("\n")) {
-            if (line.contains("FILE SYSTEM WAS MODIFIED")) {
-                upload_needed = true;
-                break;
+        String log = FileUtils.readTextFile(file, maxSize, TAG_TRUNCATED);
+        Pattern pattern = Pattern.compile(FS_STAT_PATTERN);
+        String lines[] = log.split("\n");
+        int lineNumber = 0;
+        int lastFsStatLineNumber = 0;
+        for (String line : lines) { // should check all lines
+            if (line.contains(FSCK_FS_MODIFIED)) {
+                uploadNeeded = true;
+            } else if (line.contains("fs_stat")){
+                Matcher matcher = pattern.matcher(line);
+                if (matcher.find()) {
+                    handleFsckFsStat(matcher, lines, lastFsStatLineNumber, lineNumber);
+                    lastFsStatLineNumber = lineNumber;
+                } else {
+                    Slog.w(TAG, "cannot parse fs_stat:" + line);
+                }
             }
+            lineNumber++;
         }
 
-        if (upload_needed) {
+        if (uploadEnabled && uploadNeeded ) {
             addFileToDropBox(db, timestamps, headers, "/dev/fscklogs/log", maxSize, tag);
         }
 
         // Remove the file so we don't re-upload if the runtime restarts.
         file.delete();
+    }
+
+    private static void logFsMountTime() {
+        for (String propPostfix : MOUNT_DURATION_PROPS_POSTFIX) {
+            int duration = SystemProperties.getInt("ro.boottime.init.mount_all." + propPostfix, 0);
+            if (duration != 0) {
+                int eventType;
+                switch (propPostfix) {
+                    case "early":
+                        eventType =
+                                FrameworkStatsLog
+                                        .BOOT_TIME_EVENT_DURATION__EVENT__MOUNT_EARLY_DURATION;
+                        break;
+                    case "default":
+                        eventType =
+                                FrameworkStatsLog
+                                        .BOOT_TIME_EVENT_DURATION__EVENT__MOUNT_DEFAULT_DURATION;
+                        break;
+                    case "late":
+                        eventType =
+                                FrameworkStatsLog
+                                        .BOOT_TIME_EVENT_DURATION__EVENT__MOUNT_LATE_DURATION;
+                        break;
+                    default:
+                        continue;
+                }
+                FrameworkStatsLog.write(FrameworkStatsLog.BOOT_TIME_EVENT_DURATION_REPORTED,
+                        eventType, duration);
+            }
+        }
+    }
+
+    // TODO b/64815357 Move to bootstat.cpp and log AbsoluteRebootTime
+    private static void logSystemServerShutdownTimeMetrics() {
+        File metricsFile = new File(SHUTDOWN_METRICS_FILE);
+        String metricsStr = null;
+        if (metricsFile.exists()) {
+            try {
+                metricsStr = FileUtils.readTextFile(metricsFile, 0, null);
+            } catch (IOException e) {
+                Slog.e(TAG, "Problem reading " + metricsFile, e);
+            }
+        }
+        if (!TextUtils.isEmpty(metricsStr)) {
+            String reboot = null;
+            String reason = null;
+            String start_time = null;
+            String duration = null;
+            String[] array = metricsStr.split(",");
+            for (String keyValueStr : array) {
+                String[] keyValue = keyValueStr.split(":");
+                if (keyValue.length != 2) {
+                    Slog.e(TAG, "Wrong format of shutdown metrics - " + metricsStr);
+                    continue;
+                }
+                // Ignore keys that are not indended for tron
+                if (keyValue[0].startsWith(SHUTDOWN_TRON_METRICS_PREFIX)) {
+                    logTronShutdownMetric(keyValue[0], keyValue[1]);
+                    if (keyValue[0].equals(METRIC_SYSTEM_SERVER)) {
+                        duration = keyValue[1];
+                    }
+                }
+                if (keyValue[0].equals("reboot")) {
+                    reboot = keyValue[1];
+                } else if (keyValue[0].equals("reason")) {
+                    reason = keyValue[1];
+                } else if (keyValue[0].equals(METRIC_SHUTDOWN_TIME_START)) {
+                    start_time = keyValue[1];
+                }
+            }
+            logStatsdShutdownAtom(reboot, reason, start_time, duration);
+        }
+        metricsFile.delete();
+    }
+
+    private static void logTronShutdownMetric(String metricName, String valueStr) {
+        int value;
+        try {
+            value = Integer.parseInt(valueStr);
+        } catch (NumberFormatException e) {
+            Slog.e(TAG, "Cannot parse metric " + metricName + " int value - " + valueStr);
+            return;
+        }
+        if (value >= 0) {
+            MetricsLogger.histogram(null, metricName, value);
+        }
+    }
+
+    private static void logStatsdShutdownAtom(
+            String rebootStr, String reasonStr, String startStr, String durationStr) {
+        boolean reboot = false;
+        String reason = "<EMPTY>";
+        long start = 0;
+        long duration = 0;
+
+        if (rebootStr != null) {
+            if (rebootStr.equals("y")) {
+                reboot = true;
+            } else if (!rebootStr.equals("n")) {
+                Slog.e(TAG, "Unexpected value for reboot : " + rebootStr);
+            }
+        } else {
+            Slog.e(TAG, "No value received for reboot");
+        }
+
+        if (reasonStr != null) {
+            reason = reasonStr;
+        } else {
+            Slog.e(TAG, "No value received for shutdown reason");
+        }
+
+        if (startStr != null) {
+            try {
+                start = Long.parseLong(startStr);
+            } catch (NumberFormatException e) {
+                Slog.e(TAG, "Cannot parse shutdown start time: " + startStr);
+            }
+        } else {
+            Slog.e(TAG, "No value received for shutdown start time");
+        }
+
+        if (durationStr != null) {
+            try {
+                duration = Long.parseLong(durationStr);
+            } catch (NumberFormatException e) {
+                Slog.e(TAG, "Cannot parse shutdown duration: " + startStr);
+            }
+        } else {
+            Slog.e(TAG, "No value received for shutdown duration");
+        }
+
+        FrameworkStatsLog.write(FrameworkStatsLog.SHUTDOWN_SEQUENCE_REPORTED, reboot, reason, start,
+                duration);
+    }
+
+    private static void logFsShutdownTime() {
+        File f = null;
+        for (String fileName : LAST_KMSG_FILES) {
+            File file = new File(fileName);
+            if (!file.exists()) continue;
+            f = file;
+            break;
+        }
+        if (f == null) { // no last_kmsg
+            return;
+        }
+
+        final int maxReadSize = 16*1024;
+        // last_kmsg can be very big, so only parse the last part
+        String lines;
+        try {
+            lines = FileUtils.readTextFile(f, -maxReadSize, null);
+        } catch (IOException e) {
+            Slog.w(TAG, "cannot read last msg", e);
+            return;
+        }
+        Pattern pattern = Pattern.compile(LAST_SHUTDOWN_TIME_PATTERN, Pattern.MULTILINE);
+        Matcher matcher = pattern.matcher(lines);
+        if (matcher.find()) {
+            FrameworkStatsLog.write(FrameworkStatsLog.BOOT_TIME_EVENT_DURATION_REPORTED,
+                    FrameworkStatsLog.BOOT_TIME_EVENT_DURATION__EVENT__SHUTDOWN_DURATION,
+                    Integer.parseInt(matcher.group(1)));
+            FrameworkStatsLog.write(FrameworkStatsLog.BOOT_TIME_EVENT_ERROR_CODE_REPORTED,
+                    FrameworkStatsLog.BOOT_TIME_EVENT_ERROR_CODE__EVENT__SHUTDOWN_UMOUNT_STAT,
+                    Integer.parseInt(matcher.group(2)));
+            Slog.i(TAG, "boot_fs_shutdown," + matcher.group(1) + "," + matcher.group(2));
+        } else { // not found
+            // This can happen when a device has too much kernel log after file system unmount
+            // ,exceeding maxReadSize. And having that much kernel logging can affect overall
+            // performance as well. So it is better to fix the kernel to reduce the amount of log.
+            FrameworkStatsLog.write(FrameworkStatsLog.BOOT_TIME_EVENT_ERROR_CODE_REPORTED,
+                    FrameworkStatsLog.BOOT_TIME_EVENT_ERROR_CODE__EVENT__SHUTDOWN_UMOUNT_STAT,
+                    UMOUNT_STATUS_NOT_AVAILABLE);
+            Slog.w(TAG, "boot_fs_shutdown, string not found");
+        }
+    }
+
+    /**
+     * Fix fs_stat from e2fsck.
+     * For now, only handle the case of quota warning caused by tree optimization. Clear fs fix
+     * flag (=0x400) caused by that.
+     *
+     * @param partition partition name
+     * @param statOrg original stat reported from e2fsck log
+     * @param lines e2fsck logs broken down into lines
+     * @param startLineNumber start line to parse
+     * @param endLineNumber end line. exclusive.
+     * @return updated fs_stat. For tree optimization, will clear bit 0x400.
+     */
+    @VisibleForTesting
+    public static int fixFsckFsStat(String partition, int statOrg, String[] lines,
+            int startLineNumber, int endLineNumber) {
+        int stat = statOrg;
+        if ((stat & FS_STAT_FS_FIXED) != 0) {
+            // fs was fixed. should check if quota warning was caused by tree optimization.
+            // This is not a real fix but optimization, so should not be counted as a fs fix.
+            Pattern passPattern = Pattern.compile(FSCK_PASS_PATTERN);
+            Pattern treeOptPattern = Pattern.compile(FSCK_TREE_OPTIMIZATION_PATTERN);
+            String currentPass = "";
+            boolean foundTreeOptimization = false;
+            boolean foundQuotaFix = false;
+            boolean foundTimestampAdjustment = false;
+            boolean foundOtherFix = false;
+            String otherFixLine = null;
+            for (int i = startLineNumber; i < endLineNumber; i++) {
+                String line = lines[i];
+                if (line.contains(FSCK_FS_MODIFIED)) { // no need to parse above this
+                    break;
+                } else if (line.startsWith("Pass ")) {
+                    Matcher matcher = passPattern.matcher(line);
+                    if (matcher.find()) {
+                        currentPass = matcher.group(1);
+                    }
+                } else if (line.startsWith("Inode ")) {
+                    Matcher matcher = treeOptPattern.matcher(line);
+                    if (matcher.find() && currentPass.equals("1")) {
+                        foundTreeOptimization = true;
+                        Slog.i(TAG, "fs_stat, partition:" + partition + " found tree optimization:"
+                                + line);
+                    } else {
+                        foundOtherFix = true;
+                        otherFixLine = line;
+                        break;
+                    }
+                } else if (line.startsWith("[QUOTA WARNING]") && currentPass.equals("5")) {
+                    Slog.i(TAG, "fs_stat, partition:" + partition + " found quota warning:"
+                            + line);
+                    foundQuotaFix = true;
+                    if (!foundTreeOptimization) { // only quota warning, this is real fix.
+                        otherFixLine = line;
+                        break;
+                    }
+                } else if (line.startsWith("Update quota info") && currentPass.equals("5")) {
+                    // follows "[QUOTA WARNING]", ignore
+                } else if (line.startsWith("Timestamp(s) on inode") &&
+                        line.contains("beyond 2310-04-04 are likely pre-1970") &&
+                        currentPass.equals("1")) {
+                    Slog.i(TAG, "fs_stat, partition:" + partition + " found timestamp adjustment:"
+                            + line);
+                    // followed by next line, "Fix? yes"
+                    if (lines[i + 1].contains("Fix? yes")) {
+                        i++;
+                    }
+                    foundTimestampAdjustment = true;
+                } else {
+                    line = line.trim();
+                    // ignore empty msg or any msg before Pass 1
+                    if (!line.isEmpty() && !currentPass.isEmpty()) {
+                        foundOtherFix = true;
+                        otherFixLine = line;
+                        break;
+                    }
+                }
+            }
+            if (foundOtherFix) {
+                if (otherFixLine != null) {
+                    Slog.i(TAG, "fs_stat, partition:" + partition + " fix:" + otherFixLine);
+                }
+            } else if (foundQuotaFix && !foundTreeOptimization) {
+                Slog.i(TAG, "fs_stat, got quota fix without tree optimization, partition:" +
+                        partition);
+            } else if ((foundTreeOptimization && foundQuotaFix) || foundTimestampAdjustment) {
+                // not a real fix, so clear it.
+                Slog.i(TAG, "fs_stat, partition:" + partition + " fix ignored");
+                stat &= ~FS_STAT_FS_FIXED;
+            }
+        }
+        return stat;
+    }
+
+    private static void handleFsckFsStat(Matcher match, String[] lines, int startLineNumber,
+            int endLineNumber) {
+        String partition = match.group(1);
+        int stat;
+        try {
+            stat = Integer.decode(match.group(2));
+        } catch (NumberFormatException e) {
+            Slog.w(TAG, "cannot parse fs_stat: partition:" + partition + " stat:" + match.group(2));
+            return;
+        }
+        stat = fixFsckFsStat(partition, stat, lines, startLineNumber, endLineNumber);
+        if ("userdata".equals(partition) || "data".equals(partition)) {
+            FrameworkStatsLog.write(FrameworkStatsLog.BOOT_TIME_EVENT_ERROR_CODE_REPORTED,
+                    FrameworkStatsLog
+                            .BOOT_TIME_EVENT_ERROR_CODE__EVENT__FS_MGR_FS_STAT_DATA_PARTITION,
+                    stat);
+        }
+        Slog.i(TAG, "fs_stat, partition:" + partition + " stat:0x" + Integer.toHexString(stat));
     }
 
     private static HashMap<String, Long> readTimestamps() {

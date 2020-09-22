@@ -16,7 +16,9 @@
 
 package android.net.wifi.p2p.nsd;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.net.wifi.p2p.WifiP2pManager;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -72,6 +74,7 @@ public class WifiP2pServiceRequest implements Parcelable {
      * @param query The part of service specific query.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     protected WifiP2pServiceRequest(int protocolType, String query) {
         validateQuery(query);
 
@@ -262,7 +265,8 @@ public class WifiP2pServiceRequest implements Parcelable {
     }
 
     /** Implement the Parcelable interface {@hide} */
-    public static final Creator<WifiP2pServiceRequest> CREATOR =
+    @UnsupportedAppUsage
+    public static final @android.annotation.NonNull Creator<WifiP2pServiceRequest> CREATOR =
         new Creator<WifiP2pServiceRequest>() {
             public WifiP2pServiceRequest createFromParcel(Parcel in) {
                 int servType = in.readInt();

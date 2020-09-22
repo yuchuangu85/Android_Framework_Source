@@ -3,10 +3,12 @@ package com.android.systemui.tuner;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.provider.Settings;
-import android.support.v14.preference.SwitchPreference;
 import android.util.AttributeSet;
 
+import androidx.preference.SwitchPreference;
+
 import com.android.internal.logging.MetricsLogger;
+import com.android.systemui.Dependency;
 import com.android.systemui.R;
 import com.android.systemui.tuner.TunerService.Tunable;
 
@@ -26,18 +28,18 @@ public class TunerSwitch extends SwitchPreference implements Tunable {
     @Override
     public void onAttached() {
         super.onAttached();
-        TunerService.get(getContext()).addTunable(this, getKey().split(","));
+        Dependency.get(TunerService.class).addTunable(this, getKey().split(","));
     }
 
     @Override
     public void onDetached() {
-        TunerService.get(getContext()).removeTunable(this);
+        Dependency.get(TunerService.class).removeTunable(this);
         super.onDetached();
     }
 
     @Override
     public void onTuningChanged(String key, String newValue) {
-        setChecked(newValue != null ? Integer.parseInt(newValue) != 0 : mDefault);
+        setChecked(TunerService.parseIntegerSwitch(newValue, mDefault));
     }
 
     @Override

@@ -64,7 +64,7 @@ final class DelayedMessageBuffer {
         }
     }
 
-    private void removeActiveSource() {
+    protected void removeActiveSource() {
         // Uses iterator to remove elements while looping through the list.
         for (Iterator<HdmiCecMessage> iter = mBuffer.iterator(); iter.hasNext(); ) {
             HdmiCecMessage message = iter.next();
@@ -85,7 +85,7 @@ final class DelayedMessageBuffer {
 
     void processAllMessages() {
         // Use the copied buffer.
-        ArrayList<HdmiCecMessage> copiedBuffer = new ArrayList<HdmiCecMessage>(mBuffer);
+        ArrayList<HdmiCecMessage> copiedBuffer = new ArrayList<>(mBuffer);
         mBuffer.clear();
         for (HdmiCecMessage message : copiedBuffer) {
             mDevice.onMessage(message);
@@ -104,7 +104,7 @@ final class DelayedMessageBuffer {
      *        are associated with
      */
     void processMessagesForDevice(int address) {
-        ArrayList<HdmiCecMessage> copiedBuffer = new ArrayList<HdmiCecMessage>(mBuffer);
+        ArrayList<HdmiCecMessage> copiedBuffer = new ArrayList<>(mBuffer);
         mBuffer.clear();
         HdmiLogger.debug("Checking message for address:" + address);
         for (HdmiCecMessage message : copiedBuffer) {
@@ -134,7 +134,7 @@ final class DelayedMessageBuffer {
      * @param address logical address of the device to be the active source
      */
     void processActiveSource(int address) {
-        ArrayList<HdmiCecMessage> copiedBuffer = new ArrayList<HdmiCecMessage>(mBuffer);
+        ArrayList<HdmiCecMessage> copiedBuffer = new ArrayList<>(mBuffer);
         mBuffer.clear();
         for (HdmiCecMessage message : copiedBuffer) {
             if (message.getOpcode() == Constants.MESSAGE_ACTIVE_SOURCE

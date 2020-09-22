@@ -16,12 +16,12 @@
 
 package com.android.internal.telephony.metrics;
 
-import com.android.internal.telephony.TelephonyProto.ImsCapabilities;
-import com.android.internal.telephony.TelephonyProto.ImsConnectionState;
-import com.android.internal.telephony.TelephonyProto.RilDataCall;
-import com.android.internal.telephony.TelephonyProto.SmsSession;
-import com.android.internal.telephony.TelephonyProto.TelephonyServiceState;
-import com.android.internal.telephony.TelephonyProto.TelephonySettings;
+import com.android.internal.telephony.nano.TelephonyProto.ImsCapabilities;
+import com.android.internal.telephony.nano.TelephonyProto.ImsConnectionState;
+import com.android.internal.telephony.nano.TelephonyProto.RilDataCall;
+import com.android.internal.telephony.nano.TelephonyProto.SmsSession;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyServiceState;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonySettings;
 
 public class SmsSessionEventBuilder {
     SmsSession.Event mEvent = new SmsSession.Event();
@@ -31,26 +31,31 @@ public class SmsSessionEventBuilder {
     }
 
     public SmsSessionEventBuilder(int type) {
-        mEvent.setType(type);
+        mEvent.type = type;
     }
 
     public SmsSessionEventBuilder setDelay(int delay) {
-        mEvent.setDelay(delay);
+        mEvent.delay = delay;
         return this;
     }
 
     public SmsSessionEventBuilder setTech(int tech) {
-        mEvent.setTech(tech);
+        mEvent.tech = tech;
         return this;
     }
 
     public SmsSessionEventBuilder setErrorCode(int code) {
-        mEvent.setErrorCode(code);
+        mEvent.errorCode = code;
         return this;
     }
 
     public SmsSessionEventBuilder setRilErrno(int errno) {
-        mEvent.setError(errno);
+        mEvent.error = errno;
+        return this;
+    }
+
+    public SmsSessionEventBuilder setImsServiceErrno(int errno) {
+        mEvent.imsError = errno;
         return this;
     }
 
@@ -80,12 +85,41 @@ public class SmsSessionEventBuilder {
     }
 
     public SmsSessionEventBuilder setRilRequestId(int id) {
-        mEvent.setRilRequestId(id);
+        mEvent.rilRequestId = id;
         return this;
     }
 
     public SmsSessionEventBuilder setFormat(int format) {
-        mEvent.setFormat(format);
+        mEvent.format = format;
+        return this;
+    }
+
+    public SmsSessionEventBuilder setCellBroadcastMessage(SmsSession.Event.CBMessage msg) {
+        mEvent.cellBroadcastMessage = msg;
+        return this;
+    }
+
+    /** Set details on incomplete SMS */
+    public SmsSessionEventBuilder setIncompleteSms(SmsSession.Event.IncompleteSms msg) {
+        mEvent.incompleteSms = msg;
+        return this;
+    }
+
+    /** Set indication if SMS was blocked */
+    public SmsSessionEventBuilder setBlocked(boolean blocked) {
+        mEvent.blocked = blocked;
+        return this;
+    }
+
+    /** Set SMS type */
+    public SmsSessionEventBuilder setSmsType(int type) {
+        mEvent.smsType = type;
+        return this;
+    }
+
+    /** Set message id */
+    public SmsSessionEventBuilder setMessageId(long messageId) {
+        mEvent.messageId = messageId;
         return this;
     }
 }

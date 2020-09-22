@@ -180,6 +180,9 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
 
         final TypedArray a = context.obtainStyledAttributes(attrs,
                 com.android.internal.R.styleable.AdapterViewAnimator, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.AdapterViewAnimator,
+                attrs, a, defStyleAttr, defStyleRes);
+
         int resource = a.getResourceId(
                 com.android.internal.R.styleable.AdapterViewAnimator_inAnimation, 0);
         if (resource > 0) {
@@ -801,7 +804,7 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
             return "AdapterViewAnimator.SavedState{ whichChild = " + this.whichChild + " }";
         }
 
-        public static final Parcelable.Creator<SavedState> CREATOR
+        public static final @android.annotation.NonNull Parcelable.Creator<SavedState> CREATOR
                 = new Parcelable.Creator<SavedState>() {
             public SavedState createFromParcel(Parcel in) {
                 return new SavedState(in);
@@ -975,8 +978,19 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
      * @param intent the intent used to identify the RemoteViewsService for the adapter to
      *        connect to.
      */
-    @android.view.RemotableViewMethod
+    @android.view.RemotableViewMethod(asyncImpl="setRemoteViewsAdapterAsync")
     public void setRemoteViewsAdapter(Intent intent) {
+        setRemoteViewsAdapter(intent, false);
+    }
+
+    /** @hide **/
+    public Runnable setRemoteViewsAdapterAsync(final Intent intent) {
+        return new RemoteViewsAdapter.AsyncRemoteAdapterAction(this, intent);
+    }
+
+    /** @hide **/
+    @Override
+    public void setRemoteViewsAdapter(Intent intent, boolean isAsync) {
         // Ensure that we don't already have a RemoteViewsAdapter that is bound to an existing
         // service handling the specified intent.
         if (mRemoteViewsAdapter != null) {
@@ -989,7 +1003,7 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
         }
         mDeferNotifyDataSetChanged = false;
         // Otherwise, create a new RemoteViewsAdapter for binding
-        mRemoteViewsAdapter = new RemoteViewsAdapter(getContext(), intent, this);
+        mRemoteViewsAdapter = new RemoteViewsAdapter(getContext(), intent, this, isAsync);
         if (mRemoteViewsAdapter.isDataReady()) {
             setAdapter(mRemoteViewsAdapter);
         }

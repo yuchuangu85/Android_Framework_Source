@@ -18,31 +18,27 @@ package com.android.setupwizardlib.items;
 
 import android.view.View;
 
-/**
- * Representation of an item in an {@link ItemHierarchy}.
- */
+/** Representation of an item in an {@link ItemHierarchy}. */
 public interface IItem {
 
-    /**
-     * Get the Android resource ID for locating the layout for this item.
-     *
-     * @return Resource ID for the layout of this item. This layout will be used to inflate the View
-     *         passed to {@link #onBindView(android.view.View)}.
-     */
-    int getLayoutResource();
+  /**
+   * Get the Android resource ID for locating the layout for this item.
+   *
+   * @return Resource ID for the layout of this item. This layout will be used to inflate the View
+   *     passed to {@link #onBindView(android.view.View)}.
+   */
+  int getLayoutResource();
 
-    /**
-     * Called by items framework to display the data specified by this item. This method should
-     * update {@code view} to reflect its data.
-     *
-     * @param view A view inflated from {@link #getLayoutResource()}, which should be updated to
-     *             display data from this item. This view may be recycled from other items with the
-     *             same layout resource.
-     */
-    void onBindView(View view);
+  /**
+   * Called by items framework to display the data specified by this item. This method should update
+   * {@code view} to reflect its data.
+   *
+   * @param view A view inflated from {@link #getLayoutResource()}, which should be updated to
+   *     display data from this item. This view may be recycled from other items with the same
+   *     layout resource.
+   */
+  void onBindView(View view);
 
-    /**
-     * @return True if this item is enabled.
-     */
-    boolean isEnabled();
+  /** @return True if this item is enabled. */
+  boolean isEnabled();
 }

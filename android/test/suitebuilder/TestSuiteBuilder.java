@@ -21,7 +21,6 @@ import android.test.AndroidTestRunner;
 import android.test.TestCaseUtil;
 import android.util.Log;
 import com.android.internal.util.Predicate;
-import com.google.android.collect.Lists;
 import static android.test.suitebuilder.TestGrouping.SORT_BY_FULLY_QUALIFIED_NAME;
 import static android.test.suitebuilder.TestPredicates.REJECT_SUPPRESSED;
 
@@ -38,11 +37,14 @@ import java.util.Collections;
 /**
  * Build suites based on a combination of included packages, excluded packages,
  * and predicates that must be satisfied.
+ *
+ * @deprecated New tests should be written using the
+ * <a href="{@docRoot}tools/testing-support-library/index.html">Android Testing Support Library</a>.
  */
+@Deprecated
 public class TestSuiteBuilder {
 
-    private Context context;
-    private final TestGrouping testGrouping = new TestGrouping(SORT_BY_FULLY_QUALIFIED_NAME);
+    private final TestGrouping testGrouping;
     private final Set<Predicate<TestMethod>> predicates = new HashSet<Predicate<TestMethod>>();
     private List<TestCase> testCases;
     private TestSuite rootSuite;
@@ -64,8 +66,8 @@ public class TestSuiteBuilder {
 
     public TestSuiteBuilder(String name, ClassLoader classLoader) {
         this.suiteName = name;
-        this.testGrouping.setClassLoader(classLoader);
-        this.testCases = Lists.newArrayList();
+        this.testGrouping = new TestGrouping(SORT_BY_FULLY_QUALIFIED_NAME, classLoader);
+        this.testCases = new ArrayList<>();
         addRequirements(REJECT_SUPPRESSED);
     }
 
@@ -117,6 +119,7 @@ public class TestSuiteBuilder {
      *
      * @param predicates Predicates to add to the list of requirements.
      * @return The builder for method chaining.
+     * @hide
      */
     public TestSuiteBuilder addRequirements(List<Predicate<TestMethod>> predicates) {
         this.predicates.addAll(predicates);
@@ -154,7 +157,7 @@ public class TestSuiteBuilder {
 
     /**
      * Override the default name for the suite being built. This should generally be called if you
-     * call {@link #addRequirements(com.android.internal.util.Predicate[])} to make it clear which
+     * call {@code addRequirements(com.android.internal.util.Predicate[])} to make it clear which
      * tests will be included. The name you specify is automatically prefixed with the package
      * containing the tests to be run. If more than one package is specified, the first is used.
      *
@@ -213,6 +216,7 @@ public class TestSuiteBuilder {
      *
      * @param predicates Predicates to add to the list of requirements.
      * @return The builder for method chaining.
+     * @hide
      */
     public final TestSuiteBuilder addRequirements(Predicate<TestMethod>... predicates) {
         ArrayList<Predicate<TestMethod>> list = new ArrayList<Predicate<TestMethod>>();
@@ -223,7 +227,11 @@ public class TestSuiteBuilder {
     /**
      * A special {@link junit.framework.TestCase} used to indicate a failure during the build()
      * step.
+     *
+     * @deprecated New tests should be written using the
+     * <a href="{@docRoot}tools/testing-support-library/index.html">Android Testing Support Library</a>.
      */
+    @Deprecated
     public static class FailedToCreateTests extends TestCase {
         private final Exception exception;
 
@@ -235,15 +243,6 @@ public class TestSuiteBuilder {
         public void testSuiteConstructionFailed() {
             throw new RuntimeException("Exception during suite construction", exception);
         }
-    }
-
-    /**
-     * @return the test package that represents the packages that were included for our test suite.
-     *
-     * {@hide} Not needed for 1.0 SDK.
-     */
-    protected TestGrouping getTestGrouping() {
-        return testGrouping;
     }
 
     private boolean satisfiesAllPredicates(TestMethod test) {

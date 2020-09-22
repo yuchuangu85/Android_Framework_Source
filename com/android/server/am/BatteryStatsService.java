@@ -16,50 +16,52 @@
 
 package com.android.server.am;
 
-import android.annotation.Nullable;
 import android.bluetooth.BluetoothActivityEnergyInfo;
-import android.bluetooth.BluetoothAdapter;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.net.wifi.IWifiManager;
-import android.net.wifi.WifiActivityEnergyInfo;
 import android.os.BatteryStats;
+import android.os.BatteryStatsInternal;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
-import android.os.Message;
 import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.os.ParcelFormatException;
-import android.os.Parcelable;
+import android.os.PowerManager.ServiceType;
 import android.os.PowerManagerInternal;
+import android.os.PowerSaveState;
 import android.os.Process;
-import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.os.SynchronousResultReceiver;
 import android.os.SystemClock;
 import android.os.UserHandle;
+import android.os.UserManagerInternal;
 import android.os.WorkSource;
+import android.os.connectivity.CellularBatteryStats;
+import android.os.connectivity.GpsBatteryStats;
+import android.os.connectivity.WifiActivityEnergyInfo;
+import android.os.connectivity.WifiBatteryStats;
 import android.os.health.HealthStatsParceler;
 import android.os.health.HealthStatsWriter;
 import android.os.health.UidHealthStats;
+import android.provider.Settings;
 import android.telephony.DataConnectionRealTimeInfo;
 import android.telephony.ModemActivityInfo;
 import android.telephony.SignalStrength;
 import android.telephony.TelephonyManager;
-import android.util.IntArray;
 import android.util.Slog;
 
-import android.util.TimeUtils;
-import com.android.internal.annotations.GuardedBy;
 import com.android.internal.app.IBatteryStats;
 import com.android.internal.os.BatteryStatsHelper;
 import com.android.internal.os.BatteryStatsImpl;
 import com.android.internal.os.PowerProfile;
+import com.android.internal.os.RailStats;
+import com.android.internal.os.RpmStats;
+import com.android.internal.util.DumpUtils;
+import com.android.internal.util.FrameworkStatsLog;
+import com.android.internal.util.ParseUtils;
 import com.android.server.LocalServices;
-import com.android.server.ServiceThread;
 
 import java.io.File;
 import java.io.FileDescriptor;
@@ -72,7 +74,8 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 /**
  * All information we are collecting about things that can happen that impact
@@ -80,104 +83,22 @@ import java.util.concurrent.TimeoutException;
  */
 public final class BatteryStatsService extends IBatteryStats.Stub
         implements PowerManagerInternal.LowPowerModeListener,
-        BatteryStatsImpl.PlatformIdleStateCallback {
+        BatteryStatsImpl.PlatformIdleStateCallback,
+        BatteryStatsImpl.RailEnergyDataCallback {
     static final String TAG = "BatteryStatsService";
-
-    /**
-     * How long to wait on an individual subsystem to return its stats.
-     */
-    private static final long EXTERNAL_STATS_SYNC_TIMEOUT_MILLIS = 2000;
-
-    // There is some accuracy error in wifi reports so allow some slop in the results.
-    private static final long MAX_WIFI_STATS_SAMPLE_ERROR_MILLIS = 750;
+    static final boolean DBG = false;
 
     private static IBatteryStats sService;
 
     final BatteryStatsImpl mStats;
-    private final BatteryStatsHandler mHandler;
-    private Context mContext;
-    private IWifiManager mWifiManager;
-    private TelephonyManager mTelephony;
+    private final BatteryStatsImpl.UserInfoProvider mUserManagerUserInfoProvider;
+    private final Context mContext;
+    private final BatteryExternalStatsWorker mWorker;
 
-    // Lock acquired when extracting data from external sources.
-    private final Object mExternalStatsLock = new Object();
-
-    // WiFi keeps an accumulated total of stats, unlike Bluetooth.
-    // Keep the last WiFi stats so we can compute a delta.
-    @GuardedBy("mExternalStatsLock")
-    private WifiActivityEnergyInfo mLastInfo =
-            new WifiActivityEnergyInfo(0, 0, 0, new long[]{0}, 0, 0, 0);
-
-    class BatteryStatsHandler extends Handler implements BatteryStatsImpl.ExternalStatsSync {
-        public static final int MSG_SYNC_EXTERNAL_STATS = 1;
-        public static final int MSG_WRITE_TO_DISK = 2;
-
-        private int mUpdateFlags = 0;
-        private IntArray mUidsToRemove = new IntArray();
-
-        public BatteryStatsHandler(Looper looper) {
-            super(looper);
-        }
-
-        @Override
-        public void handleMessage(Message msg) {
-            switch (msg.what) {
-                case MSG_SYNC_EXTERNAL_STATS:
-                    final int updateFlags;
-                    synchronized (this) {
-                        removeMessages(MSG_SYNC_EXTERNAL_STATS);
-                        updateFlags = mUpdateFlags;
-                        mUpdateFlags = 0;
-                    }
-                    updateExternalStatsSync((String)msg.obj, updateFlags);
-
-                    // other parts of the system could be calling into us
-                    // from mStats in order to report of changes. We must grab the mStats
-                    // lock before grabbing our own or we'll end up in a deadlock.
-                    synchronized (mStats) {
-                        synchronized (this) {
-                            final int numUidsToRemove = mUidsToRemove.size();
-                            for (int i = 0; i < numUidsToRemove; i++) {
-                                mStats.removeIsolatedUidLocked(mUidsToRemove.get(i));
-                            }
-                        }
-                        mUidsToRemove.clear();
-                    }
-                    break;
-
-                case MSG_WRITE_TO_DISK:
-                    updateExternalStatsSync("write", UPDATE_ALL);
-                    synchronized (mStats) {
-                        mStats.writeAsyncLocked();
-                    }
-                    break;
-            }
-        }
-
-        @Override
-        public void scheduleSync(String reason, int updateFlags) {
-            synchronized (this) {
-                scheduleSyncLocked(reason, updateFlags);
-            }
-        }
-
-        @Override
-        public void scheduleCpuSyncDueToRemovedUid(int uid) {
-            synchronized (this) {
-                scheduleSyncLocked("remove-uid", UPDATE_CPU);
-                mUidsToRemove.add(uid);
-            }
-        }
-
-        private void scheduleSyncLocked(String reason, int updateFlags) {
-            if (mUpdateFlags == 0) {
-                sendMessage(Message.obtain(this, MSG_SYNC_EXTERNAL_STATS, reason));
-            }
-            mUpdateFlags |= updateFlags;
-        }
-    }
-
+    private native void getLowPowerStats(RpmStats rpmStats);
     private native int getPlatformLowPowerStats(ByteBuffer outBuffer);
+    private native int getSubsystemLowPowerStats(ByteBuffer outBuffer);
+    private native void getRailEnergyPowerStats(RailStats railStats);
     private CharsetDecoder mDecoderStat = StandardCharsets.UTF_8
                     .newDecoder()
                     .onMalformedInput(CodingErrorAction.REPLACE)
@@ -185,44 +106,139 @@ public final class BatteryStatsService extends IBatteryStats.Stub
                     .replaceWith("?");
     private ByteBuffer mUtf8BufferStat = ByteBuffer.allocateDirect(MAX_LOW_POWER_STATS_SIZE);
     private CharBuffer mUtf16BufferStat = CharBuffer.allocate(MAX_LOW_POWER_STATS_SIZE);
-    private static final int MAX_LOW_POWER_STATS_SIZE = 512;
+    private static final int MAX_LOW_POWER_STATS_SIZE = 4096;
+
+    /**
+     * Replaces the information in the given rpmStats with up-to-date information.
+     */
+    @Override
+    public void fillLowPowerStats(RpmStats rpmStats) {
+        if (DBG) Slog.d(TAG, "begin getLowPowerStats");
+        try {
+            getLowPowerStats(rpmStats);
+        } finally {
+            if (DBG) Slog.d(TAG, "end getLowPowerStats");
+        }
+    }
+
+    @Override
+    public void fillRailDataStats(RailStats railStats) {
+        if (DBG) Slog.d(TAG, "begin getRailEnergyPowerStats");
+        try {
+            getRailEnergyPowerStats(railStats);
+        } finally {
+            if (DBG) Slog.d(TAG, "end getRailEnergyPowerStats");
+        }
+    }
 
     @Override
     public String getPlatformLowPowerStats() {
-        mUtf8BufferStat.clear();
-        mUtf16BufferStat.clear();
-        mDecoderStat.reset();
-        int bytesWritten = getPlatformLowPowerStats(mUtf8BufferStat);
-        if (bytesWritten < 0) {
-            return null;
-        } else if (bytesWritten == 0) {
-            return "Empty";
+        if (DBG) Slog.d(TAG, "begin getPlatformLowPowerStats");
+        try {
+            mUtf8BufferStat.clear();
+            mUtf16BufferStat.clear();
+            mDecoderStat.reset();
+            int bytesWritten = getPlatformLowPowerStats(mUtf8BufferStat);
+            if (bytesWritten < 0) {
+                return null;
+            } else if (bytesWritten == 0) {
+                return "Empty";
+            }
+            mUtf8BufferStat.limit(bytesWritten);
+            mDecoderStat.decode(mUtf8BufferStat, mUtf16BufferStat, true);
+            mUtf16BufferStat.flip();
+            return mUtf16BufferStat.toString();
+        } finally {
+            if (DBG) Slog.d(TAG, "end getPlatformLowPowerStats");
         }
-        mUtf8BufferStat.limit(bytesWritten);
-        mDecoderStat.decode(mUtf8BufferStat, mUtf16BufferStat, true);
-        mUtf16BufferStat.flip();
-        return mUtf16BufferStat.toString();
     }
 
-    BatteryStatsService(File systemDir, Handler handler) {
-        // Our handler here will be accessing the disk, use a different thread than
-        // what the ActivityManagerService gave us (no I/O on that one!).
-        final ServiceThread thread = new ServiceThread("batterystats-sync",
-                Process.THREAD_PRIORITY_DEFAULT, true);
-        thread.start();
-        mHandler = new BatteryStatsHandler(thread.getLooper());
+    @Override
+    public String getSubsystemLowPowerStats() {
+        if (DBG) Slog.d(TAG, "begin getSubsystemLowPowerStats");
+        try {
+            mUtf8BufferStat.clear();
+            mUtf16BufferStat.clear();
+            mDecoderStat.reset();
+            int bytesWritten = getSubsystemLowPowerStats(mUtf8BufferStat);
+            if (bytesWritten < 0) {
+                return null;
+            } else if (bytesWritten == 0) {
+                return "Empty";
+            }
+            mUtf8BufferStat.limit(bytesWritten);
+            mDecoderStat.decode(mUtf8BufferStat, mUtf16BufferStat, true);
+            mUtf16BufferStat.flip();
+            return mUtf16BufferStat.toString();
+        } finally {
+            if (DBG) Slog.d(TAG, "end getSubsystemLowPowerStats");
+        }
+    }
 
+    BatteryStatsService(Context context, File systemDir, Handler handler) {
         // BatteryStatsImpl expects the ActivityManagerService handler, so pass that one through.
-        mStats = new BatteryStatsImpl(systemDir, handler, mHandler, this);
+        mContext = context;
+        mUserManagerUserInfoProvider = new BatteryStatsImpl.UserInfoProvider() {
+            private UserManagerInternal umi;
+            @Override
+            public int[] getUserIds() {
+                if (umi == null) {
+                    umi = LocalServices.getService(UserManagerInternal.class);
+                }
+                return (umi != null) ? umi.getUserIds() : null;
+            }
+        };
+        mStats = new BatteryStatsImpl(systemDir, handler, this,
+                this, mUserManagerUserInfoProvider);
+        mWorker = new BatteryExternalStatsWorker(context, mStats);
+        mStats.setExternalStatsSyncLocked(mWorker);
+        mStats.setRadioScanningTimeoutLocked(mContext.getResources().getInteger(
+                com.android.internal.R.integer.config_radioScanningTimeout) * 1000L);
+        mStats.setPowerProfileLocked(new PowerProfile(context));
     }
 
-    public void publish(Context context) {
-        mContext = context;
-        mStats.setRadioScanningTimeout(mContext.getResources().getInteger(
-                com.android.internal.R.integer.config_radioScanningTimeout)
-                * 1000L);
-        mStats.setPowerProfile(new PowerProfile(context));
+    public void publish() {
+        LocalServices.addService(BatteryStatsInternal.class, new LocalService());
         ServiceManager.addService(BatteryStats.SERVICE_NAME, asBinder());
+    }
+
+    public void systemServicesReady() {
+        mStats.systemServicesReady(mContext);
+    }
+
+    private final class LocalService extends BatteryStatsInternal {
+        @Override
+        public String[] getWifiIfaces() {
+            return mStats.getWifiIfaces().clone();
+        }
+
+        @Override
+        public String[] getMobileIfaces() {
+            return mStats.getMobileIfaces().clone();
+        }
+
+        @Override
+        public void noteJobsDeferred(int uid, int numDeferred, long sinceLast) {
+            if (DBG) Slog.d(TAG, "Jobs deferred " + uid + ": " + numDeferred + " " + sinceLast);
+            BatteryStatsService.this.noteJobsDeferred(uid, numDeferred, sinceLast);
+        }
+    }
+
+    private static void awaitUninterruptibly(Future<?> future) {
+        while (true) {
+            try {
+                future.get();
+                return;
+            } catch (ExecutionException e) {
+                return;
+            } catch (InterruptedException e) {
+                // Keep looping
+            }
+        }
+    }
+
+    private void syncStats(String reason, int flags) {
+        awaitUninterruptibly(mWorker.scheduleSync(reason, flags));
     }
 
     /**
@@ -232,22 +248,27 @@ public final class BatteryStatsService extends IBatteryStats.Stub
     public void initPowerManagement() {
         final PowerManagerInternal powerMgr = LocalServices.getService(PowerManagerInternal.class);
         powerMgr.registerLowPowerModeObserver(this);
-        mStats.notePowerSaveMode(powerMgr.getLowPowerModeEnabled());
+        synchronized (mStats) {
+            mStats.notePowerSaveModeLocked(
+                    powerMgr.getLowPowerState(ServiceType.BATTERY_STATS)
+                            .batterySaverEnabled);
+        }
         (new WakeupReasonThread()).start();
     }
 
     public void shutdown() {
         Slog.w("BatteryStats", "Writing battery stats before shutdown...");
 
-        updateExternalStatsSync("shutdown", BatteryStatsImpl.ExternalStatsSync.UPDATE_ALL);
+        syncStats("shutdown", BatteryExternalStatsWorker.UPDATE_ALL);
+
         synchronized (mStats) {
             mStats.shutdownLocked();
         }
 
         // Shutdown the thread we made.
-        mHandler.getLooper().quit();
+        mWorker.shutdown();
     }
-    
+
     public static IBatteryStats getService() {
         if (sService != null) {
             return sService;
@@ -258,9 +279,14 @@ public final class BatteryStatsService extends IBatteryStats.Stub
     }
 
     @Override
-    public void onLowPowerModeChanged(boolean enabled) {
+    public int getServiceType() {
+        return ServiceType.BATTERY_STATS;
+    }
+
+    @Override
+    public void onLowPowerModeChanged(PowerSaveState result) {
         synchronized (mStats) {
-            mStats.notePowerSaveMode(enabled);
+            mStats.notePowerSaveModeLocked(result.batterySaverEnabled);
         }
     }
 
@@ -278,7 +304,7 @@ public final class BatteryStatsService extends IBatteryStats.Stub
      * object to update with the latest info, then write to disk.
      */
     public void scheduleWriteToDisk() {
-        mHandler.sendEmptyMessage(BatteryStatsHandler.MSG_WRITE_TO_DISK);
+        mWorker.scheduleWrite();
     }
 
     // These are for direct use by the activity manager...
@@ -289,6 +315,18 @@ public final class BatteryStatsService extends IBatteryStats.Stub
     void removeUid(int uid) {
         synchronized (mStats) {
             mStats.removeUidStatsLocked(uid);
+        }
+    }
+
+    void onCleanupUser(int userId) {
+        synchronized (mStats) {
+            mStats.onCleanupUserLocked(userId);
+        }
+    }
+
+    void onUserRemoved(int userId) {
+        synchronized (mStats) {
+            mStats.onUserRemovedLocked(userId);
         }
     }
 
@@ -307,12 +345,16 @@ public final class BatteryStatsService extends IBatteryStats.Stub
     void noteProcessStart(String name, int uid) {
         synchronized (mStats) {
             mStats.noteProcessStartLocked(name, uid);
+            FrameworkStatsLog.write(FrameworkStatsLog.PROCESS_LIFE_CYCLE_STATE_CHANGED, uid, name,
+                    FrameworkStatsLog.PROCESS_LIFE_CYCLE_STATE_CHANGED__STATE__STARTED);
         }
     }
 
     void noteProcessCrash(String name, int uid) {
         synchronized (mStats) {
             mStats.noteProcessCrashLocked(name, uid);
+            FrameworkStatsLog.write(FrameworkStatsLog.PROCESS_LIFE_CYCLE_STATE_CHANGED, uid, name,
+                    FrameworkStatsLog.PROCESS_LIFE_CYCLE_STATE_CHANGED__STATE__CRASHED);
         }
     }
 
@@ -325,9 +367,12 @@ public final class BatteryStatsService extends IBatteryStats.Stub
     void noteProcessFinish(String name, int uid) {
         synchronized (mStats) {
             mStats.noteProcessFinishLocked(name, uid);
+            FrameworkStatsLog.write(FrameworkStatsLog.PROCESS_LIFE_CYCLE_STATE_CHANGED, uid, name,
+                    FrameworkStatsLog.PROCESS_LIFE_CYCLE_STATE_CHANGED__STATE__FINISHED);
         }
     }
 
+    /** @param state Process state from ActivityManager.java. */
     void noteUidProcessState(int uid, int state) {
         synchronized (mStats) {
             mStats.noteUidProcessStateLocked(uid, state);
@@ -342,7 +387,7 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         //Slog.i("foo", "SENDING BATTERY INFO:");
         //mStats.dumpLocked(new LogPrinter(Log.INFO, "foo", Log.LOG_ID_SYSTEM));
         Parcel out = Parcel.obtain();
-        updateExternalStatsSync("get-stats", BatteryStatsImpl.ExternalStatsSync.UPDATE_ALL);
+        syncStats("get-stats", BatteryExternalStatsWorker.UPDATE_ALL);
         synchronized (mStats) {
             mStats.writeToParcel(out, 0);
         }
@@ -352,16 +397,17 @@ public final class BatteryStatsService extends IBatteryStats.Stub
     }
 
     public ParcelFileDescriptor getStatisticsStream() {
-        mContext.enforceCallingPermission(
+        mContext.enforceCallingOrSelfPermission(
                 android.Manifest.permission.BATTERY_STATS, null);
         //Slog.i("foo", "SENDING BATTERY INFO:");
         //mStats.dumpLocked(new LogPrinter(Log.INFO, "foo", Log.LOG_ID_SYSTEM));
         Parcel out = Parcel.obtain();
-        updateExternalStatsSync("get-stats", BatteryStatsImpl.ExternalStatsSync.UPDATE_ALL);
+        syncStats("get-stats", BatteryExternalStatsWorker.UPDATE_ALL);
         synchronized (mStats) {
             mStats.writeToParcel(out, 0);
         }
         byte[] data = out.marshall();
+        if (DBG) Slog.d(TAG, "getStatisticsStream parcel size is:" + data.length);
         out.recycle();
         try {
             return ParcelFileDescriptor.fromData(data, "battery-stats");
@@ -402,6 +448,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteSyncStartLocked(name, uid);
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.SYNC_STATE_CHANGED, uid, null,
+                    name, FrameworkStatsLog.SYNC_STATE_CHANGED__STATE__ON);
         }
     }
 
@@ -409,9 +457,12 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteSyncFinishLocked(name, uid);
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.SYNC_STATE_CHANGED, uid, null,
+                    name, FrameworkStatsLog.SYNC_STATE_CHANGED__STATE__OFF);
         }
     }
 
+    /** A scheduled job was started. */
     public void noteJobStart(String name, int uid) {
         enforceCallingPermission();
         synchronized (mStats) {
@@ -419,24 +470,39 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         }
     }
 
-    public void noteJobFinish(String name, int uid) {
+    /** A scheduled job was finished. */
+    public void noteJobFinish(String name, int uid, int stopReason) {
         enforceCallingPermission();
         synchronized (mStats) {
-            mStats.noteJobFinishLocked(name, uid);
+            mStats.noteJobFinishLocked(name, uid, stopReason);
         }
     }
 
-    public void noteAlarmStart(String name, int uid) {
-        enforceCallingPermission();
+    void noteJobsDeferred(int uid, int numDeferred, long sinceLast) {
+        // No need to enforce calling permission, as it is called from an internal interface
         synchronized (mStats) {
-            mStats.noteAlarmStartLocked(name, uid);
+            mStats.noteJobsDeferredLocked(uid, numDeferred, sinceLast);
         }
     }
 
-    public void noteAlarmFinish(String name, int uid) {
+    public void noteWakupAlarm(String name, int uid, WorkSource workSource, String tag) {
         enforceCallingPermission();
         synchronized (mStats) {
-            mStats.noteAlarmFinishLocked(name, uid);
+            mStats.noteWakupAlarmLocked(name, uid, workSource, tag);
+        }
+    }
+
+    public void noteAlarmStart(String name, WorkSource workSource, int uid) {
+        enforceCallingPermission();
+        synchronized (mStats) {
+            mStats.noteAlarmStartLocked(name, workSource, uid);
+        }
+    }
+
+    public void noteAlarmFinish(String name, WorkSource workSource, int uid) {
+        enforceCallingPermission();
+        synchronized (mStats) {
+            mStats.noteAlarmFinishLocked(name, workSource, uid);
         }
     }
 
@@ -444,15 +510,16 @@ public final class BatteryStatsService extends IBatteryStats.Stub
             boolean unimportantForLogging) {
         enforceCallingPermission();
         synchronized (mStats) {
-            mStats.noteStartWakeLocked(uid, pid, name, historyName, type, unimportantForLogging,
-                    SystemClock.elapsedRealtime(), SystemClock.uptimeMillis());
+            mStats.noteStartWakeLocked(uid, pid, null, name, historyName, type,
+                    unimportantForLogging, SystemClock.elapsedRealtime(),
+                    SystemClock.uptimeMillis());
         }
     }
 
     public void noteStopWakelock(int uid, int pid, String name, String historyName, int type) {
         enforceCallingPermission();
         synchronized (mStats) {
-            mStats.noteStopWakeLocked(uid, pid, name, historyName, type,
+            mStats.noteStopWakeLocked(uid, pid, null, name, historyName, type,
                     SystemClock.elapsedRealtime(), SystemClock.uptimeMillis());
         }
     }
@@ -484,6 +551,7 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         }
     }
 
+    @Override
     public void noteLongPartialWakelockStart(String name, String historyName, int uid) {
         enforceCallingPermission();
         synchronized (mStats) {
@@ -491,6 +559,16 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         }
     }
 
+    @Override
+    public void noteLongPartialWakelockStartFromSource(String name, String historyName,
+            WorkSource workSource) {
+        enforceCallingPermission();
+        synchronized (mStats) {
+            mStats.noteLongPartialWakelockStartFromSource(name, historyName, workSource);
+        }
+    }
+
+    @Override
     public void noteLongPartialWakelockFinish(String name, String historyName, int uid) {
         enforceCallingPermission();
         synchronized (mStats) {
@@ -498,20 +576,33 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         }
     }
 
+    @Override
+    public void noteLongPartialWakelockFinishFromSource(String name, String historyName,
+            WorkSource workSource) {
+        enforceCallingPermission();
+        synchronized (mStats) {
+            mStats.noteLongPartialWakelockFinishFromSource(name, historyName, workSource);
+        }
+    }
+
     public void noteStartSensor(int uid, int sensor) {
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteStartSensorLocked(uid, sensor);
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.SENSOR_STATE_CHANGED, uid, null,
+                    sensor, FrameworkStatsLog.SENSOR_STATE_CHANGED__STATE__ON);
         }
     }
-    
+
     public void noteStopSensor(int uid, int sensor) {
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteStopSensorLocked(uid, sensor);
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.SENSOR_STATE_CHANGED, uid, null,
+                    sensor, FrameworkStatsLog.SENSOR_STATE_CHANGED__STATE__OFF);
         }
     }
-    
+
     public void noteVibratorOn(int uid, long durationMillis) {
         enforceCallingPermission();
         synchronized (mStats) {
@@ -526,41 +617,46 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         }
     }
 
-    public void noteStartGps(int uid) {
+    @Override
+    public void noteGpsChanged(WorkSource oldWs, WorkSource newWs) {
         enforceCallingPermission();
         synchronized (mStats) {
-            mStats.noteStartGpsLocked(uid);
+            mStats.noteGpsChangedLocked(oldWs, newWs);
         }
     }
-    
-    public void noteStopGps(int uid) {
-        enforceCallingPermission();
+
+    public void noteGpsSignalQuality(int signalLevel) {
         synchronized (mStats) {
-            mStats.noteStopGpsLocked(uid);
+            mStats.noteGpsSignalQualityLocked(signalLevel);
         }
     }
-        
+
     public void noteScreenState(int state) {
         enforceCallingPermission();
+        if (DBG) Slog.d(TAG, "begin noteScreenState");
         synchronized (mStats) {
+            FrameworkStatsLog.write(FrameworkStatsLog.SCREEN_STATE_CHANGED, state);
+
             mStats.noteScreenStateLocked(state);
         }
+        if (DBG) Slog.d(TAG, "end noteScreenState");
     }
-    
+
     public void noteScreenBrightness(int brightness) {
         enforceCallingPermission();
         synchronized (mStats) {
+            FrameworkStatsLog.write(FrameworkStatsLog.SCREEN_BRIGHTNESS_CHANGED, brightness);
             mStats.noteScreenBrightnessLocked(brightness);
         }
     }
-    
+
     public void noteUserActivity(int uid, int event) {
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteUserActivityLocked(uid, event);
         }
     }
-    
+
     public void noteWakeUp(String reason, int reasonUid) {
         enforceCallingPermission();
         synchronized (mStats) {
@@ -584,8 +680,13 @@ public final class BatteryStatsService extends IBatteryStats.Stub
 
     public void noteMobileRadioPowerState(int powerState, long timestampNs, int uid) {
         enforceCallingPermission();
+        final boolean update;
         synchronized (mStats) {
-            mStats.noteMobileRadioPowerState(powerState, timestampNs, uid);
+            update = mStats.noteMobileRadioPowerStateLocked(powerState, timestampNs, uid);
+        }
+
+        if (update) {
+            mWorker.scheduleSync("modem-data", BatteryExternalStatsWorker.UPDATE_RADIO);
         }
     }
 
@@ -595,31 +696,31 @@ public final class BatteryStatsService extends IBatteryStats.Stub
             mStats.notePhoneOnLocked();
         }
     }
-    
+
     public void notePhoneOff() {
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.notePhoneOffLocked();
         }
     }
-    
+
     public void notePhoneSignalStrength(SignalStrength signalStrength) {
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.notePhoneSignalStrengthLocked(signalStrength);
         }
     }
-    
-    public void notePhoneDataConnectionState(int dataType, boolean hasData) {
+
+    public void notePhoneDataConnectionState(int dataType, boolean hasData, int serviceType) {
         enforceCallingPermission();
         synchronized (mStats) {
-            mStats.notePhoneDataConnectionStateLocked(dataType, hasData);
+            mStats.notePhoneDataConnectionStateLocked(dataType, hasData, serviceType);
         }
     }
 
     public void notePhoneState(int state) {
         enforceCallingPermission();
-        int simState = TelephonyManager.getDefault().getSimState();
+        int simState = mContext.getSystemService(TelephonyManager.class).getSimState();
         synchronized (mStats) {
             mStats.notePhoneStateLocked(state, simState);
         }
@@ -630,19 +731,25 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         synchronized (mStats) {
             mStats.noteWifiOnLocked();
         }
+        FrameworkStatsLog.write(FrameworkStatsLog.WIFI_ENABLED_STATE_CHANGED,
+                FrameworkStatsLog.WIFI_ENABLED_STATE_CHANGED__STATE__ON);
     }
-    
+
     public void noteWifiOff() {
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteWifiOffLocked();
         }
+        FrameworkStatsLog.write(FrameworkStatsLog.WIFI_ENABLED_STATE_CHANGED,
+                FrameworkStatsLog.WIFI_ENABLED_STATE_CHANGED__STATE__OFF);
     }
 
     public void noteStartAudio(int uid) {
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteAudioOnLocked(uid);
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.AUDIO_STATE_CHANGED, uid, null,
+                    FrameworkStatsLog.AUDIO_STATE_CHANGED__STATE__ON);
         }
     }
 
@@ -650,6 +757,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteAudioOffLocked(uid);
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.AUDIO_STATE_CHANGED, uid, null,
+                    FrameworkStatsLog.AUDIO_STATE_CHANGED__STATE__OFF);
         }
     }
 
@@ -657,6 +766,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteVideoOnLocked(uid);
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.MEDIA_CODEC_STATE_CHANGED, uid,
+                    null, FrameworkStatsLog.MEDIA_CODEC_STATE_CHANGED__STATE__ON);
         }
     }
 
@@ -664,6 +775,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteVideoOffLocked(uid);
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.MEDIA_CODEC_STATE_CHANGED, uid,
+                    null, FrameworkStatsLog.MEDIA_CODEC_STATE_CHANGED__STATE__OFF);
         }
     }
 
@@ -671,6 +784,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteResetAudioLocked();
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.AUDIO_STATE_CHANGED, -1, null,
+                    FrameworkStatsLog.AUDIO_STATE_CHANGED__STATE__RESET);
         }
     }
 
@@ -678,6 +793,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteResetVideoLocked();
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.MEDIA_CODEC_STATE_CHANGED, -1,
+                    null, FrameworkStatsLog.MEDIA_CODEC_STATE_CHANGED__STATE__RESET);
         }
     }
 
@@ -685,6 +802,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteFlashlightOnLocked(uid);
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.FLASHLIGHT_STATE_CHANGED, uid,
+                    null, FrameworkStatsLog.FLASHLIGHT_STATE_CHANGED__STATE__ON);
         }
     }
 
@@ -692,20 +811,28 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteFlashlightOffLocked(uid);
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.FLASHLIGHT_STATE_CHANGED, uid,
+                    null, FrameworkStatsLog.FLASHLIGHT_STATE_CHANGED__STATE__OFF);
         }
     }
 
     public void noteStartCamera(int uid) {
         enforceCallingPermission();
+        if (DBG) Slog.d(TAG, "begin noteStartCamera");
         synchronized (mStats) {
             mStats.noteCameraOnLocked(uid);
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.CAMERA_STATE_CHANGED, uid, null,
+                    FrameworkStatsLog.CAMERA_STATE_CHANGED__STATE__ON);
         }
+        if (DBG) Slog.d(TAG, "end noteStartCamera");
     }
 
     public void noteStopCamera(int uid) {
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteCameraOffLocked(uid);
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.CAMERA_STATE_CHANGED, uid, null,
+                    FrameworkStatsLog.CAMERA_STATE_CHANGED__STATE__OFF);
         }
     }
 
@@ -713,6 +840,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteResetCameraLocked();
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.CAMERA_STATE_CHANGED, -1, null,
+                    FrameworkStatsLog.CAMERA_STATE_CHANGED__STATE__RESET);
         }
     }
 
@@ -720,6 +849,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.noteResetFlashlightLocked();
+            FrameworkStatsLog.write_non_chained(FrameworkStatsLog.FLASHLIGHT_STATE_CHANGED, -1,
+                    null, FrameworkStatsLog.FLASHLIGHT_STATE_CHANGED__STATE__RESET);
         }
     }
 
@@ -734,8 +865,7 @@ public final class BatteryStatsService extends IBatteryStats.Stub
                 final String type = (powerState == DataConnectionRealTimeInfo.DC_POWER_STATE_HIGH ||
                         powerState == DataConnectionRealTimeInfo.DC_POWER_STATE_MEDIUM) ? "active"
                         : "inactive";
-                mHandler.scheduleSync("wifi-data: " + type,
-                        BatteryStatsImpl.ExternalStatsSync.UPDATE_WIFI);
+                mWorker.scheduleSync("wifi-data: " + type, BatteryExternalStatsWorker.UPDATE_WIFI);
             }
             mStats.noteWifiRadioPowerState(powerState, tsNanos, uid);
         }
@@ -746,6 +876,9 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         synchronized (mStats) {
             mStats.noteWifiRunningLocked(ws);
         }
+        // TODO: Log WIFI_RUNNING_STATE_CHANGED in a better spot to include Hotspot too.
+        FrameworkStatsLog.write(FrameworkStatsLog.WIFI_RUNNING_STATE_CHANGED,
+                ws, FrameworkStatsLog.WIFI_RUNNING_STATE_CHANGED__STATE__ON);
     }
 
     public void noteWifiRunningChanged(WorkSource oldWs, WorkSource newWs) {
@@ -753,6 +886,10 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         synchronized (mStats) {
             mStats.noteWifiRunningChangedLocked(oldWs, newWs);
         }
+        FrameworkStatsLog.write(FrameworkStatsLog.WIFI_RUNNING_STATE_CHANGED,
+                newWs, FrameworkStatsLog.WIFI_RUNNING_STATE_CHANGED__STATE__ON);
+        FrameworkStatsLog.write(FrameworkStatsLog.WIFI_RUNNING_STATE_CHANGED,
+                oldWs, FrameworkStatsLog.WIFI_RUNNING_STATE_CHANGED__STATE__OFF);
     }
 
     public void noteWifiStopped(WorkSource ws) {
@@ -760,6 +897,8 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         synchronized (mStats) {
             mStats.noteWifiStoppedLocked(ws);
         }
+        FrameworkStatsLog.write(FrameworkStatsLog.WIFI_RUNNING_STATE_CHANGED,
+                ws, FrameworkStatsLog.WIFI_RUNNING_STATE_CHANGED__STATE__OFF);
     }
 
     public void noteWifiState(int wifiState, String accessPoint) {
@@ -789,7 +928,7 @@ public final class BatteryStatsService extends IBatteryStats.Stub
             mStats.noteFullWifiLockAcquiredLocked(uid);
         }
     }
-    
+
     public void noteFullWifiLockReleased(int uid) {
         enforceCallingPermission();
         synchronized (mStats) {
@@ -867,35 +1006,20 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         }
     }
 
-    public void noteWifiMulticastEnabledFromSource(WorkSource ws) {
-        enforceCallingPermission();
-        synchronized (mStats) {
-            mStats.noteWifiMulticastEnabledFromSourceLocked(ws);
-        }
-    }
-
-    @Override
-    public void noteWifiMulticastDisabledFromSource(WorkSource ws) {
-        enforceCallingPermission();
-        synchronized (mStats) {
-            mStats.noteWifiMulticastDisabledFromSourceLocked(ws);
-        }
-    }
-
     @Override
     public void noteNetworkInterfaceType(String iface, int networkType) {
         enforceCallingPermission();
-        synchronized (mStats) {
-            mStats.noteNetworkInterfaceTypeLocked(iface, networkType);
-        }
+        mStats.noteNetworkInterfaceType(iface, networkType);
     }
 
     @Override
     public void noteNetworkStatsEnabled() {
         enforceCallingPermission();
-        synchronized (mStats) {
-            mStats.noteNetworkStatsEnabledLocked();
-        }
+        // During device boot, qtaguid isn't enabled until after the inital
+        // loading of battery stats. Now that they're enabled, take our initial
+        // snapshot for future delta calculation.
+        mWorker.scheduleSync("network-stats-enabled",
+                BatteryExternalStatsWorker.UPDATE_RADIO | BatteryExternalStatsWorker.UPDATE_WIFI);
     }
 
     @Override
@@ -906,7 +1030,7 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         }
     }
 
-    public void notePackageInstalled(String pkgName, int versionCode) {
+    public void notePackageInstalled(String pkgName, long versionCode) {
         enforceCallingPermission();
         synchronized (mStats) {
             mStats.notePackageInstalledLocked(pkgName, versionCode);
@@ -921,18 +1045,18 @@ public final class BatteryStatsService extends IBatteryStats.Stub
     }
 
     @Override
-    public void noteBleScanStarted(WorkSource ws) {
+    public void noteBleScanStarted(WorkSource ws, boolean isUnoptimized) {
         enforceCallingPermission();
         synchronized (mStats) {
-            mStats.noteBluetoothScanStartedFromSourceLocked(ws);
+            mStats.noteBluetoothScanStartedFromSourceLocked(ws, isUnoptimized);
         }
     }
 
     @Override
-    public void noteBleScanStopped(WorkSource ws) {
+    public void noteBleScanStopped(WorkSource ws, boolean isUnoptimized) {
         enforceCallingPermission();
         synchronized (mStats) {
-            mStats.noteBluetoothScanStoppedFromSourceLocked(ws);
+            mStats.noteBluetoothScanStoppedFromSourceLocked(ws, isUnoptimized);
         }
     }
 
@@ -945,6 +1069,14 @@ public final class BatteryStatsService extends IBatteryStats.Stub
     }
 
     @Override
+    public void noteBleScanResults(WorkSource ws, int numNewResults) {
+        enforceCallingPermission();
+        synchronized (mStats) {
+            mStats.noteBluetoothScanResultsFromSourceLocked(ws, numNewResults);
+        }
+    }
+
+    @Override
     public void noteWifiControllerActivity(WifiActivityEnergyInfo info) {
         enforceCallingPermission();
 
@@ -953,9 +1085,7 @@ public final class BatteryStatsService extends IBatteryStats.Stub
             return;
         }
 
-        synchronized (mStats) {
-            mStats.updateWifiStateLocked(info);
-        }
+        mStats.updateWifiState(info);
     }
 
     @Override
@@ -980,9 +1110,7 @@ public final class BatteryStatsService extends IBatteryStats.Stub
             return;
         }
 
-        synchronized (mStats) {
-            mStats.updateMobileRadioStateLocked(SystemClock.elapsedRealtime(), info);
-        }
+        mStats.updateMobileRadioState(info);
     }
 
     public boolean isOnBattery() {
@@ -991,36 +1119,38 @@ public final class BatteryStatsService extends IBatteryStats.Stub
 
     @Override
     public void setBatteryState(final int status, final int health, final int plugType,
-            final int level, final int temp, final int volt, final int chargeUAh) {
+            final int level, final int temp, final int volt, final int chargeUAh,
+            final int chargeFullUAh, final long chargeTimeToFullSeconds) {
         enforceCallingPermission();
 
         // BatteryService calls us here and we may update external state. It would be wrong
         // to block such a low level service like BatteryService on external stats like WiFi.
-        mHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                synchronized (mStats) {
-                    final boolean onBattery = plugType == BatteryStatsImpl.BATTERY_PLUGGED_NONE;
-                    if (mStats.isOnBattery() == onBattery) {
-                        // The battery state has not changed, so we don't need to sync external
-                        // stats immediately.
-                        mStats.setBatteryStateLocked(status, health, plugType, level, temp, volt,
-                                chargeUAh);
-                        return;
-                    }
-                }
-
-                // Sync external stats first as the battery has changed states. If we don't sync
-                // immediately here, we may not collect the relevant data later.
-                updateExternalStatsSync("battery-state", BatteryStatsImpl.ExternalStatsSync.UPDATE_ALL);
-                synchronized (mStats) {
+        mWorker.scheduleRunnable(() -> {
+            synchronized (mStats) {
+                final boolean onBattery = BatteryStatsImpl.isOnBattery(plugType, status);
+                if (mStats.isOnBattery() == onBattery) {
+                    // The battery state has not changed, so we don't need to sync external
+                    // stats immediately.
                     mStats.setBatteryStateLocked(status, health, plugType, level, temp, volt,
-                            chargeUAh);
+                            chargeUAh, chargeFullUAh, chargeTimeToFullSeconds);
+                    return;
                 }
             }
+
+            // Sync external stats first as the battery has changed states. If we don't sync
+            // before changing the state, we may not collect the relevant data later.
+            // Order here is guaranteed since we're scheduling from the same thread and we are
+            // using a single threaded executor.
+            mWorker.scheduleSync("battery-state", BatteryExternalStatsWorker.UPDATE_ALL);
+            mWorker.scheduleRunnable(() -> {
+                synchronized (mStats) {
+                    mStats.setBatteryStateLocked(status, health, plugType, level, temp, volt,
+                            chargeUAh, chargeFullUAh, chargeTimeToFullSeconds);
+                }
+            });
         });
     }
-    
+
     public long getAwakeTimeBattery() {
         mContext.enforceCallingOrSelfPermission(
                 android.Manifest.permission.BATTERY_STATS, null);
@@ -1104,19 +1234,23 @@ public final class BatteryStatsService extends IBatteryStats.Stub
 
     private void dumpHelp(PrintWriter pw) {
         pw.println("Battery stats (batterystats) dump options:");
-        pw.println("  [--checkin] [--history] [--history-start] [--charged] [-c]");
+        pw.println("  [--checkin] [--proto] [--history] [--history-start] [--charged] [-c]");
         pw.println("  [--daily] [--reset] [--write] [--new-daily] [--read-daily] [-h] [<package.name>]");
         pw.println("  --checkin: generate output for a checkin report; will write (and clear) the");
         pw.println("             last old completed stats when they had been reset.");
         pw.println("  -c: write the current stats in checkin format.");
+        pw.println("  --proto: write the current aggregate stats (without history) in proto format.");
         pw.println("  --history: show only history data.");
         pw.println("  --history-start <num>: show only history data starting at given time offset.");
+        pw.println("  --history-create-events <num>: create <num> of battery history events.");
         pw.println("  --charged: only output data since last charged.");
         pw.println("  --daily: only output full daily data.");
         pw.println("  --reset: reset the stats, clearing all current data.");
         pw.println("  --write: force write current collected stats to disk.");
         pw.println("  --new-daily: immediately create and write new daily stats record.");
         pw.println("  --read-daily: read-load last written daily stats.");
+        pw.println("  --settings: dump the settings key/values related to batterystats");
+        pw.println("  --cpu: dump cpu stats for debugging purpose");
         pw.println("  <package.name>: optional name of package to filter output by.");
         pw.println("  -h: print this help text.");
         pw.println("Battery stats (batterystats) commands:");
@@ -1126,6 +1260,19 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         pw.println("      full-history: include additional detailed events in battery history:");
         pw.println("          wake_lock_in, alarms and proc events");
         pw.println("      no-auto-reset: don't automatically reset stats when unplugged");
+        pw.println("      pretend-screen-off: pretend the screen is off, even if screen state changes");
+    }
+
+    private void dumpSettings(PrintWriter pw) {
+        synchronized (mStats) {
+            mStats.dumpConstantsLocked(pw);
+        }
+    }
+
+    private void dumpCpuStats(PrintWriter pw) {
+        synchronized (mStats) {
+            mStats.dumpCpuStatsLocked(pw);
+        }
     }
 
     private int doEnableOrDisable(PrintWriter pw, int i, String[] args, boolean enable) {
@@ -1143,6 +1290,10 @@ public final class BatteryStatsService extends IBatteryStats.Stub
             synchronized (mStats) {
                 mStats.setNoAutoReset(enable);
             }
+        } else if ("pretend-screen-off".equals(args[i])) {
+            synchronized (mStats) {
+                mStats.setPretendScreenOff(enable);
+            }
         } else {
             pw.println("Unknown enable/disable option: " + args[i]);
             dumpHelp(pw);
@@ -1154,16 +1305,11 @@ public final class BatteryStatsService extends IBatteryStats.Stub
 
     @Override
     protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        if (mContext.checkCallingOrSelfPermission(android.Manifest.permission.DUMP)
-                != PackageManager.PERMISSION_GRANTED) {
-            pw.println("Permission Denial: can't dump BatteryStats from from pid="
-                    + Binder.getCallingPid() + ", uid=" + Binder.getCallingUid()
-                    + " without permission " + android.Manifest.permission.DUMP);
-            return;
-        }
+        if (!DumpUtils.checkDumpAndUsageStatsPermission(mContext, TAG, pw)) return;
 
         int flags = 0;
         boolean useCheckinFormat = false;
+        boolean toProto = false;
         boolean isRealCheckin = false;
         boolean noOutput = false;
         boolean writeData = false;
@@ -1185,11 +1331,26 @@ public final class BatteryStatsService extends IBatteryStats.Stub
                         dumpHelp(pw);
                         return;
                     }
-                    historyStart = Long.parseLong(args[i]);
+                    historyStart = ParseUtils.parseLong(args[i], 0);
                     writeData = true;
+                } else if ("--history-create-events".equals(arg)) {
+                    i++;
+                    if (i >= args.length) {
+                        pw.println("Missing events argument for --history-create-events");
+                        dumpHelp(pw);
+                        return;
+                    }
+                    final long events = ParseUtils.parseLong(args[i], 0);
+                    synchronized (mStats) {
+                        mStats.createFakeHistoryEvents(events);
+                        pw.println("Battery history create events started.");
+                        noOutput = true;
+                    }
                 } else if ("-c".equals(arg)) {
                     useCheckinFormat = true;
                     flags |= BatteryStats.DUMP_INCLUDE_HISTORY;
+                } else if ("--proto".equals(arg)) {
+                    toProto = true;
                 } else if ("--charged".equals(arg)) {
                     flags |= BatteryStats.DUMP_CHARGED_ONLY;
                 } else if ("--daily".equals(arg)) {
@@ -1200,9 +1361,9 @@ public final class BatteryStatsService extends IBatteryStats.Stub
                         pw.println("Battery stats reset.");
                         noOutput = true;
                     }
-                    updateExternalStatsSync("dump", BatteryStatsImpl.ExternalStatsSync.UPDATE_ALL);
+                    mWorker.scheduleSync("dump", BatteryExternalStatsWorker.UPDATE_ALL);
                 } else if ("--write".equals(arg)) {
-                    updateExternalStatsSync("dump", BatteryStatsImpl.ExternalStatsSync.UPDATE_ALL);
+                    syncStats("dump", BatteryExternalStatsWorker.UPDATE_ALL);
                     synchronized (mStats) {
                         mStats.writeSyncLocked();
                         pw.println("Battery stats written.");
@@ -1237,6 +1398,12 @@ public final class BatteryStatsService extends IBatteryStats.Stub
                 } else if ("-h".equals(arg)) {
                     dumpHelp(pw);
                     return;
+                } else if ("--settings".equals(arg)) {
+                    dumpSettings(pw);
+                    return;
+                } else if ("--cpu".equals(arg)) {
+                    dumpCpuStats(pw);
+                    return;
                 } else if ("-a".equals(arg)) {
                     flags |= BatteryStats.DUMP_VERBOSE;
                 } else if (arg.length() > 0 && arg.charAt(0) == '-'){
@@ -1266,7 +1433,7 @@ public final class BatteryStatsService extends IBatteryStats.Stub
                 flags |= BatteryStats.DUMP_DEVICE_WIFI_ONLY;
             }
             // Fetch data from external sources and update the BatteryStatsImpl object with them.
-            updateExternalStatsSync("dump", BatteryStatsImpl.ExternalStatsSync.UPDATE_ALL);
+            syncStats("dump", BatteryExternalStatsWorker.UPDATE_ALL);
         } finally {
             Binder.restoreCallingIdentity(ident);
         }
@@ -1281,9 +1448,9 @@ public final class BatteryStatsService extends IBatteryStats.Stub
             }
         }
 
-        if (useCheckinFormat) {
+        if (toProto) {
             List<ApplicationInfo> apps = mContext.getPackageManager().getInstalledApplications(
-                    PackageManager.MATCH_UNINSTALLED_PACKAGES | PackageManager.MATCH_ALL);
+                    PackageManager.MATCH_ANY_USER | PackageManager.MATCH_ALL);
             if (isRealCheckin) {
                 // For a real checkin, first we want to prefer to use the last complete checkin
                 // file if there is one.
@@ -1296,7 +1463,47 @@ public final class BatteryStatsService extends IBatteryStats.Stub
                                 in.unmarshall(raw, 0, raw.length);
                                 in.setDataPosition(0);
                                 BatteryStatsImpl checkinStats = new BatteryStatsImpl(
-                                        null, mStats.mHandler, null);
+                                        null, mStats.mHandler, null, null,
+                                        mUserManagerUserInfoProvider);
+                                checkinStats.readSummaryFromParcel(in);
+                                in.recycle();
+                                checkinStats.dumpProtoLocked(
+                                        mContext, fd, apps, flags, historyStart);
+                                mStats.mCheckinFile.delete();
+                                return;
+                            }
+                        } catch (IOException | ParcelFormatException e) {
+                            Slog.w(TAG, "Failure reading checkin file "
+                                    + mStats.mCheckinFile.getBaseFile(), e);
+                        }
+                    }
+                }
+            }
+            if (DBG) Slog.d(TAG, "begin dumpProtoLocked from UID " + Binder.getCallingUid());
+            synchronized (mStats) {
+                mStats.dumpProtoLocked(mContext, fd, apps, flags, historyStart);
+                if (writeData) {
+                    mStats.writeAsyncLocked();
+                }
+            }
+            if (DBG) Slog.d(TAG, "end dumpProtoLocked");
+        } else if (useCheckinFormat) {
+            List<ApplicationInfo> apps = mContext.getPackageManager().getInstalledApplications(
+                    PackageManager.MATCH_ANY_USER | PackageManager.MATCH_ALL);
+            if (isRealCheckin) {
+                // For a real checkin, first we want to prefer to use the last complete checkin
+                // file if there is one.
+                synchronized (mStats.mCheckinFile) {
+                    if (mStats.mCheckinFile.exists()) {
+                        try {
+                            byte[] raw = mStats.mCheckinFile.readFully();
+                            if (raw != null) {
+                                Parcel in = Parcel.obtain();
+                                in.unmarshall(raw, 0, raw.length);
+                                in.setDataPosition(0);
+                                BatteryStatsImpl checkinStats = new BatteryStatsImpl(
+                                        null, mStats.mHandler, null, null,
+                                        mUserManagerUserInfoProvider);
                                 checkinStats.readSummaryFromParcel(in);
                                 in.recycle();
                                 checkinStats.dumpCheckinLocked(mContext, pw, apps, flags,
@@ -1311,237 +1518,53 @@ public final class BatteryStatsService extends IBatteryStats.Stub
                     }
                 }
             }
+            if (DBG) Slog.d(TAG, "begin dumpCheckinLocked from UID " + Binder.getCallingUid());
             synchronized (mStats) {
                 mStats.dumpCheckinLocked(mContext, pw, apps, flags, historyStart);
                 if (writeData) {
                     mStats.writeAsyncLocked();
                 }
             }
+            if (DBG) Slog.d(TAG, "end dumpCheckinLocked");
         } else {
+            if (DBG) Slog.d(TAG, "begin dumpLocked from UID " + Binder.getCallingUid());
             synchronized (mStats) {
                 mStats.dumpLocked(mContext, pw, flags, reqUid, historyStart);
                 if (writeData) {
                     mStats.writeAsyncLocked();
                 }
             }
+            if (DBG) Slog.d(TAG, "end dumpLocked");
         }
-    }
-
-    private WifiActivityEnergyInfo extractDelta(WifiActivityEnergyInfo latest) {
-        final long timePeriodMs = latest.mTimestamp - mLastInfo.mTimestamp;
-        final long lastIdleMs = mLastInfo.mControllerIdleTimeMs;
-        final long lastTxMs = mLastInfo.mControllerTxTimeMs;
-        final long lastRxMs = mLastInfo.mControllerRxTimeMs;
-        final long lastEnergy = mLastInfo.mControllerEnergyUsed;
-
-        // We will modify the last info object to be the delta, and store the new
-        // WifiActivityEnergyInfo object as our last one.
-        final WifiActivityEnergyInfo delta = mLastInfo;
-        delta.mTimestamp = latest.getTimeStamp();
-        delta.mStackState = latest.getStackState();
-
-        final long txTimeMs = latest.mControllerTxTimeMs - lastTxMs;
-        final long rxTimeMs = latest.mControllerRxTimeMs - lastRxMs;
-        final long idleTimeMs = latest.mControllerIdleTimeMs - lastIdleMs;
-
-        if (txTimeMs < 0 || rxTimeMs < 0) {
-            // The stats were reset by the WiFi system (which is why our delta is negative).
-            // Returns the unaltered stats.
-            delta.mControllerEnergyUsed = latest.mControllerEnergyUsed;
-            delta.mControllerRxTimeMs = latest.mControllerRxTimeMs;
-            delta.mControllerTxTimeMs = latest.mControllerTxTimeMs;
-            delta.mControllerIdleTimeMs = latest.mControllerIdleTimeMs;
-            Slog.v(TAG, "WiFi energy data was reset, new WiFi energy data is " + delta);
-        } else {
-            final long totalActiveTimeMs = txTimeMs + rxTimeMs;
-            long maxExpectedIdleTimeMs;
-            if (totalActiveTimeMs > timePeriodMs) {
-                // Cap the max idle time at zero since the active time consumed the whole time
-                maxExpectedIdleTimeMs = 0;
-                if (totalActiveTimeMs > timePeriodMs + MAX_WIFI_STATS_SAMPLE_ERROR_MILLIS) {
-                    StringBuilder sb = new StringBuilder();
-                    sb.append("Total Active time ");
-                    TimeUtils.formatDuration(totalActiveTimeMs, sb);
-                    sb.append(" is longer than sample period ");
-                    TimeUtils.formatDuration(timePeriodMs, sb);
-                    sb.append(".\n");
-                    sb.append("Previous WiFi snapshot: ").append("idle=");
-                    TimeUtils.formatDuration(lastIdleMs, sb);
-                    sb.append(" rx=");
-                    TimeUtils.formatDuration(lastRxMs, sb);
-                    sb.append(" tx=");
-                    TimeUtils.formatDuration(lastTxMs, sb);
-                    sb.append(" e=").append(lastEnergy);
-                    sb.append("\n");
-                    sb.append("Current WiFi snapshot: ").append("idle=");
-                    TimeUtils.formatDuration(latest.mControllerIdleTimeMs, sb);
-                    sb.append(" rx=");
-                    TimeUtils.formatDuration(latest.mControllerRxTimeMs, sb);
-                    sb.append(" tx=");
-                    TimeUtils.formatDuration(latest.mControllerTxTimeMs, sb);
-                    sb.append(" e=").append(latest.mControllerEnergyUsed);
-                    Slog.wtf(TAG, sb.toString());
-                }
-            } else {
-                maxExpectedIdleTimeMs = timePeriodMs - totalActiveTimeMs;
-            }
-            // These times seem to be the most reliable.
-            delta.mControllerTxTimeMs = txTimeMs;
-            delta.mControllerRxTimeMs = rxTimeMs;
-            // WiFi calculates the idle time as a difference from the on time and the various
-            // Rx + Tx times. There seems to be some missing time there because this sometimes
-            // becomes negative. Just cap it at 0 and ensure that it is less than the expected idle
-            // time from the difference in timestamps.
-            // b/21613534
-            delta.mControllerIdleTimeMs = Math.min(maxExpectedIdleTimeMs, Math.max(0, idleTimeMs));
-            delta.mControllerEnergyUsed = Math.max(0, latest.mControllerEnergyUsed - lastEnergy);
-        }
-
-        mLastInfo = latest;
-        return delta;
     }
 
     /**
-     * Helper method to extract the Parcelable controller info from a
-     * SynchronousResultReceiver.
+     * Gets a snapshot of cellular stats
+     * @hide
      */
-    private static <T extends Parcelable> T awaitControllerInfo(
-            @Nullable SynchronousResultReceiver receiver) throws TimeoutException {
-        if (receiver == null) {
-            return null;
+    public CellularBatteryStats getCellularBatteryStats() {
+        synchronized (mStats) {
+            return mStats.getCellularBatteryStats();
         }
-
-        final SynchronousResultReceiver.Result result =
-                receiver.awaitResult(EXTERNAL_STATS_SYNC_TIMEOUT_MILLIS);
-        if (result.bundle != null) {
-            // This is the final destination for the Bundle.
-            result.bundle.setDefusable(true);
-
-            final T data = result.bundle.getParcelable(BatteryStats.RESULT_RECEIVER_CONTROLLER_KEY);
-            if (data != null) {
-                return data;
-            }
-        }
-        Slog.e(TAG, "no controller energy info supplied");
-        return null;
     }
 
     /**
-     * Fetches data from external sources (WiFi controller, bluetooth chipset) and updates
-     * batterystats with that information.
-     *
-     * We first grab a lock specific to this method, then once all the data has been collected,
-     * we grab the mStats lock and update the data.
-     *
-     * @param reason The reason why this collection was requested. Useful for debugging.
-     * @param updateFlags Which external stats to update. Can be a combination of
-     *                    {@link BatteryStatsImpl.ExternalStatsSync#UPDATE_CPU},
-     *                    {@link BatteryStatsImpl.ExternalStatsSync#UPDATE_RADIO},
-     *                    {@link BatteryStatsImpl.ExternalStatsSync#UPDATE_WIFI},
-     *                    and {@link BatteryStatsImpl.ExternalStatsSync#UPDATE_BT}.
+     * Gets a snapshot of Wifi stats
+     * @hide
      */
-    void updateExternalStatsSync(final String reason, int updateFlags) {
-        SynchronousResultReceiver wifiReceiver = null;
-        SynchronousResultReceiver bluetoothReceiver = null;
-        SynchronousResultReceiver modemReceiver = null;
+    public WifiBatteryStats getWifiBatteryStats() {
+        synchronized (mStats) {
+            return mStats.getWifiBatteryStats();
+        }
+    }
 
-        synchronized (mExternalStatsLock) {
-            if (mContext == null) {
-                // Don't do any work yet.
-                return;
-            }
-
-            if ((updateFlags & BatteryStatsImpl.ExternalStatsSync.UPDATE_WIFI) != 0) {
-                if (mWifiManager == null) {
-                    mWifiManager = IWifiManager.Stub.asInterface(
-                            ServiceManager.getService(Context.WIFI_SERVICE));
-                }
-
-                if (mWifiManager != null) {
-                    try {
-                        wifiReceiver = new SynchronousResultReceiver();
-                        mWifiManager.requestActivityInfo(wifiReceiver);
-                    } catch (RemoteException e) {
-                        // Oh well.
-                    }
-                }
-            }
-
-            if ((updateFlags & BatteryStatsImpl.ExternalStatsSync.UPDATE_BT) != 0) {
-                final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-                if (adapter != null) {
-                    bluetoothReceiver = new SynchronousResultReceiver();
-                    adapter.requestControllerActivityEnergyInfo(bluetoothReceiver);
-                }
-            }
-
-            if ((updateFlags & BatteryStatsImpl.ExternalStatsSync.UPDATE_RADIO) != 0) {
-                if (mTelephony == null) {
-                    mTelephony = TelephonyManager.from(mContext);
-                }
-
-                if (mTelephony != null) {
-                    modemReceiver = new SynchronousResultReceiver();
-                    mTelephony.requestModemActivityInfo(modemReceiver);
-                }
-            }
-
-            WifiActivityEnergyInfo wifiInfo = null;
-            BluetoothActivityEnergyInfo bluetoothInfo = null;
-            ModemActivityInfo modemInfo = null;
-            try {
-                wifiInfo = awaitControllerInfo(wifiReceiver);
-            } catch (TimeoutException e) {
-                Slog.w(TAG, "Timeout reading wifi stats");
-            }
-
-            try {
-                bluetoothInfo = awaitControllerInfo(bluetoothReceiver);
-            } catch (TimeoutException e) {
-                Slog.w(TAG, "Timeout reading bt stats");
-            }
-
-            try {
-                modemInfo = awaitControllerInfo(modemReceiver);
-            } catch (TimeoutException e) {
-                Slog.w(TAG, "Timeout reading modem stats");
-            }
-
-            synchronized (mStats) {
-                mStats.addHistoryEventLocked(
-                        SystemClock.elapsedRealtime(),
-                        SystemClock.uptimeMillis(),
-                        BatteryStats.HistoryItem.EVENT_COLLECT_EXTERNAL_STATS,
-                        reason, 0);
-
-                mStats.updateCpuTimeLocked();
-                mStats.updateKernelWakelocksLocked();
-
-                if (wifiInfo != null) {
-                    if (wifiInfo.isValid()) {
-                        mStats.updateWifiStateLocked(extractDelta(wifiInfo));
-                    } else {
-                        Slog.e(TAG, "wifi info is invalid: " + wifiInfo);
-                    }
-                }
-
-                if (bluetoothInfo != null) {
-                    if (bluetoothInfo.isValid()) {
-                        mStats.updateBluetoothStateLocked(bluetoothInfo);
-                    } else {
-                        Slog.e(TAG, "bluetooth info is invalid: " + bluetoothInfo);
-                    }
-                }
-
-                if (modemInfo != null) {
-                    if (modemInfo.isValid()) {
-                        mStats.updateMobileRadioStateLocked(SystemClock.elapsedRealtime(),
-                                modemInfo);
-                    } else {
-                        Slog.e(TAG, "modem info is invalid: " + modemInfo);
-                    }
-                }
-            }
+    /**
+     * Gets a snapshot of Gps stats
+     * @hide
+     */
+    public GpsBatteryStats getGpsBatteryStats() {
+        synchronized (mStats) {
+            return mStats.getGpsBatteryStats();
         }
     }
 
@@ -1556,13 +1579,14 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         }
         long ident = Binder.clearCallingIdentity();
         try {
-            updateExternalStatsSync("get-health-stats-for-uid",
-                    BatteryStatsImpl.ExternalStatsSync.UPDATE_ALL);
+            if (shouldCollectExternalStats()) {
+                syncStats("get-health-stats-for-uids", BatteryExternalStatsWorker.UPDATE_ALL);
+            }
             synchronized (mStats) {
                 return getHealthStatsForUidLocked(requestUid);
             }
         } catch (Exception ex) {
-            Slog.d(TAG, "Crashed while writing for takeUidSnapshot(" + requestUid + ")", ex);
+            Slog.w(TAG, "Crashed while writing for takeUidSnapshot(" + requestUid + ")", ex);
             throw ex;
         } finally {
             Binder.restoreCallingIdentity(ident);
@@ -1581,8 +1605,9 @@ public final class BatteryStatsService extends IBatteryStats.Stub
         long ident = Binder.clearCallingIdentity();
         int i=-1;
         try {
-            updateExternalStatsSync("get-health-stats-for-uids",
-                    BatteryStatsImpl.ExternalStatsSync.UPDATE_ALL);
+            if (shouldCollectExternalStats()) {
+                syncStats("get-health-stats-for-uids", BatteryExternalStatsWorker.UPDATE_ALL);
+            }
             synchronized (mStats) {
                 final int N = requestUids.length;
                 final HealthStatsParceler[] results = new HealthStatsParceler[N];
@@ -1592,12 +1617,17 @@ public final class BatteryStatsService extends IBatteryStats.Stub
                 return results;
             }
         } catch (Exception ex) {
-            Slog.d(TAG, "Crashed while writing for takeUidSnapshots("
+            if (DBG) Slog.d(TAG, "Crashed while writing for takeUidSnapshots("
                     + Arrays.toString(requestUids) + ") i=" + i, ex);
             throw ex;
         } finally {
             Binder.restoreCallingIdentity(ident);
         }
+    }
+
+    private boolean shouldCollectExternalStats() {
+        return (SystemClock.elapsedRealtime() - mWorker.getLastCollectionTimeStamp())
+                > mStats.getExternalStatsCollectionRateLimitMs();
     }
 
     /**
@@ -1626,6 +1656,25 @@ public final class BatteryStatsService extends IBatteryStats.Stub
             writer.writeUid(uidWriter, mStats, uid);
         }
         return new HealthStatsParceler(uidWriter);
+    }
+
+    /**
+     * Delay for sending ACTION_CHARGING after device is plugged in.
+     *
+     * @hide
+     */
+    public boolean setChargingStateUpdateDelayMillis(int delayMillis) {
+        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.POWER_SAVER, null);
+        final long ident = Binder.clearCallingIdentity();
+
+        try {
+            final ContentResolver contentResolver = mContext.getContentResolver();
+            return Settings.Global.putLong(contentResolver,
+                    Settings.Global.BATTERY_CHARGING_STATE_UPDATE_DELAY,
+                    delayMillis);
+        } finally {
+            Binder.restoreCallingIdentity(ident);
+        }
     }
 
 }

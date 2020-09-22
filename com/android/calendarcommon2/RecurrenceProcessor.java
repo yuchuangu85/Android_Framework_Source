@@ -1235,7 +1235,7 @@ bysetpos:
     private static final int[] DAYS_PER_MONTH = { 31, 28, 31, 30, 31, 30, 31,
             31, 30, 31, 30, 31 };
     private static final int[] DAYS_IN_YEAR_PRECEDING_MONTH = { 0, 31, 59, 90,
-        120, 151, 180, 212, 243, 273, 304, 334 };
+        120, 151, 181, 212, 243, 273, 304, 334 };
 
     /**
      * Returns the number of days in the given month of the given year.

@@ -16,6 +16,13 @@
 
 package com.android.internal.telephony.cat;
 
+import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants.IDLE_SCREEN_AVAILABLE_EVENT;
+import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants.LANGUAGE_SELECTION_EVENT;
+import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants.USER_ACTIVITY_EVENT;
+
+import android.app.ActivityManager;
+import android.app.backup.BackupManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -23,38 +30,36 @@ import android.content.pm.ResolveInfo;
 import android.content.res.Resources.NotFoundException;
 import android.os.AsyncResult;
 import android.os.Handler;
-import android.os.HandlerThread;
+import android.os.LocaleList;
 import android.os.Message;
-import android.os.SystemProperties;
-import android.telephony.SubscriptionManager;
+import android.os.RemoteException;
 import android.telephony.TelephonyManager;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.SubscriptionController;
+import com.android.internal.telephony.uicc.IccCardStatus.CardState;
 import com.android.internal.telephony.uicc.IccFileHandler;
 import com.android.internal.telephony.uicc.IccRecords;
+import com.android.internal.telephony.uicc.IccRefreshResponse;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.UiccCardApplication;
-import com.android.internal.telephony.uicc.IccCardStatus.CardState;
-import com.android.internal.telephony.uicc.IccRefreshResponse;
 import com.android.internal.telephony.uicc.UiccController;
+import com.android.internal.telephony.uicc.UiccProfile;
 
 import java.io.ByteArrayOutputStream;
 import java.util.List;
 import java.util.Locale;
 
-import static com.android.internal.telephony.cat.CatCmdMessage.
-                   SetupEventListConstants.IDLE_SCREEN_AVAILABLE_EVENT;
-import static com.android.internal.telephony.cat.CatCmdMessage.
-                   SetupEventListConstants.LANGUAGE_SELECTION_EVENT;
-
 class RilMessage {
+    @UnsupportedAppUsage
     int mId;
+    @UnsupportedAppUsage
     Object mData;
     ResultCode mResCode;
 
+    @UnsupportedAppUsage
     RilMessage(int msgId, String rawData) {
         mId = msgId;
         mData = rawData;
@@ -82,16 +87,25 @@ public class CatService extends Handler implements AppInterface {
 
     // Service members.
     // Protects singleton instance lazy initialization.
+    @UnsupportedAppUsage
     private static final Object sInstanceLock = new Object();
+    @UnsupportedAppUsage
     private static CatService[] sInstance = null;
+    @UnsupportedAppUsage
     private CommandsInterface mCmdIf;
+    @UnsupportedAppUsage
     private Context mContext;
+    @UnsupportedAppUsage
     private CatCmdMessage mCurrntCmd = null;
+    @UnsupportedAppUsage
     private CatCmdMessage mMenuCmd = null;
 
+    @UnsupportedAppUsage
     private RilMessageDecoder mMsgDecoder = null;
+    @UnsupportedAppUsage
     private boolean mStkAppInstalled = false;
 
+    @UnsupportedAppUsage
     private UiccController mUiccController;
     private CardState mCardState = CardState.CARDSTATE_ABSENT;
 
@@ -123,25 +137,23 @@ public class CatService extends Handler implements AppInterface {
 
     static final String STK_DEFAULT = "Default Message";
 
-    private HandlerThread mHandlerThread;
+    @UnsupportedAppUsage
     private int mSlotId;
 
     /* For multisim catservice should not be singleton */
     private CatService(CommandsInterface ci, UiccCardApplication ca, IccRecords ir,
-            Context context, IccFileHandler fh, UiccCard ic, int slotId) {
+            Context context, IccFileHandler fh, UiccProfile uiccProfile, int slotId) {
         if (ci == null || ca == null || ir == null || context == null || fh == null
-                || ic == null) {
+                || uiccProfile == null) {
             throw new NullPointerException(
                     "Service: Input parameters must not be null");
         }
         mCmdIf = ci;
         mContext = context;
         mSlotId = slotId;
-        mHandlerThread = new HandlerThread("Cat Telephony service" + slotId);
-        mHandlerThread.start();
 
         // Get the RilMessagesDecoder for decoding the messages.
-        mMsgDecoder = RilMessageDecoder.getInstance(this, fh, slotId);
+        mMsgDecoder = RilMessageDecoder.getInstance(this, fh, context, slotId);
         if (null == mMsgDecoder) {
             CatLog.d(this, "Null RilMessageDecoder instance");
             return;
@@ -186,15 +198,15 @@ public class CatService extends Handler implements AppInterface {
      * @return The only Service object in the system
      */
     public static CatService getInstance(CommandsInterface ci,
-            Context context, UiccCard ic, int slotId) {
+            Context context, UiccProfile uiccProfile, int slotId) {
         UiccCardApplication ca = null;
         IccFileHandler fh = null;
         IccRecords ir = null;
-        if (ic != null) {
+        if (uiccProfile != null) {
             /* Since Cat is not tied to any application, but rather is Uicc application
              * in itself - just get first FileHandler and IccRecords object
              */
-            ca = ic.getApplicationIndex(0);
+            ca = uiccProfile.getApplicationIndex(0);
             if (ca != null) {
                 fh = ca.getIccFileHandler();
                 ir = ca.getIccRecords();
@@ -203,7 +215,7 @@ public class CatService extends Handler implements AppInterface {
 
         synchronized (sInstanceLock) {
             if (sInstance == null) {
-                int simCount = TelephonyManager.getDefault().getSimCount();
+                int simCount = TelephonyManager.getDefault().getSupportedModemCount();
                 sInstance = new CatService[simCount];
                 for (int i = 0; i < simCount; i++) {
                     sInstance[i] = null;
@@ -211,11 +223,11 @@ public class CatService extends Handler implements AppInterface {
             }
             if (sInstance[slotId] == null) {
                 if (ci == null || ca == null || ir == null || context == null || fh == null
-                        || ic == null) {
+                        || uiccProfile == null) {
                     return null;
                 }
 
-                sInstance[slotId] = new CatService(ci, ca, ir, context, fh, ic, slotId);
+                sInstance[slotId] = new CatService(ci, ca, ir, context, fh, uiccProfile, slotId);
             } else if ((ir != null) && (mIccRecords != ir)) {
                 if (mIccRecords != null) {
                     mIccRecords.unregisterForRecordsLoaded(sInstance[slotId]);
@@ -233,6 +245,8 @@ public class CatService extends Handler implements AppInterface {
         }
     }
 
+    @UnsupportedAppUsage
+    @Override
     public void dispose() {
         synchronized (sInstanceLock) {
             CatLog.d(this, "Disposing CatService object");
@@ -252,13 +266,13 @@ public class CatService extends Handler implements AppInterface {
                 mUiccController.unregisterForIccChanged(this);
                 mUiccController = null;
             }
-            mMsgDecoder.dispose();
-            mMsgDecoder = null;
-            mHandlerThread.quit();
-            mHandlerThread = null;
+            if (mMsgDecoder != null) {
+                mMsgDecoder.dispose();
+                mMsgDecoder = null;
+            }
             removeCallbacksAndMessages(null);
             if (sInstance != null) {
-                if (SubscriptionManager.isValidSlotId(mSlotId)) {
+                if (mSlotId >= 0 && mSlotId < sInstance.length) {
                     sInstance[mSlotId] = null;
                 } else {
                     CatLog.d(this, "error: invaild slot id: " + mSlotId);
@@ -344,6 +358,7 @@ public class CatService extends Handler implements AppInterface {
                  * Language Selection.  */
                 case IDLE_SCREEN_AVAILABLE_EVENT:
                 case LANGUAGE_SELECTION_EVENT:
+                case USER_ACTIVITY_EVENT:
                     break;
                 default:
                     flag = false;
@@ -364,10 +379,8 @@ public class CatService extends Handler implements AppInterface {
 
         // Log all proactive commands.
         if (isProactiveCmd) {
-            if (mUiccController != null) {
-                mUiccController.addCardLog("ProactiveCommand mSlotId=" + mSlotId +
-                        " cmdParams=" + cmdParams);
-            }
+            UiccController.addLocalLog("CatService[" + mSlotId + "]: ProactiveCommand " +
+                    " cmdParams=" + cmdParams);
         }
 
         CharSequence message;
@@ -385,11 +398,6 @@ public class CatService extends Handler implements AppInterface {
                 sendTerminalResponse(cmdParams.mCmdDet, resultCode, false, 0, null);
                 break;
             case DISPLAY_TEXT:
-                break;
-            case REFRESH:
-                // ME side only handles refresh commands which meant to remove IDLE
-                // MODE TEXT.
-                cmdParams.mCmdDet.typeOfCommand = CommandType.SET_UP_IDLE_MODE_TEXT.value();
                 break;
             case SET_UP_IDLE_MODE_TEXT:
                 resultCode = cmdParams.mLoadIconFailed ? ResultCode.PRFRMD_ICON_NOT_DISPLAYED
@@ -431,6 +439,13 @@ public class CatService extends Handler implements AppInterface {
             case GET_INPUT:
             case GET_INKEY:
                 break;
+            case REFRESH:
+            case RUN_AT:
+                if (STK_DEFAULT.equals(((DisplayTextParams)cmdParams).mTextMsg.text)) {
+                    // Remove the default text which was temporarily added and shall not be shown
+                    ((DisplayTextParams)cmdParams).mTextMsg.text = null;
+                }
+                break;
             case SEND_DTMF:
             case SEND_SMS:
             case SEND_SS:
@@ -450,6 +465,18 @@ public class CatService extends Handler implements AppInterface {
                     ((CallSetupParams) cmdParams).mConfirmMsg.text = message.toString();
                 }
                 break;
+            case LANGUAGE_NOTIFICATION:
+                String language = ((LanguageParams) cmdParams).mLanguage;
+                ResultCode result = ResultCode.OK;
+                if (language != null && language.length() > 0) {
+                    try {
+                        changeLanguage(language);
+                    } catch (RemoteException e) {
+                        result = ResultCode.TERMINAL_CRNTLY_UNABLE_TO_PROCESS;
+                    }
+                }
+                sendTerminalResponse(cmdParams.mCmdDet, result, false, 0, null);
+                return;
             case OPEN_CHANNEL:
             case CLOSE_CHANNEL:
             case RECEIVE_DATA:
@@ -511,8 +538,9 @@ public class CatService extends Handler implements AppInterface {
 
     private void broadcastCatCmdIntent(CatCmdMessage cmdMsg) {
         Intent intent = new Intent(AppInterface.CAT_CMD_ACTION);
-        intent.putExtra("STK CMD", cmdMsg);
+        intent.putExtra( "STK CMD", cmdMsg);
         intent.putExtra("SLOT_ID", mSlotId);
+        intent.setComponent(AppInterface.getDefaultSTKApplication());
         CatLog.d(this, "Sending CmdMsg: " + cmdMsg+ " on slotid:" + mSlotId);
         mContext.sendBroadcast(intent, AppInterface.STK_PERMISSION);
     }
@@ -527,10 +555,12 @@ public class CatService extends Handler implements AppInterface {
         mCurrntCmd = mMenuCmd;
         Intent intent = new Intent(AppInterface.CAT_SESSION_END_ACTION);
         intent.putExtra("SLOT_ID", mSlotId);
+        intent.setComponent(AppInterface.getDefaultSTKApplication());
         mContext.sendBroadcast(intent, AppInterface.STK_PERMISSION);
     }
 
 
+    @UnsupportedAppUsage
     private void sendTerminalResponse(CommandDetails cmdDet,
             ResultCode resultCode, boolean includeAdditionalInfo,
             int additionalInfo, ResponseData resp) {
@@ -605,10 +635,12 @@ public class CatService extends Handler implements AppInterface {
         CommandType cmdType = AppInterface.CommandType.fromInt(cmdDet.typeOfCommand);
         if (cmdType != null) {
             switch (cmdType) {
+                case GET_INPUT:
                 case GET_INKEY:
-                    // ETSI TS 102 384,27.22.4.2.8.4.2.
-                    // If it is a response for GET_INKEY command and the response timeout
-                    // occured, then add DURATION TLV for variable timeout case.
+                    // Please refer to the clause 6.8.21 of ETSI 102.223.
+                    // The terminal shall supply the command execution duration
+                    // when it issues TERMINAL RESPONSE for GET INKEY command with variable timeout.
+                    // GET INPUT command should also be handled in the same manner.
                     if ((resultCode.value() == ResultCode.NO_RESPONSE_FROM_USER.value()) &&
                         (cmdInput != null) && (cmdInput.duration != null)) {
                         getInKeyResponse(buf, cmdInput);
@@ -741,6 +773,8 @@ public class CatService extends Handler implements AppInterface {
                 // Language length should be 2 byte
                 buf.write(0x02);
                 break;
+            case USER_ACTIVITY_EVENT:
+                break;
             default:
                 break;
         }
@@ -772,10 +806,10 @@ public class CatService extends Handler implements AppInterface {
      */
     //TODO Need to take care for MSIM
     public static AppInterface getInstance() {
-        int slotId = PhoneConstants.DEFAULT_CARD_INDEX;
+        int slotId = PhoneConstants.DEFAULT_SLOT_INDEX;
         SubscriptionController sControl = SubscriptionController.getInstance();
         if (sControl != null) {
-            slotId = sControl.getSlotId(sControl.getDefaultSubId());
+            slotId = sControl.getSlotIndex(sControl.getDefaultSubId());
         }
         return getInstance(null, null, null, slotId);
     }
@@ -878,8 +912,10 @@ public class CatService extends Handler implements AppInterface {
 
         // This sends an intent with CARD_ABSENT (0 - false) /CARD_PRESENT (1 - true).
         intent.putExtra(AppInterface.CARD_STATUS, cardPresent);
+        intent.setComponent(AppInterface.getDefaultSTKApplication());
+        intent.putExtra("SLOT_ID", mSlotId);
         CatLog.d(this, "Sending Card Status: "
-                + cardState + " " + "cardPresent: " + cardPresent);
+                + cardState + " " + "cardPresent: " + cardPresent +  "SLOT_ID: " +  mSlotId);
         mContext.sendBroadcast(intent, AppInterface.STK_PERMISSION);
     }
 
@@ -889,6 +925,7 @@ public class CatService extends Handler implements AppInterface {
         intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
         intent.putExtra(AppInterface.ALPHA_STRING, alphaString);
         intent.putExtra("SLOT_ID", mSlotId);
+        intent.setComponent(AppInterface.getDefaultSTKApplication());
         mContext.sendBroadcast(intent, AppInterface.STK_PERMISSION);
     }
 
@@ -1002,6 +1039,13 @@ public class CatService extends Handler implements AppInterface {
                 }
                 break;
             case LAUNCH_BROWSER:
+                if (resMsg.mResCode == ResultCode.LAUNCH_BROWSER_ERROR) {
+                    // Additional info for Default URL unavailable.
+                    resMsg.setAdditionalInfo(0x04);
+                } else {
+                    resMsg.mIncludeAdditionalInfo = false;
+                    resMsg.mAdditionalInfo = 0;
+                }
                 break;
             // 3GPP TS.102.223: Open Channel alpha confirmation should not send TR
             case OPEN_CHANNEL:
@@ -1041,6 +1085,13 @@ public class CatService extends Handler implements AppInterface {
             }
             break;
         case NO_RESPONSE_FROM_USER:
+            // No need to send terminal response for SET UP CALL on user timeout,
+            // instead use dedicated API
+            if (type == CommandType.SET_UP_CALL) {
+                mCmdIf.handleCallSetupRequestFromSim(false, null);
+                mCurrntCmd = null;
+                return;
+            }
         case UICC_SESSION_TERM_BY_USER:
             resp = null;
             break;
@@ -1052,6 +1103,7 @@ public class CatService extends Handler implements AppInterface {
         mCurrntCmd = null;
     }
 
+    @UnsupportedAppUsage
     private boolean isStkAppInstalled() {
         Intent intent = new Intent(AppInterface.CAT_CMD_ACTION);
         PackageManager pm = mContext.getPackageManager();
@@ -1063,15 +1115,15 @@ public class CatService extends Handler implements AppInterface {
     }
 
     public void update(CommandsInterface ci,
-            Context context, UiccCard ic) {
+            Context context, UiccProfile uiccProfile) {
         UiccCardApplication ca = null;
         IccRecords ir = null;
 
-        if (ic != null) {
+        if (uiccProfile != null) {
             /* Since Cat is not tied to any application, but rather is Uicc application
              * in itself - just get first FileHandler and IccRecords object
              */
-            ca = ic.getApplicationIndex(0);
+            ca = uiccProfile.getApplicationIndex(0);
             if (ca != null) {
                 ir = ca.getIccRecords();
             }
@@ -1116,5 +1168,17 @@ public class CatService extends Handler implements AppInterface {
             // Card moved to PRESENT STATE.
             mCmdIf.reportStkServiceIsRunning(null);
         }
+    }
+
+    private void changeLanguage(String language) throws RemoteException {
+        // get locale list, combined with language locale and default locale list.
+        LocaleList defaultLocaleList = LocaleList.getDefault();
+        Locale[] locales = new Locale[defaultLocaleList.size() + 1];
+        locales[0] = new Locale(language);
+        for (int i = 0; i < defaultLocaleList.size(); i++) {
+            locales[i+1] = defaultLocaleList.get(i);
+        }
+        mContext.getSystemService(ActivityManager.class).setDeviceLocales(new LocaleList(locales));
+        BackupManager.dataChanged("com.android.providers.settings");
     }
 }

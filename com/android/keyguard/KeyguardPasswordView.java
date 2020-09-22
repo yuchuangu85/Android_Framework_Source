@@ -18,6 +18,7 @@ package com.android.keyguard;
 
 import android.content.Context;
 import android.graphics.Rect;
+import android.os.UserHandle;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -35,7 +36,9 @@ import android.view.inputmethod.InputMethodSubtype;
 import android.widget.TextView;
 import android.widget.TextView.OnEditorActionListener;
 
+import com.android.internal.widget.LockscreenCredential;
 import com.android.internal.widget.TextViewInputDisabler;
+import com.android.systemui.R;
 
 import java.util.List;
 /**
@@ -79,10 +82,17 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
 
     @Override
     protected void resetState() {
-        mSecurityMessageDisplay.setMessage(R.string.kg_password_instructions, false);
+        mPasswordEntry.setTextOperationUser(UserHandle.of(KeyguardUpdateMonitor.getCurrentUser()));
+        if (mSecurityMessageDisplay != null) {
+            mSecurityMessageDisplay.setMessage("");
+        }
         final boolean wasDisabled = mPasswordEntry.isEnabled();
         setPasswordEntryEnabled(true);
         setPasswordEntryInputEnabled(true);
+        // Don't call showSoftInput when PasswordEntry is invisible or in pausing stage.
+        if (!mResumed || !mPasswordEntry.isVisibleToUser()) {
+            return;
+        }
         if (wasDisabled) {
             mImm.showSoftInput(mPasswordEntry, InputMethodManager.SHOW_IMPLICIT);
         }
@@ -117,7 +127,7 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
     }
 
     @Override
-    protected int getPromtReasonStringRes(int reason) {
+    protected int getPromptReasonStringRes(int reason) {
         switch (reason) {
             case PROMPT_REASON_RESTART:
                 return R.string.kg_prompt_reason_restart_password;
@@ -127,6 +137,8 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
                 return R.string.kg_prompt_reason_device_admin;
             case PROMPT_REASON_USER_REQUEST:
                 return R.string.kg_prompt_reason_user_request;
+            case PROMPT_REASON_PREPARE_FOR_UPDATE:
+                return R.string.kg_prompt_reason_timeout_password;
             case PROMPT_REASON_NONE:
                 return 0;
             default:
@@ -141,9 +153,8 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
     }
 
     @Override
-    public void reset() {
-        super.reset();
-        mPasswordEntry.requestFocus();
+    public void onStartingToHide() {
+        mImm.hideSoftInputFromWindow(getWindowToken(), 0);
     }
 
     private void updateSwitchImeButton() {
@@ -174,7 +185,8 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
         mImm = (InputMethodManager) getContext().getSystemService(
                 Context.INPUT_METHOD_SERVICE);
 
-        mPasswordEntry = (TextView) findViewById(getPasswordTextViewId());
+        mPasswordEntry = findViewById(getPasswordTextViewId());
+        mPasswordEntry.setTextOperationUser(UserHandle.of(KeyguardUpdateMonitor.getCurrentUser()));
         mPasswordEntryDisabler = new TextViewInputDisabler(mPasswordEntry);
         mPasswordEntry.setKeyListener(TextKeyListener.getInstance());
         mPasswordEntry.setInputType(InputType.TYPE_CLASS_TEXT
@@ -193,17 +205,24 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
         // Set selected property on so the view can send accessibility events.
         mPasswordEntry.setSelected(true);
 
-        mPasswordEntry.requestFocus();
-
         mSwitchImeButton = findViewById(R.id.switch_ime_button);
         mSwitchImeButton.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
                 mCallback.userActivity(); // Leave the screen on a bit longer
                 // Do not show auxiliary subtypes in password lock screen.
-                mImm.showInputMethodPicker(false /* showAuxiliarySubtypes */);
+                mImm.showInputMethodPickerFromSystem(false /* showAuxiliarySubtypes */,
+                        getContext().getDisplayId());
             }
         });
+
+        View cancelBtn = findViewById(R.id.cancel_button);
+        if (cancelBtn != null) {
+            cancelBtn.setOnClickListener(view -> {
+                mCallback.reset();
+                mCallback.onCancelClicked();
+            });
+        }
 
         // If there's more than one IME, enable the IME switcher button
         updateSwitchImeButton();
@@ -232,8 +251,8 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
     }
 
     @Override
-    protected String getPasswordText() {
-        return mPasswordEntry.getText().toString();
+    protected LockscreenCredential getEnteredCredential() {
+        return LockscreenCredential.createPasswordOrNone(mPasswordEntry.getText());
     }
 
     @Override
@@ -255,7 +274,8 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
      */
     private boolean hasMultipleEnabledIMEsOrSubtypes(InputMethodManager imm,
             final boolean shouldIncludeAuxiliarySubtypes) {
-        final List<InputMethodInfo> enabledImis = imm.getEnabledInputMethodList();
+        final List<InputMethodInfo> enabledImis =
+                imm.getEnabledInputMethodListAsUser(KeyguardUpdateMonitor.getCurrentUser());
 
         // Number of the filtered IMEs
         int filteredImisCount = 0;
@@ -360,5 +380,11 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView
             return true;
         }
         return false;
+    }
+
+    @Override
+    public CharSequence getTitle() {
+        return getContext().getString(
+                com.android.internal.R.string.keyguard_accessibility_password_unlock);
     }
 }

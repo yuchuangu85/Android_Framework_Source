@@ -19,9 +19,18 @@ package android.content.res;
 import android.annotation.ColorInt;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo.Config;
 import android.content.res.Resources.Theme;
 import android.graphics.Color;
+import android.os.Parcel;
+import android.os.Parcelable;
+import android.util.AttributeSet;
+import android.util.Log;
+import android.util.MathUtils;
+import android.util.SparseArray;
+import android.util.StateSet;
+import android.util.Xml;
 
 import com.android.internal.R;
 import com.android.internal.util.ArrayUtils;
@@ -29,15 +38,6 @@ import com.android.internal.util.GrowingArrayUtils;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
-
-import android.util.AttributeSet;
-import android.util.Log;
-import android.util.MathUtils;
-import android.util.SparseArray;
-import android.util.StateSet;
-import android.util.Xml;
-import android.os.Parcel;
-import android.os.Parcelable;
 
 import java.io.IOException;
 import java.lang.ref.WeakReference;
@@ -91,7 +91,7 @@ import java.util.Arrays;
  * file. An item with no state spec is considered to match any set of states and is generally
  * useful as a final item to be used as a default.
  * <p>
- * If an item with no state spec if placed before other items, those items
+ * If an item with no state spec is placed before other items, those items
  * will be ignored.
  *
  * <a name="ItemAttributes"></a>
@@ -132,16 +132,21 @@ public class ColorStateList extends ComplexColor implements Parcelable {
     private static final SparseArray<WeakReference<ColorStateList>> sCache = new SparseArray<>();
 
     /** Lazily-created factory for this color state list. */
+    @UnsupportedAppUsage
     private ColorStateListFactory mFactory;
 
     private int[][] mThemeAttrs;
     private @Config int mChangingConfigurations;
 
+    @UnsupportedAppUsage
     private int[][] mStateSpecs;
+    @UnsupportedAppUsage
     private int[] mColors;
+    @UnsupportedAppUsage
     private int mDefaultColor;
     private boolean mIsOpaque;
 
+    @UnsupportedAppUsage
     private ColorStateList() {
         // Not publicly instantiable.
     }
@@ -394,6 +399,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
      * @hide only for resource preloading
      */
     @Override
+    @UnsupportedAppUsage
     public boolean canApplyTheme() {
         return mThemeAttrs != null;
     }
@@ -474,6 +480,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
      * @hide only for resource preloading
      */
     @Override
+    @UnsupportedAppUsage
     public ColorStateList obtainForTheme(Theme t) {
         if (t == null || !canApplyTheme()) {
             return this;
@@ -508,8 +515,8 @@ public class ColorStateList extends ComplexColor implements Parcelable {
     }
 
     /**
-     * Indicates whether this color state list contains more than one state spec
-     * and will change color based on state.
+     * Indicates whether this color state list contains at least one state spec
+     * and the first spec is not empty (e.g. match-all).
      *
      * @return True if this color state list changes color based on state, false
      *         otherwise.
@@ -517,7 +524,16 @@ public class ColorStateList extends ComplexColor implements Parcelable {
      */
     @Override
     public boolean isStateful() {
-        return mStateSpecs.length > 1;
+        return mStateSpecs.length >= 1 && mStateSpecs[0].length > 0;
+    }
+
+    /**
+     * Return whether the state spec list has at least one item explicitly specifying
+     * {@link android.R.attr#state_focused}.
+     * @hide
+     */
+    public boolean hasFocusStateSpecified() {
+        return StateSet.containsAttribute(mStateSpecs, R.attr.state_focused);
     }
 
     /**
@@ -570,6 +586,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
      * @return the states in this {@link ColorStateList}
      * @hide
      */
+    @UnsupportedAppUsage
     public int[][] getStates() {
         return mStateSpecs;
     }
@@ -581,6 +598,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
      * @return the colors in this {@link ColorStateList}
      * @hide
      */
+    @UnsupportedAppUsage
     public int[] getColors() {
         return mColors;
     }
@@ -625,6 +643,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
     /**
      * Updates the default color and opacity.
      */
+    @UnsupportedAppUsage
     private void onColorsChanged() {
         int defaultColor = DEFAULT_COLOR;
         boolean isOpaque = true;
@@ -668,6 +687,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
     private static class ColorStateListFactory extends ConstantState<ComplexColor> {
         private final ColorStateList mSrc;
 
+        @UnsupportedAppUsage
         public ColorStateListFactory(ColorStateList src) {
             mSrc = src;
         }
@@ -706,7 +726,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
         dest.writeIntArray(mColors);
     }
 
-    public static final Parcelable.Creator<ColorStateList> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<ColorStateList> CREATOR =
             new Parcelable.Creator<ColorStateList>() {
         @Override
         public ColorStateList[] newArray(int size) {

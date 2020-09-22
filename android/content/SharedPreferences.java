@@ -30,6 +30,11 @@ import java.util.Set;
  * when they are committed to storage.  Objects that are returned from the
  * various <code>get</code> methods must be treated as immutable by the application.
  *
+ * <p>Note: This class provides strong consistency guarantees. It is using expensive operations
+ * which might slow down an app. Frequently changing properties or properties where loss can be
+ * tolerated should use other mechanisms. For more details read the comments on
+ * {@link Editor#commit()} and {@link Editor#apply()}.
+ *
  * <p><em>Note: This class does not support use across multiple processes.</em>
  *
  * <div class="special reference">
@@ -52,14 +57,20 @@ public interface SharedPreferences {
          *
          * <p>This callback will be run on your main thread.
          *
-         * @param sharedPreferences The {@link SharedPreferences} that received
-         *            the change.
-         * @param key The key of the preference that was changed, added, or
-         *            removed.
+         * <p><em>Note: This callback will not be triggered when preferences are cleared
+         * via {@link Editor#clear()}, unless targeting {@link android.os.Build.VERSION_CODES#R}
+         * on devices running OS versions {@link android.os.Build.VERSION_CODES#R Android R}
+         * or later.</em>
+         *
+         * @param sharedPreferences The {@link SharedPreferences} that received the change.
+         * @param key The key of the preference that was changed, added, or removed. Apps targeting
+         *            {@link android.os.Build.VERSION_CODES#R} on devices running OS versions
+         *            {@link android.os.Build.VERSION_CODES#R Android R} or later, will receive
+         *            a {@code null} value when preferences are cleared.
          */
         void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key);
     }
-    
+
     /**
      * Interface used for modifying values in a {@link SharedPreferences}
      * object.  All changes you make in an editor are batched, and not copied
@@ -370,10 +381,10 @@ public interface SharedPreferences {
      * @see #unregisterOnSharedPreferenceChangeListener
      */
     void registerOnSharedPreferenceChangeListener(OnSharedPreferenceChangeListener listener);
-    
+
     /**
      * Unregisters a previous callback.
-     * 
+     *
      * @param listener The callback that should be unregistered.
      * @see #registerOnSharedPreferenceChangeListener
      */

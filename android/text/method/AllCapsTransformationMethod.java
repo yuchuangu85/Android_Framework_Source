@@ -15,8 +15,13 @@
  */
 package android.text.method;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.graphics.Rect;
+import android.text.Spanned;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
@@ -34,12 +39,13 @@ public class AllCapsTransformationMethod implements TransformationMethod2 {
     private boolean mEnabled;
     private Locale mLocale;
 
-    public AllCapsTransformationMethod(Context context) {
-        mLocale = context.getResources().getConfiguration().locale;
+    @UnsupportedAppUsage
+    public AllCapsTransformationMethod(@NonNull Context context) {
+        mLocale = context.getResources().getConfiguration().getLocales().get(0);
     }
 
     @Override
-    public CharSequence getTransformation(CharSequence source, View view) {
+    public CharSequence getTransformation(@Nullable CharSequence source, View view) {
         if (!mEnabled) {
             Log.w(TAG, "Caller did not enable length changes; not transforming text");
             return source;
@@ -56,7 +62,8 @@ public class AllCapsTransformationMethod implements TransformationMethod2 {
         if (locale == null) {
             locale = mLocale;
         }
-        return source.toString().toUpperCase(locale);
+        final boolean copySpans = source instanceof Spanned;
+        return TextUtils.toUpperCase(locale, source, copySpans);
     }
 
     @Override

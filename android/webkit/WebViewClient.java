@@ -16,6 +16,8 @@
 
 package android.webkit;
 
+import android.annotation.IntDef;
+import android.annotation.Nullable;
 import android.graphics.Bitmap;
 import android.net.http.SslError;
 import android.os.Message;
@@ -23,21 +25,31 @@ import android.view.InputEvent;
 import android.view.KeyEvent;
 import android.view.ViewRootImpl;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+
 public class WebViewClient {
 
     /**
-     * Give the host application a chance to take over the control when a new
-     * url is about to be loaded in the current WebView. If WebViewClient is not
-     * provided, by default WebView will ask Activity Manager to choose the
-     * proper handler for the url. If WebViewClient is provided, return true
-     * means the host application handles the url, while return false means the
-     * current WebView handles the url.
-     * This method is not called for requests using the POST "method".
+     * Give the host application a chance to take control when a URL is about to be loaded in the
+     * current WebView. If a WebViewClient is not provided, by default WebView will ask Activity
+     * Manager to choose the proper handler for the URL. If a WebViewClient is provided, returning
+     * {@code true} causes the current WebView to abort loading the URL, while returning
+     * {@code false} causes the WebView to continue loading the URL as usual.
+     *
+     * <p class="note"><b>Note:</b> Do not call {@link WebView#loadUrl(String)} with the same
+     * URL and then return {@code true}. This unnecessarily cancels the current load and starts a
+     * new load with the same URL. The correct way to continue loading a given URL is to simply
+     * return {@code false}, without calling {@link WebView#loadUrl(String)}.
+     *
+     * <p class="note"><b>Note:</b> This method is not called for POST requests.
+     *
+     * <p class="note"><b>Note:</b> This method may be called for subframes and with non-HTTP(S)
+     * schemes; calling {@link WebView#loadUrl(String)} with such a URL will fail.
      *
      * @param view The WebView that is initiating the callback.
-     * @param url The url to be loaded.
-     * @return True if the host application wants to leave the current WebView
-     *         and handle the url itself, otherwise return false.
+     * @param url The URL to be loaded.
+     * @return {@code true} to cancel the current load, otherwise return {@code false}.
      * @deprecated Use {@link #shouldOverrideUrlLoading(WebView, WebResourceRequest)
      *             shouldOverrideUrlLoading(WebView, WebResourceRequest)} instead.
      */
@@ -47,27 +59,25 @@ public class WebViewClient {
     }
 
     /**
-     * Give the host application a chance to take over the control when a new
-     * url is about to be loaded in the current WebView. If WebViewClient is not
-     * provided, by default WebView will ask Activity Manager to choose the
-     * proper handler for the url. If WebViewClient is provided, return true
-     * means the host application handles the url, while return false means the
-     * current WebView handles the url.
+     * Give the host application a chance to take control when a URL is about to be loaded in the
+     * current WebView. If a WebViewClient is not provided, by default WebView will ask Activity
+     * Manager to choose the proper handler for the URL. If a WebViewClient is provided, returning
+     * {@code true} causes the current WebView to abort loading the URL, while returning
+     * {@code false} causes the WebView to continue loading the URL as usual.
      *
-     * <p>Notes:
-     * <ul>
-     * <li>This method is not called for requests using the POST &quot;method&quot;.</li>
-     * <li>This method is also called for subframes with non-http schemes, thus it is
-     * strongly disadvised to unconditionally call {@link WebView#loadUrl(String)}
-     * with the request's url from inside the method and then return true,
-     * as this will make WebView to attempt loading a non-http url, and thus fail.</li>
-     * </ul>
-     * </p>
+     * <p class="note"><b>Note:</b> Do not call {@link WebView#loadUrl(String)} with the request's
+     * URL and then return {@code true}. This unnecessarily cancels the current load and starts a
+     * new load with the same URL. The correct way to continue loading a given URL is to simply
+     * return {@code false}, without calling {@link WebView#loadUrl(String)}.
+     *
+     * <p class="note"><b>Note:</b> This method is not called for POST requests.
+     *
+     * <p class="note"><b>Note:</b> This method may be called for subframes and with non-HTTP(S)
+     * schemes; calling {@link WebView#loadUrl(String)} with such a URL will fail.
      *
      * @param view The WebView that is initiating the callback.
      * @param request Object containing the details of the request.
-     * @return True if the host application wants to leave the current WebView
-     *         and handle the url itself, otherwise return false.
+     * @return {@code true} to cancel the current load, otherwise return {@code false}.
      */
     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
         return shouldOverrideUrlLoading(view, request.getUrl().toString());
@@ -92,9 +102,11 @@ public class WebViewClient {
 
     /**
      * Notify the host application that a page has finished loading. This method
-     * is called only for main frame. When onPageFinished() is called, the
-     * rendering picture may not be updated yet. To get the notification for the
-     * new Picture, use {@link WebView.PictureListener#onNewPicture}.
+     * is called only for main frame. Receiving an {@code onPageFinished()} callback does not
+     * guarantee that the next frame drawn by WebView will reflect the state of the DOM at this
+     * point. In order to be notified that the current DOM state is ready to be rendered, request a
+     * visual state callback with {@link WebView#postVisualStateCallback} and wait for the supplied
+     * callback to be triggered.
      *
      * @param view The WebView that is initiating the callback.
      * @param url The url of the page.
@@ -126,15 +138,15 @@ public class WebViewClient {
      * <p>This method is called when the body of the HTTP response has started loading, is reflected
      * in the DOM, and will be visible in subsequent draws. This callback occurs early in the
      * document loading process, and as such you should expect that linked resources (for example,
-     * css and images) may not be available.</p>
+     * CSS and images) may not be available.
      *
      * <p>For more fine-grained notification of visual state updates, see {@link
-     * WebView#postVisualStateCallback}.</p>
+     * WebView#postVisualStateCallback}.
      *
      * <p>Please note that all the conditions and recommendations applicable to
-     * {@link WebView#postVisualStateCallback} also apply to this API.<p>
+     * {@link WebView#postVisualStateCallback} also apply to this API.
      *
-     * <p>This callback is only called for main frame navigations.</p>
+     * <p>This callback is only called for main frame navigations.
      *
      * @param view The {@link android.webkit.WebView} for which the navigation occurred.
      * @param url  The URL corresponding to the page navigation that triggered this callback.
@@ -144,22 +156,37 @@ public class WebViewClient {
 
     /**
      * Notify the host application of a resource request and allow the
-     * application to return the data.  If the return value is null, the WebView
+     * application to return the data.  If the return value is {@code null}, the WebView
      * will continue to load the resource as usual.  Otherwise, the return
-     * response and data will be used.  NOTE: This method is called on a thread
+     * response and data will be used.
+     *
+     * <p>This callback is invoked for a variety of URL schemes (e.g., {@code http(s):}, {@code
+     * data:}, {@code file:}, etc.), not only those schemes which send requests over the network.
+     * This is not called for {@code javascript:} URLs, {@code blob:} URLs, or for assets accessed
+     * via {@code file:///android_asset/} or {@code file:///android_res/} URLs.
+     *
+     * <p>In the case of redirects, this is only called for the initial resource URL, not any
+     * subsequent redirect URLs.
+     *
+     * <p class="note"><b>Note:</b> This method is called on a thread
      * other than the UI thread so clients should exercise caution
      * when accessing private data or the view system.
+     *
+     * <p class="note"><b>Note:</b> When Safe Browsing is enabled, these URLs still undergo Safe
+     * Browsing checks. If this is undesired, whitelist the URL with {@link
+     * WebView#setSafeBrowsingWhitelist} or ignore the warning with {@link #onSafeBrowsingHit}.
      *
      * @param view The {@link android.webkit.WebView} that is requesting the
      *             resource.
      * @param url The raw url of the resource.
      * @return A {@link android.webkit.WebResourceResponse} containing the
-     *         response information or null if the WebView should load the
+     *         response information or {@code null} if the WebView should load the
      *         resource itself.
      * @deprecated Use {@link #shouldInterceptRequest(WebView, WebResourceRequest)
      *             shouldInterceptRequest(WebView, WebResourceRequest)} instead.
      */
     @Deprecated
+    @Nullable
     public WebResourceResponse shouldInterceptRequest(WebView view,
             String url) {
         return null;
@@ -167,19 +194,34 @@ public class WebViewClient {
 
     /**
      * Notify the host application of a resource request and allow the
-     * application to return the data.  If the return value is null, the WebView
+     * application to return the data.  If the return value is {@code null}, the WebView
      * will continue to load the resource as usual.  Otherwise, the return
-     * response and data will be used.  NOTE: This method is called on a thread
+     * response and data will be used.
+     *
+     * <p>This callback is invoked for a variety of URL schemes (e.g., {@code http(s):}, {@code
+     * data:}, {@code file:}, etc.), not only those schemes which send requests over the network.
+     * This is not called for {@code javascript:} URLs, {@code blob:} URLs, or for assets accessed
+     * via {@code file:///android_asset/} or {@code file:///android_res/} URLs.
+     *
+     * <p>In the case of redirects, this is only called for the initial resource URL, not any
+     * subsequent redirect URLs.
+     *
+     * <p class="note"><b>Note:</b> This method is called on a thread
      * other than the UI thread so clients should exercise caution
      * when accessing private data or the view system.
+     *
+     * <p class="note"><b>Note:</b> When Safe Browsing is enabled, these URLs still undergo Safe
+     * Browsing checks. If this is undesired, whitelist the URL with {@link
+     * WebView#setSafeBrowsingWhitelist} or ignore the warning with {@link #onSafeBrowsingHit}.
      *
      * @param view The {@link android.webkit.WebView} that is requesting the
      *             resource.
      * @param request Object containing the details of the request.
      * @return A {@link android.webkit.WebResourceResponse} containing the
-     *         response information or null if the WebView should load the
+     *         response information or {@code null} if the WebView should load the
      *         resource itself.
      */
+    @Nullable
     public WebResourceResponse shouldInterceptRequest(WebView view,
             WebResourceRequest request) {
         return shouldInterceptRequest(view, request.getUrl().toString());
@@ -234,11 +276,41 @@ public class WebViewClient {
     public static final int ERROR_FILE_NOT_FOUND = -14;
     /** Too many requests during this load */
     public static final int ERROR_TOO_MANY_REQUESTS = -15;
+    /** Resource load was canceled by Safe Browsing */
+    public static final int ERROR_UNSAFE_RESOURCE = -16;
+
+    /** @hide */
+    @IntDef(prefix = { "SAFE_BROWSING_THREAT_" }, value = {
+            SAFE_BROWSING_THREAT_UNKNOWN,
+            SAFE_BROWSING_THREAT_MALWARE,
+            SAFE_BROWSING_THREAT_PHISHING,
+            SAFE_BROWSING_THREAT_UNWANTED_SOFTWARE,
+            SAFE_BROWSING_THREAT_BILLING,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface SafeBrowsingThreat {}
+
+    /** The resource was blocked for an unknown reason. */
+    public static final int SAFE_BROWSING_THREAT_UNKNOWN = 0;
+    /** The resource was blocked because it contains malware. */
+    public static final int SAFE_BROWSING_THREAT_MALWARE = 1;
+    /** The resource was blocked because it contains deceptive content. */
+    public static final int SAFE_BROWSING_THREAT_PHISHING = 2;
+    /** The resource was blocked because it contains unwanted software. */
+    public static final int SAFE_BROWSING_THREAT_UNWANTED_SOFTWARE = 3;
+    /**
+     * The resource was blocked because it may trick the user into a billing agreement.
+     *
+     * <p>This constant is only used when targetSdkVersion is at least {@link
+     * android.os.Build.VERSION_CODES#Q}. Otherwise, {@link #SAFE_BROWSING_THREAT_UNKNOWN} is used
+     * instead.
+     */
+    public static final int SAFE_BROWSING_THREAT_BILLING = 4;
 
     /**
      * Report an error to the host application. These errors are unrecoverable
-     * (i.e. the main resource is unavailable). The errorCode parameter
-     * corresponds to one of the ERROR_* constants.
+     * (i.e. the main resource is unavailable). The {@code errorCode} parameter
+     * corresponds to one of the {@code ERROR_*} constants.
      * @param view The WebView that is initiating the callback.
      * @param errorCode The error code corresponding to an ERROR_* value.
      * @param description A String describing the error.
@@ -254,11 +326,11 @@ public class WebViewClient {
     /**
      * Report web resource loading error to the host application. These errors usually indicate
      * inability to connect to the server. Note that unlike the deprecated version of the callback,
-     * the new version will be called for any resource (iframe, image, etc), not just for the main
+     * the new version will be called for any resource (iframe, image, etc.), not just for the main
      * page. Thus, it is recommended to perform minimum required work in this callback.
      * @param view The WebView that is initiating the callback.
      * @param request The originating request.
-     * @param error Information about the error occured.
+     * @param error Information about the error occurred.
      */
     public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
         if (request.isForMainFrame()) {
@@ -271,12 +343,12 @@ public class WebViewClient {
     /**
      * Notify the host application that an HTTP error has been received from the server while
      * loading a resource.  HTTP errors have status codes &gt;= 400.  This callback will be called
-     * for any resource (iframe, image, etc), not just for the main page. Thus, it is recommended to
-     * perform minimum required work in this callback. Note that the content of the server
-     * response may not be provided within the <b>errorResponse</b> parameter.
+     * for any resource (iframe, image, etc.), not just for the main page. Thus, it is recommended
+     * to perform minimum required work in this callback. Note that the content of the server
+     * response may not be provided within the {@code errorResponse} parameter.
      * @param view The WebView that is initiating the callback.
      * @param request The originating request.
-     * @param errorResponse Information about the error occured.
+     * @param errorResponse Information about the error occurred.
      */
     public void onReceivedHttpError(
             WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
@@ -301,7 +373,7 @@ public class WebViewClient {
      *
      * @param view The WebView that is initiating the callback.
      * @param url The url being visited.
-     * @param isReload True if this url is being reloaded.
+     * @param isReload {@code true} if this url is being reloaded.
      */
     public void doUpdateVisitedHistory(WebView view, String url,
             boolean isReload) {
@@ -309,13 +381,27 @@ public class WebViewClient {
 
     /**
      * Notify the host application that an SSL error occurred while loading a
-     * resource. The host application must call either handler.cancel() or
-     * handler.proceed(). Note that the decision may be retained for use in
+     * resource. The host application must call either {@link SslErrorHandler#cancel} or
+     * {@link SslErrorHandler#proceed}. Note that the decision may be retained for use in
      * response to future SSL errors. The default behavior is to cancel the
      * load.
+     * <p>
+     * This API is only called for recoverable SSL certificate errors. In the case of
+     * non-recoverable errors (such as when the server fails the client), WebView will call {@link
+     * #onReceivedError(WebView, WebResourceRequest, WebResourceError)} with {@link
+     * #ERROR_FAILED_SSL_HANDSHAKE}.
+     * <p>
+     * Applications are advised not to prompt the user about SSL errors, as
+     * the user is unlikely to be able to make an informed security decision
+     * and WebView does not provide any UI for showing the details of the
+     * error in a meaningful way.
+     * <p>
+     * Application overrides of this method may display custom error pages or
+     * silently log issues, but it is strongly recommended to always call
+     * {@link SslErrorHandler#cancel} and never allow proceeding past errors.
      *
      * @param view The WebView that is initiating the callback.
-     * @param handler An SslErrorHandler object that will handle the user's
+     * @param handler An {@link SslErrorHandler} that will handle the user's
      *            response.
      * @param error The SSL error object.
      */
@@ -325,13 +411,13 @@ public class WebViewClient {
     }
 
     /**
-     * Notify the host application to handle a SSL client certificate
-     * request. The host application is responsible for showing the UI
-     * if desired and providing the keys. There are three ways to
-     * respond: proceed(), cancel() or ignore(). Webview stores the response
-     * in memory (for the life of the application) if proceed() or cancel() is
-     * called and does not call onReceivedClientCertRequest() again for the
-     * same host and port pair. Webview does not store the response if ignore()
+     * Notify the host application to handle a SSL client certificate request. The host application
+     * is responsible for showing the UI if desired and providing the keys. There are three ways to
+     * respond: {@link ClientCertRequest#proceed}, {@link ClientCertRequest#cancel}, or {@link
+     * ClientCertRequest#ignore}. Webview stores the response in memory (for the life of the
+     * application) if {@link ClientCertRequest#proceed} or {@link ClientCertRequest#cancel} is
+     * called and does not call {@code onReceivedClientCertRequest()} again for the same host and
+     * port pair. Webview does not store the response if {@link ClientCertRequest#ignore}
      * is called. Note that, multiple layers in chromium network stack might be
      * caching the responses, so the behavior for ignore is only a best case
      * effort.
@@ -381,14 +467,14 @@ public class WebViewClient {
     /**
      * Give the host application a chance to handle the key event synchronously.
      * e.g. menu shortcut key events need to be filtered this way. If return
-     * true, WebView will not handle the key event. If return false, WebView
+     * true, WebView will not handle the key event. If return {@code false}, WebView
      * will always handle the key event, so none of the super in the view chain
-     * will see the key event. The default behavior returns false.
+     * will see the key event. The default behavior returns {@code false}.
      *
      * @param view The WebView that is initiating the callback.
      * @param event The key event.
-     * @return True if the host application wants to handle the key event
-     *         itself, otherwise return false
+     * @return {@code true} if the host application wants to handle the key event
+     *         itself, otherwise return {@code false}
      */
     public boolean shouldOverrideKeyEvent(WebView view, KeyEvent event) {
         return false;
@@ -397,7 +483,7 @@ public class WebViewClient {
     /**
      * Notify the host application that a key was not handled by the WebView.
      * Except system keys, WebView always consumes the keys in the normal flow
-     * or if shouldOverrideKeyEvent returns true. This is called asynchronously
+     * or if {@link #shouldOverrideKeyEvent} returns {@code true}. This is called asynchronously
      * from where the key is dispatched. It gives the host application a chance
      * to handle the unhandled key events.
      *
@@ -411,7 +497,7 @@ public class WebViewClient {
     /**
      * Notify the host application that a input event was not handled by the WebView.
      * Except system keys, WebView always consumes input events in the normal flow
-     * or if shouldOverrideKeyEvent returns true. This is called asynchronously
+     * or if {@link #shouldOverrideKeyEvent} returns {@code true}. This is called asynchronously
      * from where the event is dispatched. It gives the host application a chance
      * to handle the unhandled input events.
      *
@@ -458,12 +544,61 @@ public class WebViewClient {
      * user has been processed.
      * @param view The WebView requesting the login.
      * @param realm The account realm used to look up accounts.
-     * @param account An optional account. If not null, the account should be
+     * @param account An optional account. If not {@code null}, the account should be
      *                checked against accounts on the device. If it is a valid
      *                account, it should be used to log in the user.
      * @param args Authenticator specific arguments used to log in the user.
      */
     public void onReceivedLoginRequest(WebView view, String realm,
-            String account, String args) {
+            @Nullable String account, String args) {
+    }
+
+    /**
+     * Notify host application that the given WebView's render process has exited.
+     *
+     * Multiple WebView instances may be associated with a single render process;
+     * onRenderProcessGone will be called for each WebView that was affected.
+     * The application's implementation of this callback should only attempt to
+     * clean up the specific WebView given as a parameter, and should not assume
+     * that other WebView instances are affected.
+     *
+     * The given WebView can't be used, and should be removed from the view hierarchy,
+     * all references to it should be cleaned up, e.g any references in the Activity
+     * or other classes saved using {@link android.view.View#findViewById} and similar calls, etc.
+     *
+     * To cause an render process crash for test purpose, the application can
+     * call {@code loadUrl("chrome://crash")} on the WebView. Note that multiple WebView
+     * instances may be affected if they share a render process, not just the
+     * specific WebView which loaded chrome://crash.
+     *
+     * @param view The WebView which needs to be cleaned up.
+     * @param detail the reason why it exited.
+     * @return {@code true} if the host application handled the situation that process has
+     *         exited, otherwise, application will crash if render process crashed,
+     *         or be killed if render process was killed by the system.
+     */
+    public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+        return false;
+    }
+
+    /**
+     * Notify the host application that a loading URL has been flagged by Safe Browsing.
+     *
+     * The application must invoke the callback to indicate the preferred response. The default
+     * behavior is to show an interstitial to the user, with the reporting checkbox visible.
+     *
+     * If the application needs to show its own custom interstitial UI, the callback can be invoked
+     * asynchronously with {@link SafeBrowsingResponse#backToSafety} or {@link
+     * SafeBrowsingResponse#proceed}, depending on user response.
+     *
+     * @param view The WebView that hit the malicious resource.
+     * @param request Object containing the details of the request.
+     * @param threatType The reason the resource was caught by Safe Browsing, corresponding to a
+     *                   {@code SAFE_BROWSING_THREAT_*} value.
+     * @param callback Applications must invoke one of the callback methods.
+     */
+    public void onSafeBrowsingHit(WebView view, WebResourceRequest request,
+            @SafeBrowsingThreat int threatType, SafeBrowsingResponse callback) {
+        callback.showInterstitial(/* allowReporting */ true);
     }
 }

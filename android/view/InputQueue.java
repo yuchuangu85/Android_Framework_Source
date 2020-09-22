@@ -16,13 +16,14 @@
 
 package android.view;
 
-import dalvik.system.CloseGuard;
-
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Looper;
 import android.os.MessageQueue;
+import android.util.LongSparseArray;
 import android.util.Pools.Pool;
 import android.util.Pools.SimplePool;
-import android.util.LongSparseArray;
+
+import dalvik.system.CloseGuard;
 
 import java.lang.ref.WeakReference;
 
@@ -100,6 +101,7 @@ public final class InputQueue {
         mActiveEventArray.put(id, event);
     }
 
+    @UnsupportedAppUsage
     private void finishInputEvent(long id, boolean handled) {
         int index = mActiveEventArray.indexOfKey(id);
         if (index >= 0) {

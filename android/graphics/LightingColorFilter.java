@@ -21,6 +21,9 @@
 
 package android.graphics;
 
+import android.annotation.ColorInt;
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * A color filter that can be used to simulate simple lighting effects.
  * A <code>LightingColorFilter</code> is defined by two parameters, one
@@ -37,7 +40,9 @@ package android.graphics;
  * The result is pinned to the <code>[0..255]</code> range for each channel.
  */
 public class LightingColorFilter extends ColorFilter {
+    @ColorInt
     private int mMul;
+    @ColorInt
     private int mAdd;
 
     /**
@@ -45,20 +50,16 @@ public class LightingColorFilter extends ColorFilter {
      * and then adds a second color. The alpha components of the mul and add
      * arguments are ignored.
      */
-    public LightingColorFilter(int mul, int add) {
+    public LightingColorFilter(@ColorInt int mul, @ColorInt int add) {
         mMul = mul;
         mAdd = add;
-        update();
     }
 
     /**
      * Returns the RGB color used to multiply the source color when the
      * color filter is applied.
-     *
-     * @see #setColorMultiply(int)
-     *
-     * @hide
      */
+    @ColorInt
     public int getColorMultiply() {
         return mMul;
     }
@@ -72,19 +73,19 @@ public class LightingColorFilter extends ColorFilter {
      *
      * @hide
      */
-    public void setColorMultiply(int mul) {
-        mMul = mul;
-        update();
+    @UnsupportedAppUsage
+    public void setColorMultiply(@ColorInt int mul) {
+        if (mMul != mul) {
+            mMul = mul;
+            discardNativeInstance();
+        }
     }
 
     /**
      * Returns the RGB color that will be added to the source color
      * when the color filter is applied.
-     *
-     * @see #setColorAdd(int)
-     *
-     * @hide
      */
+    @ColorInt
     public int getColorAdd() {
         return mAdd;
     }
@@ -98,14 +99,17 @@ public class LightingColorFilter extends ColorFilter {
      *
      * @hide
      */
-    public void setColorAdd(int add) {
-        mAdd = add;
-        update();
+    @UnsupportedAppUsage
+    public void setColorAdd(@ColorInt int add) {
+        if (mAdd != add) {
+            mAdd = add;
+            discardNativeInstance();
+        }
     }
 
-    private void update() {
-        destroyFilter(native_instance);
-        native_instance = native_CreateLightingFilter(mMul, mAdd);
+    @Override
+    long createNativeInstance() {
+        return native_CreateLightingFilter(mMul, mAdd);
     }
 
     private static native long native_CreateLightingFilter(int mul, int add);

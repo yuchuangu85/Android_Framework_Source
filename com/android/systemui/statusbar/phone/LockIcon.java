@@ -16,286 +16,250 @@
 
 package com.android.systemui.statusbar.phone;
 
+import android.annotation.IntDef;
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.res.Configuration;
+import android.graphics.Color;
+import android.graphics.drawable.Animatable2;
 import android.graphics.drawable.AnimatedVectorDrawable;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.InsetDrawable;
+import android.os.Trace;
+import android.provider.Settings;
+import android.text.TextUtils;
 import android.util.AttributeSet;
-import android.view.View;
-import android.view.accessibility.AccessibilityNodeInfo;
+import android.util.SparseArray;
+import android.view.ViewTreeObserver.OnPreDrawListener;
 
-import com.android.keyguard.KeyguardUpdateMonitor;
+import com.android.internal.graphics.ColorUtils;
+import com.android.systemui.Interpolators;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.KeyguardAffordanceView;
-import com.android.systemui.statusbar.policy.AccessibilityController;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * Manages the different states and animations of the unlock icon.
  */
 public class LockIcon extends KeyguardAffordanceView {
 
-    private static final int STATE_LOCKED = 0;
-    private static final int STATE_LOCK_OPEN = 1;
-    private static final int STATE_FACE_UNLOCK = 2;
-    private static final int STATE_FINGERPRINT = 3;
-    private static final int STATE_FINGERPRINT_ERROR = 4;
+    static final int STATE_LOCKED = 0;
+    static final int STATE_LOCK_OPEN = 1;
+    static final int STATE_SCANNING_FACE = 2;
+    static final int STATE_BIOMETRICS_ERROR = 3;
+    private float mDozeAmount;
+    private int mIconColor;
+    private int mOldState;
+    private int mState;
+    private boolean mPulsing;
+    private boolean mDozing;
+    private boolean mKeyguardJustShown;
+    private boolean mPredrawRegistered;
+    private final SparseArray<Drawable> mDrawableCache = new SparseArray<>();
 
-    private int mLastState = 0;
-    private boolean mLastDeviceInteractive;
-    private boolean mTransientFpError;
-    private boolean mDeviceInteractive;
-    private boolean mScreenOn;
-    private boolean mLastScreenOn;
-    private TrustDrawable mTrustDrawable;
-    private final UnlockMethodCache mUnlockMethodCache;
-    private AccessibilityController mAccessibilityController;
-    private boolean mHasFingerPrintIcon;
-    private int mDensity;
+    private final OnPreDrawListener mOnPreDrawListener = new OnPreDrawListener() {
+        @Override
+        public boolean onPreDraw() {
+            getViewTreeObserver().removeOnPreDrawListener(this);
+            mPredrawRegistered = false;
+
+            int newState = mState;
+            Drawable icon = getIcon(newState);
+            setImageDrawable(icon, false);
+
+            if (newState == STATE_SCANNING_FACE) {
+                announceForAccessibility(getResources().getString(
+                        R.string.accessibility_scanning_face));
+            }
+
+            if (icon instanceof AnimatedVectorDrawable) {
+                final AnimatedVectorDrawable animation = (AnimatedVectorDrawable) icon;
+                animation.forceAnimationOnUI();
+                animation.clearAnimationCallbacks();
+                animation.registerAnimationCallback(
+                        new Animatable2.AnimationCallback() {
+                            @Override
+                            public void onAnimationEnd(Drawable drawable) {
+                                if (getDrawable() == animation
+                                        && newState == mState
+                                        && newState == STATE_SCANNING_FACE) {
+                                    animation.start();
+                                } else {
+                                    Trace.endAsyncSection("LockIcon#Animation", newState);
+                                }
+                            }
+                        });
+                Trace.beginAsyncSection("LockIcon#Animation", newState);
+                animation.start();
+            }
+
+            return true;
+        }
+    };
 
     public LockIcon(Context context, AttributeSet attrs) {
         super(context, attrs);
-        mTrustDrawable = new TrustDrawable(context);
-        setBackground(mTrustDrawable);
-        mUnlockMethodCache = UnlockMethodCache.getInstance(context);
-    }
-
-    @Override
-    protected void onVisibilityChanged(View changedView, int visibility) {
-        super.onVisibilityChanged(changedView, visibility);
-        if (isShown()) {
-            mTrustDrawable.start();
-        } else {
-            mTrustDrawable.stop();
-        }
-    }
-
-    @Override
-    protected void onDetachedFromWindow() {
-        super.onDetachedFromWindow();
-        mTrustDrawable.stop();
-    }
-
-    public void setTransientFpError(boolean transientFpError) {
-        mTransientFpError = transientFpError;
-        update();
-    }
-
-    public void setDeviceInteractive(boolean deviceInteractive) {
-        mDeviceInteractive = deviceInteractive;
-        update();
-    }
-
-    public void setScreenOn(boolean screenOn) {
-        mScreenOn = screenOn;
-        update();
     }
 
     @Override
     protected void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        final int density = newConfig.densityDpi;
-        if (density != mDensity) {
-            mDensity = density;
-            mTrustDrawable.stop();
-            mTrustDrawable = new TrustDrawable(getContext());
-            setBackground(mTrustDrawable);
-            update();
-        }
-    }
-
-    public void update() {
-        update(false /* force */);
-    }
-
-    public void update(boolean force) {
-        boolean visible = isShown()
-                && KeyguardUpdateMonitor.getInstance(mContext).isDeviceInteractive();
-        if (visible) {
-            mTrustDrawable.start();
-        } else {
-            mTrustDrawable.stop();
-        }
-        // TODO: Real icon for facelock.
-        int state = getState();
-        boolean anyFingerprintIcon = state == STATE_FINGERPRINT || state == STATE_FINGERPRINT_ERROR;
-        boolean useAdditionalPadding = anyFingerprintIcon;
-        boolean trustHidden = anyFingerprintIcon;
-        if (state != mLastState || mDeviceInteractive != mLastDeviceInteractive
-                || mScreenOn != mLastScreenOn || force) {
-            boolean isAnim = true;
-            int iconRes = getAnimationResForTransition(mLastState, state, mLastDeviceInteractive,
-                    mDeviceInteractive, mLastScreenOn, mScreenOn);
-            if (iconRes == R.drawable.lockscreen_fingerprint_draw_off_animation) {
-                anyFingerprintIcon = true;
-                useAdditionalPadding = true;
-                trustHidden = true;
-            } else if (iconRes == R.drawable.trusted_state_to_error_animation) {
-                anyFingerprintIcon = true;
-                useAdditionalPadding = false;
-                trustHidden = true;
-            } else if (iconRes == R.drawable.error_to_trustedstate_animation) {
-                anyFingerprintIcon = true;
-                useAdditionalPadding = false;
-                trustHidden = false;
-            }
-            if (iconRes == -1) {
-                iconRes = getIconForState(state, mScreenOn, mDeviceInteractive);
-                isAnim = false;
-            }
-            Drawable icon = mContext.getDrawable(iconRes);
-            final AnimatedVectorDrawable animation = icon instanceof AnimatedVectorDrawable
-                    ? (AnimatedVectorDrawable) icon
-                    : null;
-            int iconHeight = getResources().getDimensionPixelSize(
-                    R.dimen.keyguard_affordance_icon_height);
-            int iconWidth = getResources().getDimensionPixelSize(
-                    R.dimen.keyguard_affordance_icon_width);
-            if (!anyFingerprintIcon && (icon.getIntrinsicHeight() != iconHeight
-                    || icon.getIntrinsicWidth() != iconWidth)) {
-                icon = new IntrinsicSizeDrawable(icon, iconWidth, iconHeight);
-            }
-            setPaddingRelative(0, 0, 0, useAdditionalPadding
-                    ? getResources().getDimensionPixelSize(
-                    R.dimen.fingerprint_icon_additional_padding)
-                    : 0);
-            setRestingAlpha(
-                    anyFingerprintIcon ? 1f : KeyguardAffordanceHelper.SWIPE_RESTING_ALPHA_AMOUNT);
-            setImageDrawable(icon);
-            String contentDescription = getResources().getString(anyFingerprintIcon
-                    ? R.string.accessibility_unlock_button_fingerprint
-                    : R.string.accessibility_unlock_button);
-            setContentDescription(contentDescription);
-            mHasFingerPrintIcon = anyFingerprintIcon;
-            if (animation != null && isAnim) {
-                animation.forceAnimationOnUI();
-                animation.start();
-            }
-            mLastState = state;
-            mLastDeviceInteractive = mDeviceInteractive;
-            mLastScreenOn = mScreenOn;
-        }
-
-        // Hide trust circle when fingerprint is running.
-        boolean trustManaged = mUnlockMethodCache.isTrustManaged() && !trustHidden;
-        mTrustDrawable.setTrustManaged(trustManaged);
-        updateClickability();
-    }
-
-    private void updateClickability() {
-        if (mAccessibilityController == null) {
-            return;
-        }
-        boolean clickToUnlock = mAccessibilityController.isTouchExplorationEnabled();
-        boolean clickToForceLock = mUnlockMethodCache.isTrustManaged()
-                && !mAccessibilityController.isAccessibilityEnabled();
-        boolean longClickToForceLock = mUnlockMethodCache.isTrustManaged()
-                && !clickToForceLock;
-        setClickable(clickToForceLock || clickToUnlock);
-        setLongClickable(longClickToForceLock);
-        setFocusable(mAccessibilityController.isAccessibilityEnabled());
-    }
-
-    @Override
-    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
-        super.onInitializeAccessibilityNodeInfo(info);
-        if (mHasFingerPrintIcon) {
-            // Avoid that the button description is also spoken
-            info.setClassName(LockIcon.class.getName());
-            AccessibilityNodeInfo.AccessibilityAction unlock
-                    = new AccessibilityNodeInfo.AccessibilityAction(
-                    AccessibilityNodeInfo.ACTION_CLICK,
-                    getContext().getString(R.string.accessibility_unlock_without_fingerprint));
-            info.addAction(unlock);
-        }
-    }
-
-    public void setAccessibilityController(AccessibilityController accessibilityController) {
-        mAccessibilityController = accessibilityController;
-    }
-
-    private int getIconForState(int state, boolean screenOn, boolean deviceInteractive) {
-        switch (state) {
-            case STATE_LOCKED:
-                return R.drawable.ic_lock_24dp;
-            case STATE_LOCK_OPEN:
-                return R.drawable.ic_lock_open_24dp;
-            case STATE_FACE_UNLOCK:
-                return com.android.internal.R.drawable.ic_account_circle;
-            case STATE_FINGERPRINT:
-                // If screen is off and device asleep, use the draw on animation so the first frame
-                // gets drawn.
-                return screenOn && deviceInteractive
-                        ? R.drawable.ic_fingerprint
-                        : R.drawable.lockscreen_fingerprint_draw_on_animation;
-            case STATE_FINGERPRINT_ERROR:
-                return R.drawable.ic_fingerprint_error;
-            default:
-                throw new IllegalArgumentException();
-        }
-    }
-
-    private int getAnimationResForTransition(int oldState, int newState,
-            boolean oldDeviceInteractive, boolean deviceInteractive,
-            boolean oldScreenOn, boolean screenOn) {
-        if (oldState == STATE_FINGERPRINT && newState == STATE_FINGERPRINT_ERROR) {
-            return R.drawable.lockscreen_fingerprint_fp_to_error_state_animation;
-        } else if (oldState == STATE_LOCK_OPEN && newState == STATE_FINGERPRINT_ERROR) {
-            return R.drawable.trusted_state_to_error_animation;
-        } else if (oldState == STATE_FINGERPRINT_ERROR && newState == STATE_LOCK_OPEN) {
-            return R.drawable.error_to_trustedstate_animation;
-        } else if (oldState == STATE_FINGERPRINT_ERROR && newState == STATE_FINGERPRINT) {
-            return R.drawable.lockscreen_fingerprint_error_state_to_fp_animation;
-        } else if (oldState == STATE_FINGERPRINT && newState == STATE_LOCK_OPEN
-                && !mUnlockMethodCache.isTrusted()) {
-            return R.drawable.lockscreen_fingerprint_draw_off_animation;
-        } else if (newState == STATE_FINGERPRINT && (!oldScreenOn && screenOn && deviceInteractive
-                || screenOn && !oldDeviceInteractive && deviceInteractive)) {
-            return R.drawable.lockscreen_fingerprint_draw_on_animation;
-        } else {
-            return -1;
-        }
-    }
-
-    private int getState() {
-        KeyguardUpdateMonitor updateMonitor = KeyguardUpdateMonitor.getInstance(mContext);
-        boolean fingerprintRunning = updateMonitor.isFingerprintDetectionRunning();
-        boolean unlockingAllowed = updateMonitor.isUnlockingWithFingerprintAllowed();
-        if (mTransientFpError) {
-            return STATE_FINGERPRINT_ERROR;
-        } else if (mUnlockMethodCache.canSkipBouncer()) {
-            return STATE_LOCK_OPEN;
-        } else if (mUnlockMethodCache.isFaceUnlockRunning()) {
-            return STATE_FACE_UNLOCK;
-        } else if (fingerprintRunning && unlockingAllowed) {
-            return STATE_FINGERPRINT;
-        } else {
-            return STATE_LOCKED;
-        }
+        mDrawableCache.clear();
     }
 
     /**
-     * A wrapper around another Drawable that overrides the intrinsic size.
+     * Update the icon visibility
+     * @return true if the visibility changed
      */
-    private static class IntrinsicSizeDrawable extends InsetDrawable {
+    boolean updateIconVisibility(boolean visible) {
+        boolean wasVisible = getVisibility() == VISIBLE;
+        if (visible != wasVisible) {
+            setVisibility(visible ? VISIBLE : INVISIBLE);
+            animate().cancel();
+            if (visible) {
+                setScaleX(0);
+                setScaleY(0);
+                animate()
+                        .setInterpolator(Interpolators.LINEAR_OUT_SLOW_IN)
+                        .scaleX(1)
+                        .scaleY(1)
+                        .withLayer()
+                        .setDuration(233)
+                        .start();
+            }
+            return true;
+        }
+        return false;
+    }
 
-        private final int mIntrinsicWidth;
-        private final int mIntrinsicHeight;
+    void update(int newState, boolean pulsing, boolean dozing, boolean keyguardJustShown) {
+        mOldState = mState;
+        mState = newState;
+        mPulsing = pulsing;
+        mDozing = dozing;
+        mKeyguardJustShown = keyguardJustShown;
 
-        public IntrinsicSizeDrawable(Drawable drawable, int intrinsicWidth, int intrinsicHeight) {
-            super(drawable, 0);
-            mIntrinsicWidth = intrinsicWidth;
-            mIntrinsicHeight = intrinsicHeight;
+        if (!mPredrawRegistered) {
+            mPredrawRegistered = true;
+            getViewTreeObserver().addOnPreDrawListener(mOnPreDrawListener);
+        }
+    }
+
+    void setDozeAmount(float dozeAmount) {
+        mDozeAmount = dozeAmount;
+        updateDarkTint();
+    }
+
+    void onThemeChange(int iconColor) {
+        mDrawableCache.clear();
+        mIconColor = iconColor;
+        updateDarkTint();
+    }
+
+    private void updateDarkTint() {
+        int color = ColorUtils.blendARGB(mIconColor, Color.WHITE, mDozeAmount);
+        setImageTintList(ColorStateList.valueOf(color));
+    }
+
+    private Drawable getIcon(int newState) {
+        @LockAnimIndex final int lockAnimIndex =
+                getAnimationIndexForTransition(mOldState, newState, mPulsing, mDozing,
+                        mKeyguardJustShown);
+
+        boolean isAnim = lockAnimIndex != -1;
+        int iconRes = isAnim ? getThemedAnimationResId(lockAnimIndex) : getIconForState(newState);
+
+        if (!mDrawableCache.contains(iconRes)) {
+            mDrawableCache.put(iconRes, getResources().getDrawable(iconRes));
         }
 
-        @Override
-        public int getIntrinsicWidth() {
-            return mIntrinsicWidth;
+        return mDrawableCache.get(iconRes);
+    }
+
+    private static int getIconForState(int state) {
+        int iconRes;
+        switch (state) {
+            case STATE_LOCKED:
+            // Scanning animation is a pulsing padlock. This means that the resting state is
+            // just a padlock.
+            case STATE_SCANNING_FACE:
+            // Error animation also starts and ands on the padlock.
+            case STATE_BIOMETRICS_ERROR:
+                iconRes = com.android.internal.R.drawable.ic_lock;
+                break;
+            case STATE_LOCK_OPEN:
+                iconRes = com.android.internal.R.drawable.ic_lock_open;
+                break;
+            default:
+                throw new IllegalArgumentException();
         }
 
-        @Override
-        public int getIntrinsicHeight() {
-            return mIntrinsicHeight;
+        return iconRes;
+    }
+
+    private static int getAnimationIndexForTransition(int oldState, int newState, boolean pulsing,
+            boolean dozing, boolean keyguardJustShown) {
+
+        // Never animate when screen is off
+        if (dozing && !pulsing) {
+            return -1;
         }
+
+        if (newState == STATE_BIOMETRICS_ERROR) {
+            return ERROR;
+        } else if (oldState != STATE_LOCK_OPEN && newState == STATE_LOCK_OPEN) {
+            return UNLOCK;
+        } else if (oldState == STATE_LOCK_OPEN && newState == STATE_LOCKED && !keyguardJustShown) {
+            return LOCK;
+        } else if (newState == STATE_SCANNING_FACE) {
+            return SCANNING;
+        }
+        return -1;
+    }
+
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef({ERROR, UNLOCK, LOCK, SCANNING})
+    @interface LockAnimIndex {}
+    static final int ERROR = 0, UNLOCK = 1, LOCK = 2, SCANNING = 3;
+    private static final int[][] LOCK_ANIM_RES_IDS = new int[][] {
+            {
+                    R.anim.lock_to_error,
+                    R.anim.lock_unlock,
+                    R.anim.lock_lock,
+                    R.anim.lock_scanning
+            },
+            {
+                    R.anim.lock_to_error_circular,
+                    R.anim.lock_unlock_circular,
+                    R.anim.lock_lock_circular,
+                    R.anim.lock_scanning_circular
+            },
+            {
+                    R.anim.lock_to_error_filled,
+                    R.anim.lock_unlock_filled,
+                    R.anim.lock_lock_filled,
+                    R.anim.lock_scanning_filled
+            },
+            {
+                    R.anim.lock_to_error_rounded,
+                    R.anim.lock_unlock_rounded,
+                    R.anim.lock_lock_rounded,
+                    R.anim.lock_scanning_rounded
+            },
+    };
+
+    private int getThemedAnimationResId(@LockAnimIndex int lockAnimIndex) {
+        final String setting = TextUtils.emptyIfNull(
+                Settings.Secure.getString(getContext().getContentResolver(),
+                        Settings.Secure.THEME_CUSTOMIZATION_OVERLAY_PACKAGES));
+        if (setting.contains("com.android.theme.icon_pack.circular.android")) {
+            return LOCK_ANIM_RES_IDS[1][lockAnimIndex];
+        } else if (setting.contains("com.android.theme.icon_pack.filled.android")) {
+            return LOCK_ANIM_RES_IDS[2][lockAnimIndex];
+        } else if (setting.contains("com.android.theme.icon_pack.rounded.android")) {
+            return LOCK_ANIM_RES_IDS[3][lockAnimIndex];
+        }
+        return LOCK_ANIM_RES_IDS[0][lockAnimIndex];
     }
 }

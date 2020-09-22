@@ -16,14 +16,16 @@
 
 package android.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
  * A cache that holds strong references to a limited number of values. Each time
  * a value is accessed, it is moved to the head of a queue. When a value is
- * added to a full cache, the value at the end of that queue is evicted（驱逐） and may
- * become eligible（符合条件） for garbage collection.
+ * added to a full cache, the value at the end of that queue is evicted and may
+ * become eligible for garbage collection.
  *
  * <p>If your cached values hold resources that need to be explicitly released,
  * override {@link #entryRemoved}.
@@ -53,22 +55,14 @@ import java.util.Map;
  *
  * <p>This class does not allow null to be used as a key or value. A return
  * value of null from {@link #get}, {@link #put} or {@link #remove} is
- * unambiguous（明确的）: the key was not in the cache.
+ * unambiguous: the key was not in the cache.
  *
  * <p>This class appeared in Android 3.1 (Honeycomb MR1); it's available as part
  * of <a href="http://developer.android.com/sdk/compatibility-library.html">Android's
  * Support Package</a> for earlier releases.
- *
- * // 当前进程内存总数
- * int maxMemory = (int) (Runtime.getRuntime().totalMemory()/1024);
- * ①设置LruCache缓存的大小，一般为当前进程可用容量的1/8。
- * ②重写sizeOf方法，计算出要缓存的每张图片的大小。
- *
- * 参考：
- * https://www.jianshu.com/p/b49a111147ee
- *
  */
 public class LruCache<K, V> {
+    @UnsupportedAppUsage
     private final LinkedHashMap<K, V> map;
 
     /** Size of this cache in units. Not necessarily the number of elements. */
@@ -123,8 +117,6 @@ public class LruCache<K, V> {
 
         V mapValue;
         synchronized (this) {
-            // 获取对应的缓存对象
-            // get()方法会实现将访问的元素更新到队列头部的功能
             mapValue = map.get(key);
             if (mapValue != null) {
                 hitCount++;
@@ -139,7 +131,7 @@ public class LruCache<K, V> {
          * added to the map while create() was working, we leave that value in
          * the map and release the created value.
          */
-        // 如果找不到，是否创建新的对象，由由用户复写该方法决定。
+
         V createdValue = create(key);
         if (createdValue == null) {
             return null;
@@ -147,7 +139,6 @@ public class LruCache<K, V> {
 
         synchronized (this) {
             createCount++;
-            // 用户创建新的放入缓存
             mapValue = map.put(key, createdValue);
 
             if (mapValue != null) {
@@ -174,30 +165,24 @@ public class LruCache<K, V> {
      * @return the previous value mapped by {@code key}.
      */
     public final V put(K key, V value) {
-        // key 和 value 都不能为空
         if (key == null || value == null) {
             throw new NullPointerException("key == null || value == null");
         }
 
         V previous;
         synchronized (this) {
-            // 每插入一次增加1
             putCount++;
-            // 增加已有缓存的大小
             size += safeSizeOf(key, value);
-            // 向map中加入缓存对象
             previous = map.put(key, value);
-            // 如果已有缓存对象，则缓存大小恢复到之前
             if (previous != null) {
                 size -= safeSizeOf(key, previous);
             }
         }
-        // entryRemoved()是个空方法，可以自行实现
+
         if (previous != null) {
             entryRemoved(false, key, previous, value);
         }
 
-        // 调整缓存大小(关键方法)
         trimToSize(maxSize);
         return previous;
     }
@@ -214,18 +199,15 @@ public class LruCache<K, V> {
             K key;
             V value;
             synchronized (this) {
-                // 如果map为空并且缓存size不等于0或者缓存size小于0，抛出异常
                 if (size < 0 || (map.isEmpty() && size != 0)) {
                     throw new IllegalStateException(getClass().getName()
                             + ".sizeOf() is reporting inconsistent results!");
                 }
 
-                // 如果缓存大小size小于最大缓存，或者map为空，不需要再删除缓存对象，跳出循环
                 if (size <= maxSize) {
                     break;
                 }
 
-                // 迭代器获取第一个对象，即队尾的元素，近期最少访问的元素
                 Map.Entry<K, V> toEvict = map.eldest();
                 if (toEvict == null) {
                     break;
@@ -233,7 +215,6 @@ public class LruCache<K, V> {
 
                 key = toEvict.getKey();
                 value = toEvict.getValue();
-                // 删除该对象，并更新缓存大小
                 map.remove(key);
                 size -= safeSizeOf(key, value);
                 evictionCount++;
@@ -280,7 +261,7 @@ public class LruCache<K, V> {
      * @param evicted true if the entry is being removed to make space, false
      *     if the removal was caused by a {@link #put} or {@link #remove}.
      * @param newValue the new value for {@code key}, if it exists. If non-null,
-     *     this removal was caused by a {@link #put}. Otherwise it was caused by
+     *     this removal was caused by a {@link #put} or a {@link #get}. Otherwise it was caused by
      *     an eviction or a {@link #remove}.
      */
     protected void entryRemoved(boolean evicted, K key, V oldValue, V newValue) {}

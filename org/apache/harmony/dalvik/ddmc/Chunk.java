@@ -16,6 +16,7 @@
 
 package org.apache.harmony.dalvik.ddmc;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import java.nio.ByteBuffer;
 
 /**
@@ -24,12 +25,16 @@ import java.nio.ByteBuffer;
  *
  * The "offset" and "length" fields are present so handlers can over-allocate
  * or share byte buffers.
+ *
+ * @hide
  */
+@libcore.api.CorePlatformApi
 public class Chunk {
 
     /*
      * Public members.  Do not rename without updating the VM.
      */
+    @libcore.api.CorePlatformApi
     public int type;                // chunk type
     public byte[] data;             // chunk data
     public int offset, length;      // position within "data"
@@ -42,6 +47,7 @@ public class Chunk {
     /**
      * Constructor with all fields.
      */
+    @libcore.api.CorePlatformApi
     public Chunk(int type, byte[] data, int offset, int length) {
         this.type = type;
         this.data = data;
@@ -53,6 +59,8 @@ public class Chunk {
      * Construct from a ByteBuffer.  The chunk is assumed to start at
      * offset 0 and continue to the current position.
      */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
     public Chunk(int type, ByteBuffer buf) {
         this.type = type;
 
@@ -61,4 +69,3 @@ public class Chunk {
         this.length = buf.position();
     }
 }
-

@@ -16,24 +16,40 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
+import com.android.telephony.Rlog;
+
 /**
  * See also RIL_CallForwardInfo in include/telephony/ril.h
  *
  * {@hide}
  */
 public class CallForwardInfo {
+    private static final String TAG = "CallForwardInfo";
+
+    @UnsupportedAppUsage
+    public CallForwardInfo() {
+    }
+
+    @UnsupportedAppUsage
     public int             status;      /*1 = active, 0 = not active */
+    @UnsupportedAppUsage
     public int             reason;      /* from TS 27.007 7.11 "reason" */
+    @UnsupportedAppUsage
     public int             serviceClass; /* Saum of CommandsInterface.SERVICE_CLASS */
+    @UnsupportedAppUsage
     public int             toa;         /* "type" from TS 27.007 7.11 */
+    @UnsupportedAppUsage
     public String          number;      /* "number" from TS 27.007 7.11 */
+    @UnsupportedAppUsage
     public int             timeSeconds; /* for CF no reply only */
 
     @Override
     public String toString() {
-        return super.toString() + (status == 0 ? " not active " : " active ")
-            + " reason: " + reason
-            + " serviceClass: " + serviceClass + " " + timeSeconds + " seconds";
-
+        return "[CallForwardInfo: status=" + (status == 0 ? " not active " : " active ")
+                + ", reason= " + reason
+                + ", serviceClass= " + serviceClass + ", timeSec= " + timeSeconds + " seconds"
+                + ", number=" + Rlog.pii(TAG, number) + "]";
     }
 }

@@ -16,12 +16,11 @@
 
 package android.widget;
 
-import com.android.internal.R;
-
 import android.annotation.AttrRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StyleRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Rect;
@@ -32,7 +31,10 @@ import android.view.View;
 import android.view.ViewDebug;
 import android.view.ViewGroup;
 import android.view.ViewHierarchyEncoder;
+import android.view.inspector.InspectableProperty;
 import android.widget.RemoteViews.RemoteView;
+
+import com.android.internal.R;
 
 import java.util.ArrayList;
 
@@ -58,21 +60,25 @@ public class FrameLayout extends ViewGroup {
     private static final int DEFAULT_CHILD_GRAVITY = Gravity.TOP | Gravity.START;
 
     @ViewDebug.ExportedProperty(category = "measurement")
+    @UnsupportedAppUsage
     boolean mMeasureAllChildren = false;
 
     @ViewDebug.ExportedProperty(category = "padding")
+    @UnsupportedAppUsage
     private int mForegroundPaddingLeft = 0;
 
     @ViewDebug.ExportedProperty(category = "padding")
+    @UnsupportedAppUsage
     private int mForegroundPaddingTop = 0;
 
     @ViewDebug.ExportedProperty(category = "padding")
+    @UnsupportedAppUsage
     private int mForegroundPaddingRight = 0;
 
     @ViewDebug.ExportedProperty(category = "padding")
+    @UnsupportedAppUsage
     private int mForegroundPaddingBottom = 0;
 
-    // 需要二次测量的View集合
     private final ArrayList<View> mMatchParentChildren = new ArrayList<>(1);
 
     public FrameLayout(@NonNull Context context) {
@@ -94,6 +100,8 @@ public class FrameLayout extends ViewGroup {
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, R.styleable.FrameLayout, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.FrameLayout,
+                attrs, a, defStyleAttr, defStyleRes);
 
         if (a.getBoolean(R.styleable.FrameLayout_measureAllChildren, false)) {
             setMeasureAllChildren(true);
@@ -171,33 +179,28 @@ public class FrameLayout extends ViewGroup {
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int count = getChildCount();
 
-        // 一般measureMatchParentChildren为true表明该布局设置的为WRAP_CONTENT
         final boolean measureMatchParentChildren =
                 MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.EXACTLY ||
                 MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.EXACTLY;
         mMatchParentChildren.clear();
 
-        int maxHeight = 0;// 当前控件的最大高度
-        int maxWidth = 0;// 当前控件的最大宽度
-        int childState = 0;// 子控件的状态，通常有MEASURED_STATE_TOO_SMALL，也就是给的大小不够放内容的
+        int maxHeight = 0;
+        int maxWidth = 0;
+        int childState = 0;
 
         for (int i = 0; i < count; i++) {
             final View child = getChildAt(i);
-            if (mMeasureAllChildren || child.getVisibility() != GONE) {// 测量所有没有隐藏的子View
-                // 挨个执行子View的onMeasure方法
+            if (mMeasureAllChildren || child.getVisibility() != GONE) {
                 measureChildWithMargins(child, widthMeasureSpec, 0, heightMeasureSpec, 0);
                 final LayoutParams lp = (LayoutParams) child.getLayoutParams();
-                maxWidth = Math.max(maxWidth,// 这里算最大的值，也就是子控件宽度加上margin值
+                maxWidth = Math.max(maxWidth,
                         child.getMeasuredWidth() + lp.leftMargin + lp.rightMargin);
                 maxHeight = Math.max(maxHeight,
                         child.getMeasuredHeight() + lp.topMargin + lp.bottomMargin);
                 childState = combineMeasuredStates(childState, child.getMeasuredState());
-                // 如果FrameLayout是wrap_content，子控件是match_parent，则该子控件需要重新计算大小
                 if (measureMatchParentChildren) {
-                    // 父控件是WRAP_CONTENT，子控件是MATCH_PARENT，这时候需要二次绘制
                     if (lp.width == LayoutParams.MATCH_PARENT ||
                             lp.height == LayoutParams.MATCH_PARENT) {
-                        // 需要二次测量的View集合
                         mMatchParentChildren.add(child);
                     }
                 }
@@ -224,19 +227,19 @@ public class FrameLayout extends ViewGroup {
                         childState << MEASURED_HEIGHT_STATE_SHIFT));
 
         count = mMatchParentChildren.size();
-        if (count > 1) {// 再次测量
+        if (count > 1) {
             for (int i = 0; i < count; i++) {
                 final View child = mMatchParentChildren.get(i);
                 final MarginLayoutParams lp = (MarginLayoutParams) child.getLayoutParams();
 
                 final int childWidthMeasureSpec;
-                if (lp.width == LayoutParams.MATCH_PARENT) {// 此时getMeasureWith已经算出大小
-                    final int width = Math.max(0, getMeasuredWidth()// 所以子控件大小就确定了
+                if (lp.width == LayoutParams.MATCH_PARENT) {
+                    final int width = Math.max(0, getMeasuredWidth()
                             - getPaddingLeftWithForeground() - getPaddingRightWithForeground()
                             - lp.leftMargin - lp.rightMargin);
                     childWidthMeasureSpec = MeasureSpec.makeMeasureSpec(
                             width, MeasureSpec.EXACTLY);
-                } else {// 根据父控件来计算子控件大小
+                } else {
                     childWidthMeasureSpec = getChildMeasureSpec(widthMeasureSpec,
                             getPaddingLeftWithForeground() + getPaddingRightWithForeground() +
                             lp.leftMargin + lp.rightMargin,
@@ -257,7 +260,6 @@ public class FrameLayout extends ViewGroup {
                             lp.height);
                 }
 
-                // 再次调用measure方法，形成递归，知道调用到View的onMeasure方法
                 child.measure(childWidthMeasureSpec, childHeightMeasureSpec);
             }
         }
@@ -279,10 +281,10 @@ public class FrameLayout extends ViewGroup {
 
         for (int i = 0; i < count; i++) {
             final View child = getChildAt(i);
-            if (child.getVisibility() != GONE) {// 只有不是GONE的才参与layout
+            if (child.getVisibility() != GONE) {
                 final LayoutParams lp = (LayoutParams) child.getLayoutParams();
 
-                final int width = child.getMeasuredWidth();// 获取measure过的宽高
+                final int width = child.getMeasuredWidth();
                 final int height = child.getMeasuredHeight();
 
                 int childLeft;
@@ -290,14 +292,14 @@ public class FrameLayout extends ViewGroup {
 
                 int gravity = lp.gravity;
                 if (gravity == -1) {
-                    gravity = DEFAULT_CHILD_GRAVITY;// 默认是左上开始
+                    gravity = DEFAULT_CHILD_GRAVITY;
                 }
 
                 final int layoutDirection = getLayoutDirection();
                 final int absoluteGravity = Gravity.getAbsoluteGravity(gravity, layoutDirection);
                 final int verticalGravity = gravity & Gravity.VERTICAL_GRAVITY_MASK;
 
-                switch (absoluteGravity & Gravity.HORIZONTAL_GRAVITY_MASK) {// 先计算水平
+                switch (absoluteGravity & Gravity.HORIZONTAL_GRAVITY_MASK) {
                     case Gravity.CENTER_HORIZONTAL:
                         childLeft = parentLeft + (parentRight - parentLeft - width) / 2 +
                         lp.leftMargin - lp.rightMargin;
@@ -312,7 +314,7 @@ public class FrameLayout extends ViewGroup {
                         childLeft = parentLeft + lp.leftMargin;
                 }
 
-                switch (verticalGravity) {// 后计算垂直
+                switch (verticalGravity) {
                     case Gravity.TOP:
                         childTop = parentTop + lp.topMargin;
                         break;
@@ -327,7 +329,6 @@ public class FrameLayout extends ViewGroup {
                         childTop = parentTop + lp.topMargin;
                 }
 
-                // 再次调用View.layout递归，
                 child.layout(childLeft, childTop, childLeft + width, childTop + height);
             }
         }
@@ -369,6 +370,7 @@ public class FrameLayout extends ViewGroup {
      *
      * @return Whether all children are considered when measuring.
      */
+    @InspectableProperty
     public boolean getMeasureAllChildren() {
         return mMeasureAllChildren;
     }
@@ -441,6 +443,9 @@ public class FrameLayout extends ViewGroup {
          * @see android.view.Gravity
          * @attr ref android.R.styleable#FrameLayout_Layout_layout_gravity
          */
+        @InspectableProperty(
+                name = "layout_gravity",
+                valueType = InspectableProperty.ValueType.GRAVITY)
         public int gravity = UNSPECIFIED_GRAVITY;
 
         public LayoutParams(@NonNull Context c, @Nullable AttributeSet attrs) {

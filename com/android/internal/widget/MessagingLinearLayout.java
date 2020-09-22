@@ -16,8 +16,6 @@
 
 package com.android.internal.widget;
 
-import com.android.internal.R;
-
 import android.annotation.Nullable;
 import android.content.Context;
 import android.content.res.TypedArray;
@@ -26,7 +24,10 @@ import android.util.AttributeSet;
 import android.view.RemotableViewMethod;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.RemoteViews;
+
+import com.android.internal.R;
 
 /**
  * A custom-built layout for the Notification.MessagingStyle.
@@ -41,17 +42,7 @@ public class MessagingLinearLayout extends ViewGroup {
      */
     private int mSpacing;
 
-    /**
-     * The maximum height allowed.
-     */
-    private int mMaxHeight;
-
-    private int mIndentLines;
-
-    /**
-     * Id of the child that's also visible in the contracted layout.
-     */
-    private int mContractedChildId;
+    private int mMaxDisplayedLines = Integer.MAX_VALUE;
 
     public MessagingLinearLayout(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
@@ -64,123 +55,127 @@ public class MessagingLinearLayout extends ViewGroup {
         for (int i = 0; i < N; i++) {
             int attr = a.getIndex(i);
             switch (attr) {
-                case R.styleable.MessagingLinearLayout_maxHeight:
-                    mMaxHeight = a.getDimensionPixelSize(i, 0);
-                    break;
                 case R.styleable.MessagingLinearLayout_spacing:
                     mSpacing = a.getDimensionPixelSize(i, 0);
                     break;
             }
         }
 
-        if (mMaxHeight <= 0) {
-            throw new IllegalStateException(
-                    "MessagingLinearLayout: Must specify positive maxHeight");
-        }
-
         a.recycle();
     }
-
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         // This is essentially a bottom-up linear layout that only adds children that fit entirely
         // up to a maximum height.
-
+        int targetHeight = MeasureSpec.getSize(heightMeasureSpec);
         switch (MeasureSpec.getMode(heightMeasureSpec)) {
-            case MeasureSpec.AT_MOST:
-                heightMeasureSpec = MeasureSpec.makeMeasureSpec(
-                        Math.min(mMaxHeight, MeasureSpec.getSize(heightMeasureSpec)),
-                        MeasureSpec.AT_MOST);
-                break;
             case MeasureSpec.UNSPECIFIED:
-                heightMeasureSpec = MeasureSpec.makeMeasureSpec(
-                        mMaxHeight,
-                        MeasureSpec.AT_MOST);
-                break;
-            case MeasureSpec.EXACTLY:
+                targetHeight = Integer.MAX_VALUE;
                 break;
         }
-        final int targetHeight = MeasureSpec.getSize(heightMeasureSpec);
-        final int count = getChildCount();
 
+        // Now that we know which views to take, fix up the indents and see what width we get.
+        int measuredWidth = mPaddingLeft + mPaddingRight;
+        final int count = getChildCount();
+        int totalHeight;
         for (int i = 0; i < count; ++i) {
             final View child = getChildAt(i);
             final LayoutParams lp = (LayoutParams) child.getLayoutParams();
             lp.hide = true;
+            if (child instanceof MessagingChild) {
+                MessagingChild messagingChild = (MessagingChild) child;
+                // Whenever we encounter the message first, it's always first in the layout
+                messagingChild.setIsFirstInLayout(true);
+            }
         }
 
-        int totalHeight = mPaddingTop + mPaddingBottom;
+        totalHeight = mPaddingTop + mPaddingBottom;
         boolean first = true;
-
+        int linesRemaining = mMaxDisplayedLines;
         // Starting from the bottom: we measure every view as if it were the only one. If it still
         // fits, we take it, otherwise we stop there.
+        MessagingChild previousChild = null;
+        View previousView = null;
+        int previousChildHeight = 0;
+        int previousTotalHeight = 0;
+        int previousLinesConsumed = 0;
         for (int i = count - 1; i >= 0 && totalHeight < targetHeight; i--) {
             if (getChildAt(i).getVisibility() == GONE) {
                 continue;
             }
             final View child = getChildAt(i);
             LayoutParams lp = (LayoutParams) getChildAt(i).getLayoutParams();
-
-            if (child instanceof ImageFloatingTextView) {
-                // Pretend we need the image padding for all views, we don't know which
-                // one will end up needing to do this (might end up not using all the space,
-                // but calculating this exactly would be more expensive).
-                ((ImageFloatingTextView) child).setNumIndentLines(mIndentLines);
+            MessagingChild messagingChild = null;
+            int spacing = mSpacing;
+            int previousChildIncrease = 0;
+            if (child instanceof MessagingChild) {
+                // We need to remeasure the previous child again if it's not the first anymore
+                if (previousChild != null && previousChild.hasDifferentHeightWhenFirst()) {
+                    previousChild.setIsFirstInLayout(false);
+                    measureChildWithMargins(previousView, widthMeasureSpec, 0, heightMeasureSpec,
+                            previousTotalHeight - previousChildHeight);
+                    previousChildIncrease = previousView.getMeasuredHeight() - previousChildHeight;
+                    linesRemaining -= previousChild.getConsumedLines() - previousLinesConsumed;
+                }
+                messagingChild = (MessagingChild) child;
+                messagingChild.setMaxDisplayedLines(linesRemaining);
+                spacing += messagingChild.getExtraSpacing();
             }
-
-            measureChildWithMargins(child, widthMeasureSpec, 0, heightMeasureSpec, 0);
+            spacing = first ? 0 : spacing;
+            measureChildWithMargins(child, widthMeasureSpec, 0, heightMeasureSpec, totalHeight
+                    - mPaddingTop - mPaddingBottom + spacing);
 
             final int childHeight = child.getMeasuredHeight();
             int newHeight = Math.max(totalHeight, totalHeight + childHeight + lp.topMargin +
-                    lp.bottomMargin + (first ? 0 : mSpacing));
-            first = false;
+                    lp.bottomMargin + spacing + previousChildIncrease);
+            int measureType = MessagingChild.MEASURED_NORMAL;
+            if (messagingChild != null) {
+                measureType = messagingChild.getMeasuredType();
+            }
 
-            if (newHeight <= targetHeight) {
+            // We never measure the first item as too small, we want to at least show something.
+            boolean isTooSmall = measureType == MessagingChild.MEASURED_TOO_SMALL && !first;
+            boolean isShortened = measureType == MessagingChild.MEASURED_SHORTENED
+                    || measureType == MessagingChild.MEASURED_TOO_SMALL && first;
+            boolean showView = newHeight <= targetHeight && !isTooSmall;
+            if (showView) {
+                if (messagingChild != null) {
+                    previousLinesConsumed = messagingChild.getConsumedLines();
+                    linesRemaining -= previousLinesConsumed;
+                    previousChild = messagingChild;
+                    previousView = child;
+                    previousChildHeight = childHeight;
+                    previousTotalHeight = totalHeight;
+                }
                 totalHeight = newHeight;
+                measuredWidth = Math.max(measuredWidth,
+                        child.getMeasuredWidth() + lp.leftMargin + lp.rightMargin
+                                + mPaddingLeft + mPaddingRight);
                 lp.hide = false;
+                if (isShortened || linesRemaining <= 0) {
+                    break;
+                }
             } else {
+                // We now became too short, let's make sure to reset any previous views to be first
+                // and remeasure it.
+                if (previousChild != null && previousChild.hasDifferentHeightWhenFirst()) {
+                    previousChild.setIsFirstInLayout(true);
+                    // We need to remeasure the previous child again since it became first
+                    measureChildWithMargins(previousView, widthMeasureSpec, 0, heightMeasureSpec,
+                            previousTotalHeight - previousChildHeight);
+                    // The totalHeight is already correct here since we only set it during the
+                    // first pass
+                }
                 break;
             }
+            first = false;
         }
-
-        // Now that we know which views to take, fix up the indents and see what width we get.
-        int measuredWidth = mPaddingLeft + mPaddingRight;
-        int imageLines = mIndentLines;
-        for (int i = 0; i < count; i++) {
-            final View child = getChildAt(i);
-            final LayoutParams lp = (LayoutParams) child.getLayoutParams();
-
-            if (child.getVisibility() == GONE || lp.hide) {
-                continue;
-            }
-
-            if (child instanceof ImageFloatingTextView) {
-                ImageFloatingTextView textChild = (ImageFloatingTextView) child;
-                if (imageLines == 2 && textChild.getLineCount() > 2) {
-                    // HACK: If we need indent for two lines, and they're coming from the same
-                    // view, we need extra spacing to compensate for the lack of margins,
-                    // so add an extra line of indent.
-                    imageLines = 3;
-                }
-                boolean changed = textChild.setNumIndentLines(Math.max(0, imageLines));
-                if (changed) {
-                    measureChildWithMargins(child, widthMeasureSpec, 0, heightMeasureSpec, 0);
-                }
-                imageLines -= textChild.getLineCount();
-            }
-
-            measuredWidth = Math.max(measuredWidth,
-                    child.getMeasuredWidth() + lp.leftMargin + lp.rightMargin
-                            + mPaddingLeft + mPaddingRight);
-        }
-
 
         setMeasuredDimension(
                 resolveSize(Math.max(getSuggestedMinimumWidth(), measuredWidth),
                         widthMeasureSpec),
-                resolveSize(Math.max(getSuggestedMinimumHeight(), totalHeight),
-                        heightMeasureSpec));
+                Math.max(getSuggestedMinimumHeight(), totalHeight));
     }
 
     @Override
@@ -199,14 +194,14 @@ public class MessagingLinearLayout extends ViewGroup {
         childTop = mPaddingTop;
 
         boolean first = true;
-
+        final boolean shown = isShown();
         for (int i = 0; i < count; i++) {
             final View child = getChildAt(i);
-            final LayoutParams lp = (LayoutParams) child.getLayoutParams();
-
-            if (child.getVisibility() == GONE || lp.hide) {
+            if (child.getVisibility() == GONE) {
                 continue;
             }
+            final LayoutParams lp = (LayoutParams) child.getLayoutParams();
+            MessagingChild messagingChild = (MessagingChild) child;
 
             final int childWidth = child.getMeasuredWidth();
             final int childHeight = child.getMeasuredHeight();
@@ -216,6 +211,19 @@ public class MessagingLinearLayout extends ViewGroup {
                 childLeft = childRight - childWidth - lp.rightMargin;
             } else {
                 childLeft = paddingLeft + lp.leftMargin;
+            }
+            if (lp.hide) {
+                if (shown && lp.visibleBefore) {
+                    // We still want to lay out the child to have great animations
+                    child.layout(childLeft, childTop, childLeft + childWidth,
+                            childTop + lp.lastVisibleHeight);
+                    messagingChild.hideAnimated();
+                }
+                lp.visibleBefore = false;
+                continue;
+            } else {
+                lp.visibleBefore = true;
+                lp.lastVisibleHeight = childHeight;
             }
 
             if (!first) {
@@ -235,7 +243,10 @@ public class MessagingLinearLayout extends ViewGroup {
     protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
         final LayoutParams lp = (LayoutParams) child.getLayoutParams();
         if (lp.hide) {
-            return true;
+            MessagingChild messagingChild = (MessagingChild) child;
+            if (!messagingChild.isHidingAnimated()) {
+                return true;
+            }
         }
         return super.drawChild(canvas, child, drawingTime);
     }
@@ -260,32 +271,96 @@ public class MessagingLinearLayout extends ViewGroup {
         return copy;
     }
 
-    /**
-     * Sets how many lines should be indented to avoid a floating image.
-     */
-    @RemotableViewMethod
-    public void setNumIndentLines(int numberLines) {
-        mIndentLines = numberLines;
+    public static boolean isGone(View view) {
+        if (view.getVisibility() == View.GONE) {
+            return true;
+        }
+        final ViewGroup.LayoutParams lp = view.getLayoutParams();
+        if (lp instanceof MessagingLinearLayout.LayoutParams
+                && ((MessagingLinearLayout.LayoutParams) lp).hide) {
+            return true;
+        }
+        return false;
     }
 
     /**
-     * Set id of the child that's also visible in the contracted layout.
+     * Sets how many lines should be displayed at most
      */
     @RemotableViewMethod
-    public void setContractedChildId(int contractedChildId) {
-        mContractedChildId = contractedChildId;
+    public void setMaxDisplayedLines(int numberLines) {
+        mMaxDisplayedLines = numberLines;
     }
 
-    /**
-     * Get id of the child that's also visible in the contracted layout.
-     */
-    public int getContractedChildId() {
-        return mContractedChildId;
+    public IMessagingLayout getMessagingLayout() {
+        View view = this;
+        while (true) {
+            ViewParent p = view.getParent();
+            if (p instanceof View) {
+                view = (View) p;
+                if (view instanceof IMessagingLayout) {
+                    return (IMessagingLayout) view;
+                }
+            } else {
+                return null;
+            }
+        }
+    }
+
+    @Override
+    public int getBaseline() {
+        // When placed in a horizontal linear layout (as is the case in a single-line MessageGroup),
+        // align with the last visible child (which is the one that will be displayed in the single-
+        // line group.
+        int childCount = getChildCount();
+        for (int i = childCount - 1; i >= 0; i--) {
+            final View child = getChildAt(i);
+            if (isGone(child)) {
+                continue;
+            }
+            final int childBaseline = child.getBaseline();
+            if (childBaseline == -1) {
+                return -1;
+            }
+            MarginLayoutParams lp = (MarginLayoutParams) child.getLayoutParams();
+            return lp.topMargin + childBaseline;
+        }
+        return super.getBaseline();
+    }
+
+    public interface MessagingChild {
+        int MEASURED_NORMAL = 0;
+        int MEASURED_SHORTENED = 1;
+        int MEASURED_TOO_SMALL = 2;
+
+        int getMeasuredType();
+        int getConsumedLines();
+        void setMaxDisplayedLines(int lines);
+        void hideAnimated();
+        boolean isHidingAnimated();
+
+        /**
+         * Set that this view is first in layout. Relevant and only set if
+         * {@link #hasDifferentHeightWhenFirst()}.
+         * @param first is this first?
+         */
+        default void setIsFirstInLayout(boolean first) {}
+
+        /**
+         * @return if this layout has different height it is first in the layout
+         */
+        default boolean hasDifferentHeightWhenFirst() {
+            return false;
+        }
+        default int getExtraSpacing() {
+            return 0;
+        }
     }
 
     public static class LayoutParams extends MarginLayoutParams {
 
-        boolean hide = false;
+        public boolean hide = false;
+        public boolean visibleBefore = false;
+        public int lastVisibleHeight;
 
         public LayoutParams(Context c, AttributeSet attrs) {
             super(c, attrs);

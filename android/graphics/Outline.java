@@ -19,6 +19,7 @@ package android.graphics;
 import android.annotation.FloatRange;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.drawable.Drawable;
 
 import java.lang.annotation.Retention;
@@ -42,7 +43,7 @@ public final class Outline {
     /** @hide */
     public static final int MODE_ROUND_RECT = 1;
     /** @hide */
-    public static final int MODE_CONVEX_PATH = 2;
+    public static final int MODE_PATH = 2;
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
@@ -50,7 +51,7 @@ public final class Outline {
             value = {
                     MODE_EMPTY,
                     MODE_ROUND_RECT,
-                    MODE_CONVEX_PATH,
+                    MODE_PATH,
             })
     public @interface Mode {}
 
@@ -58,10 +59,15 @@ public final class Outline {
     @Mode
     public int mMode = MODE_EMPTY;
 
-    /** @hide */
-    public final Path mPath = new Path();
+    /**
+     * Only guaranteed to be non-null when mode == MODE_PATH
+     *
+     * @hide
+     */
+    public Path mPath;
 
     /** @hide */
+    @UnsupportedAppUsage
     public final Rect mRect = new Rect();
     /** @hide */
     public float mRadius = RADIUS_UNDEFINED;
@@ -87,8 +93,11 @@ public final class Outline {
      * @see #isEmpty()
      */
     public void setEmpty() {
+        if (mPath != null) {
+            // rewind here to avoid thrashing the allocations, but could alternately clear ref
+            mPath.rewind();
+        }
         mMode = MODE_EMPTY;
-        mPath.rewind();
         mRect.setEmpty();
         mRadius = RADIUS_UNDEFINED;
     }
@@ -112,10 +121,10 @@ public final class Outline {
      * Currently, only Outlines that can be represented as a rectangle, circle,
      * or round rect support clipping.
      *
-     * @see {@link android.view.View#setClipToOutline(boolean)}
+     * @see android.view.View#setClipToOutline(boolean)
      */
     public boolean canClip() {
-        return mMode != MODE_CONVEX_PATH;
+        return mMode != MODE_PATH;
     }
 
     /**
@@ -148,7 +157,12 @@ public final class Outline {
      */
     public void set(@NonNull Outline src) {
         mMode = src.mMode;
-        mPath.set(src.mPath);
+        if (src.mMode == MODE_PATH) {
+            if (mPath == null) {
+                mPath = new Path();
+            }
+            mPath.set(src.mPath);
+        }
         mRect.set(src.mRect);
         mRadius = src.mRadius;
         mAlpha = src.mAlpha;
@@ -180,10 +194,13 @@ public final class Outline {
             return;
         }
 
+        if (mMode == MODE_PATH) {
+            // rewind here to avoid thrashing the allocations, but could alternately clear ref
+            mPath.rewind();
+        }
         mMode = MODE_ROUND_RECT;
         mRect.set(left, top, right, bottom);
         mRadius = radius;
-        mPath.rewind();
     }
 
     /**
@@ -196,7 +213,7 @@ public final class Outline {
     /**
      * Populates {@code outBounds} with the outline bounds, if set, and returns
      * {@code true}. If no outline bounds are set, or if a path has been set
-     * via {@link #setConvexPath(Path)}, returns {@code false}.
+     * via {@link #setPath(Path)}, returns {@code false}.
      *
      * @param outRect the rect to populate with the outline bounds, if set
      * @return {@code true} if {@code outBounds} was populated with outline
@@ -212,7 +229,7 @@ public final class Outline {
 
     /**
      * Returns the rounded rect radius, if set, or a value less than 0 if a path has
-     * been set via {@link #setConvexPath(Path)}. A return value of {@code 0}
+     * been set via {@link #setPath(Path)}. A return value of {@code 0}
      * indicates a non-rounded rect.
      *
      * @return the rounded rect radius, or value < 0
@@ -236,8 +253,13 @@ public final class Outline {
             return;
         }
 
-        mMode = MODE_CONVEX_PATH;
-        mPath.rewind();
+        if (mPath == null) {
+            mPath = new Path();
+        } else {
+            mPath.rewind();
+        }
+
+        mMode = MODE_PATH;
         mPath.addOval(left, top, right, bottom, Path.Direction.CW);
         mRect.setEmpty();
         mRadius = RADIUS_UNDEFINED;
@@ -251,21 +273,40 @@ public final class Outline {
     }
 
     /**
-     * Sets the Constructs an Outline from a
+     * Sets the Outline to a
      * {@link android.graphics.Path#isConvex() convex path}.
+     *
+     * @param convexPath used to construct the Outline. As of
+     * {@link android.os.Build.VERSION_CODES#Q}, it is no longer required to be
+     * convex.
+     *
+     * @deprecated As of {@link android.os.Build.VERSION_CODES#Q}, the restriction
+     * that the path must be convex is removed. However, the API is misnamed until
+     * {@link android.os.Build.VERSION_CODES#R}, when {@link #setPath} is
+     * introduced. Use {@link #setPath} instead.
      */
+    @Deprecated
     public void setConvexPath(@NonNull Path convexPath) {
-        if (convexPath.isEmpty()) {
+        setPath(convexPath);
+    }
+
+    /**
+     * Sets the Outline to a {@link android.graphics.Path path}.
+     *
+     * @param path used to construct the Outline.
+     */
+    public void setPath(@NonNull Path path) {
+        if (path.isEmpty()) {
             setEmpty();
             return;
         }
 
-        if (!convexPath.isConvex()) {
-            throw new IllegalArgumentException("path must be convex");
+        if (mPath == null) {
+            mPath = new Path();
         }
 
-        mMode = MODE_CONVEX_PATH;
-        mPath.set(convexPath);
+        mMode = MODE_PATH;
+        mPath.set(path);
         mRect.setEmpty();
         mRadius = RADIUS_UNDEFINED;
     }
@@ -276,7 +317,7 @@ public final class Outline {
     public void offset(int dx, int dy) {
         if (mMode == MODE_ROUND_RECT) {
             mRect.offset(dx, dy);
-        } else if (mMode == MODE_CONVEX_PATH) {
+        } else if (mMode == MODE_PATH) {
             mPath.offset(dx, dy);
         }
     }

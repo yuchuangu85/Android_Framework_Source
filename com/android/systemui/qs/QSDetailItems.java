@@ -32,8 +32,10 @@ import android.widget.BaseAdapter;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
+
 import com.android.systemui.FontSizeUtils;
 import com.android.systemui.R;
+import com.android.systemui.plugins.qs.QSTile;
 
 /**
  * Quick settings common detail view with line items.
@@ -42,6 +44,7 @@ public class QSDetailItems extends FrameLayout {
     private static final String TAG = "QSDetailItems";
     private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
+    private final int mQsDetailIconOverlaySize;
     private final Context mContext;
     private final H mHandler = new H();
     private final Adapter mAdapter = new Adapter();
@@ -60,6 +63,8 @@ public class QSDetailItems extends FrameLayout {
         super(context, attrs);
         mContext = context;
         mTag = TAG;
+        mQsDetailIconOverlaySize = (int) getResources().getDimension(
+                R.dimen.qs_detail_icon_overlay_size);
     }
 
     public static QSDetailItems convertOrInflate(Context context, View convert, ViewGroup parent) {
@@ -73,13 +78,13 @@ public class QSDetailItems extends FrameLayout {
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
-        mItemList = (AutoSizingList) findViewById(android.R.id.list);
+        mItemList = findViewById(android.R.id.list);
         mItemList.setVisibility(GONE);
         mItemList.setAdapter(mAdapter);
         mEmpty = findViewById(android.R.id.empty);
         mEmpty.setVisibility(GONE);
-        mEmptyText = (TextView) mEmpty.findViewById(android.R.id.title);
-        mEmptyIcon = (ImageView) mEmpty.findViewById(android.R.id.icon);
+        mEmptyText = mEmpty.findViewById(android.R.id.title);
+        mEmptyIcon = mEmpty.findViewById(android.R.id.icon);
     }
 
     @Override
@@ -101,8 +106,10 @@ public class QSDetailItems extends FrameLayout {
     }
 
     public void setEmptyState(int icon, int text) {
-        mEmptyIcon.setImageResource(icon);
-        mEmptyText.setText(text);
+        mEmptyIcon.post(() -> {
+            mEmptyIcon.setImageResource(icon);
+            mEmptyText.setText(text);
+        });
     }
 
     @Override
@@ -179,11 +186,14 @@ public class QSDetailItems extends FrameLayout {
             }
             view.setVisibility(mItemsVisible ? VISIBLE : INVISIBLE);
             final ImageView iv = (ImageView) view.findViewById(android.R.id.icon);
-            iv.setImageResource(item.icon);
+            if (item.icon != null) {
+                iv.setImageDrawable(item.icon.getDrawable(iv.getContext()));
+            } else {
+                iv.setImageResource(item.iconResId);
+            }
             iv.getOverlay().clear();
             if (item.overlay != null) {
-                item.overlay.setBounds(0, 0, item.overlay.getIntrinsicWidth(),
-                        item.overlay.getIntrinsicHeight());
+                item.overlay.setBounds(0, 0, mQsDetailIconOverlaySize, mQsDetailIconOverlaySize);
                 iv.getOverlay().add(item.overlay);
             }
             final TextView title = (TextView) view.findViewById(android.R.id.title);
@@ -201,16 +211,28 @@ public class QSDetailItems extends FrameLayout {
                     }
                 }
             });
-            final ImageView disconnect = (ImageView) view.findViewById(android.R.id.icon2);
-            disconnect.setVisibility(item.canDisconnect ? VISIBLE : GONE);
-            disconnect.setOnClickListener(new OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    if (mCallback != null) {
-                        mCallback.onDetailItemDisconnect(item);
+
+            final ImageView icon2 = (ImageView) view.findViewById(android.R.id.icon2);
+            if (item.canDisconnect) {
+                icon2.setImageResource(R.drawable.ic_qs_cancel);
+                icon2.setVisibility(VISIBLE);
+                icon2.setClickable(true);
+                icon2.setOnClickListener(new OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        if (mCallback != null) {
+                            mCallback.onDetailItemDisconnect(item);
+                        }
                     }
-                }
-            });
+                });
+            } else if (item.icon2 != -1) {
+                icon2.setVisibility(VISIBLE);
+                icon2.setImageResource(item.icon2);
+                icon2.setClickable(false);
+            } else {
+                icon2.setVisibility(GONE);
+            }
+
             return view;
         }
     };
@@ -237,12 +259,14 @@ public class QSDetailItems extends FrameLayout {
     }
 
     public static class Item {
-        public int icon;
+        public int iconResId;
+        public QSTile.Icon icon;
         public Drawable overlay;
         public CharSequence line1;
         public CharSequence line2;
         public Object tag;
         public boolean canDisconnect;
+        public int icon2 = -1;
     }
 
     public interface Callback {

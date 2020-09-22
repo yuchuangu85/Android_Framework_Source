@@ -16,40 +16,40 @@
 
 package com.android.systemui;
 
+import android.annotation.NonNull;
 import android.content.Context;
+import android.content.res.Resources;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
-import android.view.View;
 import android.view.ViewGroup;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.widget.LockPatternUtils;
+import com.android.keyguard.KeyguardUpdateMonitor;
 import com.android.keyguard.ViewMediatorCallback;
-import com.android.systemui.R;
-import com.android.systemui.assist.AssistManager;
-import com.android.systemui.statusbar.BaseStatusBar;
-import com.android.systemui.statusbar.ScrimView;
+import com.android.systemui.bubbles.BubbleController;
+import com.android.systemui.dagger.DaggerSystemUIRootComponent;
+import com.android.systemui.dagger.DependencyProvider;
+import com.android.systemui.dagger.SystemUIRootComponent;
+import com.android.systemui.keyguard.DismissCallbackRegistry;
+import com.android.systemui.plugins.FalsingManager;
+import com.android.systemui.plugins.statusbar.StatusBarStateController;
+import com.android.systemui.screenshot.ScreenshotNotificationSmartActionsProvider;
+import com.android.systemui.statusbar.NotificationListener;
+import com.android.systemui.statusbar.NotificationMediaManager;
+import com.android.systemui.statusbar.notification.NotificationWakeUpCoordinator;
+import com.android.systemui.statusbar.phone.DozeParameters;
 import com.android.systemui.statusbar.phone.KeyguardBouncer;
-import com.android.systemui.statusbar.phone.LockscreenWallpaper;
+import com.android.systemui.statusbar.phone.KeyguardBypassController;
 import com.android.systemui.statusbar.phone.NotificationIconAreaController;
-import com.android.systemui.statusbar.phone.PhoneStatusBar;
-import com.android.systemui.statusbar.phone.QSTileHost;
-import com.android.systemui.statusbar.phone.ScrimController;
-import com.android.systemui.statusbar.phone.StatusBarIconController;
-import com.android.systemui.statusbar.phone.StatusBarKeyguardViewManager;
-import com.android.systemui.statusbar.phone.StatusBarWindowManager;
-import com.android.systemui.statusbar.policy.BatteryController;
-import com.android.systemui.statusbar.policy.BluetoothController;
-import com.android.systemui.statusbar.policy.CastController;
-import com.android.systemui.statusbar.policy.FlashlightController;
-import com.android.systemui.statusbar.policy.HotspotController;
-import com.android.systemui.statusbar.policy.KeyguardMonitor;
-import com.android.systemui.statusbar.policy.LocationController;
-import com.android.systemui.statusbar.policy.NetworkController;
-import com.android.systemui.statusbar.policy.NextAlarmController;
-import com.android.systemui.statusbar.policy.RotationLockController;
-import com.android.systemui.statusbar.policy.SecurityController;
-import com.android.systemui.statusbar.policy.UserInfoController;
-import com.android.systemui.statusbar.policy.UserSwitcherController;
-import com.android.systemui.statusbar.policy.ZenModeController;
+import com.android.systemui.statusbar.phone.StatusBar;
+import com.android.systemui.statusbar.policy.KeyguardStateController;
+
+import java.util.concurrent.Executor;
+
+import dagger.Module;
+import dagger.Provides;
 
 /**
  * Class factory to provide customizable SystemUI components.
@@ -58,12 +58,17 @@ public class SystemUIFactory {
     private static final String TAG = "SystemUIFactory";
 
     static SystemUIFactory mFactory;
+    private SystemUIRootComponent mRootComponent;
 
-    public static SystemUIFactory getInstance() {
-        return mFactory;
+    public static <T extends SystemUIFactory> T getInstance() {
+        return (T) mFactory;
     }
 
     public static void createFromConfig(Context context) {
+        if (mFactory != null) {
+            return;
+        }
+
         final String clsName = context.getString(R.string.config_systemUIFactoryComponent);
         if (clsName == null || clsName.length() == 0) {
             throw new RuntimeException("No SystemUIFactory component configured");
@@ -73,54 +78,108 @@ public class SystemUIFactory {
             Class<?> cls = null;
             cls = context.getClassLoader().loadClass(clsName);
             mFactory = (SystemUIFactory) cls.newInstance();
+            mFactory.init(context);
         } catch (Throwable t) {
             Log.w(TAG, "Error creating SystemUIFactory component: " + clsName, t);
             throw new RuntimeException(t);
         }
     }
 
+    @VisibleForTesting
+    static void cleanup() {
+        mFactory = null;
+    }
+
     public SystemUIFactory() {}
 
-    public StatusBarKeyguardViewManager createStatusBarKeyguardViewManager(Context context,
-            ViewMediatorCallback viewMediatorCallback, LockPatternUtils lockPatternUtils) {
-        return new StatusBarKeyguardViewManager(context, viewMediatorCallback, lockPatternUtils);
+    private void init(Context context) {
+        mRootComponent = buildSystemUIRootComponent(context);
+
+        // Every other part of our codebase currently relies on Dependency, so we
+        // really need to ensure the Dependency gets initialized early on.
+
+        Dependency dependency = new Dependency();
+        mRootComponent.createDependency().createSystemUI(dependency);
+        dependency.start();
+    }
+
+    protected void initWithRootComponent(@NonNull SystemUIRootComponent rootComponent) {
+        if (mRootComponent != null) {
+            throw new RuntimeException("Root component can be set only once.");
+        }
+
+        mRootComponent = rootComponent;
+    }
+
+    protected SystemUIRootComponent buildSystemUIRootComponent(Context context) {
+        return DaggerSystemUIRootComponent.builder()
+                .dependencyProvider(new DependencyProvider())
+                .contextHolder(new ContextHolder(context))
+                .build();
+    }
+
+    public SystemUIRootComponent getRootComponent() {
+        return mRootComponent;
+    }
+
+    /** Returns the list of system UI components that should be started. */
+    public String[] getSystemUIServiceComponents(Resources resources) {
+        return resources.getStringArray(R.array.config_systemUIServiceComponents);
+    }
+
+    /** Returns the list of system UI components that should be started per user. */
+    public String[] getSystemUIServiceComponentsPerUser(Resources resources) {
+        return resources.getStringArray(R.array.config_systemUIServiceComponentsPerUser);
+    }
+
+    /**
+     * Creates an instance of ScreenshotNotificationSmartActionsProvider.
+     * This method is overridden in vendor specific implementation of Sys UI.
+     */
+    public ScreenshotNotificationSmartActionsProvider
+            createScreenshotNotificationSmartActionsProvider(Context context,
+            Executor executor,
+            Handler uiHandler) {
+        return new ScreenshotNotificationSmartActionsProvider();
     }
 
     public KeyguardBouncer createKeyguardBouncer(Context context, ViewMediatorCallback callback,
-            LockPatternUtils lockPatternUtils, StatusBarWindowManager windowManager,
-            ViewGroup container) {
-        return new KeyguardBouncer(context, callback, lockPatternUtils, windowManager, container);
-    }
-
-    public ScrimController createScrimController(ScrimView scrimBehind, ScrimView scrimInFront,
-            View headsUpScrim, LockscreenWallpaper lockscreenWallpaper) {
-        return new ScrimController(scrimBehind, scrimInFront, headsUpScrim);
+            LockPatternUtils lockPatternUtils, ViewGroup container,
+            DismissCallbackRegistry dismissCallbackRegistry,
+            KeyguardBouncer.BouncerExpansionCallback expansionCallback,
+            KeyguardStateController keyguardStateController, FalsingManager falsingManager,
+            KeyguardBypassController bypassController) {
+        return new KeyguardBouncer(context, callback, lockPatternUtils, container,
+                dismissCallbackRegistry, falsingManager,
+                expansionCallback, keyguardStateController,
+                Dependency.get(KeyguardUpdateMonitor.class), bypassController,
+                new Handler(Looper.getMainLooper()));
     }
 
     public NotificationIconAreaController createNotificationIconAreaController(Context context,
-            PhoneStatusBar phoneStatusBar) {
-        return new NotificationIconAreaController(context, phoneStatusBar);
+            StatusBar statusBar,
+            NotificationWakeUpCoordinator wakeUpCoordinator,
+            KeyguardBypassController keyguardBypassController,
+            StatusBarStateController statusBarStateController) {
+        return new NotificationIconAreaController(context, statusBar, statusBarStateController,
+                wakeUpCoordinator, keyguardBypassController,
+                Dependency.get(NotificationMediaManager.class),
+                Dependency.get(NotificationListener.class),
+                Dependency.get(DozeParameters.class),
+                Dependency.get(BubbleController.class));
     }
 
-    public QSTileHost createQSTileHost(Context context, PhoneStatusBar statusBar,
-            BluetoothController bluetooth, LocationController location,
-            RotationLockController rotation, NetworkController network,
-            ZenModeController zen, HotspotController hotspot,
-            CastController cast, FlashlightController flashlight,
-            UserSwitcherController userSwitcher, UserInfoController userInfo,
-            KeyguardMonitor keyguard, SecurityController security,
-            BatteryController battery, StatusBarIconController iconController,
-            NextAlarmController nextAlarmController) {
-        return new QSTileHost(context, statusBar, bluetooth, location, rotation, network, zen,
-                hotspot, cast, flashlight, userSwitcher, userInfo, keyguard, security, battery,
-                iconController, nextAlarmController);
-    }
+    @Module
+    public static class ContextHolder {
+        private Context mContext;
 
-    public <T> T createInstance(Class<T> classType) {
-        return null;
-    }
+        public ContextHolder(Context context) {
+            mContext = context;
+        }
 
-    public AssistManager createAssistManager(BaseStatusBar bar, Context context) {
-        return new AssistManager(bar, context);
+        @Provides
+        public Context provideContext() {
+            return mContext;
+        }
     }
 }

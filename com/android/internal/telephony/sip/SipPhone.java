@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.sip;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.media.AudioManager;
 import android.net.rtp.AudioGroup;
@@ -31,7 +32,6 @@ import android.telephony.DisconnectCause;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.ServiceState;
 import android.text.TextUtils;
-import android.telephony.Rlog;
 
 import com.android.internal.telephony.Call;
 import com.android.internal.telephony.CallStateException;
@@ -39,9 +39,9 @@ import com.android.internal.telephony.Connection;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneNotifier;
+import com.android.telephony.Rlog;
 
 import java.text.ParseException;
-import java.util.List;
 import java.util.regex.Pattern;
 
 /**
@@ -59,7 +59,9 @@ public class SipPhone extends SipPhoneBase {
 
     // A call that is ringing or (call) waiting
     private SipCall mRingingCall = new SipCall();
+    @UnsupportedAppUsage
     private SipCall mForegroundCall = new SipCall();
+    @UnsupportedAppUsage
     private SipCall mBackgroundCall = new SipCall();
 
     private SipManager mSipManager;
@@ -121,7 +123,7 @@ public class SipPhone extends SipPhoneBase {
             try {
                 SipAudioCall sipAudioCall = (SipAudioCall) incomingCall;
                 if (DBG) log("takeIncomingCall: taking call from: "
-                        + sipAudioCall.getPeerProfile().getUriString());
+                        + hidePii(sipAudioCall.getPeerProfile().getUriString()));
                 String localUri = sipAudioCall.getLocalProfile().getUriString();
                 if (localUri.equals(mProfile.getUriString())) {
                     boolean makeCallWait = mForegroundCall.getState().isAlive();
@@ -183,9 +185,15 @@ public class SipPhone extends SipPhoneBase {
     }
 
     @Override
-    public Connection dial(String dialString, int videoState) throws CallStateException {
+    public Connection startConference(String[] participantsToDial, DialArgs dialArgs)
+            throws CallStateException {
+        throw new CallStateException("startConference: not supported");
+    }
+
+    @Override
+    public Connection dial(String dialString, DialArgs dialArgs) throws CallStateException {
         synchronized (SipPhone.class) {
-            return dialInternal(dialString, videoState);
+            return dialInternal(dialString, dialArgs.videoState);
         }
     }
 
@@ -431,6 +439,7 @@ public class SipPhone extends SipPhoneBase {
         return false;
     }
 
+    @UnsupportedAppUsage
     private void log(String s) {
         Rlog.d(LOG_TAG, s);
     }
@@ -439,6 +448,7 @@ public class SipPhone extends SipPhoneBase {
         Rlog.d(LOG_TAG, s);
     }
 
+    @UnsupportedAppUsage
     private void loge(String s) {
         Rlog.e(LOG_TAG, s);
     }
@@ -454,10 +464,11 @@ public class SipPhone extends SipPhoneBase {
 
         void reset() {
             if (SC_DBG) log("reset");
-            mConnections.clear();
+            clearConnections();
             setState(Call.State.IDLE);
         }
 
+        @UnsupportedAppUsage
         void switchWith(SipCall that) {
             if (SC_DBG) log("switchWith");
             synchronized (SipPhone.class) {
@@ -470,9 +481,9 @@ public class SipPhone extends SipPhoneBase {
 
         private void takeOver(SipCall that) {
             if (SC_DBG) log("takeOver");
-            mConnections = that.mConnections;
+            copyConnectionFrom(that);
             mState = that.mState;
-            for (Connection c : mConnections) {
+            for (Connection c : getConnections()) {
                 ((SipConnection) c).changeOwner(this);
             }
         }
@@ -480,15 +491,6 @@ public class SipPhone extends SipPhoneBase {
         @Override
         public Phone getPhone() {
             return SipPhone.this;
-        }
-
-        @Override
-        public List<Connection> getConnections() {
-            if (SC_VDBG) log("getConnections");
-            synchronized (SipPhone.class) {
-                // FIXME should return Collections.unmodifiableList();
-                return mConnections;
-            }
         }
 
         Connection dial(String originalNumber) throws SipException {
@@ -506,7 +508,7 @@ public class SipPhone extends SipPhoneBase {
                 SipConnection c = new SipConnection(this, callee,
                         originalNumber);
                 c.dial();
-                mConnections.add(c);
+                addConnection(c);
                 setState(Call.State.DIALING);
                 return c;
             } catch (ParseException e) {
@@ -522,7 +524,7 @@ public class SipPhone extends SipPhoneBase {
                             + ": " + this + " on phone " + getPhone());
                     setState(State.DISCONNECTING);
                     CallStateException excp = null;
-                    for (Connection c : mConnections) {
+                    for (Connection c : getConnections()) {
                         try {
                             c.hangup();
                         } catch (CallStateException e) {
@@ -537,10 +539,20 @@ public class SipPhone extends SipPhoneBase {
             }
         }
 
+        /**
+         * Hangup the ringing call with a specified reason; reason is not supported on SIP.
+         * @param rejectReason
+         */
+        @Override
+        public void hangup(@android.telecom.Call.RejectReason int rejectReason)
+                throws CallStateException  {
+            hangup();
+        }
+
         SipConnection initIncomingCall(SipAudioCall sipAudioCall, boolean makeCallWait) {
             SipProfile callee = sipAudioCall.getPeerProfile();
             SipConnection c = new SipConnection(this, callee);
-            mConnections.add(c);
+            addConnection(c);
 
             Call.State newState = makeCallWait ? State.WAITING : State.INCOMING;
             c.initIncomingCall(sipAudioCall, newState);
@@ -560,10 +572,10 @@ public class SipPhone extends SipPhoneBase {
             if (this != mRingingCall) {
                 throw new CallStateException("acceptCall() in a non-ringing call");
             }
-            if (mConnections.size() != 1) {
+            if (getConnectionsCount() != 1) {
                 throw new CallStateException("acceptCall() in a conf call");
             }
-            ((SipConnection) mConnections.get(0)).acceptCall();
+            ((SipConnection) getConnections().get(0)).acceptCall();
         }
 
         private boolean isSpeakerOn() {
@@ -594,18 +606,20 @@ public class SipPhone extends SipPhoneBase {
                     audioGroup.getMode()));
         }
 
+        @UnsupportedAppUsage
         void hold() throws CallStateException {
             if (SC_DBG) log("hold:");
             setState(State.HOLDING);
-            for (Connection c : mConnections) ((SipConnection) c).hold();
+            for (Connection c : getConnections()) ((SipConnection) c).hold();
             setAudioGroupMode();
         }
 
+        @UnsupportedAppUsage
         void unhold() throws CallStateException {
             if (SC_DBG) log("unhold:");
             setState(State.ACTIVE);
-            AudioGroup audioGroup = new AudioGroup();
-            for (Connection c : mConnections) {
+            AudioGroup audioGroup = new AudioGroup(mContext);
+            for (Connection c : getConnections()) {
                 ((SipConnection) c).unhold(audioGroup);
             }
             setAudioGroupMode();
@@ -613,15 +627,15 @@ public class SipPhone extends SipPhoneBase {
 
         void setMute(boolean muted) {
             if (SC_DBG) log("setMute: muted=" + muted);
-            for (Connection c : mConnections) {
+            for (Connection c : getConnections()) {
                 ((SipConnection) c).setMute(muted);
             }
         }
 
         boolean getMute() {
-            boolean ret = mConnections.isEmpty()
+            boolean ret = getConnections().isEmpty()
                     ? false
-                    : ((SipConnection) mConnections.get(0)).getMute();
+                    : ((SipConnection) getConnections().get(0)).getMute();
             if (SC_DBG) log("getMute: ret=" + ret);
             return ret;
         }
@@ -632,8 +646,8 @@ public class SipPhone extends SipPhoneBase {
 
             // copy to an array to avoid concurrent modification as connections
             // in that.connections will be removed in add(SipConnection).
-            Connection[] cc = that.mConnections.toArray(
-                    new Connection[that.mConnections.size()]);
+            Connection[] cc = that.getConnections().toArray(
+                    new Connection[that.getConnectionsCount()]);
             for (Connection c : cc) {
                 SipConnection conn = (SipConnection) c;
                 add(conn);
@@ -648,9 +662,9 @@ public class SipPhone extends SipPhoneBase {
             if (SC_DBG) log("add:");
             SipCall call = conn.getCall();
             if (call == this) return;
-            if (call != null) call.mConnections.remove(conn);
+            if (call != null) call.removeConnection(conn);
 
-            mConnections.add(conn);
+            addConnection(conn);
             conn.changeOwner(this);
         }
 
@@ -687,7 +701,7 @@ public class SipPhone extends SipPhoneBase {
             if (mState != newState) {
                 if (SC_DBG) log("setState: cur state" + mState
                         + " --> " + newState + ": " + this + ": on phone "
-                        + getPhone() + " " + mConnections.size());
+                        + getPhone() + " " + getConnectionsCount());
 
                 if (newState == Call.State.ALERTING) {
                     mState = newState; // need in ALERTING to enable ringback
@@ -715,8 +729,8 @@ public class SipPhone extends SipPhoneBase {
             if (mState != State.DISCONNECTED) {
                 boolean allConnectionsDisconnected = true;
                 if (SC_DBG) log("---check connections: "
-                        + mConnections.size());
-                for (Connection c : mConnections) {
+                        + getConnectionsCount());
+                for (Connection c : getConnections()) {
                     if (SC_DBG) log("   state=" + c.getState() + ": "
                             + c);
                     if (c.getState() != State.DISCONNECTED) {
@@ -730,8 +744,8 @@ public class SipPhone extends SipPhoneBase {
         }
 
         private AudioGroup getAudioGroup() {
-            if (mConnections.isEmpty()) return null;
-            return ((SipConnection) mConnections.get(0)).getAudioGroup();
+            if (getConnections().isEmpty()) return null;
+            return ((SipConnection) getConnections().get(0)).getAudioGroup();
         }
 
         private void log(String s) {
@@ -813,9 +827,10 @@ public class SipPhone extends SipPhoneBase {
                         setState(newState);
                     }
                     mOwner.onConnectionStateChanged(SipConnection.this);
-                    if (SCN_DBG) log("onChanged: "
-                            + mPeer.getUriString() + ": " + mState
-                            + " on phone " + getPhone());
+                    if (SCN_DBG) {
+                        log("onChanged: " + hidePii(mPeer.getUriString()) + ": " + mState
+                                + " on phone " + getPhone());
+                    }
                 }
             }
 
@@ -950,9 +965,11 @@ public class SipPhone extends SipPhoneBase {
         @Override
         public void hangup() throws CallStateException {
             synchronized (SipPhone.class) {
-                if (SCN_DBG) log("hangup: conn=" + mPeer.getUriString()
-                        + ": " + mState + ": on phone "
-                        + getPhone().getPhoneName());
+                if (SCN_DBG) {
+                    log("hangup: conn=" + hidePii(mPeer.getUriString())
+                            + ": " + mState + ": on phone "
+                            + getPhone().getPhoneName());
+                }
                 if (!mState.isAlive()) return;
                 try {
                     SipAudioCall sipAudioCall = mSipAudioCall;
@@ -1001,6 +1018,25 @@ public class SipPhone extends SipPhoneBase {
                 mSipAudioCall.startAudio();
                 call.onConnectionStateChanged(this);
             }
+        }
+
+        @Override
+        public void deflect(String number) throws CallStateException {
+            //Deflect is not supported.
+            throw new CallStateException ("deflect is not supported for SipPhone");
+        }
+
+        @Override
+        public void transfer(String number, boolean isConfirmationRequired)
+                throws CallStateException {
+            //Transfer is not supported.
+            throw new CallStateException("transfer is not supported for SipPhone");
+        }
+
+        @Override
+        public void consultativeTransfer(Connection other) throws CallStateException {
+            //Transfer is not supported.
+            throw new CallStateException("transfer is not supported for SipPhone");
         }
 
         private void log(String s) {
@@ -1076,6 +1112,6 @@ public class SipPhone extends SipPhoneBase {
     }
 
     public static String hidePii(String s) {
-        return VDBG ? s : "xxxxx";
+        return VDBG ? Rlog.pii(LOG_TAG, s) : "xxxxx";
     }
 }

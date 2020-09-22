@@ -28,7 +28,7 @@ public class TouchCalibration implements Parcelable {
 
     public static final TouchCalibration IDENTITY = new TouchCalibration();
 
-    public static final Parcelable.Creator<TouchCalibration> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<TouchCalibration> CREATOR
             = new Parcelable.Creator<TouchCalibration>() {
         public TouchCalibration createFromParcel(Parcel in) {
             return new TouchCalibration(in);
@@ -122,11 +122,5 @@ public class TouchCalibration implements Parcelable {
                Float.floatToIntBits(mYXMix)   ^
                Float.floatToIntBits(mYScale)  ^
                Float.floatToIntBits(mYOffset);
-    }
-
-    @Override
-    public String toString() {
-        return String.format("[%f, %f, %f, %f, %f, %f]",
-                mXScale, mXYMix, mXOffset, mYXMix, mYScale, mYOffset);
     }
 }

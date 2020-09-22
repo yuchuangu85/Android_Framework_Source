@@ -16,12 +16,18 @@
 
 package com.android.server.job.controllers;
 
-import android.content.Context;
+import static com.android.server.job.JobSchedulerService.DEBUG;
 
+import android.content.Context;
+import android.util.Slog;
+import android.util.proto.ProtoOutputStream;
+
+import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.job.JobSchedulerService;
+import com.android.server.job.JobSchedulerService.Constants;
 import com.android.server.job.StateChangedListener;
 
-import java.io.PrintWriter;
+import java.util.function.Predicate;
 
 /**
  * Incorporates shared controller logic between the various controllers of the JobManager.
@@ -29,16 +35,27 @@ import java.io.PrintWriter;
  * are ready to run, or whether they must be stopped.
  */
 public abstract class StateController {
-    protected static final boolean DEBUG = JobSchedulerService.DEBUG;
+    private static final String TAG = "JobScheduler.SC";
+
+    protected final JobSchedulerService mService;
+    protected final StateChangedListener mStateChangedListener;
     protected final Context mContext;
     protected final Object mLock;
-    protected final StateChangedListener mStateChangedListener;
+    protected final Constants mConstants;
 
-    public StateController(StateChangedListener stateChangedListener, Context context,
-            Object lock) {
-        mStateChangedListener = stateChangedListener;
-        mContext = context;
-        mLock = lock;
+    StateController(JobSchedulerService service) {
+        mService = service;
+        mStateChangedListener = service;
+        mContext = service.getTestableContext();
+        mLock = service.getLock();
+        mConstants = service.getConstants();
+    }
+
+    /**
+     * Called when the system boot phase has reached
+     * {@link com.android.server.SystemService#PHASE_SYSTEM_SERVICES_READY}.
+     */
+    public void onSystemServicesReady() {
     }
 
     /**
@@ -48,21 +65,81 @@ public abstract class StateController {
      * preexisting tasks.
      */
     public abstract void maybeStartTrackingJobLocked(JobStatus jobStatus, JobStatus lastJob);
+
     /**
      * Optionally implement logic here to prepare the job to be executed.
      */
     public void prepareForExecutionLocked(JobStatus jobStatus) {
     }
+
     /**
      * Remove task - this will happen if the task is cancelled, completed, etc.
      */
     public abstract void maybeStopTrackingJobLocked(JobStatus jobStatus, JobStatus incomingJob,
             boolean forUpdate);
+
     /**
      * Called when a new job is being created to reschedule an old failed job.
      */
-    public void rescheduleForFailure(JobStatus newJob, JobStatus failureToReschedule) {
+    public void rescheduleForFailureLocked(JobStatus newJob, JobStatus failureToReschedule) {
     }
 
-    public abstract void dumpControllerStateLocked(PrintWriter pw, int filterUid);
+    /**
+     * Called when the JobScheduler.Constants are updated.
+     */
+    public void onConstantsUpdatedLocked() {
+    }
+
+    /** Called when a package is uninstalled from the device (not for an update). */
+    public void onAppRemovedLocked(String packageName, int uid) {
+    }
+
+    /** Called when a user is removed from the device. */
+    public void onUserRemovedLocked(int userId) {
+    }
+
+    /**
+     * Called when JobSchedulerService has determined that the job is not ready to be run. The
+     * Controller can evaluate if it can or should do something to promote this job's readiness.
+     */
+    public void evaluateStateLocked(JobStatus jobStatus) {
+    }
+
+    /**
+     * Called when something with the UID has changed. The controller should re-evaluate any
+     * internal state tracking dependent on this UID.
+     */
+    public void reevaluateStateLocked(int uid) {
+    }
+
+    protected boolean wouldBeReadyWithConstraintLocked(JobStatus jobStatus, int constraint) {
+        // This is very cheap to check (just a few conditions on data in JobStatus).
+        final boolean jobWouldBeReady = jobStatus.wouldBeReadyWithConstraint(constraint);
+        if (DEBUG) {
+            Slog.v(TAG, "wouldBeReadyWithConstraintLocked: " + jobStatus.toShortString()
+                    + " constraint=" + constraint
+                    + " readyWithConstraint=" + jobWouldBeReady);
+        }
+        if (!jobWouldBeReady) {
+            // If the job wouldn't be ready, nothing to do here.
+            return false;
+        }
+
+        // This is potentially more expensive since JSS may have to query component
+        // presence.
+        return mService.areComponentsInPlaceLocked(jobStatus);
+    }
+
+    public abstract void dumpControllerStateLocked(IndentingPrintWriter pw,
+            Predicate<JobStatus> predicate);
+    public abstract void dumpControllerStateLocked(ProtoOutputStream proto, long fieldId,
+            Predicate<JobStatus> predicate);
+
+    /** Dump any internal constants the Controller may have. */
+    public void dumpConstants(IndentingPrintWriter pw) {
+    }
+
+    /** Dump any internal constants the Controller may have. */
+    public void dumpConstants(ProtoOutputStream proto) {
+    }
 }

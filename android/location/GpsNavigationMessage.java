@@ -26,8 +26,11 @@ import java.security.InvalidParameterException;
 /**
  * A class containing a GPS satellite Navigation Message.
  *
+ * @deprecated use {@link GnssNavigationMessage} instead.
+ *
  * @hide
  */
+@Deprecated
 @SystemApi
 public class GpsNavigationMessage implements Parcelable {
 
@@ -243,7 +246,7 @@ public class GpsNavigationMessage implements Parcelable {
         }
     }
 
-    public static final Creator<GpsNavigationMessage> CREATOR =
+    public static final @android.annotation.NonNull Creator<GpsNavigationMessage> CREATOR =
             new Creator<GpsNavigationMessage>() {
         @Override
         public GpsNavigationMessage createFromParcel(Parcel parcel) {
@@ -290,6 +293,7 @@ public class GpsNavigationMessage implements Parcelable {
         return 0;
     }
 
+    @NonNull
     @Override
     public String toString() {
         final String format = "   %-15s = %s\n";

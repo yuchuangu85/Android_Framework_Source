@@ -18,9 +18,9 @@ package android.nfc.cardemulation;
 
 import android.content.ComponentName;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
-import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
@@ -30,6 +30,7 @@ import android.os.Parcelable;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Xml;
+import android.util.proto.ProtoOutputStream;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -43,6 +44,8 @@ import java.io.PrintWriter;
  */
 public final class NfcFServiceInfo implements Parcelable {
     static final String TAG = "NfcFServiceInfo";
+
+    private static final String DEFAULT_T3T_PMM = "FFFFFFFFFFFFFFFF";
 
     /**
      * The service that implements this
@@ -80,11 +83,16 @@ public final class NfcFServiceInfo implements Parcelable {
     final int mUid;
 
     /**
+     * LF_T3T_PMM of the service
+     */
+    final String mT3tPmm;
+
+    /**
      * @hide
      */
     public NfcFServiceInfo(ResolveInfo info, String description,
             String systemCode, String dynamicSystemCode, String nfcid2, String dynamicNfcid2,
-            int uid) {
+            int uid, String t3tPmm) {
         this.mService = info;
         this.mDescription = description;
         this.mSystemCode = systemCode;
@@ -92,6 +100,7 @@ public final class NfcFServiceInfo implements Parcelable {
         this.mNfcid2 = nfcid2;
         this.mDynamicNfcid2 = dynamicNfcid2;
         this.mUid = uid;
+        this.mT3tPmm = t3tPmm;
     }
 
     public NfcFServiceInfo(PackageManager pm, ResolveInfo info)
@@ -130,6 +139,7 @@ public final class NfcFServiceInfo implements Parcelable {
 
             String systemCode = null;
             String nfcid2 = null;
+            String t3tPmm = null;
             final int depth = parser.getDepth();
 
             while (((eventType = parser.next()) != XmlPullParser.END_TAG ||
@@ -160,10 +170,18 @@ public final class NfcFServiceInfo implements Parcelable {
                         nfcid2 = null;
                     }
                     a.recycle();
+                } else if (eventType == XmlPullParser.START_TAG && tagName.equals("t3tPmm-filter")
+                        && t3tPmm == null) {
+                    final TypedArray a = res.obtainAttributes(attrs,
+                            com.android.internal.R.styleable.T3tPmmFilter);
+                    t3tPmm = a.getString(
+                            com.android.internal.R.styleable.T3tPmmFilter_name).toUpperCase();
+                    a.recycle();
                 }
             }
             mSystemCode = (systemCode == null ? "NULL" : systemCode);
             mNfcid2 = (nfcid2 == null ? "NULL" : nfcid2);
+            mT3tPmm = (t3tPmm == null ? DEFAULT_T3T_PMM : t3tPmm);
         } catch (NameNotFoundException e) {
             throw new XmlPullParserException("Unable to create context for: " + si.packageName);
         } finally {
@@ -202,6 +220,10 @@ public final class NfcFServiceInfo implements Parcelable {
         return mUid;
     }
 
+    public String getT3tPmm() {
+        return mT3tPmm;
+    }
+
     public CharSequence loadLabel(PackageManager pm) {
         return mService.loadLabel(pm);
     }
@@ -223,6 +245,7 @@ public final class NfcFServiceInfo implements Parcelable {
         if (mDynamicNfcid2 != null) {
             out.append(", dynamic NFCID2: " + mDynamicNfcid2);
         }
+        out.append(", T3T PMM:" + mT3tPmm);
         return out.toString();
     }
 
@@ -235,7 +258,7 @@ public final class NfcFServiceInfo implements Parcelable {
         if (!thatService.getComponent().equals(this.getComponent())) return false;
         if (!thatService.mSystemCode.equalsIgnoreCase(this.mSystemCode)) return false;
         if (!thatService.mNfcid2.equalsIgnoreCase(this.mNfcid2)) return false;
-
+        if (!thatService.mT3tPmm.equalsIgnoreCase(this.mT3tPmm)) return false;
         return true;
     }
 
@@ -264,9 +287,10 @@ public final class NfcFServiceInfo implements Parcelable {
             dest.writeString(mDynamicNfcid2);
         }
         dest.writeInt(mUid);
+        dest.writeString(mT3tPmm);
     };
 
-    public static final Parcelable.Creator<NfcFServiceInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<NfcFServiceInfo> CREATOR =
             new Parcelable.Creator<NfcFServiceInfo>() {
         @Override
         public NfcFServiceInfo createFromParcel(Parcel source) {
@@ -283,8 +307,9 @@ public final class NfcFServiceInfo implements Parcelable {
                 dynamicNfcid2 = source.readString();
             }
             int uid = source.readInt();
+            String t3tPmm = source.readString();
             NfcFServiceInfo service = new NfcFServiceInfo(info, description,
-                    systemCode, dynamicSystemCode, nfcid2, dynamicNfcid2, uid);
+                    systemCode, dynamicSystemCode, nfcid2, dynamicNfcid2, uid, t3tPmm);
             return service;
         }
 
@@ -299,6 +324,23 @@ public final class NfcFServiceInfo implements Parcelable {
                 " (Description: " + getDescription() + ")");
         pw.println("    System Code: " + getSystemCode());
         pw.println("    NFCID2: " + getNfcid2());
+        pw.println("    T3tPmm: " + getT3tPmm());
+    }
+
+    /**
+     * Dump debugging info as NfcFServiceInfoProto
+     *
+     * If the output belongs to a sub message, the caller is responsible for wrapping this function
+     * between {@link ProtoOutputStream#start(long)} and {@link ProtoOutputStream#end(long)}.
+     *
+     * @param proto the ProtoOutputStream to write to
+     */
+    public void dumpDebug(ProtoOutputStream proto) {
+        getComponent().dumpDebug(proto, NfcFServiceInfoProto.COMPONENT_NAME);
+        proto.write(NfcFServiceInfoProto.DESCRIPTION, getDescription());
+        proto.write(NfcFServiceInfoProto.SYSTEM_CODE, getSystemCode());
+        proto.write(NfcFServiceInfoProto.NFCID2, getNfcid2());
+        proto.write(NfcFServiceInfoProto.T3T_PMM, getT3tPmm());
     }
 }
 

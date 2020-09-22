@@ -16,6 +16,7 @@
 
 package android.graphics.drawable;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo.Config;
 import android.content.res.Resources;
 import android.graphics.Canvas;
@@ -65,10 +66,13 @@ public class TransitionDrawable extends LayerDrawable implements Drawable.Callba
     private boolean mReverse;
     private long mStartTimeMillis;
     private int mFrom;
+    @UnsupportedAppUsage
     private int mTo;
     private int mDuration;
     private int mOriginalDuration;
+    @UnsupportedAppUsage
     private int mAlpha = 0;
+    @UnsupportedAppUsage
     private boolean mCrossFade;
 
     /**
@@ -114,6 +118,18 @@ public class TransitionDrawable extends LayerDrawable implements Drawable.Callba
         mDuration = mOriginalDuration = durationMillis;
         mReverse = false;
         mTransitionState = TRANSITION_STARTING;
+        invalidateSelf();
+    }
+
+    /**
+     * Show the second layer on top of the first layer immediately
+     *
+     * @hide
+     */
+    public void showSecondLayer() {
+        mAlpha = 255;
+        mReverse = false;
+        mTransitionState = TRANSITION_NONE;
         invalidateSelf();
     }
 

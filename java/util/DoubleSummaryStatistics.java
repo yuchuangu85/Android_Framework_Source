@@ -25,6 +25,7 @@
 package java.util;
 
 import java.util.function.DoubleConsumer;
+import java.util.stream.Collector;
 
 /**
  * A state object for collecting statistics such as count, min, max, sum, and

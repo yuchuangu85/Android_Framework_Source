@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 1998, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,8 @@
 
 package java.io;
 
+// Android-changed: Removed @see tag (target does not exist on Android):
+// @see     java.awt.FileDialog#setFilenameFilter(java.io.FilenameFilter)
 /**
  * Instances of classes that implement this interface are used to
  * filter filenames. These instances are used to filter directory
@@ -34,13 +36,12 @@ package java.io;
  *
  * @author  Arthur van Hoff
  * @author  Jonathan Payne
- * @see     java.awt.FileDialog#setFilenameFilter(java.io.FilenameFilter)
  * @see     java.io.File
  * @see     java.io.File#list(java.io.FilenameFilter)
  * @since   JDK1.0
  */
-public
-interface FilenameFilter {
+@FunctionalInterface
+public interface FilenameFilter {
     /**
      * Tests if a specified file should be included in a file list.
      *

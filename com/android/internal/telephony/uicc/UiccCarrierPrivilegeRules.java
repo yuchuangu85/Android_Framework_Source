@@ -17,6 +17,7 @@
 package com.android.internal.telephony.uicc;
 
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -26,27 +27,18 @@ import android.os.AsyncResult;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.Message;
-import android.telephony.Rlog;
 import android.telephony.TelephonyManager;
+import android.telephony.UiccAccessRule;
 import android.text.TextUtils;
+import android.util.LocalLog;
 
 import com.android.internal.telephony.CommandException;
-import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.uicc.IccUtils;
+import com.android.telephony.Rlog;
 
-import java.io.ByteArrayInputStream;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.lang.IllegalArgumentException;
-import java.lang.IndexOutOfBoundsException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateException;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -65,7 +57,10 @@ public class UiccCarrierPrivilegeRules extends Handler {
     private static final String LOG_TAG = "UiccCarrierPrivilegeRules";
     private static final boolean DBG = false;
 
-    private static final String AID = "A00000015141434C00";
+    private static final String ARAM_AID = "A00000015141434C00";
+    private static final String ARAD_AID = "A00000015144414300";
+    private static final int ARAM = 1;
+    private static final int ARAD = 0;
     private static final int CLA = 0x80;
     private static final int COMMAND = 0xCA;
     private static final int P1 = 0xFF;
@@ -103,6 +98,8 @@ public class UiccCarrierPrivilegeRules extends Handler {
     private static final String TAG_PKG_REF_DO = "CA";
     private static final String TAG_AR_DO = "E3";
     private static final String TAG_PERM_AR_DO = "DB";
+    private static final String TAG_AID_REF_DO = "4F";
+    private static final String CARRIER_PRIVILEGE_AID = "FFFFFFFFFFFF";
 
     private static final int EVENT_OPEN_LOGICAL_CHANNEL_DONE = 1;
     private static final int EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE = 2;
@@ -117,30 +114,8 @@ public class UiccCarrierPrivilegeRules extends Handler {
     // Max number of retries for open logical channel, interval is 10s.
     private static final int MAX_RETRY = 1;
     private static final int RETRY_INTERVAL_MS = 10000;
-
-    // Describes a single rule.
-    private static class AccessRule {
-        public byte[] certificateHash;
-        public String packageName;
-        public long accessType;   // This bit is not currently used, but reserved for future use.
-
-        AccessRule(byte[] certificateHash, String packageName, long accessType) {
-            this.certificateHash = certificateHash;
-            this.packageName = packageName;
-            this.accessType = accessType;
-        }
-
-        boolean matches(byte[] certHash, String packageName) {
-          return certHash != null && Arrays.equals(this.certificateHash, certHash) &&
-                (TextUtils.isEmpty(this.packageName) || this.packageName.equals(packageName));
-        }
-
-        @Override
-        public String toString() {
-            return "cert: " + IccUtils.bytesToHexString(certificateHash) + " pkg: " +
-                packageName + " access: " + accessType;
-        }
-    }
+    private static final int STATUS_CODE_CONDITION_NOT_SATISFIED = 0x6985;
+    private static final int STATUS_CODE_APPLET_SELECT_FAILED = 0x6999;
 
     // Used for parsing the data from the UICC.
     public static class TLV {
@@ -152,7 +127,9 @@ public class UiccCarrierPrivilegeRules extends Handler {
         // Bytes for the length field, in ASCII HEX string form.
         private String lengthBytes;
         // Decoded length as integer.
+        @UnsupportedAppUsage
         private Integer length;
+        @UnsupportedAppUsage
         private String value;
 
         public TLV(String tag) {
@@ -208,38 +185,47 @@ public class UiccCarrierPrivilegeRules extends Handler {
         }
     }
 
-    private UiccCard mUiccCard;  // Parent
+    private UiccProfile mUiccProfile;  // Parent
     private UiccPkcs15 mUiccPkcs15; // ARF fallback
+    @UnsupportedAppUsage
     private AtomicInteger mState;
-    private List<AccessRule> mAccessRules;
+    private List<UiccAccessRule> mAccessRules;
     private String mRules;
+    @UnsupportedAppUsage
     private Message mLoadedCallback;
-    private String mStatusMessage;  // Only used for debugging.
+    // LocalLog buffer to hold important status messages for debugging.
+    private LocalLog mStatusMessage = new LocalLog(100);
     private int mChannelId; // Channel Id for communicating with UICC.
     private int mRetryCount;  // Number of retries for open logical channel.
+    private boolean mCheckedRules = false;  // Flag that used to mark whether get rules from ARA-D.
+    private int mAIDInUse;  // Message component to identify which AID is currently in-use.
     private final Runnable mRetryRunnable = new Runnable() {
         @Override
         public void run() {
-            openChannel();
+            openChannel(mAIDInUse);
         }
     };
 
-    private void openChannel() {
+    private void openChannel(int aidId) {
         // Send open logical channel request.
-        mUiccCard.iccOpenLogicalChannel(AID,
-            obtainMessage(EVENT_OPEN_LOGICAL_CHANNEL_DONE, null));
+        String aid = (aidId == ARAD) ? ARAD_AID : ARAM_AID;
+        int p2 = 0x00;
+        mUiccProfile.iccOpenLogicalChannel(aid, p2, /* supported p2 value */
+                obtainMessage(EVENT_OPEN_LOGICAL_CHANNEL_DONE, 0, aidId, null));
     }
 
-    public UiccCarrierPrivilegeRules(UiccCard uiccCard, Message loadedCallback) {
+    public UiccCarrierPrivilegeRules(UiccProfile uiccProfile, Message loadedCallback) {
         log("Creating UiccCarrierPrivilegeRules");
-        mUiccCard = uiccCard;
+        mUiccProfile = uiccProfile;
         mState = new AtomicInteger(STATE_LOADING);
-        mStatusMessage = "Not loaded.";
+        mStatusMessage.log("Not loaded.");
         mLoadedCallback = loadedCallback;
         mRules = "";
-        mAccessRules = new ArrayList<AccessRule>();
+        mAccessRules = new ArrayList<>();
 
-        openChannel();
+        // Open logical channel with ARA_D.
+        mAIDInUse = ARAD;
+        openChannel(mAIDInUse);
     }
 
     /**
@@ -264,13 +250,23 @@ public class UiccCarrierPrivilegeRules extends Handler {
     public List<String> getPackageNames() {
         List<String> pkgNames = new ArrayList<String>();
         if (mAccessRules != null) {
-            for (AccessRule ar : mAccessRules) {
-                if(!TextUtils.isEmpty(ar.packageName)) {
-                    pkgNames.add(ar.packageName);
+            for (UiccAccessRule ar : mAccessRules) {
+                if (!TextUtils.isEmpty(ar.getPackageName())) {
+                    pkgNames.add(ar.getPackageName());
                 }
             }
         }
         return pkgNames;
+    }
+
+    /**
+     * Returns list of access rules.
+     */
+    public List<UiccAccessRule> getAccessRules() {
+        if (mAccessRules == null) {
+            return Collections.emptyList();
+        }
+        return Collections.unmodifiableList(mAccessRules);
     }
 
     /**
@@ -288,12 +284,10 @@ public class UiccCarrierPrivilegeRules extends Handler {
             return TelephonyManager.CARRIER_PRIVILEGE_STATUS_ERROR_LOADING_RULES;
         }
 
-        // SHA-1 is for backward compatible support only, strongly discouraged for new use.
-        byte[] certHash = getCertHash(signature, "SHA-1");
-        byte[] certHash256 = getCertHash(signature, "SHA-256");
-        for (AccessRule ar : mAccessRules) {
-            if (ar.matches(certHash, packageName) || ar.matches(certHash256, packageName)) {
-                return TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS;
+        for (UiccAccessRule ar : mAccessRules) {
+            int accessStatus = ar.getCarrierPrivilegeStatus(signature, packageName);
+            if (accessStatus != TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS) {
+                return accessStatus;
             }
         }
 
@@ -324,10 +318,12 @@ public class UiccCarrierPrivilegeRules extends Handler {
             // is disabled by default, and some other component wants to enable it when it has
             // gained carrier privileges (as an indication that a matching SIM has been inserted).
             PackageInfo pInfo = packageManager.getPackageInfo(packageName,
-                PackageManager.GET_SIGNATURES | PackageManager.GET_DISABLED_UNTIL_USED_COMPONENTS);
+                    PackageManager.GET_SIGNING_CERTIFICATES
+                            | PackageManager.MATCH_DISABLED_UNTIL_USED_COMPONENTS
+                            | PackageManager.MATCH_HIDDEN_UNTIL_INSTALLED_COMPONENTS);
             return getCarrierPrivilegeStatus(pInfo);
         } catch (PackageManager.NameNotFoundException ex) {
-            Rlog.e(LOG_TAG, "NameNotFoundException", ex);
+            log("Package " + packageName + " not found for carrier privilege status check");
         }
         return TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS;
     }
@@ -339,9 +335,15 @@ public class UiccCarrierPrivilegeRules extends Handler {
      * @return Access status.
      */
     public int getCarrierPrivilegeStatus(PackageInfo packageInfo) {
-        Signature[] signatures = packageInfo.signatures;
-        for (Signature sig : signatures) {
-            int accessStatus = getCarrierPrivilegeStatus(sig, packageInfo.packageName);
+        int state = mState.get();
+        if (state == STATE_LOADING) {
+            return TelephonyManager.CARRIER_PRIVILEGE_STATUS_RULES_NOT_LOADED;
+        } else if (state == STATE_ERROR) {
+            return TelephonyManager.CARRIER_PRIVILEGE_STATUS_ERROR_LOADING_RULES;
+        }
+
+        for (UiccAccessRule ar : mAccessRules) {
+            int accessStatus = ar.getCarrierPrivilegeStatus(packageInfo);
             if (accessStatus != TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS) {
                 return accessStatus;
             }
@@ -356,7 +358,18 @@ public class UiccCarrierPrivilegeRules extends Handler {
      * @return Access status.
      */
     public int getCarrierPrivilegeStatusForCurrentTransaction(PackageManager packageManager) {
-        String[] packages = packageManager.getPackagesForUid(Binder.getCallingUid());
+        return getCarrierPrivilegeStatusForUid(packageManager, Binder.getCallingUid());
+    }
+
+    /**
+     * Returns the status of the carrier privileges for the caller of the current transaction.
+     *
+     * @param packageManager PackageManager for getting signatures and package names.
+     * @return Access status.
+     */
+    public int getCarrierPrivilegeStatusForUid(
+            PackageManager packageManager, int uid) {
+        String[] packages = packageManager.getPackagesForUid(uid);
 
         for (String pkg : packages) {
             int accessStatus = getCarrierPrivilegeStatus(packageManager, pkg);
@@ -415,94 +428,164 @@ public class UiccCarrierPrivilegeRules extends Handler {
         return null;
     }
 
+    /**
+     * The following three situations could be due to logical channels temporarily unavailable, so
+     * we retry up to MAX_RETRY times, with an interval of RETRY_INTERVAL_MS: 1. MISSING_RESOURCE,
+     * 2. NO_SUCH_ELEMENT and the status code is 6985, 3. INTERNAL_ERR and the status code is 6999.
+     */
+    public static boolean shouldRetry(AsyncResult ar, int retryCount) {
+        if (ar.exception instanceof CommandException && retryCount < MAX_RETRY) {
+            CommandException.Error error = ((CommandException) (ar.exception)).getCommandError();
+            int[] results = (int[]) ar.result;
+            int statusCode = 0;
+            if (ar.result != null && results.length == 3) {
+                byte[] bytes = new byte[]{(byte) results[1], (byte) results[2]};
+                statusCode = Integer.parseInt(IccUtils.bytesToHexString(bytes), 16);
+                log("status code: " + String.valueOf(statusCode));
+            }
+            return (error == CommandException.Error.MISSING_RESOURCE)
+                            || (error == CommandException.Error.NO_SUCH_ELEMENT
+                    && statusCode == STATUS_CODE_CONDITION_NOT_SATISFIED)
+                            || (error == CommandException.Error.INTERNAL_ERR
+                    && statusCode == STATUS_CODE_APPLET_SELECT_FAILED);
+        }
+        return false;
+    }
+
     @Override
     public void handleMessage(Message msg) {
         AsyncResult ar;
+        mAIDInUse = msg.arg2;  // 0 means ARA-D and 1 means ARA-M.
 
         switch (msg.what) {
 
-          case EVENT_OPEN_LOGICAL_CHANNEL_DONE:
-              log("EVENT_OPEN_LOGICAL_CHANNEL_DONE");
-              ar = (AsyncResult) msg.obj;
-              if (ar.exception == null && ar.result != null) {
-                  mChannelId = ((int[]) ar.result)[0];
-                  mUiccCard.iccTransmitApduLogicalChannel(mChannelId, CLA, COMMAND, P1, P2, P3, DATA,
-                      obtainMessage(EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE, new Integer(mChannelId)));
-              } else {
-                  // MISSING_RESOURCE could be due to logical channels temporarily unavailable,
-                  // so we retry up to MAX_RETRY times, with an interval of RETRY_INTERVAL_MS.
-                  if (ar.exception instanceof CommandException && mRetryCount < MAX_RETRY &&
-                      ((CommandException) (ar.exception)).getCommandError() ==
-                              CommandException.Error.MISSING_RESOURCE) {
-                      mRetryCount++;
-                      removeCallbacks(mRetryRunnable);
-                      postDelayed(mRetryRunnable, RETRY_INTERVAL_MS);
-                  } else {
-                      // if rules cannot be read from ARA applet,
-                      // fallback to PKCS15-based ARF.
-                      log("No ARA, try ARF next.");
-                      mUiccPkcs15 = new UiccPkcs15(mUiccCard,
-                              obtainMessage(EVENT_PKCS15_READ_DONE));
-                  }
-              }
-              break;
+            case EVENT_OPEN_LOGICAL_CHANNEL_DONE:
+                log("EVENT_OPEN_LOGICAL_CHANNEL_DONE");
+                ar = (AsyncResult) msg.obj;
+                if (ar.exception == null && ar.result != null) {
+                    mChannelId = ((int[]) ar.result)[0];
+                    mUiccProfile.iccTransmitApduLogicalChannel(mChannelId, CLA, COMMAND, P1, P2, P3,
+                            DATA, obtainMessage(EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE, mChannelId,
+                                    mAIDInUse));
+                } else {
+                    if (shouldRetry(ar, mRetryCount)) {
+                        log("should retry");
+                        mRetryCount++;
+                        removeCallbacks(mRetryRunnable);
+                        postDelayed(mRetryRunnable, RETRY_INTERVAL_MS);
+                    } else {
+                        if (mAIDInUse == ARAD) {
+                            // Open logical channel with ARA_M.
+                            mRules = "";
+                            openChannel(ARAM);
+                        }
+                        if (mAIDInUse == ARAM) {
+                            if (mCheckedRules) {
+                                updateState(STATE_LOADED, "Success!");
+                            } else {
+                                // if rules cannot be read from both ARA_D and ARA_M applet,
+                                // fallback to PKCS15-based ARF.
+                                log("No ARA, try ARF next.");
+                                if (ar.exception instanceof CommandException
+                                        && ((CommandException) (ar.exception)).getCommandError()
+                                        != CommandException.Error.NO_SUCH_ELEMENT) {
+                                    updateStatusMessage("No ARA due to "
+                                            +
+                                            ((CommandException) (ar.exception)).getCommandError());
+                                }
+                                mUiccPkcs15 = new UiccPkcs15(mUiccProfile,
+                                        obtainMessage(EVENT_PKCS15_READ_DONE));
+                            }
+                        }
+                    }
+                }
+                break;
 
-          case EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE:
-              log("EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE");
-              ar = (AsyncResult) msg.obj;
-              if (ar.exception == null && ar.result != null) {
-                  IccIoResult response = (IccIoResult) ar.result;
-                  if (response.sw1 == 0x90 && response.sw2 == 0x00 &&
-                      response.payload != null && response.payload.length > 0) {
-                      try {
-                          mRules += IccUtils.bytesToHexString(response.payload).toUpperCase(Locale.US);
-                          if (isDataComplete()) {
-                              mAccessRules = parseRules(mRules);
-                              updateState(STATE_LOADED, "Success!");
-                          } else {
-                              mUiccCard.iccTransmitApduLogicalChannel(mChannelId, CLA, COMMAND, P1, P2_EXTENDED_DATA, P3, DATA,
-                                  obtainMessage(EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE, new Integer(mChannelId)));
-                              break;
-                          }
-                      } catch (IllegalArgumentException ex) {
-                          updateState(STATE_ERROR, "Error parsing rules: " + ex);
-                      } catch (IndexOutOfBoundsException ex) {
-                          updateState(STATE_ERROR, "Error parsing rules: " + ex);
-                      }
-                   } else {
-                      String errorMsg = "Invalid response: payload=" + response.payload +
-                              " sw1=" + response.sw1 + " sw2=" + response.sw2;
-                      updateState(STATE_ERROR, errorMsg);
-                   }
-              } else {
-                  updateState(STATE_ERROR, "Error reading value from SIM.");
-              }
+            case EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE:
+                log("EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE");
+                ar = (AsyncResult) msg.obj;
+                if (ar.exception == null && ar.result != null) {
+                    IccIoResult response = (IccIoResult) ar.result;
+                    if (response.sw1 == 0x90 && response.sw2 == 0x00
+                            && response.payload != null && response.payload.length > 0) {
+                        try {
+                            mRules += IccUtils.bytesToHexString(response.payload)
+                                    .toUpperCase(Locale.US);
+                            if (isDataComplete()) {
+                                //TODO: here's where AccessRules are being updated from the psim
+                                // b/139133814
+                                mAccessRules.addAll(parseRules(mRules));
+                                if (mAIDInUse == ARAD) {
+                                    mCheckedRules = true;
+                                } else {
+                                    updateState(STATE_LOADED, "Success!");
+                                }
+                            } else {
+                                mUiccProfile.iccTransmitApduLogicalChannel(mChannelId, CLA, COMMAND,
+                                        P1, P2_EXTENDED_DATA, P3, DATA,
+                                        obtainMessage(EVENT_TRANSMIT_LOGICAL_CHANNEL_DONE,
+                                                mChannelId, mAIDInUse));
+                                break;
+                            }
+                        } catch (IllegalArgumentException | IndexOutOfBoundsException ex) {
+                            if (mAIDInUse == ARAM) {
+                                updateState(STATE_ERROR, "Error parsing rules: " + ex);
+                            }
+                        }
+                    } else {
+                        if (mAIDInUse == ARAM) {
+                            String errorMsg = "Invalid response: payload=" + response.payload
+                                    + " sw1=" + response.sw1 + " sw2=" + response.sw2;
+                            updateState(STATE_ERROR, errorMsg);
+                        }
+                    }
+                } else {
+                    String errorMsg =  "Error reading value from SIM via "
+                            + ((mAIDInUse == ARAD) ? "ARAD" : "ARAM") + " due to ";
+                    if (ar.exception instanceof CommandException) {
+                        CommandException.Error errorCode =
+                                ((CommandException) (ar.exception)).getCommandError();
+                        errorMsg += "error code : " + errorCode;
+                    } else {
+                        errorMsg += "unknown exception : " + ar.exception.getMessage();
+                    }
+                    if (mAIDInUse == ARAD) {
+                        updateStatusMessage(errorMsg);
+                    } else {
+                        updateState(STATE_ERROR, errorMsg);
+                    }
+                }
 
-              mUiccCard.iccCloseLogicalChannel(mChannelId, obtainMessage(
-                      EVENT_CLOSE_LOGICAL_CHANNEL_DONE));
-              mChannelId = -1;
-              break;
+                mUiccProfile.iccCloseLogicalChannel(mChannelId, obtainMessage(
+                        EVENT_CLOSE_LOGICAL_CHANNEL_DONE, 0, mAIDInUse));
+                mChannelId = -1;
+                break;
 
-          case EVENT_CLOSE_LOGICAL_CHANNEL_DONE:
-              log("EVENT_CLOSE_LOGICAL_CHANNEL_DONE");
-              break;
+            case EVENT_CLOSE_LOGICAL_CHANNEL_DONE:
+                log("EVENT_CLOSE_LOGICAL_CHANNEL_DONE");
+                if (mAIDInUse == ARAD) {
+                    // Close logical channel with ARA_D and then open logical channel with ARA_M.
+                    mRules = "";
+                    openChannel(ARAM);
+                }
+                break;
 
-          case EVENT_PKCS15_READ_DONE:
-              log("EVENT_PKCS15_READ_DONE");
-              if (mUiccPkcs15 == null || mUiccPkcs15.getRules() == null) {
-                  updateState(STATE_ERROR, "No ARA or ARF.");
-              } else {
-                  for (String cert : mUiccPkcs15.getRules()) {
-                      AccessRule accessRule = new AccessRule(
-                              IccUtils.hexStringToBytes(cert), "", 0x00);
-                      mAccessRules.add(accessRule);
-                  }
-                  updateState(STATE_LOADED, "Success!");
-              }
-              break;
+            case EVENT_PKCS15_READ_DONE:
+                log("EVENT_PKCS15_READ_DONE");
+                if (mUiccPkcs15 == null || mUiccPkcs15.getRules() == null) {
+                    updateState(STATE_ERROR, "No ARA or ARF.");
+                } else {
+                    for (String cert : mUiccPkcs15.getRules()) {
+                        UiccAccessRule accessRule = new UiccAccessRule(
+                                IccUtils.hexStringToBytes(cert), "", 0x00);
+                        mAccessRules.add(accessRule);
+                    }
+                    updateState(STATE_LOADED, "Success!");
+                }
+                break;
 
-          default:
-              Rlog.e(LOG_TAG, "Unknown event " + msg.what);
+            default:
+                Rlog.e(LOG_TAG, "Unknown event " + msg.what);
         }
     }
 
@@ -517,7 +600,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
             String lengthBytes = allRules.parseLength(mRules);
             log("isDataComplete lengthBytes: " + lengthBytes);
             if (mRules.length() == TAG_ALL_REF_AR_DO.length() + lengthBytes.length() +
-                                   allRules.length) {
+                    allRules.length) {
                 log("isDataComplete yes");
                 return true;
             } else {
@@ -532,22 +615,22 @@ public class UiccCarrierPrivilegeRules extends Handler {
     /*
      * Parses the rules from the input string.
      */
-    private static List<AccessRule> parseRules(String rules) {
+    private static List<UiccAccessRule> parseRules(String rules) {
         log("Got rules: " + rules);
 
         TLV allRefArDo = new TLV(TAG_ALL_REF_AR_DO); //FF40
         allRefArDo.parse(rules, true);
 
         String arDos = allRefArDo.value;
-        List<AccessRule> accessRules = new ArrayList<AccessRule>();
+        List<UiccAccessRule> accessRules = new ArrayList<>();
         while (!arDos.isEmpty()) {
             TLV refArDo = new TLV(TAG_REF_AR_DO); //E2
             arDos = refArDo.parse(arDos, false);
-            AccessRule accessRule = parseRefArdo(refArDo.value);
+            UiccAccessRule accessRule = parseRefArdo(refArDo.value);
             if (accessRule != null) {
                 accessRules.add(accessRule);
             } else {
-              Rlog.e(LOG_TAG, "Skip unrecognized rule." + refArDo.value);
+                Rlog.e(LOG_TAG, "Skip unrecognized rule." + refArDo.value);
             }
         }
         return accessRules;
@@ -556,7 +639,7 @@ public class UiccCarrierPrivilegeRules extends Handler {
     /*
      * Parses a single rule.
      */
-    private static AccessRule parseRefArdo(String rule) {
+    private static UiccAccessRule parseRefArdo(String rule) {
         log("Got rule: " + rule);
 
         String certificateHash = null;
@@ -568,59 +651,61 @@ public class UiccCarrierPrivilegeRules extends Handler {
             if (rule.startsWith(TAG_REF_DO)) {
                 TLV refDo = new TLV(TAG_REF_DO); //E1
                 rule = refDo.parse(rule, false);
-
-                // Skip unrelated rules.
-                if (!refDo.value.startsWith(TAG_DEVICE_APP_ID_REF_DO)) {
+                // Allow 4F tag with a default value "FF FF FF FF FF FF" to be compatible with
+                // devices having GP access control enforcer:
+                //  - If no 4F tag is present, it's a CP rule.
+                //  - If 4F tag has value "FF FF FF FF FF FF", it's a CP rule.
+                //  - If 4F tag has other values, it's not a CP rule and Android should ignore it.
+                TLV deviceDo = new TLV(TAG_DEVICE_APP_ID_REF_DO); //C1
+                if (refDo.value.startsWith(TAG_AID_REF_DO)) {
+                    TLV cpDo = new TLV(TAG_AID_REF_DO); //4F
+                    String remain = cpDo.parse(refDo.value, false);
+                    if (!cpDo.lengthBytes.equals("06") || !cpDo.value.equals(CARRIER_PRIVILEGE_AID)
+                            || remain.isEmpty() || !remain.startsWith(TAG_DEVICE_APP_ID_REF_DO)) {
+                        return null;
+                    }
+                    tmp = deviceDo.parse(remain, false);
+                    certificateHash = deviceDo.value;
+                } else if (refDo.value.startsWith(TAG_DEVICE_APP_ID_REF_DO)) {
+                    tmp = deviceDo.parse(refDo.value, false);
+                    certificateHash = deviceDo.value;
+                } else {
                     return null;
                 }
-
-                TLV deviceDo = new TLV(TAG_DEVICE_APP_ID_REF_DO); //C1
-                tmp = deviceDo.parse(refDo.value, false);
-                certificateHash = deviceDo.value;
-
                 if (!tmp.isEmpty()) {
-                  if (!tmp.startsWith(TAG_PKG_REF_DO)) {
-                      return null;
-                  }
-                  TLV pkgDo = new TLV(TAG_PKG_REF_DO); //CA
-                  pkgDo.parse(tmp, true);
-                  packageName = new String(IccUtils.hexStringToBytes(pkgDo.value));
+                    if (!tmp.startsWith(TAG_PKG_REF_DO)) {
+                        return null;
+                    }
+                    TLV pkgDo = new TLV(TAG_PKG_REF_DO); //CA
+                    pkgDo.parse(tmp, true);
+                    packageName = new String(IccUtils.hexStringToBytes(pkgDo.value));
                 } else {
-                  packageName = null;
+                    packageName = null;
                 }
             } else if (rule.startsWith(TAG_AR_DO)) {
                 TLV arDo = new TLV(TAG_AR_DO); //E3
                 rule = arDo.parse(rule, false);
-
-                // Skip unrelated rules.
-                if (!arDo.value.startsWith(TAG_PERM_AR_DO)) {
+                // Skip all the irrelevant tags (All the optional tags here are two bytes
+                // according to the spec GlobalPlatform Secure Element Access Control).
+                String remain = arDo.value;
+                while (!remain.isEmpty() && !remain.startsWith(TAG_PERM_AR_DO)) {
+                    TLV tmpDo = new TLV(remain.substring(0, 2));
+                    remain = tmpDo.parse(remain, false);
+                }
+                if (remain.isEmpty()) {
                     return null;
                 }
-
                 TLV permDo = new TLV(TAG_PERM_AR_DO); //DB
-                permDo.parse(arDo.value, true);
+                permDo.parse(remain, true);
             } else  {
                 // Spec requires it must be either TAG_REF_DO or TAG_AR_DO.
                 throw new RuntimeException("Invalid Rule type");
             }
         }
 
-        AccessRule accessRule = new AccessRule(IccUtils.hexStringToBytes(certificateHash),
-            packageName, accessType);
+        UiccAccessRule accessRule = new UiccAccessRule(
+                IccUtils.hexStringToBytes(certificateHash), packageName, accessType);
         return accessRule;
-    }
-
-    /*
-     * Converts a Signature into a Certificate hash usable for comparison.
-     */
-    private static byte[] getCertHash(Signature signature, String algo) {
-        try {
-            MessageDigest md = MessageDigest.getInstance(algo);
-            return md.digest(signature.toByteArray());
-        } catch (NoSuchAlgorithmException ex) {
-            Rlog.e(LOG_TAG, "NoSuchAlgorithmException: " + ex);
-        }
-        return null;
     }
 
     /*
@@ -632,7 +717,11 @@ public class UiccCarrierPrivilegeRules extends Handler {
             mLoadedCallback.sendToTarget();
         }
 
-        mStatusMessage = statusMessage;
+        updateStatusMessage(statusMessage);
+    }
+
+    private void updateStatusMessage(String statusMessage) {
+        mStatusMessage.log(statusMessage);
     }
 
     private static void log(String msg) {
@@ -645,10 +734,11 @@ public class UiccCarrierPrivilegeRules extends Handler {
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("UiccCarrierPrivilegeRules: " + this);
         pw.println(" mState=" + getStateString(mState.get()));
-        pw.println(" mStatusMessage='" + mStatusMessage + "'");
+        pw.println(" mStatusMessage=");
+        mStatusMessage.dump(fd, pw, args);
         if (mAccessRules != null) {
             pw.println(" mAccessRules: ");
-            for (AccessRule ar : mAccessRules) {
+            for (UiccAccessRule ar : mAccessRules) {
                 pw.println("  rule='" + ar + "'");
             }
         } else {
@@ -667,15 +757,15 @@ public class UiccCarrierPrivilegeRules extends Handler {
      * Converts state into human readable format.
      */
     private String getStateString(int state) {
-      switch (state) {
-        case STATE_LOADING:
-            return "STATE_LOADING";
-        case STATE_LOADED:
-            return "STATE_LOADED";
-        case STATE_ERROR:
-            return "STATE_ERROR";
-        default:
-            return "UNKNOWN";
-      }
+        switch (state) {
+            case STATE_LOADING:
+                return "STATE_LOADING";
+            case STATE_LOADED:
+                return "STATE_LOADED";
+            case STATE_ERROR:
+                return "STATE_ERROR";
+            default:
+                return "UNKNOWN";
+        }
     }
 }

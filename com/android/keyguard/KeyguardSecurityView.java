@@ -15,6 +15,9 @@
  */
 package com.android.keyguard;
 
+import android.content.res.ColorStateList;
+import android.view.MotionEvent;
+
 import com.android.internal.widget.LockPatternUtils;
 
 public interface KeyguardSecurityView {
@@ -47,6 +50,17 @@ public interface KeyguardSecurityView {
      * Some auth is required because too many wrong credentials led to a lockout.
      */
     int PROMPT_REASON_AFTER_LOCKOUT = 5;
+
+    /***
+     * Strong auth is require to prepare for an unattended update.
+     */
+    int PROMPT_REASON_PREPARE_FOR_UPDATE = 6;
+
+    /**
+     * Primary auth is required because the user uses weak/convenience biometrics and hasn't used
+     * primary auth since a while
+     */
+    int PROMPT_REASON_NON_STRONG_BIOMETRIC_TIMEOUT = 7;
 
     /**
      * Interface back to keyguard to tell it when security
@@ -104,9 +118,9 @@ public interface KeyguardSecurityView {
      * Show a message on the security view with a specified color
      *
      * @param message the message to show
-     * @param color the color to use
+     * @param colorState the color to use
      */
-    void showMessage(String message, int color);
+    void showMessage(CharSequence message, ColorStateList colorState);
 
     /**
      * Instruct the view to show usability hints, if any.
@@ -127,4 +141,27 @@ public interface KeyguardSecurityView {
      *         animation started and {@code finishRunnable} will not be run
      */
     boolean startDisappearAnimation(Runnable finishRunnable);
+
+    /**
+     * The localized name of the security view, provided to accessibility. This may be the content
+     * description, but content descriptions have other implications, so the title is kept separate.
+     *
+     * @return The View's title.
+     */
+    CharSequence getTitle();
+
+    /**
+     * If the parent should not be allowed to intercept touch events.
+     * @param event A touch event.
+     * @return {@code true} if touch should be passed forward.
+     * @see android.view.ViewGroup#requestDisallowInterceptTouchEvent(boolean)
+     */
+    default boolean disallowInterceptTouch(MotionEvent event) {
+        return false;
+    }
+
+    /**
+     * When bouncer was visible but is being dragged down or dismissed.
+     */
+    default void onStartingToHide() {};
 }

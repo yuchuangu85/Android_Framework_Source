@@ -1,15 +1,14 @@
 package com.android.server.wifi.hotspot2;
 
-import static com.android.server.wifi.anqp.Constants.BYTES_IN_EUI48;
-import static com.android.server.wifi.anqp.Constants.BYTE_MASK;
+import static com.android.server.wifi.hotspot2.anqp.Constants.BYTES_IN_EUI48;
+import static com.android.server.wifi.hotspot2.anqp.Constants.BYTE_MASK;
 
 import android.net.wifi.ScanResult;
 import android.util.Log;
 
-import com.android.server.wifi.anqp.ANQPElement;
-import com.android.server.wifi.anqp.Constants;
-import com.android.server.wifi.anqp.RawByteElement;
-import com.android.server.wifi.anqp.VenueNameElement;
+import com.android.server.wifi.hotspot2.anqp.ANQPElement;
+import com.android.server.wifi.hotspot2.anqp.Constants;
+import com.android.server.wifi.hotspot2.anqp.RawByteElement;
 import com.android.server.wifi.util.InformationElementUtil;
 
 import java.nio.BufferUnderflowException;
@@ -24,11 +23,9 @@ import java.util.Map;
 
 public class NetworkDetail {
 
-    //turn off when SHIP
-    private static final boolean DBG = true;
-    private static final boolean VDBG = false;
+    private static final boolean DBG = false;
 
-    private static final String TAG = "NetworkDetail:";
+    private static final String TAG = "NetworkDetail";
 
     public enum Ant {
         Private,
@@ -52,6 +49,7 @@ public class NetworkDetail {
     public enum HSRelease {
         R1,
         R2,
+        R3,
         Unknown
     }
 
@@ -91,16 +89,14 @@ public class NetworkDetail {
      */
     private final int mWifiMode;
     private final int mMaxRate;
+    private final int mMaxNumberSpatialStreams;
 
     /*
      * From Interworking element:
      * mAnt non null indicates the presence of Interworking, i.e. 802.11u
-     * mVenueGroup and mVenueType may be null if not present in the Interworking element.
      */
     private final Ant mAnt;
     private final boolean mInternet;
-    private final VenueNameElement.VenueGroup mVenueGroup;
-    private final VenueNameElement.VenueType mVenueType;
 
     /*
      * From HS20 Indication element:
@@ -123,6 +119,16 @@ public class NetworkDetail {
     private final InformationElementUtil.ExtendedCapabilities mExtendedCapabilities;
 
     private final Map<Constants.ANQPElementType, ANQPElement> mANQPElements;
+
+    /*
+     * From Wi-Fi Alliance MBO-OCE Information element.
+     * mMboAssociationDisallowedReasonCode is the reason code for AP not accepting new connections
+     * and is set to -1 if association disallowed attribute is not present in the element.
+     */
+    private final int mMboAssociationDisallowedReasonCode;
+    private final boolean mMboSupported;
+    private final boolean mMboCellularDataAware;
+    private final boolean mOceSupported;
 
     public NetworkDetail(String bssid, ScanResult.InformationElement[] infoElements,
             List<String> anqpLines, int freq) {
@@ -149,6 +155,14 @@ public class NetworkDetail {
         InformationElementUtil.HtOperation htOperation = new InformationElementUtil.HtOperation();
         InformationElementUtil.VhtOperation vhtOperation =
                 new InformationElementUtil.VhtOperation();
+        InformationElementUtil.HeOperation heOperation = new InformationElementUtil.HeOperation();
+
+        InformationElementUtil.HtCapabilities htCapabilities =
+                new InformationElementUtil.HtCapabilities();
+        InformationElementUtil.VhtCapabilities vhtCapabilities =
+                new InformationElementUtil.VhtCapabilities();
+        InformationElementUtil.HeCapabilities heCapabilities =
+                new InformationElementUtil.HeCapabilities();
 
         InformationElementUtil.ExtendedCapabilities extendedCapabilities =
                 new InformationElementUtil.ExtendedCapabilities();
@@ -180,6 +194,12 @@ public class NetworkDetail {
                     case ScanResult.InformationElement.EID_VHT_OPERATION:
                         vhtOperation.from(ie);
                         break;
+                    case ScanResult.InformationElement.EID_HT_CAPABILITIES:
+                        htCapabilities.from(ie);
+                        break;
+                    case ScanResult.InformationElement.EID_VHT_CAPABILITIES:
+                        vhtCapabilities.from(ie);
+                        break;
                     case ScanResult.InformationElement.EID_INTERWORKING:
                         interworking.from(ie);
                         break;
@@ -200,6 +220,18 @@ public class NetworkDetail {
                         break;
                     case ScanResult.InformationElement.EID_EXTENDED_SUPPORTED_RATES:
                         extendedSupportedRates.from(ie);
+                        break;
+                    case ScanResult.InformationElement.EID_EXTENSION_PRESENT:
+                        switch(ie.idExt) {
+                            case ScanResult.InformationElement.EID_EXT_HE_OPERATION:
+                                heOperation.from(ie);
+                                break;
+                            case ScanResult.InformationElement.EID_EXT_HE_CAPABILITIES:
+                                heCapabilities.from(ie);
+                                break;
+                            default:
+                                break;
+                        }
                         break;
                     default:
                         break;
@@ -256,32 +288,68 @@ public class NetworkDetail {
         mCapacity = bssLoad.capacity;
         mAnt = interworking.ant;
         mInternet = interworking.internet;
-        mVenueGroup = interworking.venueGroup;
-        mVenueType = interworking.venueType;
         mHSRelease = vsa.hsRelease;
         mAnqpDomainID = vsa.anqpDomainID;
+        mMboSupported = vsa.IsMboCapable;
+        mMboCellularDataAware = vsa.IsMboApCellularDataAware;
+        mOceSupported = vsa.IsOceCapable;
+        mMboAssociationDisallowedReasonCode = vsa.mboAssociationDisallowedReasonCode;
         mAnqpOICount = roamingConsortium.anqpOICount;
-        mRoamingConsortiums = roamingConsortium.roamingConsortiums;
+        mRoamingConsortiums = roamingConsortium.getRoamingConsortiums();
         mExtendedCapabilities = extendedCapabilities;
-        mANQPElements = SupplicantBridge.parseANQPLines(anqpLines);
+        mANQPElements = null;
         //set up channel info
         mPrimaryFreq = freq;
+        int channelWidth = ScanResult.UNSPECIFIED;
+        int centerFreq0 = 0;
+        int centerFreq1 = 0;
 
-        if (vhtOperation.isValid()) {
-            // 80 or 160 MHz
-            mChannelWidth = vhtOperation.getChannelWidth();
-            mCenterfreq0 = vhtOperation.getCenterFreq0();
-            mCenterfreq1 = vhtOperation.getCenterFreq1();
-        } else {
-            mChannelWidth = htOperation.getChannelWidth();
-            mCenterfreq0 = htOperation.getCenterFreq0(mPrimaryFreq);
-            mCenterfreq1  = 0;
+        // First check if HE Operation IE is present
+        if (heOperation.isPresent()) {
+            // If 6GHz info is present, then parameters should be acquired from HE Operation IE
+            if (heOperation.is6GhzInfoPresent()) {
+                channelWidth = heOperation.getChannelWidth();
+                centerFreq0 = heOperation.getCenterFreq0();
+                centerFreq1 = heOperation.getCenterFreq1();
+            } else if (heOperation.isVhtInfoPresent()) {
+                // VHT Operation Info could be included inside the HE Operation IE
+                vhtOperation.from(heOperation.getVhtInfoElement());
+            }
         }
+
+        // Proceed to VHT Operation IE if parameters were not obtained from HE Operation IE
+        // Not operating in 6GHz
+        if (channelWidth == ScanResult.UNSPECIFIED) {
+            if (vhtOperation.isPresent()) {
+                channelWidth = vhtOperation.getChannelWidth();
+                if (channelWidth != ScanResult.UNSPECIFIED) {
+                    centerFreq0 = vhtOperation.getCenterFreq0();
+                    centerFreq1 = vhtOperation.getCenterFreq1();
+                }
+            }
+        }
+
+        // Proceed to HT Operation IE if parameters were not obtained from VHT/HE Operation IEs
+        // Apply to operating in 2.4/5GHz with 20/40MHz channels
+        if (channelWidth == ScanResult.UNSPECIFIED) {
+            //Either no vht, or vht shows BW is 40/20 MHz
+            if (htOperation.isPresent()) {
+                channelWidth = htOperation.getChannelWidth();
+                centerFreq0 = htOperation.getCenterFreq0(mPrimaryFreq);
+            }
+        }
+        mChannelWidth = channelWidth;
+        mCenterfreq0 = centerFreq0;
+        mCenterfreq1 = centerFreq1;
 
         // If trafficIndicationMap is not valid, mDtimPeriod will be negative
         if (trafficIndicationMap.isValid()) {
             mDtimInterval = trafficIndicationMap.mDtimPeriod;
         }
+
+        mMaxNumberSpatialStreams = Math.max(heCapabilities.getMaxNumberSpatialStreams(),
+                Math.max(vhtCapabilities.getMaxNumberSpatialStreams(),
+                htCapabilities.getMaxNumberSpatialStreams()));
 
         int maxRateA = 0;
         int maxRateB = 0;
@@ -295,26 +363,27 @@ public class NetworkDetail {
             maxRateA = supportedRates.mRates.get(supportedRates.mRates.size() - 1);
             mMaxRate = maxRateA > maxRateB ? maxRateA : maxRateB;
             mWifiMode = InformationElementUtil.WifiMode.determineMode(mPrimaryFreq, mMaxRate,
-                    vhtOperation.isValid(),
-                    iesFound.contains(ScanResult.InformationElement.EID_HT_OPERATION),
+                    heOperation.isPresent(), vhtOperation.isPresent(), htOperation.isPresent(),
                     iesFound.contains(ScanResult.InformationElement.EID_ERP));
         } else {
             mWifiMode = 0;
             mMaxRate = 0;
-            Log.w("WifiMode", mSSID + ", Invalid SupportedRates!!!");
         }
-        if (VDBG) {
-            Log.d(TAG, mSSID + "ChannelWidth is: " + mChannelWidth + " PrimaryFreq: " + mPrimaryFreq
-                    + " mCenterfreq0: " + mCenterfreq0 + " mCenterfreq1: " + mCenterfreq1
-                    + (extendedCapabilities.is80211McRTTResponder ? "Support RTT reponder"
-                    : "Do not support RTT responder"));
+        if (DBG) {
+            Log.d(TAG, mSSID + "ChannelWidth is: " + mChannelWidth + " PrimaryFreq: "
+                    + mPrimaryFreq + " Centerfreq0: " + mCenterfreq0 + " Centerfreq1: "
+                    + mCenterfreq1 + (extendedCapabilities.is80211McRTTResponder()
+                    ? " Support RTT responder" : " Do not support RTT responder")
+                    + " MaxNumberSpatialStreams: " + mMaxNumberSpatialStreams
+                    + " MboAssociationDisallowedReasonCode: "
+                    + mMboAssociationDisallowedReasonCode);
             Log.v("WifiMode", mSSID
                     + ", WifiMode: " + InformationElementUtil.WifiMode.toString(mWifiMode)
                     + ", Freq: " + mPrimaryFreq
-                    + ", mMaxRate: " + mMaxRate
-                    + ", VHT: " + String.valueOf(vhtOperation.isValid())
-                    + ", HT: " + String.valueOf(
-                    iesFound.contains(ScanResult.InformationElement.EID_HT_OPERATION))
+                    + ", MaxRate: " + mMaxRate
+                    + ", HE: " + String.valueOf(heOperation.isPresent())
+                    + ", VHT: " + String.valueOf(vhtOperation.isPresent())
+                    + ", HT: " + String.valueOf(htOperation.isPresent())
                     + ", ERP: " + String.valueOf(
                     iesFound.contains(ScanResult.InformationElement.EID_ERP))
                     + ", SupportedRates: " + supportedRates.toString()
@@ -339,8 +408,6 @@ public class NetworkDetail {
         mCapacity = base.mCapacity;
         mAnt = base.mAnt;
         mInternet = base.mInternet;
-        mVenueGroup = base.mVenueGroup;
-        mVenueType = base.mVenueType;
         mHSRelease = base.mHSRelease;
         mAnqpDomainID = base.mAnqpDomainID;
         mAnqpOICount = base.mAnqpOICount;
@@ -355,6 +422,11 @@ public class NetworkDetail {
         mDtimInterval = base.mDtimInterval;
         mWifiMode = base.mWifiMode;
         mMaxRate = base.mMaxRate;
+        mMaxNumberSpatialStreams = base.mMaxNumberSpatialStreams;
+        mMboSupported = base.mMboSupported;
+        mMboCellularDataAware = base.mMboCellularDataAware;
+        mOceSupported = base.mOceSupported;
+        mMboAssociationDisallowedReasonCode = base.mMboAssociationDisallowedReasonCode;
     }
 
     public NetworkDetail complete(Map<Constants.ANQPElementType, ANQPElement> anqpElements) {
@@ -380,9 +452,11 @@ public class NetworkDetail {
     }
 
     public String getTrimmedSSID() {
-        for (int n = 0; n < mSSID.length(); n++) {
-            if (mSSID.charAt(n) != 0) {
-                return mSSID;
+        if (mSSID != null) {
+            for (int n = 0; n < mSSID.length(); n++) {
+                if (mSSID.charAt(n) != 0) {
+                    return mSSID;
+                }
             }
         }
         return "";
@@ -420,14 +494,6 @@ public class NetworkDetail {
         return mInternet;
     }
 
-    public VenueNameElement.VenueGroup getVenueGroup() {
-        return mVenueGroup;
-    }
-
-    public VenueNameElement.VenueType getVenueType() {
-        return mVenueType;
-    }
-
     public HSRelease getHSRelease() {
         return mHSRelease;
     }
@@ -452,10 +518,6 @@ public class NetworkDetail {
         return mRoamingConsortiums;
     }
 
-    public Long getExtendedCapabilities() {
-        return mExtendedCapabilities.extendedCapabilities;
-    }
-
     public Map<Constants.ANQPElementType, ANQPElement> getANQPElements() {
         return mANQPElements;
     }
@@ -476,12 +538,16 @@ public class NetworkDetail {
         return mWifiMode;
     }
 
+    public int getMaxNumberSpatialStreams() {
+        return mMaxNumberSpatialStreams;
+    }
+
     public int getDtimInterval() {
         return mDtimInterval;
     }
 
     public boolean is80211McResponderSupport() {
-        return mExtendedCapabilities.is80211McRTTResponder;
+        return mExtendedCapabilities.is80211McRTTResponder();
     }
 
     public boolean isSSID_UTF8() {
@@ -511,11 +577,11 @@ public class NetworkDetail {
     public String toString() {
         return String.format("NetworkInfo{SSID='%s', HESSID=%x, BSSID=%x, StationCount=%d, " +
                 "ChannelUtilization=%d, Capacity=%d, Ant=%s, Internet=%s, " +
-                "VenueGroup=%s, VenueType=%s, HSRelease=%s, AnqpDomainID=%d, " +
+                "HSRelease=%s, AnqpDomainID=%d, " +
                 "AnqpOICount=%d, RoamingConsortiums=%s}",
                 mSSID, mHESSID, mBSSID, mStationCount,
                 mChannelUtilization, mCapacity, mAnt, mInternet,
-                mVenueGroup, mVenueType, mHSRelease, mAnqpDomainID,
+                mHSRelease, mAnqpDomainID,
                 mAnqpOICount, Utils.roamingConsortiumsToString(mRoamingConsortiums));
     }
 
@@ -563,5 +629,21 @@ public class NetworkDetail {
             sb.append(String.format("%02x", (mac >>> (n * Byte.SIZE)) & BYTE_MASK));
         }
         return sb.toString();
+    }
+
+    public int getMboAssociationDisallowedReasonCode() {
+        return mMboAssociationDisallowedReasonCode;
+    }
+
+    public boolean isMboSupported() {
+        return mMboSupported;
+    }
+
+    public boolean isMboCellularDataAware() {
+        return mMboCellularDataAware;
+    }
+
+    public boolean isOceSupported() {
+        return mOceSupported;
     }
 }

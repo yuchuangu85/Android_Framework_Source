@@ -16,405 +16,493 @@
 
 package com.android.server;
 
+import static android.content.Context.BIND_AUTO_CREATE;
+import static android.content.Context.BIND_NOT_FOREGROUND;
+import static android.content.Context.BIND_NOT_VISIBLE;
+import static android.content.pm.PackageManager.GET_META_DATA;
+import static android.content.pm.PackageManager.MATCH_DIRECT_BOOT_AUTO;
+import static android.content.pm.PackageManager.MATCH_DIRECT_BOOT_AWARE;
+import static android.content.pm.PackageManager.MATCH_DIRECT_BOOT_UNAWARE;
+import static android.content.pm.PackageManager.MATCH_SYSTEM_ONLY;
+
+import android.annotation.BoolRes;
 import android.annotation.Nullable;
+import android.annotation.StringRes;
+import android.annotation.UserIdInt;
+import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
-import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
-import android.content.pm.Signature;
 import android.content.res.Resources;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
+import android.os.RemoteException;
 import android.os.UserHandle;
 import android.util.Log;
-import android.util.Slog;
 
-import com.android.internal.annotations.GuardedBy;
 import com.android.internal.content.PackageMonitor;
+import com.android.internal.util.Preconditions;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
- * Find the best Service, and bind to it.
- * Handles run-time package changes.
+ * Maintains a binding to the best service that matches the given intent information. Bind and
+ * unbind callbacks, as well as all binder operations, will all be run on the given handler.
  */
 public class ServiceWatcher implements ServiceConnection {
-    private static final boolean D = false;
-    public static final String EXTRA_SERVICE_VERSION = "serviceVersion";
-    public static final String EXTRA_SERVICE_IS_MULTIUSER = "serviceIsMultiuser";
 
-    private final String mTag;
-    private final Context mContext;
-    private final PackageManager mPm;
-    private final List<HashSet<Signature>> mSignatureSets;
-    private final String mAction;
+    private static final String TAG = "ServiceWatcher";
+    private static final boolean D = Log.isLoggable(TAG, Log.DEBUG);
+
+    private static final String EXTRA_SERVICE_VERSION = "serviceVersion";
+    private static final String EXTRA_SERVICE_IS_MULTIUSER = "serviceIsMultiuser";
+
+    private static final long BLOCKING_BINDER_TIMEOUT_MS = 30 * 1000;
+
+    /** Function to run on binder interface. */
+    public interface BinderRunner {
+        /** Called to run client code with the binder. */
+        void run(IBinder binder) throws RemoteException;
+    }
 
     /**
-     * If mServicePackageName is not null, only this package will be searched for the service that
-     * implements mAction. When null, all packages in the system that matches one of the signature
-     * in mSignatureSets are searched.
+     * Function to run on binder interface.
+     * @param <T> Type to return.
      */
-    private final String mServicePackageName;
-    private final Runnable mNewServiceWork;
-    private final Handler mHandler;
+    public interface BlockingBinderRunner<T> {
+        /** Called to run client code with the binder. */
+        T run(IBinder binder) throws RemoteException;
+    }
 
-    private final Object mLock = new Object();
+    /**
+     * Information on the service ServiceWatcher has selected as the best option for binding.
+     */
+    public static final class ServiceInfo implements Comparable<ServiceInfo> {
 
-    @GuardedBy("mLock")
-    private int mCurrentUserId = UserHandle.USER_SYSTEM;
+        public static final ServiceInfo NONE = new ServiceInfo(Integer.MIN_VALUE, null,
+                UserHandle.USER_NULL);
 
-    @GuardedBy("mLock")
-    private IBinder mBoundService;
-    @GuardedBy("mLock")
-    private ComponentName mBoundComponent;
-    @GuardedBy("mLock")
-    private String mBoundPackageName;
-    @GuardedBy("mLock")
-    private int mBoundVersion = Integer.MIN_VALUE;
-    @GuardedBy("mLock")
-    private int mBoundUserId = UserHandle.USER_NULL;
+        public final int version;
+        @Nullable public final ComponentName component;
+        @UserIdInt public final int userId;
 
-    public static ArrayList<HashSet<Signature>> getSignatureSets(Context context,
-            List<String> initialPackageNames) {
-        PackageManager pm = context.getPackageManager();
-        ArrayList<HashSet<Signature>> sigSets = new ArrayList<HashSet<Signature>>();
-        for (int i = 0, size = initialPackageNames.size(); i < size; i++) {
-            String pkg = initialPackageNames.get(i);
-            try {
-                HashSet<Signature> set = new HashSet<Signature>();
-                Signature[] sigs = pm.getPackageInfo(pkg, PackageManager.MATCH_SYSTEM_ONLY
-                        | PackageManager.GET_SIGNATURES).signatures;
-                set.addAll(Arrays.asList(sigs));
-                sigSets.add(set);
-            } catch (NameNotFoundException e) {
-                Log.w("ServiceWatcher", pkg + " not found");
+        ServiceInfo(ResolveInfo resolveInfo, int currentUserId) {
+            Preconditions.checkArgument(resolveInfo.serviceInfo.getComponentName() != null);
+
+            Bundle metadata = resolveInfo.serviceInfo.metaData;
+            boolean isMultiuser;
+            if (metadata != null) {
+                version = metadata.getInt(EXTRA_SERVICE_VERSION, Integer.MIN_VALUE);
+                isMultiuser = metadata.getBoolean(EXTRA_SERVICE_IS_MULTIUSER, false);
+            } else {
+                version = Integer.MIN_VALUE;
+                isMultiuser = false;
+            }
+
+            component = resolveInfo.serviceInfo.getComponentName();
+            userId = isMultiuser ? UserHandle.USER_SYSTEM : currentUserId;
+        }
+
+        private ServiceInfo(int version, @Nullable ComponentName component, int userId) {
+            Preconditions.checkArgument(component != null || version == Integer.MIN_VALUE);
+            this.version = version;
+            this.component = component;
+            this.userId = userId;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof ServiceInfo)) {
+                return false;
+            }
+            ServiceInfo that = (ServiceInfo) o;
+            return version == that.version && userId == that.userId
+                    && Objects.equals(component, that.component);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(version, component, userId);
+        }
+
+        @Override
+        public int compareTo(ServiceInfo that) {
+            // ServiceInfos with higher version numbers always win (having a version number >
+            // MIN_VALUE implies having a non-null component). if version numbers are equal, a
+            // non-null component wins over a null component. if the version numbers are equal and
+            // both components exist then we prefer components that work for all users vs components
+            // that only work for a single user at a time. otherwise everything's equal.
+            int ret = Integer.compare(version, that.version);
+            if (ret == 0) {
+                if (component == null && that.component != null) {
+                    ret = -1;
+                } else if (component != null && that.component == null) {
+                    ret = 1;
+                } else {
+                    if (userId != UserHandle.USER_SYSTEM && that.userId == UserHandle.USER_SYSTEM) {
+                        ret = -1;
+                    } else if (userId == UserHandle.USER_SYSTEM
+                            && that.userId != UserHandle.USER_SYSTEM) {
+                        ret = 1;
+                    }
+                }
+            }
+            return ret;
+        }
+
+        @Override
+        public String toString() {
+            if (component == null) {
+                return "none";
+            } else {
+                return component.toShortString() + "@" + version + "[u" + userId + "]";
             }
         }
-        return sigSets;
     }
 
-    public ServiceWatcher(Context context, String logTag, String action,
-            int overlaySwitchResId, int defaultServicePackageNameResId,
-            int initialPackageNamesResId, Runnable newServiceWork,
-            Handler handler) {
-        mContext = context;
-        mTag = logTag;
-        mAction = action;
-        mPm = mContext.getPackageManager();
-        mNewServiceWork = newServiceWork;
-        mHandler = handler;
-        Resources resources = context.getResources();
+    private final Context mContext;
+    private final Handler mHandler;
+    private final Intent mIntent;
 
-        // Whether to enable service overlay.
-        boolean enableOverlay = resources.getBoolean(overlaySwitchResId);
-        ArrayList<String> initialPackageNames = new ArrayList<String>();
-        if (enableOverlay) {
-            // A list of package names used to create the signatures.
-            String[] pkgs = resources.getStringArray(initialPackageNamesResId);
-            if (pkgs != null) initialPackageNames.addAll(Arrays.asList(pkgs));
-            mServicePackageName = null;
-            if (D) Log.d(mTag, "Overlay enabled, packages=" + Arrays.toString(pkgs));
-        } else {
-            // The default package name that is searched for service implementation when overlay is
-            // disabled.
-            String servicePackageName = resources.getString(defaultServicePackageNameResId);
-            if (servicePackageName != null) initialPackageNames.add(servicePackageName);
-            mServicePackageName = servicePackageName;
-            if (D) Log.d(mTag, "Overlay disabled, default package=" + servicePackageName);
+    @Nullable private final BinderRunner mOnBind;
+    @Nullable private final Runnable mOnUnbind;
+
+    // read/write from handler thread only
+    private int mCurrentUserId;
+
+    // write from handler thread only, read anywhere
+    private volatile ServiceInfo mServiceInfo;
+    private volatile IBinder mBinder;
+
+    public ServiceWatcher(Context context, Handler handler, String action,
+            @Nullable BinderRunner onBind, @Nullable Runnable onUnbind,
+            @BoolRes int enableOverlayResId, @StringRes int nonOverlayPackageResId) {
+        mContext = context;
+        mHandler = FgThread.getHandler();
+        mIntent = new Intent(Objects.requireNonNull(action));
+
+        Resources resources = context.getResources();
+        boolean enableOverlay = resources.getBoolean(enableOverlayResId);
+        if (!enableOverlay) {
+            mIntent.setPackage(resources.getString(nonOverlayPackageResId));
         }
-        mSignatureSets = getSignatureSets(context, initialPackageNames);
+
+        mOnBind = onBind;
+        mOnUnbind = onUnbind;
+
+        mCurrentUserId = UserHandle.USER_NULL;
+
+        mServiceInfo = ServiceInfo.NONE;
+        mBinder = null;
     }
 
     /**
-     * Start this watcher, including binding to the current best match and
-     * re-binding to any better matches down the road.
-     * <p>
-     * Note that if there are no matching encryption-aware services, we may not
-     * bind to a real service until after the current user is unlocked.
-     *
-     * @returns {@code true} if a potential service implementation was found.
+     * Register this class, which will start the process of determining the best matching service
+     * and maintaining a binding to it. Will return false and fail if there are no possible matching
+     * services at the time this functions is called.
      */
-    public boolean start() {
-        if (isServiceMissing()) return false;
-
-        synchronized (mLock) {
-            bindBestPackageLocked(mServicePackageName, false);
+    public boolean register() {
+        if (mContext.getPackageManager().queryIntentServicesAsUser(mIntent,
+                MATCH_DIRECT_BOOT_AWARE | MATCH_DIRECT_BOOT_UNAWARE | MATCH_SYSTEM_ONLY,
+                UserHandle.USER_SYSTEM).isEmpty()) {
+            return false;
         }
 
-        // listen for user change
+        new PackageMonitor() {
+            @Override
+            public void onPackageUpdateFinished(String packageName, int uid) {
+                ServiceWatcher.this.onPackageChanged(packageName);
+            }
+
+            @Override
+            public void onPackageAdded(String packageName, int uid) {
+                ServiceWatcher.this.onPackageChanged(packageName);
+            }
+
+            @Override
+            public void onPackageRemoved(String packageName, int uid) {
+                ServiceWatcher.this.onPackageChanged(packageName);
+            }
+
+            @Override
+            public boolean onPackageChanged(String packageName, int uid, String[] components) {
+                ServiceWatcher.this.onPackageChanged(packageName);
+                return super.onPackageChanged(packageName, uid, components);
+            }
+        }.register(mContext, UserHandle.ALL, true, mHandler);
+
         IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction(Intent.ACTION_USER_SWITCHED);
         intentFilter.addAction(Intent.ACTION_USER_UNLOCKED);
         mContext.registerReceiverAsUser(new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                final String action = intent.getAction();
-                final int userId = intent.getIntExtra(Intent.EXTRA_USER_HANDLE,
-                        UserHandle.USER_NULL);
-                if (Intent.ACTION_USER_SWITCHED.equals(action)) {
-                    switchUser(userId);
-                } else if (Intent.ACTION_USER_UNLOCKED.equals(action)) {
-                    unlockUser(userId);
+                String action = intent.getAction();
+                if (action == null) {
+                    return;
                 }
+                int userId = intent.getIntExtra(Intent.EXTRA_USER_HANDLE, UserHandle.USER_NULL);
+                if (userId == UserHandle.USER_NULL) {
+                    return;
+                }
+
+                switch (action) {
+                    case Intent.ACTION_USER_SWITCHED:
+                        onUserSwitched(userId);
+                        break;
+                    case Intent.ACTION_USER_UNLOCKED:
+                        onUserUnlocked(userId);
+                        break;
+                    default:
+                        break;
+                }
+
             }
         }, UserHandle.ALL, intentFilter, null, mHandler);
 
-        // listen for relevant package changes if service overlay is enabled.
-        if (mServicePackageName == null) {
-            mPackageMonitor.register(mContext, null, UserHandle.ALL, true);
-        }
+        mCurrentUserId = ActivityManager.getCurrentUser();
 
+        mHandler.post(() -> onBestServiceChanged(false));
         return true;
     }
 
     /**
-     * Check if any instance of this service is present on the device,
-     * regardless of it being encryption-aware or not.
+     * Returns information on the currently selected service.
      */
-    private boolean isServiceMissing() {
-        final Intent intent = new Intent(mAction);
-        final int flags = PackageManager.MATCH_DIRECT_BOOT_AWARE
-                | PackageManager.MATCH_DIRECT_BOOT_UNAWARE;
-        return mPm.queryIntentServicesAsUser(intent, flags, mCurrentUserId).isEmpty();
+    public ServiceInfo getBoundService() {
+        return mServiceInfo;
+    }
+
+    private void onBestServiceChanged(boolean forceRebind) {
+        Preconditions.checkState(Looper.myLooper() == mHandler.getLooper());
+
+        List<ResolveInfo> resolveInfos = mContext.getPackageManager().queryIntentServicesAsUser(
+                mIntent,
+                GET_META_DATA | MATCH_DIRECT_BOOT_AUTO | MATCH_SYSTEM_ONLY,
+                mCurrentUserId);
+
+        ServiceInfo bestServiceInfo = ServiceInfo.NONE;
+        for (ResolveInfo resolveInfo : resolveInfos) {
+            ServiceInfo serviceInfo = new ServiceInfo(resolveInfo, mCurrentUserId);
+            if (serviceInfo.compareTo(bestServiceInfo) > 0) {
+                bestServiceInfo = serviceInfo;
+            }
+        }
+
+        if (forceRebind || !bestServiceInfo.equals(mServiceInfo)) {
+            rebind(bestServiceInfo);
+        }
+    }
+
+    private void rebind(ServiceInfo newServiceInfo) {
+        Preconditions.checkState(Looper.myLooper() == mHandler.getLooper());
+
+        if (!mServiceInfo.equals(ServiceInfo.NONE)) {
+            if (D) {
+                Log.i(TAG, "[" + mIntent.getAction() + "] unbinding from " + mServiceInfo);
+            }
+
+            mContext.unbindService(this);
+            onServiceDisconnected(mServiceInfo.component);
+            mServiceInfo = ServiceInfo.NONE;
+        }
+
+        mServiceInfo = newServiceInfo;
+        if (mServiceInfo.equals(ServiceInfo.NONE)) {
+            return;
+        }
+
+        Preconditions.checkState(mServiceInfo.component != null);
+
+        if (D) {
+            Log.i(TAG, getLogPrefix() + " binding to " + mServiceInfo);
+        }
+
+        Intent bindIntent = new Intent(mIntent).setComponent(mServiceInfo.component);
+        mContext.bindServiceAsUser(bindIntent, this,
+                BIND_AUTO_CREATE | BIND_NOT_FOREGROUND | BIND_NOT_VISIBLE,
+                mHandler, UserHandle.of(mServiceInfo.userId));
+    }
+
+    @Override
+    public final void onServiceConnected(ComponentName component, IBinder binder) {
+        Preconditions.checkState(Looper.myLooper() == mHandler.getLooper());
+        Preconditions.checkState(mBinder == null);
+
+        if (D) {
+            Log.i(TAG, getLogPrefix() + " connected to " + component.toShortString());
+        }
+
+        mBinder = binder;
+        if (mOnBind != null) {
+            try {
+                mOnBind.run(binder);
+            } catch (RuntimeException | RemoteException e) {
+                // binders may propagate some specific non-RemoteExceptions from the other side
+                // through the binder as well - we cannot allow those to crash the system server
+                Log.e(TAG, getLogPrefix() + " exception running on " + mServiceInfo, e);
+            }
+        }
+    }
+
+    @Override
+    public final void onServiceDisconnected(ComponentName component) {
+        Preconditions.checkState(Looper.myLooper() == mHandler.getLooper());
+
+        if (mBinder == null) {
+            return;
+        }
+
+        if (D) {
+            Log.i(TAG, getLogPrefix() + " disconnected from " + component.toShortString());
+        }
+
+        mBinder = null;
+        if (mOnUnbind != null) {
+            mOnUnbind.run();
+        }
+    }
+
+    @Override
+    public void onBindingDied(ComponentName component) {
+        Preconditions.checkState(Looper.myLooper() == mHandler.getLooper());
+
+        if (D) {
+            Log.i(TAG, getLogPrefix() + " " + component.toShortString() + " died");
+        }
+
+        onBestServiceChanged(true);
+    }
+
+    void onUserSwitched(@UserIdInt int userId) {
+        mCurrentUserId = userId;
+        onBestServiceChanged(false);
+    }
+
+    void onUserUnlocked(@UserIdInt int userId) {
+        if (userId == mCurrentUserId) {
+            onBestServiceChanged(false);
+        }
+    }
+
+    void onPackageChanged(String packageName) {
+        // force a rebind if the changed package was the currently connected package
+        String currentPackageName =
+                mServiceInfo.component != null ? mServiceInfo.component.getPackageName() : null;
+        onBestServiceChanged(packageName.equals(currentPackageName));
     }
 
     /**
-     * Searches and binds to the best package, or do nothing if the best package
-     * is already bound, unless force rebinding is requested.
-     *
-     * @param justCheckThisPackage Only consider this package, or consider all
-     *            packages if it is {@code null}.
-     * @param forceRebind Force a rebinding to the best package if it's already
-     *            bound.
-     * @returns {@code true} if a valid package was found to bind to.
+     * Runs the given function asynchronously if and only if currently connected. Suppresses any
+     * RemoteException thrown during execution.
      */
-    private boolean bindBestPackageLocked(String justCheckThisPackage, boolean forceRebind) {
-        Intent intent = new Intent(mAction);
-        if (justCheckThisPackage != null) {
-            intent.setPackage(justCheckThisPackage);
-        }
-        final List<ResolveInfo> rInfos = mPm.queryIntentServicesAsUser(intent,
-                PackageManager.GET_META_DATA | PackageManager.MATCH_DEBUG_TRIAGED_MISSING,
-                mCurrentUserId);
-        int bestVersion = Integer.MIN_VALUE;
-        ComponentName bestComponent = null;
-        boolean bestIsMultiuser = false;
-        if (rInfos != null) {
-            for (ResolveInfo rInfo : rInfos) {
-                final ComponentName component = rInfo.serviceInfo.getComponentName();
-                final String packageName = component.getPackageName();
-
-                // check signature
-                try {
-                    PackageInfo pInfo;
-                    pInfo = mPm.getPackageInfo(packageName, PackageManager.GET_SIGNATURES
-                            | PackageManager.MATCH_DEBUG_TRIAGED_MISSING);
-                    if (!isSignatureMatch(pInfo.signatures)) {
-                        Log.w(mTag, packageName + " resolves service " + mAction
-                                + ", but has wrong signature, ignoring");
-                        continue;
-                    }
-                } catch (NameNotFoundException e) {
-                    Log.wtf(mTag, e);
-                    continue;
-                }
-
-                // check metadata
-                int version = Integer.MIN_VALUE;
-                boolean isMultiuser = false;
-                if (rInfo.serviceInfo.metaData != null) {
-                    version = rInfo.serviceInfo.metaData.getInt(
-                            EXTRA_SERVICE_VERSION, Integer.MIN_VALUE);
-                    isMultiuser = rInfo.serviceInfo.metaData.getBoolean(EXTRA_SERVICE_IS_MULTIUSER);
-                }
-
-                if (version > bestVersion) {
-                    bestVersion = version;
-                    bestComponent = component;
-                    bestIsMultiuser = isMultiuser;
-                }
+    public final void runOnBinder(BinderRunner runner) {
+        mHandler.post(() -> {
+            if (mBinder == null) {
+                return;
             }
 
-            if (D) {
-                Log.d(mTag, String.format("bindBestPackage for %s : %s found %d, %s", mAction,
-                        (justCheckThisPackage == null ? ""
-                                : "(" + justCheckThisPackage + ") "), rInfos.size(),
-                        (bestComponent == null ? "no new best component"
-                                : "new best component: " + bestComponent)));
+            try {
+                runner.run(mBinder);
+            } catch (RuntimeException | RemoteException e) {
+                // binders may propagate some specific non-RemoteExceptions from the other side
+                // through the binder as well - we cannot allow those to crash the system server
+                Log.e(TAG, getLogPrefix() + " exception running on " + mServiceInfo, e);
+            }
+        });
+    }
+
+    /**
+     * Runs the given function synchronously if currently connected, and returns the default value
+     * if not currently connected or if any exception is thrown. Do not obtain any locks within the
+     * BlockingBinderRunner, or risk deadlock. The default value will be returned if there is no
+     * service connection when this is run, if a RemoteException occurs, or if the operation times
+     * out.
+     *
+     * @deprecated Using this function is an indication that your AIDL API is broken. Calls from
+     * system server to outside MUST be one-way, and so cannot return any result, and this
+     * method should not be needed or used. Use a separate callback interface to allow outside
+     * components to return results back to the system server.
+     */
+    @Deprecated
+    public final <T> T runOnBinderBlocking(BlockingBinderRunner<T> runner, T defaultValue) {
+        try {
+            return runOnHandlerBlocking(() -> {
+                if (mBinder == null) {
+                    return defaultValue;
+                }
+
+                try {
+                    return runner.run(mBinder);
+                } catch (RuntimeException | RemoteException e) {
+                    // binders may propagate some specific non-RemoteExceptions from the other side
+                    // through the binder as well - we cannot allow those to crash the system server
+                    Log.e(TAG, getLogPrefix() + " exception running on " + mServiceInfo, e);
+                    return defaultValue;
+                }
+            });
+        } catch (InterruptedException | TimeoutException e) {
+            return defaultValue;
+        }
+    }
+
+    private <T> T runOnHandlerBlocking(Callable<T> c)
+            throws InterruptedException, TimeoutException {
+        if (Looper.myLooper() == mHandler.getLooper()) {
+            try {
+                return c.call();
+            } catch (Exception e) {
+                // Function cannot throw exception, this should never happen
+                throw new IllegalStateException(e);
             }
         } else {
-            if (D) Log.d(mTag, "Unable to query intent services for action: " + mAction);
-        }
-
-        if (bestComponent == null) {
-            Slog.w(mTag, "Odd, no component found for service " + mAction);
-            unbindLocked();
-            return false;
-        }
-
-        final int userId = bestIsMultiuser ? UserHandle.USER_SYSTEM : mCurrentUserId;
-        final boolean alreadyBound = Objects.equals(bestComponent, mBoundComponent)
-                && bestVersion == mBoundVersion && userId == mBoundUserId;
-        if (forceRebind || !alreadyBound) {
-            unbindLocked();
-            bindToPackageLocked(bestComponent, bestVersion, userId);
-        }
-        return true;
-    }
-
-    private void unbindLocked() {
-        ComponentName component;
-        component = mBoundComponent;
-        mBoundComponent = null;
-        mBoundPackageName = null;
-        mBoundVersion = Integer.MIN_VALUE;
-        mBoundUserId = UserHandle.USER_NULL;
-        if (component != null) {
-            if (D) Log.d(mTag, "unbinding " + component);
-            mContext.unbindService(this);
+            FutureTask<T> task = new FutureTask<>(c);
+            mHandler.post(task);
+            try {
+                // timeout will unblock callers, in particular if the caller is a binder thread to
+                // help reduce binder contention. this will still result in blocking the handler
+                // thread which may result in ANRs, but should make problems slightly more rare.
+                // the underlying solution is simply not to use this API at all, but that would
+                // require large refactors to very legacy code.
+                return task.get(BLOCKING_BINDER_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            } catch (ExecutionException e) {
+                // Function cannot throw exception, this should never happen
+                throw new IllegalStateException(e);
+            }
         }
     }
 
-    private void bindToPackageLocked(ComponentName component, int version, int userId) {
-        Intent intent = new Intent(mAction);
-        intent.setComponent(component);
-        mBoundComponent = component;
-        mBoundPackageName = component.getPackageName();
-        mBoundVersion = version;
-        mBoundUserId = userId;
-        if (D) Log.d(mTag, "binding " + component + " (v" + version + ") (u" + userId + ")");
-        mContext.bindServiceAsUser(intent, this,
-                Context.BIND_AUTO_CREATE | Context.BIND_NOT_FOREGROUND | Context.BIND_NOT_VISIBLE,
-                new UserHandle(userId));
-    }
-
-    public static boolean isSignatureMatch(Signature[] signatures,
-            List<HashSet<Signature>> sigSets) {
-        if (signatures == null) return false;
-
-        // build hashset of input to test against
-        HashSet<Signature> inputSet = new HashSet<Signature>();
-        for (Signature s : signatures) {
-            inputSet.add(s);
-        }
-
-        // test input against each of the signature sets
-        for (HashSet<Signature> referenceSet : sigSets) {
-            if (referenceSet.equals(inputSet)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isSignatureMatch(Signature[] signatures) {
-        return isSignatureMatch(signatures, mSignatureSets);
-    }
-
-    private final PackageMonitor mPackageMonitor = new PackageMonitor() {
-        /**
-         * Called when package has been reinstalled
-         */
-        @Override
-        public void onPackageUpdateFinished(String packageName, int uid) {
-            synchronized (mLock) {
-                final boolean forceRebind = Objects.equals(packageName, mBoundPackageName);
-                bindBestPackageLocked(null, forceRebind);
-            }
-        }
-
-        @Override
-        public void onPackageAdded(String packageName, int uid) {
-            synchronized (mLock) {
-                final boolean forceRebind = Objects.equals(packageName, mBoundPackageName);
-                bindBestPackageLocked(null, forceRebind);
-            }
-        }
-
-        @Override
-        public void onPackageRemoved(String packageName, int uid) {
-            synchronized (mLock) {
-                final boolean forceRebind = Objects.equals(packageName, mBoundPackageName);
-                bindBestPackageLocked(null, forceRebind);
-            }
-        }
-
-        @Override
-        public boolean onPackageChanged(String packageName, int uid, String[] components) {
-            synchronized (mLock) {
-                final boolean forceRebind = Objects.equals(packageName, mBoundPackageName);
-                bindBestPackageLocked(null, forceRebind);
-            }
-            return super.onPackageChanged(packageName, uid, components);
-        }
-    };
-
-    @Override
-    public void onServiceConnected(ComponentName component, IBinder binder) {
-        synchronized (mLock) {
-            if (component.equals(mBoundComponent)) {
-                if (D) Log.d(mTag, component + " connected");
-                mBoundService = binder;
-                if (mHandler !=null && mNewServiceWork != null) {
-                    mHandler.post(mNewServiceWork);
-                }
-            } else {
-                Log.w(mTag, "unexpected onServiceConnected: " + component);
-            }
-        }
+    private String getLogPrefix() {
+        return "[" + mIntent.getAction() + "]";
     }
 
     @Override
-    public void onServiceDisconnected(ComponentName component) {
-        synchronized (mLock) {
-            if (D) Log.d(mTag, component + " disconnected");
-
-            if (component.equals(mBoundComponent)) {
-                mBoundService = null;
-            }
-        }
+    public String toString() {
+        return mServiceInfo.toString();
     }
 
-    public @Nullable String getBestPackageName() {
-        synchronized (mLock) {
-            return mBoundPackageName;
-        }
-    }
-
-    public int getBestVersion() {
-        synchronized (mLock) {
-            return mBoundVersion;
-        }
-    }
-
-    public @Nullable IBinder getBinder() {
-        synchronized (mLock) {
-            return mBoundService;
-        }
-    }
-
-    public void switchUser(int userId) {
-        synchronized (mLock) {
-            mCurrentUserId = userId;
-            bindBestPackageLocked(mServicePackageName, false);
-        }
-    }
-
-    public void unlockUser(int userId) {
-        synchronized (mLock) {
-            if (userId == mCurrentUserId) {
-                bindBestPackageLocked(mServicePackageName, false);
-            }
-        }
+    /**
+     * Dump for debugging.
+     */
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        pw.println("service=" + mServiceInfo);
+        pw.println("connected=" + (mBinder != null));
     }
 }

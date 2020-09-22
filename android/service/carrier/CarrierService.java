@@ -16,13 +16,17 @@ package android.service.carrier;
 
 import android.annotation.CallSuper;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.os.PersistableBundle;
-import android.os.RemoteException;
-import android.os.ServiceManager;
+import android.os.ResultReceiver;
+import android.telephony.TelephonyRegistryManager;
+import android.util.Log;
 
-import com.android.internal.telephony.ITelephonyRegistry;
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 
 /**
  * A service that exposes carrier-specific functionality to the system.
@@ -30,8 +34,8 @@ import com.android.internal.telephony.ITelephonyRegistry;
  * To extend this class, you must declare the service in your manifest file to require the
  * {@link android.Manifest.permission#BIND_CARRIER_SERVICES} permission and include an intent
  * filter with the {@link #CARRIER_SERVICE_INTERFACE}. If the service should have a long-lived
- * binding, set android.service.carrier.LONG_LIVED_BINDING to true in the service's metadata.
- * For example:
+ * binding, set <code>android.service.carrier.LONG_LIVED_BINDING</code> to <code>true</code> in the
+ * service's metadata. For example:
  * </p>
  *
  * <pre>{@code
@@ -48,18 +52,14 @@ import com.android.internal.telephony.ITelephonyRegistry;
  */
 public abstract class CarrierService extends Service {
 
-    public static final String CARRIER_SERVICE_INTERFACE = "android.service.carrier.CarrierService";
+    private static final String LOG_TAG = "CarrierService";
 
-    private static ITelephonyRegistry sRegistry;
+    public static final String CARRIER_SERVICE_INTERFACE = "android.service.carrier.CarrierService";
 
     private final ICarrierService.Stub mStubWrapper;
 
     public CarrierService() {
         mStubWrapper = new ICarrierServiceWrapper();
-        if (sRegistry == null) {
-            sRegistry = ITelephonyRegistry.Stub.asInterface(
-                    ServiceManager.getService("telephony.registry"));
-        }
     }
 
     /**
@@ -88,7 +88,11 @@ public abstract class CarrierService extends Service {
      * </p>
      *
      * @param id contains details about the current carrier that can be used do decide what
-     *            configuration values to return.
+     *           configuration values to return. Instead of using details like MCCMNC to decide
+     *           current carrier, it also contains subscription carrier id
+     *           {@link android.telephony.TelephonyManager#getSimCarrierId()}, a platform-wide
+     *           unique identifier for each carrier, CarrierConfigService can directly use carrier
+     *           id as the key to look up the carrier info.
      * @return a {@link PersistableBundle} object containing the configuration or null if default
      *         values should be used.
      */
@@ -105,19 +109,20 @@ public abstract class CarrierService extends Service {
      * this UX, so a carrier app must be sure to call with active set to false
      * sometime after calling with it set to true.
      * <p>
-     * Requires Permission:
-     *   {@link android.Manifest.permission#MODIFY_PHONE_STATE MODIFY_PHONE_STATE}
-     * Or the calling app has carrier privileges.
-     *   @see {@link android.telephony.TelephonyManager#hasCarrierPrivileges}
+     * Requires Permission: calling app has carrier privileges.
      *
      * @param active Whether the carrier network change is or shortly will be
      *               active. Set this value to true to begin showing
      *               alternative UI and false to stop.
+     * @see android.telephony.TelephonyManager#hasCarrierPrivileges
      */
     public final void notifyCarrierNetworkChange(boolean active) {
-        try {
-            if (sRegistry != null) sRegistry.notifyCarrierNetworkChange(active);
-        } catch (RemoteException | NullPointerException ex) {}
+        TelephonyRegistryManager telephonyRegistryMgr =
+            (TelephonyRegistryManager) this.getSystemService(
+                Context.TELEPHONY_REGISTRY_SERVICE);
+        if (telephonyRegistryMgr != null) {
+            telephonyRegistryMgr.notifyCarrierNetworkChange(active);
+        }
     }
 
     /**
@@ -133,11 +138,31 @@ public abstract class CarrierService extends Service {
     /**
      * A wrapper around ICarrierService that forwards calls to implementations of
      * {@link CarrierService}.
+     * @hide
      */
-    private class ICarrierServiceWrapper extends ICarrierService.Stub {
+    public class ICarrierServiceWrapper extends ICarrierService.Stub {
+        /** @hide */
+        public static final int RESULT_OK = 0;
+        /** @hide */
+        public static final int RESULT_ERROR = 1;
+        /** @hide */
+        public static final String KEY_CONFIG_BUNDLE = "config_bundle";
+
         @Override
-        public PersistableBundle getCarrierConfig(CarrierIdentifier id) {
-            return CarrierService.this.onLoadConfig(id);
+        public void getCarrierConfig(CarrierIdentifier id, ResultReceiver result) {
+            try {
+                Bundle data = new Bundle();
+                data.putParcelable(KEY_CONFIG_BUNDLE, CarrierService.this.onLoadConfig(id));
+                result.send(RESULT_OK, data);
+            } catch (Exception e) {
+                Log.e(LOG_TAG, "Error in onLoadConfig: " + e.getMessage(), e);
+                result.send(RESULT_ERROR, null);
+            }
+        }
+
+        @Override
+        protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+            CarrierService.this.dump(fd, pw, args);
         }
     }
 }

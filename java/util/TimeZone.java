@@ -39,19 +39,17 @@
 
 package java.util;
 
+import android.icu.text.TimeZoneNames;
 import java.io.IOException;
 import java.io.Serializable;
+import java.time.ZoneId;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.lang.ref.SoftReference;
-import java.security.AccessController;
-import java.security.PrivilegedAction;
-import java.util.concurrent.ConcurrentHashMap;
-import libcore.icu.TimeZoneNames;
 import libcore.io.IoUtils;
-import libcore.util.ZoneInfoDB;
-import sun.security.action.GetPropertyAction;
-import org.apache.harmony.luni.internal.util.TimezoneGetter;
+import libcore.timezone.ZoneInfoDb;
+
+import dalvik.system.RuntimeHooks;
 
 /**
  * <code>TimeZone</code> represents a time zone offset, and also figures out daylight
@@ -120,7 +118,7 @@ import org.apache.harmony.luni.internal.util.TimezoneGetter;
  * </pre></blockquote>
  * For example, TimeZone.getTimeZone("GMT-8").getID() returns "GMT-08:00".
  *
- * <h4>Three-letter time zone IDs</h4>
+ * <h3>Three-letter time zone IDs</h3>
  *
  * For compatibility with JDK 1.1.x, some other three-letter time zone IDs
  * (such as "PST", "CTT", "AST") are also supported. However, <strong>their
@@ -160,13 +158,16 @@ abstract public class TimeZone implements Serializable, Cloneable {
      */
     public static final int LONG  = 1;
 
-    // Use a preload holder to allow compile-time initialization of TimeZone and dependents.
+    // Android-changed: Use a preload holder to allow compile-time initialization of TimeZone and
+    // dependents.
     private static class NoImagePreloadHolder {
         public static final Pattern CUSTOM_ZONE_ID_PATTERN = Pattern.compile("^GMT[-+](\\d{1,2})(:?(\\d\\d))?$");
     }
 
     // Proclaim serialization compatibility with JDK 1.1
     static final long serialVersionUID = 3581463369166924961L;
+
+    // Android-changed: common timezone instances.
     private static final TimeZone GMT = new SimpleTimeZone(0, "GMT");
     private static final TimeZone UTC = new SimpleTimeZone(0, "UTC");
 
@@ -226,7 +227,7 @@ abstract public class TimeZone implements Serializable, Cloneable {
      * @param date the milliseconds (since January 1, 1970,
      * 00:00:00.000 GMT) at which the time zone offset and daylight
      * saving amount are found
-     * @param offset an array of int where the raw GMT offset
+     * @param offsets an array of int where the raw GMT offset
      * (offset[0]) and daylight saving amount (offset[1]) are stored,
      * or null if those values are not needed. The method assumes that
      * the length of the given array is two or larger.
@@ -308,10 +309,10 @@ abstract public class TimeZone implements Serializable, Cloneable {
      * presentation to the user in the default locale.
      *
      * <p>This method is equivalent to:
-     * <pre><blockquote>
+     * <blockquote><pre>
      * getDisplayName(false, {@link #LONG},
      *                Locale.getDefault({@link Locale.Category#DISPLAY}))
-     * </blockquote></pre>
+     * </pre></blockquote>
      *
      * @return the human-readable name of this time zone in the default locale.
      * @since 1.2
@@ -329,9 +330,9 @@ abstract public class TimeZone implements Serializable, Cloneable {
      * presentation to the user in the specified {@code locale}.
      *
      * <p>This method is equivalent to:
-     * <pre><blockquote>
+     * <blockquote><pre>
      * getDisplayName(false, {@link #LONG}, locale)
-     * </blockquote></pre>
+     * </pre></blockquote>
      *
      * @param locale the locale in which to supply the display name.
      * @return the human-readable name of this time zone in the given locale.
@@ -351,10 +352,10 @@ abstract public class TimeZone implements Serializable, Cloneable {
      * Time). Otherwise, a Standard Time name is returned.
      *
      * <p>This method is equivalent to:
-     * <pre><blockquote>
+     * <blockquote><pre>
      * getDisplayName(daylight, style,
      *                Locale.getDefault({@link Locale.Category#DISPLAY}))
-     * </blockquote></pre>
+     * </pre></blockquote>
      *
      * @param daylight {@code true} specifying a Daylight Saving Time name, or
      *                 {@code false} specifying a Standard Time name
@@ -383,34 +384,44 @@ abstract public class TimeZone implements Serializable, Cloneable {
      * @param locale the display locale.
      */
     public String getDisplayName(boolean daylightTime, int style, Locale locale) {
-        if (style != SHORT && style != LONG) {
-            throw new IllegalArgumentException("Bad style: " + style);
+        // BEGIN Android-changed: implement using android.icu.text.TimeZoneNames
+        TimeZoneNames.NameType nameType;
+        switch (style) {
+            case SHORT:
+                nameType = daylightTime
+                        ? TimeZoneNames.NameType.SHORT_DAYLIGHT
+                        : TimeZoneNames.NameType.SHORT_STANDARD;
+                break;
+            case LONG:
+                nameType = daylightTime
+                        ? TimeZoneNames.NameType.LONG_DAYLIGHT
+                        : TimeZoneNames.NameType.LONG_STANDARD;
+                break;
+            default:
+                throw new IllegalArgumentException("Illegal style: " + style);
+        }
+        String canonicalID = android.icu.util.TimeZone.getCanonicalID(getID());
+        if (canonicalID != null) {
+            TimeZoneNames names = TimeZoneNames.getInstance(locale);
+            long now = System.currentTimeMillis();
+            String displayName = names.getDisplayName(canonicalID, nameType, now);
+            if (displayName != null) {
+                return displayName;
+            }
         }
 
-        String[][] zoneStrings = TimeZoneNames.getZoneStrings(locale);
-        String result = TimeZoneNames.getDisplayName(zoneStrings, getID(), daylightTime, style);
-        if (result != null) {
-            return result;
-        }
-
-        // If we get here, it's because icu4c has nothing for us. Most commonly, this is in the
-        // case of short names. For Pacific/Fiji, for example, icu4c has nothing better to offer
-        // than "GMT+12:00". Why do we re-do this work ourselves? Because we have up-to-date
-        // time zone transition data, which icu4c _doesn't_ use --- it uses its own baked-in copy,
-        // which only gets updated when we update icu4c. http://b/7955614 and http://b/8026776.
-
-        // TODO: should we generate these once, in TimeZoneNames.getDisplayName? Revisit when we
-        // upgrade to icu4c 50 and rewrite the underlying native code. See also the
-        // "element[j] != null" check in SimpleDateFormat.parseTimeZone, and the extra work in
-        // DateFormatSymbols.getZoneStrings.
+        // We get here if this is a custom timezone or ICU doesn't have name data for the specific
+        // style and locale.
         int offsetMillis = getRawOffset();
         if (daylightTime) {
             offsetMillis += getDSTSavings();
         }
         return createGmtOffsetString(true /* includeGmt */, true /* includeMinuteSeparator */,
                 offsetMillis);
+        // END Android-changed: implement using android.icu.text.TimeZoneNames
     }
 
+    // BEGIN Android-added: utility method to format an offset as a GMT offset string.
     /**
      * Returns a string representation of an offset from UTC.
      *
@@ -451,6 +462,7 @@ abstract public class TimeZone implements Serializable, Cloneable {
         }
         builder.append(string);
     }
+    // END Android-added: utility method to format an offset as a GMT offset string.
 
     /**
      * Returns the amount of time to be added to local standard time
@@ -545,7 +557,7 @@ abstract public class TimeZone implements Serializable, Cloneable {
      * @return the specified <code>TimeZone</code>, or the GMT zone if the given ID
      * cannot be understood.
      */
-    // Android changed param s/ID/id
+    // Android-changed: param s/ID/id; use ZoneInfoDb instead of ZoneInfo class.
     public static synchronized TimeZone getTimeZone(String id) {
         if (id == null) {
             throw new NullPointerException("id == null");
@@ -564,7 +576,7 @@ abstract public class TimeZone implements Serializable, Cloneable {
         // In the database?
         TimeZone zone = null;
         try {
-            zone = ZoneInfoDB.getInstance().makeTimeZone(id);
+            zone = ZoneInfoDb.getInstance().makeTimeZone(id);
         } catch (IOException ignored) {
         }
 
@@ -575,6 +587,38 @@ abstract public class TimeZone implements Serializable, Cloneable {
 
         // We never return null; on failure we return the equivalent of "GMT".
         return (zone != null) ? zone : (TimeZone) GMT.clone();
+    }
+
+    /**
+     * Gets the {@code TimeZone} for the given {@code zoneId}.
+     *
+     * @param zoneId a {@link ZoneId} from which the time zone ID is obtained
+     * @return the specified {@code TimeZone}, or the GMT zone if the given ID
+     *         cannot be understood.
+     * @throws NullPointerException if {@code zoneId} is {@code null}
+     * @since 1.8
+     */
+    public static TimeZone getTimeZone(ZoneId zoneId) {
+        String tzid = zoneId.getId(); // throws an NPE if null
+        char c = tzid.charAt(0);
+        if (c == '+' || c == '-') {
+            tzid = "GMT" + tzid;
+        } else if (c == 'Z' && tzid.length() == 1) {
+            tzid = "UTC";
+        }
+        return getTimeZone(tzid);
+    }
+
+    /**
+     * Converts this {@code TimeZone} object to a {@code ZoneId}.
+     *
+     * @return a {@code ZoneId} representing the same time zone as this
+     *         {@code TimeZone}
+     * @since 1.8
+     */
+    public ZoneId toZoneId() {
+        // Android-changed: don't support "old mapping"
+        return ZoneId.of(getID(), ZoneId.SHORT_IDS);
     }
 
     /**
@@ -622,7 +666,7 @@ abstract public class TimeZone implements Serializable, Cloneable {
      * @see #getRawOffset()
      */
     public static synchronized String[] getAvailableIDs(int rawOffset) {
-        return ZoneInfoDB.getInstance().getAvailableIDs(rawOffset);
+        return ZoneInfoDb.getInstance().getAvailableIDs(rawOffset);
     }
 
     /**
@@ -630,7 +674,7 @@ abstract public class TimeZone implements Serializable, Cloneable {
      * @return an array of IDs.
      */
     public static synchronized String[] getAvailableIDs() {
-        return ZoneInfoDB.getInstance().getAvailableIDs();
+        return ZoneInfoDb.getInstance().getAvailableIDs();
     }
 
     /**
@@ -662,8 +706,8 @@ abstract public class TimeZone implements Serializable, Cloneable {
      */
     static synchronized TimeZone getDefaultRef() {
         if (defaultTimeZone == null) {
-            TimezoneGetter tzGetter = TimezoneGetter.getInstance();
-            String zoneName = (tzGetter != null) ? tzGetter.getId() : null;
+            Supplier<String> tzGetter = RuntimeHooks.getTimeZoneIdSupplier();
+            String zoneName = (tzGetter != null) ? tzGetter.get() : null;
             if (zoneName != null) {
                 zoneName = zoneName.trim();
             }
@@ -682,35 +726,26 @@ abstract public class TimeZone implements Serializable, Cloneable {
         return defaultTimeZone;
     }
 
-    private static boolean hasPermission() {
-        boolean hasPermission = true;
-        SecurityManager sm = System.getSecurityManager();
-        if (sm != null) {
-            try {
-                sm.checkPermission(new PropertyPermission
-                                   ("user.timezone", "write"));
-            } catch (SecurityException e) {
-                hasPermission = false;
-            }
-        }
-        return hasPermission;
-    }
-
     /**
-     * Sets the <code>TimeZone</code> that is
-     * returned by the <code>getDefault</code> method.  If <code>zone</code>
-     * is null, reset the default to the value it had originally when the
-     * VM first started.
-     * @param timeZone the new default time zone
+     * Sets the {@code TimeZone} that is returned by the {@code getDefault}
+     * method. {@code timeZone} is cached. If {@code timeZone} is null, the cached
+     * default {@code TimeZone} is cleared. This method doesn't change the value
+     * of the {@code user.timezone} property.
+     *
+     * @param timeZone the new default {@code TimeZone}, or null
      * @see #getDefault
      */
-    // Android changed s/zone/timeZone
+    // Android-changed: s/zone/timeZone, synchronized, removed mention of SecurityException
     public synchronized static void setDefault(TimeZone timeZone)
     {
-        if (hasPermission()) {
-            defaultTimeZone = timeZone != null ? (TimeZone) timeZone.clone() : null;
-            android.icu.util.TimeZone.clearCachedDefault();
+        SecurityManager sm = System.getSecurityManager();
+        if (sm != null) {
+            sm.checkPermission(new PropertyPermission
+                    ("user.timezone", "write"));
         }
+        defaultTimeZone = timeZone != null ? (TimeZone) timeZone.clone() : null;
+        // Android-changed: notify ICU4J of changed default TimeZone.
+        android.icu.util.TimeZone.setICUDefault(null);
     }
 
     /**
@@ -739,7 +774,7 @@ abstract public class TimeZone implements Serializable, Cloneable {
             other.ID = ID;
             return other;
         } catch (CloneNotSupportedException e) {
-            throw new InternalError();
+            throw new InternalError(e);
         }
     }
 

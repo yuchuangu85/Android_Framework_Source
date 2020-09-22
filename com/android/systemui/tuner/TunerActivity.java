@@ -15,25 +15,47 @@
  */
 package com.android.systemui.tuner;
 
+import android.app.Activity;
 import android.app.Fragment;
 import android.app.FragmentTransaction;
 import android.os.Bundle;
-import android.support.v14.preference.PreferenceFragment;
-import android.support.v7.preference.Preference;
-import android.support.v7.preference.PreferenceScreen;
 import android.util.Log;
+import android.view.MenuItem;
+import android.view.Window;
+import android.view.WindowManager;
+import android.widget.Toolbar;
 
-import com.android.settingslib.drawer.SettingsDrawerActivity;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceFragment;
+import androidx.preference.PreferenceScreen;
+
+import com.android.systemui.Dependency;
 import com.android.systemui.R;
+import com.android.systemui.fragments.FragmentService;
 
-public class TunerActivity extends SettingsDrawerActivity implements
+import javax.inject.Inject;
+
+public class TunerActivity extends Activity implements
         PreferenceFragment.OnPreferenceStartFragmentCallback,
         PreferenceFragment.OnPreferenceStartScreenCallback {
 
     private static final String TAG_TUNER = "tuner";
 
+    @Inject
+    TunerActivity() {
+        super();
+    }
+
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        requestWindowFeature(Window.FEATURE_NO_TITLE);
+        setContentView(R.layout.tuner_activity);
+        Toolbar toolbar = findViewById(R.id.action_bar);
+        if (toolbar != null) {
+            setActionBar(toolbar);
+        }
 
         if (getFragmentManager().findFragmentByTag(TAG_TUNER) == null) {
             final String action = getIntent().getAction();
@@ -44,6 +66,21 @@ public class TunerActivity extends SettingsDrawerActivity implements
             getFragmentManager().beginTransaction().replace(R.id.content_frame,
                     fragment, TAG_TUNER).commit();
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        Dependency.destroy(FragmentService.class, s -> s.destroyAll());
+    }
+
+    @Override
+    public boolean onMenuItemSelected(int featureId, MenuItem item) {
+        if (item.getItemId() == android.R.id.home) {
+            onBackPressed();
+            return true;
+        }
+        return super.onMenuItemSelected(featureId, item);
     }
 
     @Override
@@ -58,6 +95,9 @@ public class TunerActivity extends SettingsDrawerActivity implements
         try {
             Class<?> cls = Class.forName(pref.getFragment());
             Fragment fragment = (Fragment) cls.newInstance();
+            final Bundle b = new Bundle(1);
+            b.putString(PreferenceFragment.ARG_PREFERENCE_ROOT, pref.getKey());
+            fragment.setArguments(b);
             FragmentTransaction transaction = getFragmentManager().beginTransaction();
             setTitle(pref.getTitle());
             transaction.replace(R.id.content_frame, fragment);
@@ -85,10 +125,35 @@ public class TunerActivity extends SettingsDrawerActivity implements
     }
 
     public static class SubSettingsFragment extends PreferenceFragment {
+        private PreferenceScreen mParentScreen;
+
         @Override
         public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
-            setPreferenceScreen((PreferenceScreen) ((PreferenceFragment) getTargetFragment())
-                    .getPreferenceScreen().findPreference(rootKey));
+            mParentScreen =
+                    (PreferenceScreen) ((PreferenceFragment) getTargetFragment())
+                            .getPreferenceScreen().findPreference(rootKey);
+            PreferenceScreen screen =
+                    getPreferenceManager().createPreferenceScreen(
+                            getPreferenceManager().getContext());
+            setPreferenceScreen(screen);
+            // Copy all the preferences over to this screen so they go into the attached state.
+            while (mParentScreen.getPreferenceCount() > 0) {
+                Preference p = mParentScreen.getPreference(0);
+                mParentScreen.removePreference(p);
+                screen.addPreference(p);
+            }
+        }
+
+        @Override
+        public void onDestroy() {
+            super.onDestroy();
+            // Copy all the preferences back so we don't lose them.
+            PreferenceScreen screen = getPreferenceScreen();
+            while (screen.getPreferenceCount() > 0) {
+                Preference p = screen.getPreference(0);
+                screen.removePreference(p);
+                mParentScreen.addPreference(p);
+            }
         }
     }
 

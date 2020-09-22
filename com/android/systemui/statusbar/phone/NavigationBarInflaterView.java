@@ -14,12 +14,17 @@
 
 package com.android.systemui.statusbar.phone;
 
+import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
+import static android.view.WindowManagerPolicyConstants.NAV_BAR_MODE_3BUTTON;
+
 import android.annotation.Nullable;
 import android.content.Context;
 import android.content.res.Configuration;
-import android.content.res.Resources;
+import android.graphics.drawable.Icon;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.util.SparseArray;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -27,25 +32,38 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.Space;
 
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.systemui.Dependency;
 import com.android.systemui.R;
+import com.android.systemui.recents.OverviewProxyService;
+import com.android.systemui.shared.system.QuickStepContract;
+import com.android.systemui.statusbar.phone.ReverseLinearLayout.ReverseRelativeLayout;
 import com.android.systemui.statusbar.policy.KeyButtonView;
-import com.android.systemui.tuner.TunerService;
 
+import java.io.PrintWriter;
 import java.util.Objects;
 
-public class NavigationBarInflaterView extends FrameLayout implements TunerService.Tunable {
+public class NavigationBarInflaterView extends FrameLayout
+        implements NavigationModeController.ModeChangedListener {
 
     private static final String TAG = "NavBarInflater";
 
     public static final String NAV_BAR_VIEWS = "sysui_nav_bar";
+    public static final String NAV_BAR_LEFT = "sysui_nav_bar_left";
+    public static final String NAV_BAR_RIGHT = "sysui_nav_bar_right";
 
-    public static final String MENU_IME = "menu_ime";
+    public static final String MENU_IME_ROTATE = "menu_ime";
     public static final String BACK = "back";
     public static final String HOME = "home";
     public static final String RECENT = "recent";
     public static final String NAVSPACE = "space";
     public static final String CLIPBOARD = "clipboard";
+    public static final String HOME_HANDLE = "home_handle";
     public static final String KEY = "key";
+    public static final String LEFT = "left";
+    public static final String RIGHT = "right";
+    public static final String CONTEXTUAL = "contextual";
+    public static final String IME_SWITCHER = "ime_switcher";
 
     public static final String GRAVITY_SEPARATOR = ";";
     public static final String BUTTON_SEPARATOR = ",";
@@ -56,46 +74,44 @@ public class NavigationBarInflaterView extends FrameLayout implements TunerServi
     public static final String KEY_CODE_START = "(";
     public static final String KEY_IMAGE_DELIM = ":";
     public static final String KEY_CODE_END = ")";
+    private static final String WEIGHT_SUFFIX = "W";
+    private static final String WEIGHT_CENTERED_SUFFIX = "WC";
+    private static final String ABSOLUTE_SUFFIX = "A";
+    private static final String ABSOLUTE_VERTICAL_CENTERED_SUFFIX = "C";
 
     protected LayoutInflater mLayoutInflater;
     protected LayoutInflater mLandscapeInflater;
-    private int mDensity;
 
-    protected FrameLayout mRot0;
-    protected FrameLayout mRot90;
+    protected FrameLayout mHorizontal;
+    protected FrameLayout mVertical;
 
-    private SparseArray<ButtonDispatcher> mButtonDispatchers;
+    @VisibleForTesting
+    SparseArray<ButtonDispatcher> mButtonDispatchers;
     private String mCurrentLayout;
 
-    private View mLastRot0;
-    private View mLastRot90;
+    private View mLastPortrait;
+    private View mLastLandscape;
 
+    private boolean mIsVertical;
     private boolean mAlternativeOrder;
+
+    private OverviewProxyService mOverviewProxyService;
+    private int mNavBarMode = NAV_BAR_MODE_3BUTTON;
 
     public NavigationBarInflaterView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        mDensity = context.getResources().getConfiguration().densityDpi;
         createInflaters();
+        mOverviewProxyService = Dependency.get(OverviewProxyService.class);
+        mNavBarMode = Dependency.get(NavigationModeController.class).addListener(this);
     }
 
-    private void createInflaters() {
+    @VisibleForTesting
+    void createInflaters() {
         mLayoutInflater = LayoutInflater.from(mContext);
         Configuration landscape = new Configuration();
         landscape.setTo(mContext.getResources().getConfiguration());
         landscape.orientation = Configuration.ORIENTATION_LANDSCAPE;
         mLandscapeInflater = LayoutInflater.from(mContext.createConfigurationContext(landscape));
-    }
-
-    @Override
-    protected void onConfigurationChanged(Configuration newConfig) {
-        super.onConfigurationChanged(newConfig);
-        if (mDensity != newConfig.densityDpi) {
-            mDensity = newConfig.densityDpi;
-            createInflaters();
-            inflateChildren();
-            clearViews();
-            inflateLayout(mCurrentLayout);
-        }
     }
 
     @Override
@@ -108,53 +124,69 @@ public class NavigationBarInflaterView extends FrameLayout implements TunerServi
 
     private void inflateChildren() {
         removeAllViews();
-        mRot0 = (FrameLayout) mLayoutInflater.inflate(R.layout.navigation_layout, this, false);
-        mRot0.setId(R.id.rot0);
-        addView(mRot0);
-        mRot90 = (FrameLayout) mLayoutInflater.inflate(R.layout.navigation_layout_rot90, this,
-                false);
-        mRot90.setId(R.id.rot90);
-        addView(mRot90);
+        mHorizontal = (FrameLayout) mLayoutInflater.inflate(R.layout.navigation_layout,
+                this /* root */, false /* attachToRoot */);
+        addView(mHorizontal);
+        mVertical = (FrameLayout) mLayoutInflater.inflate(R.layout.navigation_layout_vertical,
+                this /* root */, false /* attachToRoot */);
+        addView(mVertical);
         updateAlternativeOrder();
-        if (getParent() instanceof NavigationBarView) {
-            ((NavigationBarView) getParent()).updateRotatedViews();
-        }
     }
 
     protected String getDefaultLayout() {
-        return mContext.getString(R.string.config_navBarLayout);
+        final int defaultResource = QuickStepContract.isGesturalMode(mNavBarMode)
+                ? R.string.config_navBarLayoutHandle
+                : mOverviewProxyService.shouldShowSwipeUpUI()
+                        ? R.string.config_navBarLayoutQuickstep
+                        : R.string.config_navBarLayout;
+        return getContext().getString(defaultResource);
     }
 
     @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        TunerService.get(getContext()).addTunable(this, NAV_BAR_VIEWS);
+    public void onNavigationModeChanged(int mode) {
+        mNavBarMode = mode;
     }
 
     @Override
     protected void onDetachedFromWindow() {
-        TunerService.get(getContext()).removeTunable(this);
+        Dependency.get(NavigationModeController.class).removeListener(this);
         super.onDetachedFromWindow();
     }
 
-    @Override
-    public void onTuningChanged(String key, String newValue) {
-        if (NAV_BAR_VIEWS.equals(key)) {
-            if (!Objects.equals(mCurrentLayout, newValue)) {
-                clearViews();
-                inflateLayout(newValue);
+    public void onLikelyDefaultLayoutChange() {
+
+        // Reevaluate new layout
+        final String newValue = getDefaultLayout();
+        if (!Objects.equals(mCurrentLayout, newValue)) {
+            clearViews();
+            inflateLayout(newValue);
+        }
+    }
+
+    public void setButtonDispatchers(SparseArray<ButtonDispatcher> buttonDispatchers) {
+        mButtonDispatchers = buttonDispatchers;
+        for (int i = 0; i < buttonDispatchers.size(); i++) {
+            initiallyFill(buttonDispatchers.valueAt(i));
+        }
+    }
+
+    void updateButtonDispatchersCurrentView() {
+        if (mButtonDispatchers != null) {
+            View view = mIsVertical ? mVertical : mHorizontal;
+            for (int i = 0; i < mButtonDispatchers.size(); i++) {
+                final ButtonDispatcher dispatcher = mButtonDispatchers.valueAt(i);
+                dispatcher.setCurrentView(view);
             }
         }
     }
 
-    public void setButtonDispatchers(SparseArray<ButtonDispatcher> buttonDisatchers) {
-        mButtonDispatchers = buttonDisatchers;
-        for (int i = 0; i < buttonDisatchers.size(); i++) {
-            initiallyFill(buttonDisatchers.valueAt(i));
+    void setVertical(boolean vertical) {
+        if (vertical != mIsVertical) {
+            mIsVertical = vertical;
         }
     }
 
-    public void setAlternativeOrder(boolean alternativeOrder) {
+    void setAlternativeOrder(boolean alternativeOrder) {
         if (alternativeOrder != mAlternativeOrder) {
             mAlternativeOrder = alternativeOrder;
             updateAlternativeOrder();
@@ -162,10 +194,10 @@ public class NavigationBarInflaterView extends FrameLayout implements TunerServi
     }
 
     private void updateAlternativeOrder() {
-        updateAlternativeOrder(mRot0.findViewById(R.id.ends_group));
-        updateAlternativeOrder(mRot0.findViewById(R.id.center_group));
-        updateAlternativeOrder(mRot90.findViewById(R.id.ends_group));
-        updateAlternativeOrder(mRot90.findViewById(R.id.center_group));
+        updateAlternativeOrder(mHorizontal.findViewById(R.id.ends_group));
+        updateAlternativeOrder(mHorizontal.findViewById(R.id.center_group));
+        updateAlternativeOrder(mVertical.findViewById(R.id.ends_group));
+        updateAlternativeOrder(mVertical.findViewById(R.id.center_group));
     }
 
     private void updateAlternativeOrder(View v) {
@@ -175,10 +207,10 @@ public class NavigationBarInflaterView extends FrameLayout implements TunerServi
     }
 
     private void initiallyFill(ButtonDispatcher buttonDispatcher) {
-        addAll(buttonDispatcher, (ViewGroup) mRot0.findViewById(R.id.ends_group));
-        addAll(buttonDispatcher, (ViewGroup) mRot0.findViewById(R.id.center_group));
-        addAll(buttonDispatcher, (ViewGroup) mRot90.findViewById(R.id.ends_group));
-        addAll(buttonDispatcher, (ViewGroup) mRot90.findViewById(R.id.center_group));
+        addAll(buttonDispatcher, mHorizontal.findViewById(R.id.ends_group));
+        addAll(buttonDispatcher, mHorizontal.findViewById(R.id.center_group));
+        addAll(buttonDispatcher, mVertical.findViewById(R.id.ends_group));
+        addAll(buttonDispatcher, mVertical.findViewById(R.id.center_group));
     }
 
     private void addAll(ButtonDispatcher buttonDispatcher, ViewGroup parent) {
@@ -188,7 +220,8 @@ public class NavigationBarInflaterView extends FrameLayout implements TunerServi
             // and will only happen once.
             if (parent.getChildAt(i).getId() == buttonDispatcher.getId()) {
                 buttonDispatcher.addView(parent.getChildAt(i));
-            } else if (parent.getChildAt(i) instanceof ViewGroup) {
+            }
+            if (parent.getChildAt(i) instanceof ViewGroup) {
                 addAll(buttonDispatcher, (ViewGroup) parent.getChildAt(i));
             }
         }
@@ -200,30 +233,44 @@ public class NavigationBarInflaterView extends FrameLayout implements TunerServi
             newLayout = getDefaultLayout();
         }
         String[] sets = newLayout.split(GRAVITY_SEPARATOR, 3);
+        if (sets.length != 3) {
+            Log.d(TAG, "Invalid layout.");
+            newLayout = getDefaultLayout();
+            sets = newLayout.split(GRAVITY_SEPARATOR, 3);
+        }
         String[] start = sets[0].split(BUTTON_SEPARATOR);
         String[] center = sets[1].split(BUTTON_SEPARATOR);
         String[] end = sets[2].split(BUTTON_SEPARATOR);
         // Inflate these in start to end order or accessibility traversal will be messed up.
-        inflateButtons(start, (ViewGroup) mRot0.findViewById(R.id.ends_group), false);
-        inflateButtons(start, (ViewGroup) mRot90.findViewById(R.id.ends_group), true);
+        inflateButtons(start, mHorizontal.findViewById(R.id.ends_group),
+                false /* landscape */, true /* start */);
+        inflateButtons(start, mVertical.findViewById(R.id.ends_group),
+                true /* landscape */, true /* start */);
 
-        inflateButtons(center, (ViewGroup) mRot0.findViewById(R.id.center_group), false);
-        inflateButtons(center, (ViewGroup) mRot90.findViewById(R.id.center_group), true);
+        inflateButtons(center, mHorizontal.findViewById(R.id.center_group),
+                false /* landscape */, false /* start */);
+        inflateButtons(center, mVertical.findViewById(R.id.center_group),
+                true /* landscape */, false /* start */);
 
-        addGravitySpacer((LinearLayout) mRot0.findViewById(R.id.ends_group));
-        addGravitySpacer((LinearLayout) mRot90.findViewById(R.id.ends_group));
+        addGravitySpacer(mHorizontal.findViewById(R.id.ends_group));
+        addGravitySpacer(mVertical.findViewById(R.id.ends_group));
 
-        inflateButtons(end, (ViewGroup) mRot0.findViewById(R.id.ends_group), false);
-        inflateButtons(end, (ViewGroup) mRot90.findViewById(R.id.ends_group), true);
+        inflateButtons(end, mHorizontal.findViewById(R.id.ends_group),
+                false /* landscape */, false /* start */);
+        inflateButtons(end, mVertical.findViewById(R.id.ends_group),
+                true /* landscape */, false /* start */);
+
+        updateButtonDispatchersCurrentView();
     }
 
     private void addGravitySpacer(LinearLayout layout) {
         layout.addView(new Space(mContext), new LinearLayout.LayoutParams(0, 0, 1));
     }
 
-    private void inflateButtons(String[] buttons, ViewGroup parent, boolean landscape) {
+    private void inflateButtons(String[] buttons, ViewGroup parent, boolean landscape,
+            boolean start) {
         for (int i = 0; i < buttons.length; i++) {
-            inflateButton(buttons[i], parent, landscape, i);
+            inflateButton(buttons[i], parent, landscape, start);
         }
     }
 
@@ -237,58 +284,120 @@ public class NavigationBarInflaterView extends FrameLayout implements TunerServi
 
     @Nullable
     protected View inflateButton(String buttonSpec, ViewGroup parent, boolean landscape,
-            int indexInParent) {
+            boolean start) {
         LayoutInflater inflater = landscape ? mLandscapeInflater : mLayoutInflater;
-        float size = extractSize(buttonSpec);
-        String button = extractButton(buttonSpec);
+        View v = createView(buttonSpec, parent, inflater);
+        if (v == null) return null;
+
+        v = applySize(v, buttonSpec, landscape, start);
+        parent.addView(v);
+        addToDispatchers(v);
+        View lastView = landscape ? mLastLandscape : mLastPortrait;
+        View accessibilityView = v;
+        if (v instanceof ReverseRelativeLayout) {
+            accessibilityView = ((ReverseRelativeLayout) v).getChildAt(0);
+        }
+        if (lastView != null) {
+            accessibilityView.setAccessibilityTraversalAfter(lastView.getId());
+        }
+        if (landscape) {
+            mLastLandscape = accessibilityView;
+        } else {
+            mLastPortrait = accessibilityView;
+        }
+        return v;
+    }
+
+    private View applySize(View v, String buttonSpec, boolean landscape, boolean start) {
+        String sizeStr = extractSize(buttonSpec);
+        if (sizeStr == null) return v;
+
+        if (sizeStr.contains(WEIGHT_SUFFIX) || sizeStr.contains(ABSOLUTE_SUFFIX)) {
+            // To support gravity, wrap in RelativeLayout and apply gravity to it.
+            // Children wanting to use gravity must be smaller then the frame.
+            ReverseRelativeLayout frame = new ReverseRelativeLayout(mContext);
+            LayoutParams childParams = new LayoutParams(v.getLayoutParams());
+
+            // Compute gravity to apply
+            int gravity = (landscape) ? (start ? Gravity.TOP : Gravity.BOTTOM)
+                    : (start ? Gravity.START : Gravity.END);
+            if (sizeStr.endsWith(WEIGHT_CENTERED_SUFFIX)) {
+                gravity = Gravity.CENTER;
+            } else if (sizeStr.endsWith(ABSOLUTE_VERTICAL_CENTERED_SUFFIX)) {
+                gravity = Gravity.CENTER_VERTICAL;
+            }
+
+            // Set default gravity, flipped if needed in reversed layouts (270 RTL and 90 LTR)
+            frame.setDefaultGravity(gravity);
+            frame.setGravity(gravity); // Apply gravity to root
+
+            frame.addView(v, childParams);
+
+            if (sizeStr.contains(WEIGHT_SUFFIX)) {
+                // Use weighting to set the width of the frame
+                float weight = Float.parseFloat(
+                        sizeStr.substring(0, sizeStr.indexOf(WEIGHT_SUFFIX)));
+                frame.setLayoutParams(new LinearLayout.LayoutParams(0, MATCH_PARENT, weight));
+            } else {
+                int width = (int) convertDpToPx(mContext,
+                        Float.parseFloat(sizeStr.substring(0, sizeStr.indexOf(ABSOLUTE_SUFFIX))));
+                frame.setLayoutParams(new LinearLayout.LayoutParams(width, MATCH_PARENT));
+            }
+
+            // Ensure ripples can be drawn outside bounds
+            frame.setClipChildren(false);
+            frame.setClipToPadding(false);
+
+            return frame;
+        }
+
+        float size = Float.parseFloat(sizeStr);
+        ViewGroup.LayoutParams params = v.getLayoutParams();
+        params.width = (int) (params.width * size);
+        return v;
+    }
+
+    private View createView(String buttonSpec, ViewGroup parent, LayoutInflater inflater) {
         View v = null;
+        String button = extractButton(buttonSpec);
+        if (LEFT.equals(button)) {
+            button = extractButton(NAVSPACE);
+        } else if (RIGHT.equals(button)) {
+            button = extractButton(MENU_IME_ROTATE);
+        }
         if (HOME.equals(button)) {
             v = inflater.inflate(R.layout.home, parent, false);
-            if (landscape && isSw600Dp()) {
-                setupLandButton(v);
-            }
         } else if (BACK.equals(button)) {
             v = inflater.inflate(R.layout.back, parent, false);
-            if (landscape && isSw600Dp()) {
-                setupLandButton(v);
-            }
         } else if (RECENT.equals(button)) {
             v = inflater.inflate(R.layout.recent_apps, parent, false);
-            if (landscape && isSw600Dp()) {
-                setupLandButton(v);
-            }
-        } else if (MENU_IME.equals(button)) {
+        } else if (MENU_IME_ROTATE.equals(button)) {
             v = inflater.inflate(R.layout.menu_ime, parent, false);
         } else if (NAVSPACE.equals(button)) {
             v = inflater.inflate(R.layout.nav_key_space, parent, false);
         } else if (CLIPBOARD.equals(button)) {
             v = inflater.inflate(R.layout.clipboard, parent, false);
+        } else if (CONTEXTUAL.equals(button)) {
+            v = inflater.inflate(R.layout.contextual, parent, false);
+        } else if (HOME_HANDLE.equals(button)) {
+            v = inflater.inflate(R.layout.home_handle, parent, false);
+        } else if (IME_SWITCHER.equals(button)) {
+            v = inflater.inflate(R.layout.ime_switcher, parent, false);
         } else if (button.startsWith(KEY)) {
             String uri = extractImage(button);
             int code = extractKeycode(button);
             v = inflater.inflate(R.layout.custom_key, parent, false);
             ((KeyButtonView) v).setCode(code);
             if (uri != null) {
-                ((KeyButtonView) v).loadAsync(uri);
+                if (uri.contains(":")) {
+                    ((KeyButtonView) v).loadAsync(Icon.createWithContentUri(uri));
+                } else if (uri.contains("/")) {
+                    int index = uri.indexOf('/');
+                    String pkg = uri.substring(0, index);
+                    int id = Integer.parseInt(uri.substring(index + 1));
+                    ((KeyButtonView) v).loadAsync(Icon.createWithResource(pkg, id));
+                }
             }
-        } else {
-            return null;
-        }
-
-        if (size != 0) {
-            ViewGroup.LayoutParams params = v.getLayoutParams();
-            params.width = (int) (params.width * size);
-        }
-        parent.addView(v);
-        addToDispatchers(v, landscape);
-        View lastView = landscape ? mLastRot90 : mLastRot0;
-        if (lastView != null) {
-            v.setAccessibilityTraversalAfter(lastView.getId());
-        }
-        if (landscape) {
-            mLastRot90 = v;
-        } else {
-            mLastRot0 = v;
         }
         return v;
     }
@@ -311,13 +420,12 @@ public class NavigationBarInflaterView extends FrameLayout implements TunerServi
         return Integer.parseInt(subStr);
     }
 
-    public static float extractSize(String buttonSpec) {
+    public static String extractSize(String buttonSpec) {
         if (!buttonSpec.contains(SIZE_MOD_START)) {
-            return 1;
+            return null;
         }
         final int sizeStart = buttonSpec.indexOf(SIZE_MOD_START);
-        String sizeStr = buttonSpec.substring(sizeStart + 1, buttonSpec.indexOf(SIZE_MOD_END));
-        return Float.parseFloat(sizeStr);
+        return buttonSpec.substring(sizeStart + 1, buttonSpec.indexOf(SIZE_MOD_END));
     }
 
     public static String extractButton(String buttonSpec) {
@@ -327,36 +435,20 @@ public class NavigationBarInflaterView extends FrameLayout implements TunerServi
         return buttonSpec.substring(0, buttonSpec.indexOf(SIZE_MOD_START));
     }
 
-    private void addToDispatchers(View v, boolean landscape) {
+    private void addToDispatchers(View v) {
         if (mButtonDispatchers != null) {
             final int indexOfKey = mButtonDispatchers.indexOfKey(v.getId());
             if (indexOfKey >= 0) {
-                mButtonDispatchers.valueAt(indexOfKey).addView(v, landscape);
-            } else if (v instanceof ViewGroup) {
+                mButtonDispatchers.valueAt(indexOfKey).addView(v);
+            }
+            if (v instanceof ViewGroup) {
                 final ViewGroup viewGroup = (ViewGroup)v;
                 final int N = viewGroup.getChildCount();
                 for (int i = 0; i < N; i++) {
-                    addToDispatchers(viewGroup.getChildAt(i), landscape);
+                    addToDispatchers(viewGroup.getChildAt(i));
                 }
             }
         }
-    }
-
-    private boolean isSw600Dp() {
-        Configuration configuration = mContext.getResources().getConfiguration();
-        return (configuration.smallestScreenWidthDp >= 600);
-    }
-
-    /**
-     * This manually sets the width of sw600dp landscape buttons because despite
-     * overriding the configuration from the overridden resources aren't loaded currently.
-     */
-    private void setupLandButton(View v) {
-        Resources res = mContext.getResources();
-        v.getLayoutParams().width = res.getDimensionPixelOffset(
-                R.dimen.navigation_key_width_sw600dp_land);
-        int padding = res.getDimensionPixelOffset(R.dimen.navigation_key_padding_sw600dp_land);
-        v.setPadding(padding, v.getPaddingTop(), padding, v.getPaddingBottom());
     }
 
     private void clearViews() {
@@ -365,13 +457,23 @@ public class NavigationBarInflaterView extends FrameLayout implements TunerServi
                 mButtonDispatchers.valueAt(i).clear();
             }
         }
-        clearAllChildren((ViewGroup) mRot0.findViewById(R.id.nav_buttons));
-        clearAllChildren((ViewGroup) mRot90.findViewById(R.id.nav_buttons));
+        clearAllChildren(mHorizontal.findViewById(R.id.nav_buttons));
+        clearAllChildren(mVertical.findViewById(R.id.nav_buttons));
     }
 
     private void clearAllChildren(ViewGroup group) {
         for (int i = 0; i < group.getChildCount(); i++) {
             ((ViewGroup) group.getChildAt(i)).removeAllViews();
         }
+    }
+
+    private static float convertDpToPx(Context context, float dp) {
+        return dp * context.getResources().getDisplayMetrics().density;
+    }
+
+    public void dump(PrintWriter pw) {
+        pw.println("NavigationBarInflaterView {");
+        pw.println("      mCurrentLayout: " + mCurrentLayout);
+        pw.println("    }");
     }
 }

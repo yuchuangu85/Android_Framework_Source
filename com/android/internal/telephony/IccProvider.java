@@ -16,34 +16,36 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentProvider;
-import android.content.UriMatcher;
 import android.content.ContentValues;
+import android.content.UriMatcher;
 import android.database.Cursor;
-import android.database.MergeCursor;
 import android.database.MatrixCursor;
+import android.database.MergeCursor;
 import android.net.Uri;
 import android.os.RemoteException;
-import android.os.ServiceManager;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyFrameworkInitializer;
 import android.text.TextUtils;
-import android.telephony.Rlog;
-
-import java.util.List;
 
 import com.android.internal.telephony.uicc.AdnRecord;
 import com.android.internal.telephony.uicc.IccConstants;
+import com.android.telephony.Rlog;
 
+import java.util.List;
 
 /**
  * {@hide}
  */
 public class IccProvider extends ContentProvider {
     private static final String TAG = "IccProvider";
+    @UnsupportedAppUsage
     private static final boolean DBG = true;
 
 
+    @UnsupportedAppUsage
     private static final String[] ADDRESS_BOOK_COLUMN_NAMES = new String[] {
         "name",
         "number",
@@ -77,6 +79,10 @@ public class IccProvider extends ContentProvider {
     }
 
     private SubscriptionManager mSubscriptionManager;
+
+    @UnsupportedAppUsage
+    public IccProvider() {
+    }
 
     @Override
     public boolean onCreate() {
@@ -121,7 +127,8 @@ public class IccProvider extends ContentProvider {
 
     private Cursor loadAllSimContacts(int efType) {
         Cursor [] result;
-        List<SubscriptionInfo> subInfoList = mSubscriptionManager.getActiveSubscriptionInfoList();
+        List<SubscriptionInfo> subInfoList = mSubscriptionManager
+                .getActiveSubscriptionInfoList(false);
 
         if ((subInfoList == null) || (subInfoList.size() == 0)) {
             result = new Cursor[0];
@@ -294,14 +301,14 @@ public class IccProvider extends ContentProvider {
         String[] emails = null;
         String pin2 = null;
 
-        String[] tokens = where.split("AND");
+        String[] tokens = where.split(" AND ");
         int n = tokens.length;
 
         while (--n >= 0) {
             String param = tokens[n];
             if (DBG) log("parsing '" + param + "'");
 
-            String[] pair = param.split("=");
+            String[] pair = param.split("=", 2);
 
             if (pair.length != 2) {
                 Rlog.e(TAG, "resolve: bad whereClause parameter: " + param);
@@ -397,7 +404,10 @@ public class IccProvider extends ContentProvider {
         List<AdnRecord> adnRecords = null;
         try {
             IIccPhoneBook iccIpb = IIccPhoneBook.Stub.asInterface(
-                    ServiceManager.getService("simphonebook"));
+                    TelephonyFrameworkInitializer
+                            .getTelephonyServiceManager()
+                            .getIccPhoneBookServiceRegisterer()
+                            .get());
             if (iccIpb != null) {
                 adnRecords = iccIpb.getAdnRecordsInEfForSubscriber(subId, efType);
             }
@@ -439,7 +449,10 @@ public class IccProvider extends ContentProvider {
 
         try {
             IIccPhoneBook iccIpb = IIccPhoneBook.Stub.asInterface(
-                    ServiceManager.getService("simphonebook"));
+                    TelephonyFrameworkInitializer
+                            .getTelephonyServiceManager()
+                            .getIccPhoneBookServiceRegisterer()
+                            .get());
             if (iccIpb != null) {
                 success = iccIpb.updateAdnRecordsInEfBySearchForSubscriber(subId, efType,
                         "", "", name, number, pin2);
@@ -465,7 +478,10 @@ public class IccProvider extends ContentProvider {
 
         try {
             IIccPhoneBook iccIpb = IIccPhoneBook.Stub.asInterface(
-                    ServiceManager.getService("simphonebook"));
+                    TelephonyFrameworkInitializer
+                            .getTelephonyServiceManager()
+                            .getIccPhoneBookServiceRegisterer()
+                            .get());
             if (iccIpb != null) {
                 success = iccIpb.updateAdnRecordsInEfBySearchForSubscriber(subId, efType, oldName,
                         oldNumber, newName, newNumber, pin2);
@@ -491,7 +507,10 @@ public class IccProvider extends ContentProvider {
 
         try {
             IIccPhoneBook iccIpb = IIccPhoneBook.Stub.asInterface(
-                    ServiceManager.getService("simphonebook"));
+                    TelephonyFrameworkInitializer
+                            .getTelephonyServiceManager()
+                            .getIccPhoneBookServiceRegisterer()
+                            .get());
             if (iccIpb != null) {
                 success = iccIpb.updateAdnRecordsInEfBySearchForSubscriber(subId, efType,
                           name, number, "", "", pin2);
@@ -511,6 +530,7 @@ public class IccProvider extends ContentProvider {
      * @param record the ADN record to load from
      * @param cursor the cursor to receive the results
      */
+    @UnsupportedAppUsage
     private void loadRecord(AdnRecord record, MatrixCursor cursor, int id) {
         if (!record.isEmpty()) {
             Object[] contact = new Object[4];
@@ -536,6 +556,7 @@ public class IccProvider extends ContentProvider {
         }
     }
 
+    @UnsupportedAppUsage
     private void log(String msg) {
         Rlog.d(TAG, "[IccProvider] " + msg);
     }

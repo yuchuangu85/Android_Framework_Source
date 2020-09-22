@@ -27,7 +27,13 @@ package java.io;
 
 import java.security.AccessController;
 
+import android.system.ErrnoException;
+import android.system.OsConstants;
+
 import dalvik.system.BlockGuard;
+
+import libcore.io.Libcore;
+
 import sun.security.action.GetPropertyAction;
 
 
@@ -166,7 +172,10 @@ class UnixFileSystem extends FileSystem {
                     }
                 }
                 if (res == null) {
+                    // BEGIN Android-added: BlockGuard support.
                     BlockGuard.getThreadPolicy().onReadFromDisk();
+                    BlockGuard.getVmPolicy().onPathAccess(path);
+                    // END Android-added: BlockGuard support.
                     res = canonicalize0(path);
                     cache.put(path, res);
                     if (useCanonPrefixCache &&
@@ -237,7 +246,10 @@ class UnixFileSystem extends FileSystem {
     private native int getBooleanAttributes0(String abspath);
 
     public int getBooleanAttributes(File f) {
+        // BEGIN Android-added: BlockGuard support.
         BlockGuard.getThreadPolicy().onReadFromDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
+        // END Android-added: BlockGuard support.
 
         int rv = getBooleanAttributes0(f.getPath());
         String name = f.getName();
@@ -245,41 +257,65 @@ class UnixFileSystem extends FileSystem {
         return rv | (hidden ? BA_HIDDEN : 0);
     }
 
+    // Android-changed: Access files through common interface.
     public boolean checkAccess(File f, int access) {
-        BlockGuard.getThreadPolicy().onReadFromDisk();
-        return checkAccess0(f, access);
+        final int mode;
+        switch (access) {
+            case FileSystem.ACCESS_OK:
+                mode = OsConstants.F_OK;
+                break;
+            case FileSystem.ACCESS_READ:
+                mode = OsConstants.R_OK;
+                break;
+            case FileSystem.ACCESS_WRITE:
+                mode = OsConstants.W_OK;
+                break;
+            case FileSystem.ACCESS_EXECUTE:
+                mode = OsConstants.X_OK;
+                break;
+            default:
+                throw new IllegalArgumentException("Bad access mode: " + access);
+        }
+
+        try {
+            return Libcore.os.access(f.getPath(), mode);
+        } catch (ErrnoException e) {
+            return false;
+        }
     }
 
-    private native boolean checkAccess0(File f, int access);
-
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public long getLastModifiedTime(File f) {
         BlockGuard.getThreadPolicy().onReadFromDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
         return getLastModifiedTime0(f);
     }
-
     private native long getLastModifiedTime0(File f);
 
+    // Android-changed: Access files through common interface.
     public long getLength(File f) {
-        BlockGuard.getThreadPolicy().onReadFromDisk();
-        return getLength0(f);
+        try {
+            return Libcore.os.stat(f.getPath()).st_size;
+        } catch (ErrnoException e) {
+            return 0;
+        }
     }
 
-    private native long getLength0(File f);
-
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public boolean setPermission(File f, int access, boolean enable, boolean owneronly) {
         BlockGuard.getThreadPolicy().onWriteToDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
         return setPermission0(f, access, enable, owneronly);
     }
-
     private native boolean setPermission0(File f, int access, boolean enable, boolean owneronly);
 
     /* -- File operations -- */
-
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public boolean createFileExclusively(String path) throws IOException {
         BlockGuard.getThreadPolicy().onWriteToDisk();
+        BlockGuard.getVmPolicy().onPathAccess(path);
         return createFileExclusively0(path);
     }
-
     private native boolean createFileExclusively0(String path) throws IOException;
 
     public boolean delete(File f) {
@@ -290,24 +326,33 @@ class UnixFileSystem extends FileSystem {
         // anyway.
         cache.clear();
         javaHomePrefixCache.clear();
-        BlockGuard.getThreadPolicy().onWriteToDisk();
-        return delete0(f);
+        // BEGIN Android-changed: Access files through common interface.
+        try {
+            Libcore.os.remove(f.getPath());
+            return true;
+        } catch (ErrnoException e) {
+            return false;
+        }
+        // END Android-changed: Access files through common interface.
     }
 
-    private native boolean delete0(File f);
+    // Android-removed: Access files through common interface.
+    // private native boolean delete0(File f);
 
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public String[] list(File f) {
         BlockGuard.getThreadPolicy().onReadFromDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
         return list0(f);
     }
-
     private native String[] list0(File f);
 
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public boolean createDirectory(File f) {
         BlockGuard.getThreadPolicy().onWriteToDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
         return createDirectory0(f);
     }
-
     private native boolean createDirectory0(File f);
 
     public boolean rename(File f1, File f2) {
@@ -318,24 +363,33 @@ class UnixFileSystem extends FileSystem {
         // anyway.
         cache.clear();
         javaHomePrefixCache.clear();
-        BlockGuard.getThreadPolicy().onWriteToDisk();
-        return rename0(f1, f2);
+        // BEGIN Android-changed: Access files through common interface.
+        try {
+            Libcore.os.rename(f1.getPath(), f2.getPath());
+            return true;
+        } catch (ErrnoException e) {
+            return false;
+        }
+        // END Android-changed: Access files through common interface.
     }
 
-    private native boolean rename0(File f1, File f2);
+    // Android-removed: Access files through common interface.
+    // private native boolean rename0(File f1, File f2);
 
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public boolean setLastModifiedTime(File f, long time) {
         BlockGuard.getThreadPolicy().onWriteToDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
         return setLastModifiedTime0(f, time);
     }
-
     private native boolean setLastModifiedTime0(File f, long time);
 
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public boolean setReadOnly(File f) {
         BlockGuard.getThreadPolicy().onWriteToDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
         return setReadOnly0(f);
     }
-
     private native boolean setReadOnly0(File f);
 
 
@@ -354,12 +408,13 @@ class UnixFileSystem extends FileSystem {
     }
 
     /* -- Disk usage -- */
+    // Android-changed: Add method to intercept native method call; BlockGuard support.
     public long getSpace(File f, int t) {
         BlockGuard.getThreadPolicy().onReadFromDisk();
+        BlockGuard.getVmPolicy().onPathAccess(f.getPath());
 
         return getSpace0(f, t);
     }
-
     private native long getSpace0(File f, int t);
 
     /* -- Basic infrastructure -- */

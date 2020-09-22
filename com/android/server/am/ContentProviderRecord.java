@@ -16,7 +16,9 @@
 
 package com.android.server.am;
 
-import android.app.IActivityManager.ContentProviderHolder;
+import static com.android.server.am.ActivityManagerDebugConfig.TAG_AM;
+
+import android.app.ContentProviderHolder;
 import android.content.ComponentName;
 import android.content.IContentProvider;
 import android.content.pm.ApplicationInfo;
@@ -26,13 +28,19 @@ import android.os.IBinder.DeathRecipient;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserHandle;
+import android.util.ArrayMap;
 import android.util.Slog;
+
+import com.android.internal.app.procstats.AssociationState;
+import com.android.internal.app.procstats.ProcessStats;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.HashMap;
 
-final class ContentProviderRecord {
+final class ContentProviderRecord implements ComponentName.WithComponentName {
+    // Maximum attempts to bring up the content provider before giving up.
+    static final int MAX_RETRY_COUNT = 3;
+
     final ActivityManagerService service;
     public final ProviderInfo info;
     final int uid;
@@ -46,23 +54,25 @@ final class ContentProviderRecord {
             = new ArrayList<ContentProviderConnection>();
     //final HashSet<ProcessRecord> clients = new HashSet<ProcessRecord>();
     // Handles for non-framework processes supported by this provider
-    HashMap<IBinder, ExternalProcessHandle> externalProcessTokenToHandle;
+    ArrayMap<IBinder, ExternalProcessHandle> externalProcessTokenToHandle;
     // Count for external process for which we have no handles.
     int externalProcessNoHandleCount;
+    int mRestartCount; // number of times we tried before bringing up it successfully.
     ProcessRecord proc; // if non-null, hosting process.
     ProcessRecord launchingApp; // if non-null, waiting for this app to be launched.
     String stringName;
     String shortStringName;
 
     public ContentProviderRecord(ActivityManagerService _service, ProviderInfo _info,
-                                 ApplicationInfo ai, ComponentName _name, boolean _singleton) {
+            ApplicationInfo ai, ComponentName _name, boolean _singleton) {
         service = _service;
         info = _info;
         uid = ai.uid;
         appInfo = ai;
         name = _name;
         singleton = _singleton;
-        noReleaseNeeded = uid == 0 || uid == Process.SYSTEM_UID;
+        noReleaseNeeded = (uid == 0 || uid == Process.SYSTEM_UID)
+                && (_name == null || !"com.android.settings".equals(_name.getPackageName()));
     }
 
     public ContentProviderRecord(ContentProviderRecord cpr) {
@@ -83,30 +93,47 @@ final class ContentProviderRecord {
         return holder;
     }
 
-    /**
-     * 条件1：ContentProvider在AndroidManifest.xml文件配置multiprocess=true；或调用者进程与ContentProvider在同一个进程。
-     * 条件2：ContentProvider进程跟调用者所在进程是同一个uid。
-     *
-     * @param app 进程描述对象
-     *
-     * @return
-     */
+    public void setProcess(ProcessRecord proc) {
+        this.proc = proc;
+        if (ActivityManagerService.TRACK_PROCSTATS_ASSOCIATIONS) {
+            for (int iconn = connections.size() - 1; iconn >= 0; iconn--) {
+                final ContentProviderConnection conn = connections.get(iconn);
+                if (proc != null) {
+                    conn.startAssociationIfNeeded();
+                } else {
+                    conn.stopAssociation();
+                }
+            }
+            if (externalProcessTokenToHandle != null) {
+                for (int iext = externalProcessTokenToHandle.size() - 1; iext >= 0; iext--) {
+                    final ExternalProcessHandle handle = externalProcessTokenToHandle.valueAt(iext);
+                    if (proc != null) {
+                        handle.startAssociationIfNeeded(this);
+                    } else {
+                        handle.stopAssociation();
+                    }
+                }
+            }
+        }
+    }
+
     public boolean canRunHere(ProcessRecord app) {
         return (info.multiprocess || info.processName.equals(app.processName))
                 && uid == app.info.uid;
     }
 
-    public void addExternalProcessHandleLocked(IBinder token) {
+    public void addExternalProcessHandleLocked(IBinder token, int callingUid, String callingTag) {
         if (token == null) {
             externalProcessNoHandleCount++;
         } else {
             if (externalProcessTokenToHandle == null) {
-                externalProcessTokenToHandle = new HashMap<IBinder, ExternalProcessHandle>();
+                externalProcessTokenToHandle = new ArrayMap<>();
             }
             ExternalProcessHandle handle = externalProcessTokenToHandle.get(token);
             if (handle == null) {
-                handle = new ExternalProcessHandle(token);
+                handle = new ExternalProcessHandle(token, callingUid, callingTag);
                 externalProcessTokenToHandle.put(token, handle);
+                handle.startAssociationIfNeeded(this);
             }
             handle.mAcquisitionCount++;
         }
@@ -137,6 +164,7 @@ final class ContentProviderRecord {
     private void removeExternalProcessHandleInternalLocked(IBinder token) {
         ExternalProcessHandle handle = externalProcessTokenToHandle.get(token);
         handle.unlinkFromOwnDeathLocked();
+        handle.stopAssociation();
         externalProcessTokenToHandle.remove(token);
         if (externalProcessTokenToHandle.size() == 0) {
             externalProcessTokenToHandle = null;
@@ -153,50 +181,32 @@ final class ContentProviderRecord {
 
     void dump(PrintWriter pw, String prefix, boolean full) {
         if (full) {
-            pw.print(prefix);
-            pw.print("package=");
-            pw.print(info.applicationInfo.packageName);
-            pw.print(" process=");
-            pw.println(info.processName);
+            pw.print(prefix); pw.print("package=");
+                    pw.print(info.applicationInfo.packageName);
+                    pw.print(" process="); pw.println(info.processName);
         }
-        pw.print(prefix);
-        pw.print("proc=");
-        pw.println(proc);
+        pw.print(prefix); pw.print("proc="); pw.println(proc);
         if (launchingApp != null) {
-            pw.print(prefix);
-            pw.print("launchingApp=");
-            pw.println(launchingApp);
+            pw.print(prefix); pw.print("launchingApp="); pw.println(launchingApp);
         }
         if (full) {
-            pw.print(prefix);
-            pw.print("uid=");
-            pw.print(uid);
-            pw.print(" provider=");
-            pw.println(provider);
+            pw.print(prefix); pw.print("uid="); pw.print(uid);
+                    pw.print(" provider="); pw.println(provider);
         }
         if (singleton) {
-            pw.print(prefix);
-            pw.print("singleton=");
-            pw.println(singleton);
+            pw.print(prefix); pw.print("singleton="); pw.println(singleton);
         }
-        pw.print(prefix);
-        pw.print("authority=");
-        pw.println(info.authority);
+        pw.print(prefix); pw.print("authority="); pw.println(info.authority);
         if (full) {
             if (info.isSyncable || info.multiprocess || info.initOrder != 0) {
-                pw.print(prefix);
-                pw.print("isSyncable=");
-                pw.print(info.isSyncable);
-                pw.print(" multiprocess=");
-                pw.print(info.multiprocess);
-                pw.print(" initOrder=");
-                pw.println(info.initOrder);
+                pw.print(prefix); pw.print("isSyncable="); pw.print(info.isSyncable);
+                        pw.print(" multiprocess="); pw.print(info.multiprocess);
+                        pw.print(" initOrder="); pw.println(info.initOrder);
             }
         }
         if (full) {
             if (hasExternalProcessHandles()) {
-                pw.print(prefix);
-                pw.print("externals:");
+                pw.print(prefix); pw.print("externals:");
                 if (externalProcessTokenToHandle != null) {
                     pw.print(" w/token=");
                     pw.print(externalProcessTokenToHandle.size());
@@ -209,27 +219,21 @@ final class ContentProviderRecord {
             }
         } else {
             if (connections.size() > 0 || externalProcessNoHandleCount > 0) {
-                pw.print(prefix);
-                pw.print(connections.size());
-                pw.print(" connections, ");
-                pw.print(externalProcessNoHandleCount);
-                pw.println(" external handles");
+                pw.print(prefix); pw.print(connections.size());
+                        pw.print(" connections, "); pw.print(externalProcessNoHandleCount);
+                        pw.println(" external handles");
             }
         }
         if (connections.size() > 0) {
             if (full) {
-                pw.print(prefix);
-                pw.println("Connections:");
+                pw.print(prefix); pw.println("Connections:");
             }
-            for (int i = 0; i < connections.size(); i++) {
+            for (int i=0; i<connections.size(); i++) {
                 ContentProviderConnection conn = connections.get(i);
-                pw.print(prefix);
-                pw.print("  -> ");
-                pw.println(conn.toClientString());
+                pw.print(prefix); pw.print("  -> "); pw.println(conn.toClientString());
                 if (conn.provider != this) {
-                    pw.print(prefix);
-                    pw.print("    *** WRONG PROVIDER: ");
-                    pw.println(conn.provider);
+                    pw.print(prefix); pw.print("    *** WRONG PROVIDER: ");
+                            pw.println(conn.provider);
                 }
             }
         }
@@ -266,11 +270,16 @@ final class ContentProviderRecord {
     private class ExternalProcessHandle implements DeathRecipient {
         private static final String LOG_TAG = "ExternalProcessHanldle";
 
-        private final IBinder mToken;
-        private int mAcquisitionCount;
+        final IBinder mToken;
+        final int mOwningUid;
+        final String mOwningProcessName;
+        int mAcquisitionCount;
+        AssociationState.SourceState mAssociation;
 
-        public ExternalProcessHandle(IBinder token) {
+        public ExternalProcessHandle(IBinder token, int owningUid, String owningProcessName) {
             mToken = token;
+            mOwningUid = owningUid;
+            mOwningProcessName = owningProcessName;
             try {
                 token.linkToDeath(this, 0);
             } catch (RemoteException re) {
@@ -282,14 +291,49 @@ final class ContentProviderRecord {
             mToken.unlinkToDeath(this, 0);
         }
 
+        public void startAssociationIfNeeded(ContentProviderRecord provider) {
+            // If we don't already have an active association, create one...  but only if this
+            // is an association between two different processes.
+            if (ActivityManagerService.TRACK_PROCSTATS_ASSOCIATIONS
+                    && mAssociation == null && provider.proc != null
+                    && (provider.appInfo.uid != mOwningUid
+                            || !provider.info.processName.equals(mOwningProcessName))) {
+                ProcessStats.ProcessStateHolder holder = provider.proc.pkgList.get(
+                        provider.name.getPackageName());
+                if (holder == null) {
+                    Slog.wtf(TAG_AM, "No package in referenced provider "
+                            + provider.name.toShortString() + ": proc=" + provider.proc);
+                } else if (holder.pkg == null) {
+                    Slog.wtf(TAG_AM, "Inactive holder in referenced provider "
+                            + provider.name.toShortString() + ": proc=" + provider.proc);
+                } else {
+                    mAssociation = holder.pkg.getAssociationStateLocked(holder.state,
+                            provider.name.getClassName()).startSource(mOwningUid,
+                            mOwningProcessName, null);
+
+                }
+            }
+        }
+
+        public void stopAssociation() {
+            if (mAssociation != null) {
+                mAssociation.stop();
+                mAssociation = null;
+            }
+        }
+
         @Override
         public void binderDied() {
             synchronized (service) {
                 if (hasExternalProcessHandles() &&
                         externalProcessTokenToHandle.get(mToken) != null) {
                     removeExternalProcessHandleInternalLocked(mToken);
-                }
+                }                        
             }
         }
+    }
+
+    public ComponentName getComponentName() {
+        return name;
     }
 }

@@ -1,22 +1,21 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright 2018 The Android Open Source Project
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not
- * use this file except in compliance with the License. You may obtain a copy of
- * the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations under
- * the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package android.content.res;
 
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
+import static android.content.res.Resources.ID_NULL;
 
 import android.animation.Animator;
 import android.animation.StateListAnimator;
@@ -28,14 +27,24 @@ import android.annotation.PluralsRes;
 import android.annotation.RawRes;
 import android.annotation.StyleRes;
 import android.annotation.StyleableRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ActivityInfo.Config;
+import android.content.res.AssetManager.AssetInputStream;
+import android.content.res.Configuration.NativeConfig;
 import android.content.res.Resources.NotFoundException;
+import android.graphics.Bitmap;
+import android.graphics.ImageDecoder;
+import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.ColorStateListDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.DrawableContainer;
 import android.icu.text.PluralRules;
 import android.os.Build;
 import android.os.LocaleList;
+import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.os.Trace;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
@@ -44,9 +53,14 @@ import android.util.LongSparseArray;
 import android.util.Slog;
 import android.util.TypedValue;
 import android.util.Xml;
-import android.view.Display;
 import android.view.DisplayAdjustments;
 
+import com.android.internal.util.GrowingArrayUtils;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
 import java.util.Locale;
@@ -66,41 +80,68 @@ public class ResourcesImpl {
 
     private static final boolean DEBUG_LOAD = false;
     private static final boolean DEBUG_CONFIG = false;
-    private static final boolean TRACE_FOR_PRELOAD = false;
-    private static final boolean TRACE_FOR_MISS_PRELOAD = false;
 
-    private static final int LAYOUT_DIR_CONFIG = ActivityInfo.activityInfoConfigJavaToNative(
-            ActivityInfo.CONFIG_LAYOUT_DIRECTION);
+    static final String TAG_PRELOAD = TAG + ".preload";
+
+    @UnsupportedAppUsage
+    private static final boolean TRACE_FOR_PRELOAD = false; // Do we still need it?
+    @UnsupportedAppUsage
+    private static final boolean TRACE_FOR_MISS_PRELOAD = false; // Do we still need it?
+
+    public static final boolean TRACE_FOR_DETAILED_PRELOAD =
+            SystemProperties.getBoolean("debug.trace_resource_preload", false);
+
+    /** Used only when TRACE_FOR_DETAILED_PRELOAD is true. */
+    private static int sPreloadTracingNumLoadedDrawables;
+    private long mPreloadTracingPreloadStartTime;
+    private long mPreloadTracingStartBitmapSize;
+    private long mPreloadTracingStartBitmapCount;
 
     private static final int ID_OTHER = 0x01000004;
 
     private static final Object sSync = new Object();
 
     private static boolean sPreloaded;
+    @UnsupportedAppUsage
     private boolean mPreloading;
 
     // Information about preloaded resources.  Note that they are not
     // protected by a lock, because while preloading in zygote we are all
     // single-threaded, and after that these are immutable.
+    @UnsupportedAppUsage
     private static final LongSparseArray<Drawable.ConstantState>[] sPreloadedDrawables;
+    @UnsupportedAppUsage
     private static final LongSparseArray<Drawable.ConstantState> sPreloadedColorDrawables
             = new LongSparseArray<>();
+    @UnsupportedAppUsage
     private static final LongSparseArray<android.content.res.ConstantState<ComplexColor>>
             sPreloadedComplexColors = new LongSparseArray<>();
 
     /** Lock object used to protect access to caches and configuration. */
+    @UnsupportedAppUsage
     private final Object mAccessLock = new Object();
 
     // These are protected by mAccessLock.
     private final Configuration mTmpConfig = new Configuration();
+    @UnsupportedAppUsage
     private final DrawableCache mDrawableCache = new DrawableCache();
+    @UnsupportedAppUsage
     private final DrawableCache mColorDrawableCache = new DrawableCache();
     private final ConfigurationBoundResourceCache<ComplexColor> mComplexColorCache =
             new ConfigurationBoundResourceCache<>();
+    @UnsupportedAppUsage
     private final ConfigurationBoundResourceCache<Animator> mAnimatorCache =
             new ConfigurationBoundResourceCache<>();
+    @UnsupportedAppUsage
     private final ConfigurationBoundResourceCache<StateListAnimator> mStateListAnimatorCache =
             new ConfigurationBoundResourceCache<>();
+
+    // A stack of all the resourceIds already referenced when parsing a resource. This is used to
+    // detect circular references in the xml.
+    // Using a ThreadLocal variable ensures that we have different stacks for multiple parallel
+    // calls to ResourcesImpl
+    private final ThreadLocal<LookupStack> mLookupStack =
+            ThreadLocal.withInitial(() -> new LookupStack());
 
     /** Size of the cyclical cache used to map XML files to blocks. */
     private static final int XML_BLOCK_CACHE_SIZE = 4;
@@ -112,12 +153,14 @@ public class ResourcesImpl {
     private final XmlBlock[] mCachedXmlBlocks = new XmlBlock[XML_BLOCK_CACHE_SIZE];
 
 
+    @UnsupportedAppUsage
     final AssetManager mAssets;
     private final DisplayMetrics mMetrics = new DisplayMetrics();
     private final DisplayAdjustments mDisplayAdjustments;
 
     private PluralRules mPluralRule;
 
+    @UnsupportedAppUsage
     private final Configuration mConfiguration = new Configuration();
 
     static {
@@ -137,23 +180,26 @@ public class ResourcesImpl {
      * @param displayAdjustments this resource's Display override and compatibility info.
      *                           Must not be null.
      */
+    @UnsupportedAppUsage
     public ResourcesImpl(@NonNull AssetManager assets, @Nullable DisplayMetrics metrics,
             @Nullable Configuration config, @NonNull DisplayAdjustments displayAdjustments) {
         mAssets = assets;
         mMetrics.setToDefaults();
         mDisplayAdjustments = displayAdjustments;
+        mConfiguration.setToDefaults();
         updateConfiguration(config, metrics, displayAdjustments.getCompatibilityInfo());
-        mAssets.ensureStringBlocks();
     }
 
     public DisplayAdjustments getDisplayAdjustments() {
         return mDisplayAdjustments;
     }
 
+    @UnsupportedAppUsage
     public AssetManager getAssets() {
         return mAssets;
     }
 
+    @UnsupportedAppUsage
     DisplayMetrics getDisplayMetrics() {
         if (DEBUG_CONFIG) Slog.v(TAG, "Returning DisplayMetrics: " + mMetrics.widthPixels
                 + "x" + mMetrics.heightPixels + " " + mMetrics.density);
@@ -181,6 +227,7 @@ public class ResourcesImpl {
         }
     }
 
+    @UnsupportedAppUsage
     void getValue(@AnyRes int id, TypedValue outValue, boolean resolveRefs)
             throws NotFoundException {
         boolean found = mAssets.getResourceValue(id, 0, outValue, resolveRefs);
@@ -254,6 +301,13 @@ public class ResourcesImpl {
     }
 
     @NonNull
+    String getLastResourceResolution() throws NotFoundException {
+        String str = mAssets.getLastResourceResolution();
+        if (str != null) return str;
+        throw new NotFoundException("Associated AssetManager hasn't resolved a resource");
+    }
+
+    @NonNull
     CharSequence getQuantityText(@PluralsRes int id, int quantity) throws NotFoundException {
         PluralRules rule = getPluralRule();
         CharSequence res = mAssets.getResourceBagText(id,
@@ -288,7 +342,7 @@ public class ResourcesImpl {
         try {
             return mAssets.openNonAssetFd(tempValue.assetCookie, tempValue.string.toString());
         } catch (Exception e) {
-            throw new NotFoundException("File " + tempValue.string.toString() + " from drawable "
+            throw new NotFoundException("File " + tempValue.string.toString() + " from "
                     + "resource ID #0x" + Integer.toHexString(id), e);
         }
     }
@@ -303,7 +357,7 @@ public class ResourcesImpl {
             // Note: value.string might be null
             NotFoundException rnf = new NotFoundException("File "
                     + (value.string == null ? "(null)" : value.string.toString())
-                    + " from drawable resource ID #0x" + Integer.toHexString(id));
+                    + " from resource ID #0x" + Integer.toHexString(id));
             rnf.initCause(e);
             throw rnf;
         }
@@ -322,7 +376,7 @@ public class ResourcesImpl {
         Trace.traceBegin(Trace.TRACE_TAG_RESOURCES, "ResourcesImpl#updateConfiguration");
         try {
             synchronized (mAccessLock) {
-                if (false) {
+                if (DEBUG_CONFIG) {
                     Slog.i(TAG, "**** Updating config of " + this + ": old config is "
                             + mConfiguration + " old compat is "
                             + mDisplayAdjustments.getCompatibilityInfo());
@@ -383,7 +437,10 @@ public class ResourcesImpl {
                     mMetrics.density =
                             mConfiguration.densityDpi * DisplayMetrics.DENSITY_DEFAULT_SCALE;
                 }
-                mMetrics.scaledDensity = mMetrics.density * mConfiguration.fontScale;
+
+                // Protect against an unset fontScale.
+                mMetrics.scaledDensity = mMetrics.density *
+                        (mConfiguration.fontScale != 0 ? mConfiguration.fontScale : 1.0f);
 
                 final int width, height;
                 if (mMetrics.widthPixels >= mMetrics.heightPixels) {
@@ -414,7 +471,7 @@ public class ResourcesImpl {
                         mConfiguration.smallestScreenWidthDp,
                         mConfiguration.screenWidthDp, mConfiguration.screenHeightDp,
                         mConfiguration.screenLayout, mConfiguration.uiMode,
-                        Build.VERSION.RESOURCES_SDK_INT);
+                        mConfiguration.colorMode, Build.VERSION.RESOURCES_SDK_INT);
 
                 if (DEBUG_CONFIG) {
                     Slog.i(TAG, "**** Updating config of " + this + ": final config is "
@@ -515,9 +572,42 @@ public class ResourcesImpl {
         }
     }
 
+    /**
+     * Wipe all caches that might be read and return an outdated object when resolving a resource.
+     */
+    public void clearAllCaches() {
+        synchronized (mAccessLock) {
+            mDrawableCache.clear();
+            mColorDrawableCache.clear();
+            mComplexColorCache.clear();
+            mAnimatorCache.clear();
+            mStateListAnimatorCache.clear();
+            flushLayoutCache();
+        }
+    }
+
     @Nullable
-    Drawable loadDrawable(Resources wrapper, TypedValue value, int id, Resources.Theme theme,
-            boolean useCache) throws NotFoundException {
+    Drawable loadDrawable(@NonNull Resources wrapper, @NonNull TypedValue value, int id,
+            int density, @Nullable Resources.Theme theme)
+            throws NotFoundException {
+        // If the drawable's XML lives in our current density qualifier,
+        // it's okay to use a scaled version from the cache. Otherwise, we
+        // need to actually load the drawable from XML.
+        final boolean useCache = density == 0 || value.density == mMetrics.densityDpi;
+
+        // Pretend the requested density is actually the display density. If
+        // the drawable returned is not the requested density, then force it
+        // to be scaled later by dividing its density by the ratio of
+        // requested density to actual device density. Drawables that have
+        // undefined density or no density don't need to be handled here.
+        if (density > 0 && value.density > 0 && value.density != TypedValue.DENSITY_NONE) {
+            if (value.density == density) {
+                value.density = mMetrics.densityDpi;
+            } else {
+                value.density = (value.density * mMetrics.densityDpi) / density;
+            }
+        }
+
         try {
             if (TRACE_FOR_PRELOAD) {
                 // Log only framework resources
@@ -549,6 +639,7 @@ public class ResourcesImpl {
             if (!mPreloading && useCache) {
                 final Drawable cachedDrawable = caches.getInstance(key, wrapper, theme);
                 if (cachedDrawable != null) {
+                    cachedDrawable.setChangingConfigurations(value.changingConfigurations);
                     return cachedDrawable;
                 }
             }
@@ -563,12 +654,29 @@ public class ResourcesImpl {
             }
 
             Drawable dr;
+            boolean needsNewDrawableAfterCache = false;
             if (cs != null) {
+                if (TRACE_FOR_DETAILED_PRELOAD) {
+                    // Log only framework resources
+                    if (((id >>> 24) == 0x1) && (android.os.Process.myUid() != 0)) {
+                        final String name = getResourceName(id);
+                        if (name != null) {
+                            Log.d(TAG_PRELOAD, "Hit preloaded FW drawable #"
+                                    + Integer.toHexString(id) + " " + name);
+                        }
+                    }
+                }
                 dr = cs.newDrawable(wrapper);
             } else if (isColorDrawable) {
                 dr = new ColorDrawable(value.data);
             } else {
-                dr = loadDrawableForCookie(wrapper, value, id, null);
+                dr = loadDrawableForCookie(wrapper, value, id, density);
+            }
+            // DrawableContainer' constant state has drawables instances. In order to leave the
+            // constant state intact in the cache, we need to create a new DrawableContainer after
+            // added to cache.
+            if (dr instanceof DrawableContainer)  {
+                needsNewDrawableAfterCache = true;
             }
 
             // Determine if the drawable has unresolved theme attributes. If it
@@ -584,9 +692,17 @@ public class ResourcesImpl {
             // If we were able to obtain a drawable, store it in the appropriate
             // cache: preload, not themed, null theme, or theme-specific. Don't
             // pollute the cache with drawables loaded from a foreign density.
-            if (dr != null && useCache) {
+            if (dr != null) {
                 dr.setChangingConfigurations(value.changingConfigurations);
-                cacheDrawable(value, isColorDrawable, caches, theme, canApplyTheme, key, dr);
+                if (useCache) {
+                    cacheDrawable(value, isColorDrawable, caches, theme, canApplyTheme, key, dr);
+                    if (needsNewDrawableAfterCache) {
+                        Drawable.ConstantState state = dr.getConstantState();
+                        if (state != null) {
+                            dr = state.newDrawable(wrapper);
+                        }
+                    }
+                }
             }
 
             return dr;
@@ -624,8 +740,8 @@ public class ResourcesImpl {
                 }
             } else {
                 if (verifyPreloadConfig(
-                        changingConfigs, LAYOUT_DIR_CONFIG, value.resourceId, "drawable")) {
-                    if ((changingConfigs & LAYOUT_DIR_CONFIG) == 0) {
+                        changingConfigs, ActivityInfo.CONFIG_LAYOUT_DIRECTION, value.resourceId, "drawable")) {
+                    if ((changingConfigs & ActivityInfo.CONFIG_LAYOUT_DIRECTION) == 0) {
                         // If this resource does not vary based on layout direction,
                         // we can put it in all of the preload maps.
                         sPreloadedDrawables[0].put(key, cs);
@@ -679,10 +795,34 @@ public class ResourcesImpl {
     }
 
     /**
-     * Loads a drawable from XML or resources stream.
+     * Loads a Drawable from an encoded image stream, or null.
+     *
+     * This call will handle closing ais.
      */
-    private Drawable loadDrawableForCookie(Resources wrapper, TypedValue value, int id,
-            Resources.Theme theme) {
+    @Nullable
+    private Drawable decodeImageDrawable(@NonNull AssetInputStream ais,
+            @NonNull Resources wrapper, @NonNull TypedValue value) {
+        ImageDecoder.Source src = new ImageDecoder.AssetInputStreamSource(ais,
+                            wrapper, value);
+        try {
+            return ImageDecoder.decodeDrawable(src, (decoder, info, s) -> {
+                decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+            });
+        } catch (IOException ioe) {
+            // This is okay. This may be something that ImageDecoder does not
+            // support, like SVG.
+            return null;
+        }
+    }
+
+    /**
+     * Loads a drawable from XML or resources stream.
+     *
+     * @return Drawable, or null if Drawable cannot be decoded.
+     */
+    @Nullable
+    private Drawable loadDrawableForCookie(@NonNull Resources wrapper, @NonNull TypedValue value,
+            int id, int density) {
         if (value.string == null) {
             throw new NotFoundException("Resource \"" + getResourceName(id) + "\" ("
                     + Integer.toHexString(id) + ") is not a Drawable (color or path): " + value);
@@ -701,26 +841,51 @@ public class ResourcesImpl {
             }
         }
 
+        // For preload tracing.
+        long startTime = 0;
+        int startBitmapCount = 0;
+        long startBitmapSize = 0;
+        int startDrawableCount = 0;
+        if (TRACE_FOR_DETAILED_PRELOAD) {
+            startTime = System.nanoTime();
+            startBitmapCount = Bitmap.sPreloadTracingNumInstantiatedBitmaps;
+            startBitmapSize = Bitmap.sPreloadTracingTotalBitmapsSize;
+            startDrawableCount = sPreloadTracingNumLoadedDrawables;
+        }
+
         if (DEBUG_LOAD) {
             Log.v(TAG, "Loading drawable for cookie " + value.assetCookie + ": " + file);
         }
 
+
         final Drawable dr;
 
         Trace.traceBegin(Trace.TRACE_TAG_RESOURCES, file);
+        LookupStack stack = mLookupStack.get();
         try {
-            if (file.endsWith(".xml")) {
-                final XmlResourceParser rp = loadXmlResourceParser(
-                        file, id, value.assetCookie, "drawable");
-                dr = Drawable.createFromXml(wrapper, rp, theme);
-                rp.close();
-            } else {
-                final InputStream is = mAssets.openNonAsset(
-                        value.assetCookie, file, AssetManager.ACCESS_STREAMING);
-                dr = Drawable.createFromResourceStream(wrapper, value, is, file, null);
-                is.close();
+            // Perform a linear search to check if we have already referenced this resource before.
+            if (stack.contains(id)) {
+                throw new Exception("Recursive reference in drawable");
             }
-        } catch (Exception e) {
+            stack.push(id);
+            try {
+                if (file.endsWith(".xml")) {
+                    final String typeName = getResourceTypeName(id);
+                    if (typeName != null && typeName.equals("color")) {
+                        dr = loadColorOrXmlDrawable(wrapper, value, id, density, file);
+                    } else {
+                        dr = loadXmlDrawable(wrapper, value, id, density, file);
+                    }
+                } else {
+                    final InputStream is = mAssets.openNonAsset(
+                            value.assetCookie, file, AssetManager.ACCESS_STREAMING);
+                    final AssetInputStream ais = (AssetInputStream) is;
+                    dr = decodeImageDrawable(ais, wrapper, value);
+                }
+            } finally {
+                stack.pop();
+            }
+        } catch (Exception | StackOverflowError e) {
             Trace.traceEnd(Trace.TRACE_TAG_RESOURCES);
             final NotFoundException rnf = new NotFoundException(
                     "File " + file + " from drawable resource ID #0x" + Integer.toHexString(id));
@@ -729,7 +894,113 @@ public class ResourcesImpl {
         }
         Trace.traceEnd(Trace.TRACE_TAG_RESOURCES);
 
+        if (TRACE_FOR_DETAILED_PRELOAD) {
+            if (((id >>> 24) == 0x1)) {
+                final String name = getResourceName(id);
+                if (name != null) {
+                    final long time = System.nanoTime() - startTime;
+                    final int loadedBitmapCount =
+                            Bitmap.sPreloadTracingNumInstantiatedBitmaps - startBitmapCount;
+                    final long loadedBitmapSize =
+                            Bitmap.sPreloadTracingTotalBitmapsSize - startBitmapSize;
+                    final int loadedDrawables =
+                            sPreloadTracingNumLoadedDrawables - startDrawableCount;
+
+                    sPreloadTracingNumLoadedDrawables++;
+
+                    final boolean isRoot = (android.os.Process.myUid() == 0);
+
+                    Log.d(TAG_PRELOAD,
+                            (isRoot ? "Preloaded FW drawable #"
+                                    : "Loaded non-preloaded FW drawable #")
+                            + Integer.toHexString(id)
+                            + " " + name
+                            + " " + file
+                            + " " + dr.getClass().getCanonicalName()
+                            + " #nested_drawables= " + loadedDrawables
+                            + " #bitmaps= " + loadedBitmapCount
+                            + " total_bitmap_size= " + loadedBitmapSize
+                            + " in[us] " + (time / 1000));
+                }
+            }
+        }
+
         return dr;
+    }
+
+    private Drawable loadColorOrXmlDrawable(@NonNull Resources wrapper, @NonNull TypedValue value,
+            int id, int density, String file) {
+        try {
+            ColorStateList csl = loadColorStateList(wrapper, value, id, null);
+            return new ColorStateListDrawable(csl);
+        } catch (NotFoundException originalException) {
+            // If we fail to load as color, try as normal XML drawable
+            try {
+                return loadXmlDrawable(wrapper, value, id, density, file);
+            } catch (Exception ignored) {
+                // If fallback also fails, throw the original exception
+                throw originalException;
+            }
+        }
+    }
+
+    private Drawable loadXmlDrawable(@NonNull Resources wrapper, @NonNull TypedValue value,
+            int id, int density, String file)
+            throws IOException, XmlPullParserException {
+        try (
+                XmlResourceParser rp =
+                        loadXmlResourceParser(file, id, value.assetCookie, "drawable")
+        ) {
+            return Drawable.createFromXmlForDensity(wrapper, rp, density, null);
+        }
+    }
+
+    /**
+     * Loads a font from XML or resources stream.
+     */
+    @Nullable
+    public Typeface loadFont(Resources wrapper, TypedValue value, int id) {
+        if (value.string == null) {
+            throw new NotFoundException("Resource \"" + getResourceName(id) + "\" ("
+                    + Integer.toHexString(id) + ") is not a Font: " + value);
+        }
+
+        final String file = value.string.toString();
+        if (!file.startsWith("res/")) {
+            return null;
+        }
+
+        Typeface cached = Typeface.findFromCache(mAssets, file);
+        if (cached != null) {
+            return cached;
+        }
+
+        if (DEBUG_LOAD) {
+            Log.v(TAG, "Loading font for cookie " + value.assetCookie + ": " + file);
+        }
+
+        Trace.traceBegin(Trace.TRACE_TAG_RESOURCES, file);
+        try {
+            if (file.endsWith("xml")) {
+                final XmlResourceParser rp = loadXmlResourceParser(
+                        file, id, value.assetCookie, "font");
+                final FontResourcesParser.FamilyResourceEntry familyEntry =
+                        FontResourcesParser.parse(rp, wrapper);
+                if (familyEntry == null) {
+                    return null;
+                }
+                return Typeface.createFromResources(familyEntry, mAssets, file);
+            }
+            return new Typeface.Builder(mAssets, file, false /* isAsset */, value.assetCookie)
+                    .build();
+        } catch (XmlPullParserException e) {
+            Log.e(TAG, "Failed to parse xml resource " + file, e);
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to read xml resource " + file, e);
+        } finally {
+            Trace.traceEnd(Trace.TRACE_TAG_RESOURCES);
+        }
+        return null;
     }
 
     /**
@@ -737,6 +1008,7 @@ public class ResourcesImpl {
      * first try to load CSL from the cache. If not found, try to get from the constant state.
      * Last, parse the XML and generate the CSL.
      */
+    @Nullable
     private ComplexColor loadComplexColorFromName(Resources wrapper, Resources.Theme theme,
             TypedValue value, int id) {
         final long key = (((long) value.assetCookie) << 32) | value.data;
@@ -812,7 +1084,7 @@ public class ResourcesImpl {
         return complexColor;
     }
 
-    @Nullable
+    @NonNull
     ColorStateList loadColorStateList(Resources wrapper, TypedValue value, int id,
             Resources.Theme theme)
             throws NotFoundException {
@@ -870,9 +1142,10 @@ public class ResourcesImpl {
      * We deferred the parser creation to this function b/c we need to differentiate b/t gradient
      * and selector tag.
      *
-     * @return a ComplexColor (GradientColor or ColorStateList) based on the XML file content.
+     * @return a ComplexColor (GradientColor or ColorStateList) based on the XML file content, or
+     *     {@code null} if the XML file is neither.
      */
-    @Nullable
+    @NonNull
     private ComplexColor loadComplexColorForCookie(Resources wrapper, TypedValue value, int id,
             Resources.Theme theme) {
         if (value.string == null) {
@@ -966,7 +1239,7 @@ public class ResourcesImpl {
                     for (int i = 0; i < num; i++) {
                         if (cachedXmlBlockCookies[i] == assetCookie && cachedXmlBlockFiles[i] != null
                                 && cachedXmlBlockFiles[i].equals(file)) {
-                            return cachedXmlBlocks[i].newParser();
+                            return cachedXmlBlocks[i].newParser(id);
                         }
                     }
 
@@ -983,7 +1256,7 @@ public class ResourcesImpl {
                         cachedXmlBlockCookies[pos] = assetCookie;
                         cachedXmlBlockFiles[pos] = file;
                         cachedXmlBlocks[pos] = block;
-                        return block.newParser();
+                        return block.newParser(id);
                     }
                 }
             } catch (Exception e) {
@@ -1012,6 +1285,13 @@ public class ResourcesImpl {
             mPreloading = true;
             mConfiguration.densityDpi = DisplayMetrics.DENSITY_DEVICE;
             updateConfiguration(null, null, null);
+
+            if (TRACE_FOR_DETAILED_PRELOAD) {
+                mPreloadTracingPreloadStartTime = SystemClock.uptimeMillis();
+                mPreloadTracingStartBitmapSize = Bitmap.sPreloadTracingTotalBitmapsSize;
+                mPreloadTracingStartBitmapCount = Bitmap.sPreloadTracingNumInstantiatedBitmaps;
+                Log.d(TAG_PRELOAD, "Preload starting");
+            }
         }
     }
 
@@ -1021,9 +1301,27 @@ public class ResourcesImpl {
      */
     void finishPreloading() {
         if (mPreloading) {
+            if (TRACE_FOR_DETAILED_PRELOAD) {
+                final long time = SystemClock.uptimeMillis() - mPreloadTracingPreloadStartTime;
+                final long size =
+                        Bitmap.sPreloadTracingTotalBitmapsSize - mPreloadTracingStartBitmapSize;
+                final long count = Bitmap.sPreloadTracingNumInstantiatedBitmaps
+                        - mPreloadTracingStartBitmapCount;
+                Log.d(TAG_PRELOAD, "Preload finished, "
+                        + count + " bitmaps of " + size + " bytes in " + time + " ms");
+            }
+
             mPreloading = false;
             flushLayoutCache();
         }
+    }
+
+    @AnyRes
+    static int getAttributeSetSourceResId(@Nullable AttributeSet set) {
+        if (set == null || !(set instanceof XmlBlock.Parser)) {
+            return ID_NULL;
+        }
+        return ((XmlBlock.Parser) set).getSourceResId();
     }
 
     LongSparseArray<Drawable.ConstantState> getPreloadedDrawables() {
@@ -1084,8 +1382,7 @@ public class ResourcesImpl {
 
         void applyStyle(int resId, boolean force) {
             synchronized (mKey) {
-                AssetManager.applyThemeStyle(mTheme, resId, force);
-
+                mAssets.applyStyleToTheme(mTheme, resId, force);
                 mThemeResId = resId;
                 mKey.append(resId, force);
             }
@@ -1094,7 +1391,7 @@ public class ResourcesImpl {
         void setTo(ThemeImpl other) {
             synchronized (mKey) {
                 synchronized (other.mKey) {
-                    AssetManager.copyTheme(mTheme, other.mTheme);
+                    mAssets.setThemeTo(mTheme, other.mAssets, other.mTheme);
 
                     mThemeResId = other.mThemeResId;
                     mKey.setTo(other.getKey());
@@ -1117,12 +1414,10 @@ public class ResourcesImpl {
                 // out the attributes from the XML file (applying type information
                 // contained in the resources and such).
                 final XmlBlock.Parser parser = (XmlBlock.Parser) set;
-                AssetManager.applyStyle(mTheme, defStyleAttr, defStyleRes,
-                        parser != null ? parser.mParseState : 0,
-                        attrs, array.mData, array.mIndices);
+                mAssets.applyStyle(mTheme, defStyleAttr, defStyleRes, parser, attrs,
+                        array.mDataAddress, array.mIndicesAddress);
                 array.mTheme = wrapper;
                 array.mXml = parser;
-
                 return array;
             }
         }
@@ -1139,7 +1434,7 @@ public class ResourcesImpl {
                 }
 
                 final TypedArray array = TypedArray.obtain(wrapper.getResources(), len);
-                AssetManager.resolveAttrs(mTheme, 0, 0, values, attrs, array.mData, array.mIndices);
+                mAssets.resolveAttrs(mTheme, 0, 0, values, attrs, array.mData, array.mIndices);
                 array.mTheme = wrapper;
                 array.mXml = null;
                 return array;
@@ -1158,15 +1453,15 @@ public class ResourcesImpl {
 
         @Config int getChangingConfigurations() {
             synchronized (mKey) {
-                final int nativeChangingConfig =
-                        AssetManager.getThemeChangingConfigurations(mTheme);
+                final @NativeConfig int nativeChangingConfig =
+                        AssetManager.nativeThemeGetChangingConfigurations(mTheme);
                 return ActivityInfo.activityInfoConfigNativeToJava(nativeChangingConfig);
             }
         }
 
         public void dump(int priority, String tag, String prefix) {
             synchronized (mKey) {
-                AssetManager.dumpTheme(mTheme, priority, tag, prefix);
+                mAssets.dumpTheme(mTheme, priority, tag, prefix);
             }
         }
 
@@ -1195,15 +1490,67 @@ public class ResourcesImpl {
          */
         void rebase() {
             synchronized (mKey) {
-                AssetManager.clearTheme(mTheme);
+                AssetManager.nativeThemeClear(mTheme);
 
                 // Reapply the same styles in the same order.
                 for (int i = 0; i < mKey.mCount; i++) {
                     final int resId = mKey.mResId[i];
                     final boolean force = mKey.mForce[i];
-                    AssetManager.applyThemeStyle(mTheme, resId, force);
+                    mAssets.applyStyleToTheme(mTheme, resId, force);
                 }
             }
+        }
+
+        /**
+         * Returns the ordered list of resource ID that are considered when resolving attribute
+         * values when making an equivalent call to
+         * {@link #obtainStyledAttributes(Resources.Theme, AttributeSet, int[], int, int)}. The list
+         * will include a set of explicit styles ({@code explicitStyleRes} and it will include the
+         * default styles ({@code defStyleAttr} and {@code defStyleRes}).
+         *
+         * @param defStyleAttr An attribute in the current theme that contains a
+         *                     reference to a style resource that supplies
+         *                     defaults values for the TypedArray.  Can be
+         *                     0 to not look for defaults.
+         * @param defStyleRes A resource identifier of a style resource that
+         *                    supplies default values for the TypedArray,
+         *                    used only if defStyleAttr is 0 or can not be found
+         *                    in the theme.  Can be 0 to not look for defaults.
+         * @param explicitStyleRes A resource identifier of an explicit style resource.
+         * @return ordered list of resource ID that are considered when resolving attribute values.
+         */
+        @Nullable
+        public int[] getAttributeResolutionStack(@AttrRes int defStyleAttr,
+                @StyleRes int defStyleRes, @StyleRes int explicitStyleRes) {
+            synchronized (mKey) {
+                return mAssets.getAttributeResolutionStack(
+                        mTheme, defStyleAttr, defStyleRes, explicitStyleRes);
+            }
+        }
+    }
+
+    private static class LookupStack {
+
+        // Pick a reasonable default size for the array, it is grown as needed.
+        private int[] mIds = new int[4];
+        private int mSize = 0;
+
+        public void push(int id) {
+            mIds = GrowingArrayUtils.append(mIds, mSize, id);
+            mSize++;
+        }
+
+        public boolean contains(int id) {
+            for (int i = 0; i < mSize; i++) {
+                if (mIds[i] == id) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public void pop() {
+            mSize--;
         }
     }
 }

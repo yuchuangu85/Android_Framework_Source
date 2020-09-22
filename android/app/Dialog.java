@@ -16,10 +16,6 @@
 
 package android.app;
 
-import com.android.internal.R;
-import com.android.internal.app.WindowDecorActionBar;
-import com.android.internal.policy.PhoneWindow;
-
 import android.annotation.CallSuper;
 import android.annotation.DrawableRes;
 import android.annotation.IdRes;
@@ -28,14 +24,17 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StringRes;
 import android.annotation.StyleRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.DialogInterface;
-import android.content.res.Configuration;
 import android.content.pm.ApplicationInfo;
+import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -60,6 +59,10 @@ import android.view.ViewGroup.LayoutParams;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
+
+import com.android.internal.R;
+import com.android.internal.app.WindowDecorActionBar;
+import com.android.internal.policy.PhoneWindow;
 
 import java.lang.ref.WeakReference;
 
@@ -92,11 +95,14 @@ import java.lang.ref.WeakReference;
 public class Dialog implements DialogInterface, Window.Callback,
         KeyEvent.Callback, OnCreateContextMenuListener, Window.OnWindowDismissedCallback {
     private static final String TAG = "Dialog";
+    @UnsupportedAppUsage
     private Activity mOwnerActivity;
 
     private final WindowManager mWindowManager;
 
+    @UnsupportedAppUsage
     final Context mContext;
+    @UnsupportedAppUsage
     final Window mWindow;
 
     View mDecor;
@@ -109,22 +115,30 @@ public class Dialog implements DialogInterface, Window.Callback,
     protected boolean mCancelable = true;
 
     private String mCancelAndDismissTaken;
+    @UnsupportedAppUsage
     private Message mCancelMessage;
+    @UnsupportedAppUsage
     private Message mDismissMessage;
+    @UnsupportedAppUsage
     private Message mShowMessage;
 
+    @UnsupportedAppUsage
     private OnKeyListener mOnKeyListener;
 
     private boolean mCreated = false;
+    @UnsupportedAppUsage
     private boolean mShowing = false;
     private boolean mCanceled = false;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final Handler mHandler = new Handler();
 
     private static final int DISMISS = 0x43;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private static final int CANCEL = 0x44;
     private static final int SHOW = 0x45;
 
+    @UnsupportedAppUsage
     private final Handler mListenersHandler;
 
     private SearchEvent mSearchEvent;
@@ -169,7 +183,7 @@ public class Dialog implements DialogInterface, Window.Callback,
 
     Dialog(@NonNull Context context, @StyleRes int themeResId, boolean createContextThemeWrapper) {
         if (createContextThemeWrapper) {
-            if (themeResId == 0) {
+            if (themeResId == Resources.ID_NULL) {
                 final TypedValue outValue = new TypedValue();
                 context.getTheme().resolveAttribute(R.attr.dialogTheme, outValue, true);
                 themeResId = outValue.resourceId;
@@ -185,7 +199,11 @@ public class Dialog implements DialogInterface, Window.Callback,
         mWindow = w;
         w.setCallback(this);
         w.setOnWindowDismissedCallback(this);
-        // 创建WindowManager(实现类是WindowManagerImpl，另外一个是创建Activity时)
+        w.setOnWindowSwipeDismissedCallback(() -> {
+            if (mCancelable) {
+                cancel();
+            }
+        });
         w.setWindowManager(mWindowManager, null, null);
         w.setGravity(Gravity.CENTER);
 
@@ -257,7 +275,7 @@ public class Dialog implements DialogInterface, Window.Callback,
      * @return Whether the dialog is currently showing.
      */
     public boolean isShowing() {
-        return mShowing;
+        return mDecor == null ? false : mDecor.getVisibility() == View.VISIBLE;
     }
 
     /**
@@ -311,16 +329,20 @@ public class Dialog implements DialogInterface, Window.Callback,
         }
 
         WindowManager.LayoutParams l = mWindow.getAttributes();
+        boolean restoreSoftInputMode = false;
         if ((l.softInputMode
                 & WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION) == 0) {
-            WindowManager.LayoutParams nl = new WindowManager.LayoutParams();
-            nl.copyFrom(l);
-            nl.softInputMode |=
+            l.softInputMode |=
                     WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION;
-            l = nl;
+            restoreSoftInputMode = true;
         }
 
         mWindowManager.addView(mDecor, l);
+        if (restoreSoftInputMode) {
+            l.softInputMode &=
+                    ~WindowManager.LayoutParams.SOFT_INPUT_IS_FORWARD_NAVIGATION;
+        }
+
         mShowing = true;
 
         sendShowMessage();
@@ -350,6 +372,7 @@ public class Dialog implements DialogInterface, Window.Callback,
         }
     }
 
+    @UnsupportedAppUsage
     void dismissDialog() {
         if (mDecor == null || !mShowing) {
             return;
@@ -492,15 +515,48 @@ public class Dialog implements DialogInterface, Window.Callback,
     }
 
     /**
-     * Finds a child view with the given identifier. Returns null if the
-     * specified child view does not exist or the dialog has not yet been fully
-     * created (for example, via {@link #show()} or {@link #create()}).
+     * Finds the first descendant view with the given ID or {@code null} if the
+     * ID is invalid (< 0), there is no matching view in the hierarchy, or the
+     * dialog has not yet been fully created (for example, via {@link #show()}
+     * or {@link #create()}).
+     * <p>
+     * <strong>Note:</strong> In most cases -- depending on compiler support --
+     * the resulting view is automatically cast to the target class type. If
+     * the target class type is unconstrained, an explicit cast may be
+     * necessary.
      *
-     * @param id the identifier of the view to find
-     * @return The view with the given id or null.
+     * @param id the ID to search for
+     * @return a view with given ID if found, or {@code null} otherwise
+     * @see View#findViewById(int)
+     * @see Dialog#requireViewById(int)
      */
-    public @Nullable View findViewById(@IdRes int id) {
+    @Nullable
+    public <T extends View> T findViewById(@IdRes int id) {
         return mWindow.findViewById(id);
+    }
+
+    /**
+     * Finds the first descendant view with the given ID or throws an IllegalArgumentException if
+     * the ID is invalid (< 0), there is no matching view in the hierarchy, or the dialog has not
+     * yet been fully created (for example, via {@link #show()} or {@link #create()}).
+     * <p>
+     * <strong>Note:</strong> In most cases -- depending on compiler support --
+     * the resulting view is automatically cast to the target class type. If
+     * the target class type is unconstrained, an explicit cast may be
+     * necessary.
+     *
+     * @param id the ID to search for
+     * @return a view with given ID
+     * @see View#requireViewById(int)
+     * @see Dialog#findViewById(int)
+     */
+    @NonNull
+    public final <T extends View> T requireViewById(@IdRes int id) {
+        T view = findViewById(id);
+        if (view == null) {
+            throw new IllegalArgumentException("ID does not reference a View inside this Dialog");
+        }
+        return view;
     }
 
     /**
@@ -569,18 +625,19 @@ public class Dialog implements DialogInterface, Window.Callback,
 
     /**
      * A key was pressed down.
+     * <p>
+     * If the focused view didn't want this event, this method is called.
+     * <p>
+     * Default implementation consumes {@link KeyEvent#KEYCODE_BACK KEYCODE_BACK}
+     * and, as of {@link android.os.Build.VERSION_CODES#P P}, {@link KeyEvent#KEYCODE_ESCAPE
+     * KEYCODE_ESCAPE} to later handle them in {@link #onKeyUp}.
      * 
-     * <p>If the focused view didn't want this event, this method is called.
-     *
-     * <p>The default implementation consumed the KEYCODE_BACK to later
-     * handle it in {@link #onKeyUp}.
-     *
      * @see #onKeyUp
      * @see android.view.KeyEvent
      */
     @Override
     public boolean onKeyDown(int keyCode, @NonNull KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK) {
+        if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE) {
             event.startTracking();
             return true;
         }
@@ -600,16 +657,18 @@ public class Dialog implements DialogInterface, Window.Callback,
 
     /**
      * A key was released.
-     * 
-     * <p>The default implementation handles KEYCODE_BACK to close the
-     * dialog.
+     * <p>
+     * Default implementation consumes {@link KeyEvent#KEYCODE_BACK KEYCODE_BACK}
+     * and, as of {@link android.os.Build.VERSION_CODES#P P}, {@link KeyEvent#KEYCODE_ESCAPE
+     * KEYCODE_ESCAPE} to close the dialog.
      *
      * @see #onKeyDown
-     * @see KeyEvent
+     * @see android.view.KeyEvent
      */
     @Override
     public boolean onKeyUp(int keyCode, @NonNull KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK && event.isTracking()
+        if ((keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE)
+                && event.isTracking()
                 && !event.isCanceled()) {
             onBackPressed();
             return true;
@@ -743,7 +802,7 @@ public class Dialog implements DialogInterface, Window.Callback,
 
     /** @hide */
     @Override
-    public void onWindowDismissed(boolean finishTask) {
+    public void onWindowDismissed(boolean finishTask, boolean suppressWindowTransition) {
         dismiss();
     }
 
@@ -876,8 +935,8 @@ public class Dialog implements DialogInterface, Window.Callback,
      * @see Activity#onPreparePanel(int, View, Menu)
      */
     @Override
-    public boolean onPreparePanel(int featureId, View view, Menu menu) {
-        if (featureId == Window.FEATURE_OPTIONS_PANEL && menu != null) {
+    public boolean onPreparePanel(int featureId, @Nullable View view, @NonNull Menu menu) {
+        if (featureId == Window.FEATURE_OPTIONS_PANEL) {
             return onPrepareOptionsMenu(menu) && menu.hasVisibleItems();
         }
         return true;
@@ -887,7 +946,7 @@ public class Dialog implements DialogInterface, Window.Callback,
      * @see Activity#onMenuOpened(int, Menu)
      */
     @Override
-    public boolean onMenuOpened(int featureId, Menu menu) {
+    public boolean onMenuOpened(int featureId, @NonNull Menu menu) {
         if (featureId == Window.FEATURE_ACTION_BAR) {
             mActionBar.dispatchMenuVisibilityChanged(true);
         }
@@ -898,7 +957,7 @@ public class Dialog implements DialogInterface, Window.Callback,
      * @see Activity#onMenuItemSelected(int, MenuItem)
      */
     @Override
-    public boolean onMenuItemSelected(int featureId, MenuItem item) {
+    public boolean onMenuItemSelected(int featureId, @NonNull MenuItem item) {
         return false;
     }
 
@@ -906,7 +965,7 @@ public class Dialog implements DialogInterface, Window.Callback,
      * @see Activity#onPanelClosed(int, Menu)
      */
     @Override
-    public void onPanelClosed(int featureId, Menu menu) {
+    public void onPanelClosed(int featureId, @NonNull Menu menu) {
         if (featureId == Window.FEATURE_ACTION_BAR) {
             mActionBar.dispatchMenuVisibilityChanged(false);
         }

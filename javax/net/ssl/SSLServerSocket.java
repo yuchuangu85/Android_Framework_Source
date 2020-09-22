@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -229,6 +229,7 @@ public abstract class SSLServerSocket extends ServerSocket {
     public abstract void setEnabledCipherSuites(String suites []);
 
 
+    // Android-changed: Added warnings about misuse
     /**
      * Returns the names of the cipher suites which could be enabled for use
      * on an SSL connection.
@@ -237,6 +238,15 @@ public abstract class SSLServerSocket extends ServerSocket {
      * be enabled by default, since this list may include cipher suites which
      * do not meet quality of service requirements for those defaults.  Such
      * cipher suites are useful in specialized applications.
+     *
+     * <p class="caution">Applications should not blindly enable all supported
+     * cipher suites.  The supported cipher suites can include signaling cipher suite
+     * values that can cause connection problems if enabled inappropriately.
+     *
+     * <p>The proper way to use this method is to either check if a specific cipher
+     * suite is supported via {@code Arrays.asList(getSupportedCipherSuites()).contains(...)}
+     * or to filter a desired list of cipher suites to only the supported ones via
+     * {@code desiredSuiteSet.retainAll(Arrays.asList(getSupportedCipherSuites()))}.
      *
      * @return an array of cipher suite names
      * @see #getEnabledCipherSuites()
@@ -266,6 +276,7 @@ public abstract class SSLServerSocket extends ServerSocket {
     public abstract String [] getEnabledProtocols();
 
 
+    // Android-added: Added paragraph about contiguous protocols.
     /**
      * Controls which particular protocols are enabled for use by
      * accepted connections.
@@ -274,6 +285,11 @@ public abstract class SSLServerSocket extends ServerSocket {
      * getSupportedProtocols() as being supported.
      * Following a successful call to this method, only protocols listed
      * in the <code>protocols</code> parameter are enabled for use.
+     * <p>
+     * Because of the way the protocol version is negotiated, connections
+     * will only be able to use a member of the lowest set of contiguous
+     * enabled protocol versions.  For example, enabling TLSv1.2 and TLSv1
+     * will result in connections only being able to use TLSv1.
      * <P>
      * <code>SSLSocket</code>s returned from <code>accept()</code>
      * inherit this setting.
@@ -484,15 +500,19 @@ public abstract class SSLServerSocket extends ServerSocket {
      *
      * <p>This means:
      * <ul>
-     * <li>if <code>params.getCipherSuites()</code> is non-null,
-     *   <code>setEnabledCipherSuites()</code> is called with that value
-     * <li>if <code>params.getProtocols()</code> is non-null,
-     *   <code>setEnabledProtocols()</code> is called with that value
-     * <li>if <code>params.getNeedClientAuth()</code> or
-     *   <code>params.getWantClientAuth()</code> return <code>true</code>,
-     *   <code>setNeedClientAuth(true)</code> and
-     *   <code>setWantClientAuth(true)</code> are called, respectively;
-     *   otherwise <code>setWantClientAuth(false)</code> is called.
+     * <li>If {@code params.getCipherSuites()} is non-null,
+     *   {@code setEnabledCipherSuites()} is called with that value.</li>
+     * <li>If {@code params.getProtocols()} is non-null,
+     *   {@code setEnabledProtocols()} is called with that value.</li>
+     * <li>If {@code params.getNeedClientAuth()} or
+     *   {@code params.getWantClientAuth()} return {@code true},
+     *   {@code setNeedClientAuth(true)} and
+     *   {@code setWantClientAuth(true)} are called, respectively;
+     *   otherwise {@code setWantClientAuth(false)} is called.</li>
+     * <li>If {@code params.getServerNames()} is non-null, the socket will
+     *   configure its server names with that value.</li>
+     * <li>If {@code params.getSNIMatchers()} is non-null, the socket will
+     *   configure its SNI matchers with that value.</li>
      * </ul>
      *
      * @param params the parameters
@@ -522,6 +542,12 @@ public abstract class SSLServerSocket extends ServerSocket {
         } else {
             setWantClientAuth(false);
         }
+    }
+
+    // Android-added: Make toString explicit that this is an SSLServerSocket (http://b/6602228)
+    @Override
+    public String toString() {
+        return "SSL" + super.toString();
     }
 
 }

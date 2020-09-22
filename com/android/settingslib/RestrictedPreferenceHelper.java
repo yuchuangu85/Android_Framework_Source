@@ -16,18 +16,18 @@
 
 package com.android.settingslib;
 
+import static com.android.settingslib.RestrictedLockUtils.EnforcedAdmin;
+
 import android.content.Context;
 import android.content.res.TypedArray;
-import android.graphics.drawable.Drawable;
 import android.os.UserHandle;
-import android.support.v7.preference.Preference;
-import android.support.v7.preference.PreferenceViewHolder;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.TypedValue;
-import android.view.View;
 import android.widget.TextView;
 
-import static com.android.settingslib.RestrictedLockUtils.EnforcedAdmin;
+import androidx.preference.Preference;
+import androidx.preference.PreferenceViewHolder;
 
 /**
  * Helper class for managing settings preferences that can be disabled
@@ -62,7 +62,7 @@ public class RestrictedPreferenceHelper {
             }
             mAttrUserRestriction = data == null ? null : data.toString();
             // If the system has set the user restriction, then we shouldn't add the padlock.
-            if (RestrictedLockUtils.hasBaseUserRestriction(mContext, mAttrUserRestriction,
+            if (RestrictedLockUtilsInternal.hasBaseUserRestriction(mContext, mAttrUserRestriction,
                     UserHandle.myUserId())) {
                 mAttrUserRestriction = null;
                 return;
@@ -88,11 +88,13 @@ public class RestrictedPreferenceHelper {
         if (mUseAdminDisabledSummary) {
             final TextView summaryView = (TextView) holder.findViewById(android.R.id.summary);
             if (summaryView != null) {
+                final CharSequence disabledText = summaryView.getContext().getText(
+                        R.string.disabled_by_admin_summary_text);
                 if (mDisabledByAdmin) {
-                    summaryView.setText(R.string.disabled_by_admin_summary_text);
-                    summaryView.setVisibility(View.VISIBLE);
-                } else {
-                    summaryView.setVisibility(View.GONE);
+                    summaryView.setText(disabledText);
+                } else if (TextUtils.equals(disabledText, summaryView.getText())) {
+                    // It's previously set to disabled text, clear it.
+                    summaryView.setText(null);
                 }
             }
         }
@@ -131,7 +133,7 @@ public class RestrictedPreferenceHelper {
      * @param userId user to check the restriction for.
      */
     public void checkRestrictionAndSetDisabled(String userRestriction, int userId) {
-        EnforcedAdmin admin = RestrictedLockUtils.checkIfRestrictionEnforced(mContext,
+        EnforcedAdmin admin = RestrictedLockUtilsInternal.checkIfRestrictionEnforced(mContext,
                 userRestriction, userId);
         setDisabledByAdmin(admin);
     }

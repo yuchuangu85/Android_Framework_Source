@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2002, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,16 +27,41 @@ package java.net;
 import android.system.ErrnoException;
 import android.system.GaiException;
 import android.system.StructAddrinfo;
+import android.system.IcmpHeaders;
+
 import dalvik.system.BlockGuard;
+
+import libcore.io.IoBridge;
 import libcore.io.Libcore;
 
+import java.io.FileDescriptor;
 import java.io.IOException;
+import libcore.net.InetAddressUtils;
 
+import static android.system.OsConstants.AF_INET;
+import static android.system.OsConstants.AF_INET6;
 import static android.system.OsConstants.AF_UNSPEC;
 import static android.system.OsConstants.AI_ADDRCONFIG;
 import static android.system.OsConstants.EACCES;
+import static android.system.OsConstants.ECONNREFUSED;
+import static android.system.OsConstants.EPERM;
+import static android.system.OsConstants.NI_NAMEREQD;
+import static android.system.OsConstants.ICMP6_ECHO_REPLY;
+import static android.system.OsConstants.ICMP_ECHOREPLY;
+import static android.system.OsConstants.IPPROTO_ICMP;
+import static android.system.OsConstants.IPPROTO_ICMPV6;
+import static android.system.OsConstants.SOCK_DGRAM;
 import static android.system.OsConstants.SOCK_STREAM;
 
+// Android-note: Android-specific behavior and Linux-based implementation
+// http://b/36933260 Implement root-less ICMP for isReachable()
+// http://b/28609551 Rewrite getHostByAddr0 using POSIX library Libcore.os.
+// http://b/25861497 Add BlockGuard checks.
+// http://b/26700324 Fix odd dependency chains of the static InetAddress.
+// anyLocalAddress() Let anyLocalAddress() always return an IPv6 address.
+// Let loopbackAddresses() return both Inet4 and Inet6 loopbacks.
+// Rewrote hostname lookup methods on top of Libcore.os. Merge implementation from InetAddress
+//   and remove native methods in this class
 /*
  * Package private implementation of InetAddressImpl for dual
  * IPv4/IPv6 stack. {@code #anyLocalAddress()} will always return an IPv6 address.
@@ -53,21 +78,25 @@ class Inet6AddressImpl implements InetAddressImpl {
 
     private static final AddressCache addressCache = new AddressCache();
 
+    // BEGIN Android-changed: Rewrote hostname lookup methods on top of Libcore.os.
+    /*
+    public native String getLocalHostName() throws UnknownHostException;
+    public native InetAddress[]
+        lookupAllHostAddr(String hostname) throws UnknownHostException;
+    public native String getHostByAddr(byte[] addr) throws UnknownHostException;
+    private native boolean isReachable0(byte[] addr, int scope, int timeout, byte[] inf, int ttl, int if_scope) throws IOException;
+    */
     @Override
     public InetAddress[] lookupAllHostAddr(String host, int netId) throws UnknownHostException {
         if (host == null || host.isEmpty()) {
-            // Android-changed : Return both the Inet4 and Inet6 loopback addresses
+            // Android-changed: Return both the Inet4 and Inet6 loopback addresses
             // when host == null or empty.
             return loopbackAddresses();
         }
 
         // Is it a numeric address?
-        InetAddress result = InetAddress.parseNumericAddressNoThrow(host);
+        InetAddress result = InetAddressUtils.parseNumericAddressNoThrowStripOptionalBrackets(host);
         if (result != null) {
-            result = InetAddress.disallowDeprecatedFormats(host, result);
-            if (result == null) {
-                throw new UnknownHostException("Deprecated IPv4 address format: " + host);
-            }
             return new InetAddress[] { result };
         }
 
@@ -107,6 +136,7 @@ class Inet6AddressImpl implements InetAddressImpl {
             // TODO: should getaddrinfo set the hostname of the InetAddresses it returns?
             for (InetAddress address : addresses) {
                 address.holder().hostName = host;
+                address.holder().originalHostName = host;
             }
             addressCache.put(host, netId, addresses);
             return addresses;
@@ -115,7 +145,8 @@ class Inet6AddressImpl implements InetAddressImpl {
             // SecurityException to aid in debugging this common mistake.
             // http://code.google.com/p/android/issues/detail?id=15722
             if (gaiException.getCause() instanceof ErrnoException) {
-                if (((ErrnoException) gaiException.getCause()).errno == EACCES) {
+                int errno = ((ErrnoException) gaiException.getCause()).errno;
+                if (errno == EACCES || errno == EPERM) {
                     throw new SecurityException("Permission denied (missing INTERNET permission?)", gaiException);
                 }
             }
@@ -137,12 +168,12 @@ class Inet6AddressImpl implements InetAddressImpl {
     public void clearAddressCache() {
         addressCache.clear();
     }
+    // END Android-changed: Rewrote hostname lookup methods on top of Libcore.os.
 
     @Override
     public boolean isReachable(InetAddress addr, int timeout, NetworkInterface netif, int ttl) throws IOException {
-        byte[] ifaddr = null;
-        int scope = -1;
-        int netif_scope = -1;
+        // Android-changed: rewritten on the top of IoBridge and Libcore.os.
+        InetAddress sourceAddr = null;
         if (netif != null) {
             /*
              * Let's make sure we bind to an address of the proper family.
@@ -150,46 +181,133 @@ class Inet6AddressImpl implements InetAddressImpl {
              * be either an IPv6 address or an IPv4 address (case of a dual
              * stack system).
              */
-            java.util.Enumeration it = netif.getInetAddresses();
+            java.util.Enumeration<InetAddress> it = netif.getInetAddresses();
             InetAddress inetaddr = null;
             while (it.hasMoreElements()) {
-                inetaddr = (InetAddress) it.nextElement();
+                inetaddr = it.nextElement();
                 if (inetaddr.getClass().isInstance(addr)) {
-                    ifaddr = inetaddr.getAddress();
-                    if (inetaddr instanceof Inet6Address) {
-                        netif_scope = ((Inet6Address) inetaddr).getScopeId();
-                    }
+                    sourceAddr = inetaddr;
                     break;
                 }
             }
-            if (ifaddr == null) {
+
+            if (sourceAddr == null) {
                 // Interface doesn't support the address family of
                 // the destination
                 return false;
             }
         }
+
+        // Android-changed: http://b/36933260 Implement root-less ICMP for isReachable().
+        /*
         if (addr instanceof Inet6Address)
             scope = ((Inet6Address) addr).getScopeId();
+        return isReachable0(addr.getAddress(), scope, timeout, ifaddr, ttl, netif_scope);
+        */
+        // Try ICMP first
+        if (icmpEcho(addr, timeout, sourceAddr, ttl)) {
+            return true;
+        }
 
-        BlockGuard.getThreadPolicy().onNetwork();
+        // No good, let's fall back to TCP
+        return tcpEcho(addr, timeout, sourceAddr, ttl);
+    }
 
-        // Never throw an IOException from isReachable. If something terrible happens either
-        // with the network interface in question (or with the destination), then just return
-        // false (i.e, state that the address is unreachable.
+    // BEGIN Android-added: http://b/36933260 Implement root-less ICMP for isReachable().
+    private boolean tcpEcho(InetAddress addr, int timeout, InetAddress sourceAddr, int ttl)
+            throws IOException {
+        FileDescriptor fd = null;
         try {
-            return isReachable0(addr.getAddress(), scope, timeout, ifaddr, ttl, netif_scope);
-        } catch (IOException ioe) {
-            return false;
+            fd = IoBridge.socket(AF_INET6, SOCK_STREAM, 0);
+            if (ttl > 0) {
+                IoBridge.setSocketOption(fd, IoBridge.JAVA_IP_TTL, ttl);
+            }
+            if (sourceAddr != null) {
+                IoBridge.bind(fd, sourceAddr, 0);
+            }
+            IoBridge.connect(fd, addr, 7 /* Echo-protocol port */, timeout);
+            return true;
+        } catch (IOException e) {
+            // Connection refused by remote (ECONNREFUSED) implies reachable. Otherwise silently
+            // ignore the exception and return false.
+            Throwable cause = e.getCause();
+            return cause instanceof ErrnoException
+                    && ((ErrnoException) cause).errno == ECONNREFUSED;
+        } finally {
+            IoBridge.closeAndSignalBlockedThreads(fd);
         }
     }
 
+    protected boolean icmpEcho(InetAddress addr, int timeout, InetAddress sourceAddr, int ttl)
+            throws IOException {
+
+        FileDescriptor fd = null;
+        try {
+            boolean isIPv4 = addr instanceof Inet4Address;
+            int domain = isIPv4 ? AF_INET : AF_INET6;
+            int icmpProto = isIPv4 ? IPPROTO_ICMP : IPPROTO_ICMPV6;
+            fd = IoBridge.socket(domain, SOCK_DGRAM, icmpProto);
+
+            if (ttl > 0) {
+                IoBridge.setSocketOption(fd, IoBridge.JAVA_IP_TTL, ttl);
+            }
+            if (sourceAddr != null) {
+                IoBridge.bind(fd, sourceAddr, 0);
+            }
+
+            byte[] packet;
+
+            // ICMP is unreliable, try sending requests every second until timeout.
+            for (int to = timeout, seq = 1; to > 0; ++seq) {
+                int sockTo = to >= 1000 ? 1000 : to;
+
+                IoBridge.setSocketOption(fd, SocketOptions.SO_TIMEOUT, sockTo);
+
+                packet = IcmpHeaders.createIcmpEchoHdr(isIPv4, seq);
+                IoBridge.sendto(fd, packet, 0, packet.length, 0, addr, 0);
+                final int icmpId = IoBridge.getLocalInetSocketAddress(fd).getPort();
+
+                byte[] received = new byte[packet.length];
+                DatagramPacket receivedPacket = new DatagramPacket(received, packet.length);
+                int size = IoBridge
+                        .recvfrom(true, fd, received, 0, received.length, 0, receivedPacket, false);
+                if (size == packet.length) {
+                    byte expectedType = isIPv4 ? (byte) ICMP_ECHOREPLY
+                            : (byte) ICMP6_ECHO_REPLY;
+                    if (receivedPacket.getAddress().equals(addr)
+                            && received[0] == expectedType
+                            && received[4] == (byte) (icmpId >> 8)
+                            && received[5] == (byte) icmpId) {
+                        int receivedSequence = ((received[6] & 0xff) << 8) + (received[7] & 0xff);
+                        if (receivedSequence <= seq) {
+                            return true;
+                        }
+                    }
+                }
+                to -= sockTo;
+            }
+        } catch (IOException e) {
+            // Silently ignore and fall back.
+        } finally {
+            if (fd != null) {
+                try {
+                    Libcore.os.close(fd);
+                } catch (ErrnoException e) { }
+            }
+        }
+
+        return false;
+    }
+    // END Android-added: http://b/36933260 Implement root-less ICMP for isReachable().
+
+    // BEGIN Android-changed: Let anyLocalAddress() always return an IPv6 address.
     @Override
     public InetAddress anyLocalAddress() {
         synchronized (Inet6AddressImpl.class) {
             // We avoid initializing anyLocalAddress during <clinit> to avoid issues
             // caused by the dependency chains of these classes. InetAddress depends on
             // InetAddressImpl, but Inet6Address & Inet4Address are its subclasses.
-            // Also see {@code loopbackAddresses).
+            // Also see {@code loopbackAddresses). http://b/26700324
             if (anyLocalAddress == null) {
                 Inet6Address anyAddress = new Inet6Address();
                 anyAddress.holder().hostName = "::";
@@ -199,7 +317,9 @@ class Inet6AddressImpl implements InetAddressImpl {
             return anyLocalAddress;
         }
     }
+    // END Android-changed: Let anyLocalAddress() always return an IPv6 address.
 
+    // BEGIN Android-changed: Let loopbackAddresses() return both Inet4 and Inet6 loopbacks.
     @Override
     public InetAddress[] loopbackAddresses() {
         synchronized (Inet6AddressImpl.class) {
@@ -214,7 +334,19 @@ class Inet6AddressImpl implements InetAddressImpl {
             return loopbackAddresses;
         }
     }
+    // END Android-changed: Let loopbackAddresses() return both Inet4 and Inet6 loopbacks.
 
-    private native String getHostByAddr0(byte[] addr) throws UnknownHostException;
-    private native boolean isReachable0(byte[] addr, int scope, int timeout, byte[] inf, int ttl, int if_scope) throws IOException;
+    // BEGIN Android-changed: b/28609551 Rewrite getHostByAddr0 using POSIX library Libcore.os.
+    private String getHostByAddr0(byte[] addr) throws UnknownHostException {
+        // Android-changed: Rewritten on the top of Libcore.os
+        InetAddress hostaddr = InetAddress.getByAddress(addr);
+        try {
+            return Libcore.os.getnameinfo(hostaddr, NI_NAMEREQD);
+        } catch (GaiException e) {
+            UnknownHostException uhe = new UnknownHostException(hostaddr.toString());
+            uhe.initCause(e);
+            throw uhe;
+        }
+    }
+    // END Android-changed: b/28609551 Rewrite getHostByAddr0 using POSIX library Libcore.os.
 }

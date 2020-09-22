@@ -17,11 +17,13 @@
 package android.util;
 
 /**
+ * @deprecated This class will be removed from a future version of the Android API.
  */
+@Deprecated
 public final class MutableShort {
-  public short value;
+    public short value;
 
-  public MutableShort(short value) {
-    this.value = value;
-  }
+    public MutableShort(short value) {
+        this.value = value;
+    }
 }

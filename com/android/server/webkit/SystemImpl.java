@@ -16,11 +16,9 @@
 
 package com.android.server.webkit;
 
-import android.app.ActivityManagerNative;
+import android.app.ActivityManager;
 import android.app.AppGlobals;
 import android.content.Context;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.IPackageDeleteObserver;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
@@ -30,20 +28,21 @@ import android.os.Build;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.provider.Settings.Global;
 import android.provider.Settings;
 import android.util.AndroidRuntimeException;
 import android.util.Log;
+import android.webkit.UserPackage;
 import android.webkit.WebViewFactory;
 import android.webkit.WebViewProviderInfo;
+import android.webkit.WebViewZygote;
 
 import com.android.internal.util.XmlUtils;
+
+import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-
-import org.xmlpull.v1.XmlPullParserException;
 
 /**
  * Default implementation for the WebView preparation Utility interface.
@@ -74,7 +73,6 @@ public class SystemImpl implements SystemInterface {
     private SystemImpl() {
         int numFallbackPackages = 0;
         int numAvailableByDefaultPackages = 0;
-        int numAvByDefaultAndNotFallback = 0;
         XmlResourceParser parser = null;
         List<WebViewProviderInfo> webViewProviders = new ArrayList<WebViewProviderInfo>();
         try {
@@ -118,9 +116,6 @@ public class SystemImpl implements SystemInterface {
                     }
                     if (currentProvider.availableByDefault) {
                         numAvailableByDefaultPackages++;
-                        if (!currentProvider.isFallback) {
-                            numAvByDefaultAndNotFallback++;
-                        }
                     }
                     webViewProviders.add(currentProvider);
                 }
@@ -137,10 +132,6 @@ public class SystemImpl implements SystemInterface {
             throw new AndroidRuntimeException("There must be at least one WebView package "
                     + "that is available by default");
         }
-        if (numAvByDefaultAndNotFallback == 0) {
-            throw new AndroidRuntimeException("There must be at least one WebView package "
-                    + "that is available by default and not a fallback");
-        }
         mWebViewProviderPackages =
                 webViewProviders.toArray(new WebViewProviderInfo[webViewProviders.size()]);
     }
@@ -153,9 +144,10 @@ public class SystemImpl implements SystemInterface {
         return mWebViewProviderPackages;
     }
 
-    public int getFactoryPackageVersion(String packageName) throws NameNotFoundException {
+    public long getFactoryPackageVersion(String packageName) throws NameNotFoundException {
         PackageManager pm = AppGlobals.getInitialApplication().getPackageManager();
-        return pm.getPackageInfo(packageName, PackageManager.MATCH_FACTORY_ONLY).versionCode;
+        return pm.getPackageInfo(packageName, PackageManager.MATCH_FACTORY_ONLY)
+                .getLongVersionCode();
     }
 
     /**
@@ -198,7 +190,7 @@ public class SystemImpl implements SystemInterface {
     @Override
     public void killPackageDependents(String packageName) {
         try {
-            ActivityManagerNative.getDefault().killPackageDependents(packageName,
+            ActivityManager.getService().killPackageDependents(packageName,
                     UserHandle.USER_ALL);
         } catch (RemoteException e) {
         }
@@ -218,23 +210,6 @@ public class SystemImpl implements SystemInterface {
     }
 
     @Override
-    public void uninstallAndDisablePackageForAllUsers(Context context, String packageName) {
-        enablePackageForAllUsers(context, packageName, false);
-        try {
-            PackageManager pm = AppGlobals.getInitialApplication().getPackageManager();
-            ApplicationInfo applicationInfo = pm.getApplicationInfo(packageName, 0);
-            if (applicationInfo != null && applicationInfo.isUpdatedSystemApp()) {
-                pm.deletePackage(packageName, new IPackageDeleteObserver.Stub() {
-                        public void packageDeleted(String packageName, int returnCode) {
-                            enablePackageForAllUsers(context, packageName, false);
-                        }
-                    }, PackageManager.DELETE_SYSTEM_APP | PackageManager.DELETE_ALL_USERS);
-            }
-        } catch (NameNotFoundException e) {
-        }
-    }
-
-    @Override
     public void enablePackageForAllUsers(Context context, String packageName, boolean enable) {
         UserManager userManager = (UserManager)context.getSystemService(Context.USER_SERVICE);
         for(UserInfo userInfo : userManager.getUsers()) {
@@ -242,8 +217,7 @@ public class SystemImpl implements SystemInterface {
         }
     }
 
-    @Override
-    public void enablePackageForUser(String packageName, boolean enable, int userId) {
+    private void enablePackageForUser(String packageName, boolean enable, int userId) {
         try {
             AppGlobals.getPackageManager().setApplicationEnabledSetting(
                     packageName,
@@ -268,8 +242,42 @@ public class SystemImpl implements SystemInterface {
         return pm.getPackageInfo(configInfo.packageName, PACKAGE_FLAGS);
     }
 
+    @Override
+    public List<UserPackage> getPackageInfoForProviderAllUsers(Context context,
+            WebViewProviderInfo configInfo) {
+        return UserPackage.getPackageInfosAllUsers(context, configInfo.packageName, PACKAGE_FLAGS);
+    }
+
+    @Override
+    public int getMultiProcessSetting(Context context) {
+        return Settings.Global.getInt(context.getContentResolver(),
+                                      Settings.Global.WEBVIEW_MULTIPROCESS, 0);
+    }
+
+    @Override
+    public void setMultiProcessSetting(Context context, int value) {
+        Settings.Global.putInt(context.getContentResolver(),
+                               Settings.Global.WEBVIEW_MULTIPROCESS, value);
+    }
+
+    @Override
+    public void notifyZygote(boolean enableMultiProcess) {
+        WebViewZygote.setMultiprocessEnabled(enableMultiProcess);
+    }
+
+    @Override
+    public void ensureZygoteStarted() {
+        WebViewZygote.getProcess();
+    }
+
+    @Override
+    public boolean isMultiProcessDefaultEnabled() {
+        // Multiprocess is enabled by default for all devices.
+        return true;
+    }
+
     // flags declaring we want extra info from the package manager for webview providers
     private final static int PACKAGE_FLAGS = PackageManager.GET_META_DATA
-            | PackageManager.GET_SIGNATURES | PackageManager.MATCH_DEBUG_TRIAGED_MISSING
-            | PackageManager.MATCH_UNINSTALLED_PACKAGES;
+            | PackageManager.GET_SIGNATURES | PackageManager.GET_SHARED_LIBRARY_FILES
+            | PackageManager.MATCH_DEBUG_TRIAGED_MISSING | PackageManager.MATCH_ANY_USER;
 }

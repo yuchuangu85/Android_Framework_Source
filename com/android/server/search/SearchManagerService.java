@@ -17,9 +17,8 @@
 package com.android.server.search;
 
 import android.app.ActivityManager;
-import android.app.ActivityManagerNative;
-import android.app.AppGlobals;
-import android.app.IActivityManager;
+import android.app.ActivityTaskManager;
+import android.app.IActivityTaskManager;
 import android.app.ISearchManager;
 import android.app.SearchManager;
 import android.app.SearchableInfo;
@@ -27,9 +26,9 @@ import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.content.res.Configuration;
 import android.database.ContentObserver;
 import android.os.Binder;
 import android.os.Bundle;
@@ -38,12 +37,14 @@ import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.provider.Settings;
+import android.service.voice.VoiceInteractionService;
 import android.util.Log;
 import android.util.SparseArray;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.content.PackageMonitor;
 import com.android.internal.os.BackgroundThread;
+import com.android.internal.util.DumpUtils;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.server.LocalServices;
 import com.android.server.SystemService;
@@ -264,7 +265,7 @@ public class SearchManagerService extends ISearchManager.Stub {
     }
 
     @Override
-    public void launchAssist(Bundle args) {
+    public void launchAssist(int userHandle, Bundle args) {
         StatusBarManagerInternal statusBarManager =
                 LocalServices.getService(StatusBarManagerInternal.class);
         if (statusBarManager != null) {
@@ -272,53 +273,9 @@ public class SearchManagerService extends ISearchManager.Stub {
         }
     }
 
-    private ComponentName getLegacyAssistComponent(int userHandle) {
-        try {
-            userHandle = ActivityManager.handleIncomingUser(Binder.getCallingPid(),
-                    Binder.getCallingUid(), userHandle, true, false, "getLegacyAssistComponent", null);
-            IPackageManager pm = AppGlobals.getPackageManager();
-            Intent assistIntent = new Intent(Intent.ACTION_ASSIST);
-            ResolveInfo info =
-                    pm.resolveIntent(assistIntent,
-                            assistIntent.resolveTypeIfNeeded(mContext.getContentResolver()),
-                            PackageManager.MATCH_DEFAULT_ONLY, userHandle);
-            if (info != null) {
-                return new ComponentName(
-                        info.activityInfo.applicationInfo.packageName,
-                        info.activityInfo.name);
-            }
-        } catch (RemoteException re) {
-            // Local call
-            Log.e(TAG, "RemoteException in getLegacyAssistComponent: " + re);
-        } catch (Exception e) {
-            Log.e(TAG, "Exception in getLegacyAssistComponent: " + e);
-        }
-        return null;
-    }
-
-    @Override
-    public boolean launchLegacyAssist(String hint, int userHandle, Bundle args) {
-        ComponentName comp = getLegacyAssistComponent(userHandle);
-        if (comp == null) {
-            return false;
-        }
-        long ident = Binder.clearCallingIdentity();
-        try {
-            Intent intent = new Intent(Intent.ACTION_ASSIST);
-            intent.setComponent(comp);
-            IActivityManager am = ActivityManagerNative.getDefault();
-            return am.launchAssistIntent(intent, ActivityManager.ASSIST_CONTEXT_BASIC, hint,
-                    userHandle, args);
-        } catch (RemoteException e) {
-        } finally {
-            Binder.restoreCallingIdentity(ident);
-        }
-        return true;
-    }
-
     @Override
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.DUMP, TAG);
+        if (!DumpUtils.checkDumpPermission(mContext, TAG, pw)) return;
 
         IndentingPrintWriter ipw = new IndentingPrintWriter(pw, "  ");
         synchronized (mSearchables) {

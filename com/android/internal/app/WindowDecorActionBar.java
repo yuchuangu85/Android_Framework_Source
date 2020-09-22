@@ -16,11 +16,35 @@
 
 package com.android.internal.app;
 
+import android.animation.Animator;
+import android.animation.Animator.AnimatorListener;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
+import android.app.ActionBar;
+import android.app.Activity;
+import android.app.Dialog;
+import android.app.FragmentTransaction;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.Context;
+import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.content.res.TypedArray;
-import android.view.View.OnFocusChangeListener;
-import android.view.ViewGroup;
+import android.graphics.drawable.Drawable;
+import android.util.TypedValue;
+import android.view.ActionMode;
+import android.view.ContextThemeWrapper;
+import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
+import android.view.View;
 import android.view.ViewParent;
+import android.view.Window;
+import android.view.accessibility.AccessibilityEvent;
+import android.view.animation.AnimationUtils;
+import android.widget.SpinnerAdapter;
 import android.widget.Toolbar;
 
 import com.android.internal.R;
@@ -33,32 +57,6 @@ import com.android.internal.widget.ActionBarContextView;
 import com.android.internal.widget.ActionBarOverlayLayout;
 import com.android.internal.widget.DecorToolbar;
 import com.android.internal.widget.ScrollingTabContainerView;
-
-import android.animation.Animator;
-import android.animation.Animator.AnimatorListener;
-import android.animation.AnimatorListenerAdapter;
-import android.animation.AnimatorSet;
-import android.animation.ObjectAnimator;
-import android.app.ActionBar;
-import android.app.Activity;
-import android.app.Dialog;
-import android.app.FragmentTransaction;
-import android.content.Context;
-import android.content.res.Configuration;
-import android.content.res.Resources;
-import android.graphics.drawable.Drawable;
-import android.util.TypedValue;
-import android.view.ActionMode;
-import android.view.ContextThemeWrapper;
-import android.view.LayoutInflater;
-import android.view.Menu;
-import android.view.MenuInflater;
-import android.view.MenuItem;
-import android.view.View;
-import android.view.Window;
-import android.view.accessibility.AccessibilityEvent;
-import android.view.animation.AnimationUtils;
-import android.widget.SpinnerAdapter;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -82,9 +80,11 @@ public class WindowDecorActionBar extends ActionBar implements
     private ActionBarOverlayLayout mOverlayLayout;
     private ActionBarContainer mContainerView;
     private DecorToolbar mDecorToolbar;
+    @UnsupportedAppUsage
     private ActionBarContextView mContextView;
     private ActionBarContainer mSplitView;
     private View mContentView;
+    @UnsupportedAppUsage
     private ScrollingTabContainerView mTabScrollView;
 
     private ArrayList<TabImpl> mTabs = new ArrayList<TabImpl>();
@@ -332,6 +332,7 @@ public class WindowDecorActionBar extends ActionBar implements
      *
      * @param enabled true to animate, false to not animate.
      */
+    @UnsupportedAppUsage
     public void setShowHideAnimationEnabled(boolean enabled) {
         mShowHideAnimationEnabled = enabled;
         if (!enabled && mCurrentShowAnim != null) {
@@ -970,12 +971,6 @@ public class WindowDecorActionBar extends ActionBar implements
         return false;
     }
 
-    /** @hide */
-    @Override
-    public boolean requestFocus() {
-        return requestFocus(mDecorToolbar.getViewGroup());
-    }
-
     /**
      * @hide
      */
@@ -1154,6 +1149,7 @@ public class WindowDecorActionBar extends ActionBar implements
      * @hide
      */
     public class TabImpl extends ActionBar.Tab {
+        @UnsupportedAppUsage
         private ActionBar.TabListener mCallback;
         private Object mTag;
         private Drawable mIcon;

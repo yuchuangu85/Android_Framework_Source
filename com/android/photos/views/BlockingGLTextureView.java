@@ -304,9 +304,6 @@ public class BlockingGLTextureView extends TextureView
 
     }
 
-    // RenderThread线程是一个渲染线程，可以保证在主线程阻塞的情况下动画执行依然流畅顺滑。
-    // 就是一个异步绘制的处理线程。
-    // 参考：https://www.jianshu.com/p/bc1c1d2fadd1
     private static class RenderThread extends Thread {
         private static final int INVALID = -1;
         private static final int RENDER = 1;

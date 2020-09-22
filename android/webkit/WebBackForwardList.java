@@ -16,6 +16,8 @@
 
 package android.webkit;
 
+import android.annotation.Nullable;
+
 import java.io.Serializable;
 
 /**
@@ -25,10 +27,11 @@ import java.io.Serializable;
  */
 public abstract class WebBackForwardList implements Cloneable, Serializable {
     /**
-     * Return the current history item. This method returns null if the list is
+     * Return the current history item. This method returns {@code null} if the list is
      * empty.
      * @return The current history item.
      */
+    @Nullable
     public abstract WebHistoryItem getCurrentItem();
 
     /**
@@ -54,7 +57,8 @@ public abstract class WebBackForwardList implements Cloneable, Serializable {
     /**
      * Clone the entire object to be used in the UI thread by clients of
      * WebView. This creates a copy that should never be modified by any of the
-     * webkit package classes.
+     * webkit package classes. On Android 4.4 and later there is no need to use
+     * this, as the object is already a read-only copy of the internal state.
      */
     protected abstract WebBackForwardList clone();
 }

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2003, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,6 +33,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectStreamException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Objects;
 import libcore.util.BasicLruCache;
 import libcore.util.EmptyArray;
 
@@ -178,8 +179,8 @@ public abstract class Enum<E extends Enum<E>>
      * method is the order in which the constants are declared.
      */
     public final int compareTo(E o) {
-        Enum other = (Enum)o;
-        Enum self = this;
+        Enum<?> other = (Enum<?>)o;
+        Enum<E> self = this;
         if (self.getClass() != other.getClass() && // optimization
             self.getDeclaringClass() != other.getDeclaringClass())
             throw new ClassCastException();
@@ -198,10 +199,11 @@ public abstract class Enum<E extends Enum<E>>
      * @return the Class object corresponding to this enum constant's
      *     enum type
      */
+    @SuppressWarnings("unchecked")
     public final Class<E> getDeclaringClass() {
-        Class clazz = getClass();
-        Class zuper = clazz.getSuperclass();
-        return (zuper == Enum.class) ? clazz : zuper;
+        Class<?> clazz = getClass();
+        Class<?> zuper = clazz.getSuperclass();
+        return (zuper == Enum.class) ? (Class<E>)clazz : (Class<E>)zuper;
     }
 
     /**
@@ -231,47 +233,48 @@ public abstract class Enum<E extends Enum<E>>
      *         is null
      * @since 1.5
      */
+    // BEGIN Android-changed: Use a static BasicLruCache mapping Enum class -> Enum instance array.
+    // This change was made to fix a performance regression. See b/4087759 and b/109791362 for more
+    // background information.
     public static <T extends Enum<T>> T valueOf(Class<T> enumType,
                                                 String name) {
-        if (enumType == null)
-            throw new NullPointerException("enumType == null");
-        if (name == null)
-            throw new NullPointerException("Name is null");
+        Objects.requireNonNull(enumType, "enumType == null");
+        Objects.requireNonNull(enumType, "name == null");
         T[] values = getSharedConstants(enumType);
-        T result = null;
-        if (values != null) {
-            for (T value : values) {
-                if (name.equals(value.name())) {
-                    result = value;
-                }
-            }
-        } else {
+        if (values == null) {
             throw new IllegalArgumentException(enumType.toString() + " is not an enum type.");
         }
 
-        if (result != null)
-            return result;
+        // Iterate backwards through the array to retain historic Android behavior in the
+        // unexpected / likely invalid case where there are multiple values with the same name.
+        for (int i = values.length - 1; i >= 0; --i) {
+            T value = values[i];
+            if (name.equals(value.name())) {
+                return value;
+            }
+        }
         throw new IllegalArgumentException(
-            "No enum constant " + enumType.getCanonicalName() + "." + name);
+                "No enum constant " + enumType.getCanonicalName() + "." + name);
+    }
+
+    private static Object[] enumValues(Class<? extends Enum> clazz) {
+        if (!clazz.isEnum()) {
+            // Either clazz is Enum.class itself, or it is not an enum class and the method was
+            // called unsafely e.g. using an unchecked cast or via reflection.
+            return null;
+        }
+        try {
+            Method valueMethod = clazz.getDeclaredMethod("values");
+            return (Object[]) valueMethod.invoke(null);
+        } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static final BasicLruCache<Class<? extends Enum>, Object[]> sharedConstantsCache
             = new BasicLruCache<Class<? extends Enum>, Object[]>(64) {
         @Override protected Object[] create(Class<? extends Enum> enumType) {
-            if (!enumType.isEnum()) {
-                return null;
-            }
-            try {
-                Method method = enumType.getDeclaredMethod("values", EmptyArray.CLASS);
-                method.setAccessible(true);
-                return (Object[]) method.invoke((Object[]) null);
-            } catch (NoSuchMethodException impossible) {
-                throw new AssertionError("impossible", impossible);
-            } catch (IllegalAccessException impossible) {
-                throw new AssertionError("impossible", impossible);
-            } catch (InvocationTargetException impossible) {
-                throw new AssertionError("impossible", impossible);
-            }
+            return enumValues(enumType);
         }
     };
 
@@ -285,6 +288,7 @@ public abstract class Enum<E extends Enum<E>>
     public static <T extends Enum<T>> T[] getSharedConstants(Class<T> enumType) {
         return (T[]) sharedConstantsCache.get(enumType);
     }
+    // END Android-changed: Use a static BasicLruCache mapping Enum class -> Enum instance array.
 
     /**
      * enum classes cannot have finalize methods.

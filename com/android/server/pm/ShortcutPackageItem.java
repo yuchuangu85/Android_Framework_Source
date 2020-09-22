@@ -17,8 +17,11 @@ package com.android.server.pm;
 
 import android.annotation.NonNull;
 import android.content.pm.PackageInfo;
+import android.content.pm.ShortcutInfo;
+import android.util.AtomicFile;
 import android.util.Slog;
 
+import com.android.internal.util.FastXmlSerializer;
 import com.android.internal.util.Preconditions;
 
 import org.json.JSONException;
@@ -26,7 +29,12 @@ import org.json.JSONObject;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
 
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 /**
  * All methods should be guarded by {@code #mShortcutUser.mService.mLock}.
@@ -48,7 +56,7 @@ abstract class ShortcutPackageItem {
         mShortcutUser = shortcutUser;
         mPackageUserId = packageUserId;
         mPackageName = Preconditions.checkStringNotEmpty(packageName);
-        mPackageInfo = Preconditions.checkNotNull(packageInfo);
+        mPackageInfo = Objects.requireNonNull(packageInfo);
     }
 
     /**
@@ -101,50 +109,70 @@ abstract class ShortcutPackageItem {
         final ShortcutService s = mShortcutUser.mService;
         if (!s.isPackageInstalled(mPackageName, mPackageUserId)) {
             if (ShortcutService.DEBUG) {
-                Slog.d(TAG, String.format("Package still not installed: %s user=%d",
+                Slog.d(TAG, String.format("Package still not installed: %s/u%d",
                         mPackageName, mPackageUserId));
             }
             return; // Not installed, no need to restore yet.
         }
+        int restoreBlockReason;
+        long currentVersionCode = ShortcutInfo.VERSION_CODE_UNKNOWN;
+
         if (!mPackageInfo.hasSignatures()) {
-            s.wtf("Attempted to restore package " + mPackageName + ", user=" + mPackageUserId
+            s.wtf("Attempted to restore package " + mPackageName + "/u" + mPackageUserId
                     + " but signatures not found in the restore data.");
-            onRestoreBlocked();
-            return;
+            restoreBlockReason = ShortcutInfo.DISABLED_REASON_SIGNATURE_MISMATCH;
+        } else {
+            final PackageInfo pi = s.getPackageInfoWithSignatures(mPackageName, mPackageUserId);
+            currentVersionCode = pi.getLongVersionCode();
+            restoreBlockReason = mPackageInfo.canRestoreTo(s, pi, canRestoreAnyVersion());
         }
 
-        final PackageInfo pi = s.getPackageInfoWithSignatures(mPackageName, mPackageUserId);
-        if (!mPackageInfo.canRestoreTo(s, pi)) {
-            // Package is now installed, but can't restore.  Let the subclass do the cleanup.
-            onRestoreBlocked();
-            return;
-        }
         if (ShortcutService.DEBUG) {
-            Slog.d(TAG, String.format("Restored package: %s/%d on user %d", mPackageName,
-                    mPackageUserId, getOwnerUserId()));
+            Slog.d(TAG, String.format("Restoring package: %s/u%d (version=%d) %s for u%d",
+                    mPackageName, mPackageUserId, currentVersionCode,
+                    ShortcutInfo.getDisabledReasonDebugString(restoreBlockReason),
+                    getOwnerUserId()));
         }
 
-        onRestored();
+        onRestored(restoreBlockReason);
 
-        // Now the package is not shadow.
+        // Either way, it's no longer a shadow.
         mPackageInfo.setShadow(false);
 
         s.scheduleSaveUser(mPackageUserId);
     }
 
-    /**
-     * Called when the new package can't be restored because it has a lower version number
-     * or different signatures.
-     */
-    protected abstract void onRestoreBlocked();
+    protected abstract boolean canRestoreAnyVersion();
 
-    /**
-     * Called when the new package is successfully restored.
-     */
-    protected abstract void onRestored();
+    protected abstract void onRestored(int restoreBlockReason);
 
     public abstract void saveToXml(@NonNull XmlSerializer out, boolean forBackup)
             throws IOException, XmlPullParserException;
+
+    public void saveToFile(File path, boolean forBackup) {
+        final AtomicFile file = new AtomicFile(path);
+        FileOutputStream os = null;
+        try {
+            os = file.startWrite();
+            final BufferedOutputStream bos = new BufferedOutputStream(os);
+
+            // Write to XML
+            XmlSerializer itemOut = new FastXmlSerializer();
+            itemOut.setOutput(bos, StandardCharsets.UTF_8.name());
+            itemOut.startDocument(null, true);
+
+            saveToXml(itemOut, forBackup);
+
+            itemOut.endDocument();
+
+            bos.flush();
+            os.flush();
+            file.finishWrite(os);
+        } catch (XmlPullParserException | IOException e) {
+            Slog.e(TAG, "Failed to write to file " + file.getBaseFile(), e);
+            file.failWrite(os);
+        }
+    }
 
     public JSONObject dumpCheckin(boolean clear) throws JSONException {
         final JSONObject result = new JSONObject();

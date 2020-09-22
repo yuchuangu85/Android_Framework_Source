@@ -16,7 +16,8 @@
 
 package android.util;
 
-import java.util.Random;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.graphics.Rect;
 
 /**
  * A class that contains utility methods related to numbers.
@@ -24,17 +25,18 @@ import java.util.Random;
  * @hide Pending API council approval
  */
 public final class MathUtils {
-    private static final Random sRandom = new Random();
     private static final float DEG_TO_RAD = 3.1415926f / 180.0f;
     private static final float RAD_TO_DEG = 180.0f / 3.1415926f;
 
     private MathUtils() {
     }
 
+    @UnsupportedAppUsage
     public static float abs(float v) {
         return v > 0 ? v : -v;
     }
 
+    @UnsupportedAppUsage
     public static int constrain(int amount, int low, int high) {
         return amount < low ? low : (amount > high ? high : amount);
     }
@@ -43,6 +45,7 @@ public final class MathUtils {
         return amount < low ? low : (amount > high ? high : amount);
     }
 
+    @UnsupportedAppUsage
     public static float constrain(float amount, float low, float high) {
         return amount < low ? low : (amount > high ? high : amount);
     }
@@ -59,10 +62,15 @@ public final class MathUtils {
         return (float) Math.pow(a, b);
     }
 
+    public static float sqrt(float a) {
+        return (float) Math.sqrt(a);
+    }
+
     public static float max(float a, float b) {
         return a > b ? a : b;
     }
 
+    @UnsupportedAppUsage
     public static float max(int a, int b) {
         return a > b ? a : b;
     }
@@ -152,8 +160,29 @@ public final class MathUtils {
         return (float) Math.tan(angle);
     }
 
+    @UnsupportedAppUsage
     public static float lerp(float start, float stop, float amount) {
         return start + (stop - start) * amount;
+    }
+
+    /**
+     * Returns the interpolation scalar (s) that satisfies the equation: {@code value = }{@link
+     * #lerp}{@code (a, b, s)}
+     *
+     * <p>If {@code a == b}, then this function will return 0.
+     */
+    public static float lerpInv(float a, float b, float value) {
+        return a != b ? ((value - a) / (b - a)) : 0.0f;
+    }
+
+    /** Returns the single argument constrained between [0.0, 1.0]. */
+    public static float saturate(float value) {
+        return constrain(value, 0.0f, 1.0f);
+    }
+
+    /** Returns the saturated (constrained between [0, 1]) result of {@link #lerpInv}. */
+    public static float lerpInvSat(float a, float b, float value) {
+        return saturate(lerpInv(a, b, value));
     }
 
     /**
@@ -182,29 +211,48 @@ public final class MathUtils {
     }
 
     public static float map(float minStart, float minStop, float maxStart, float maxStop, float value) {
-        return maxStart + (maxStart - maxStop) * ((value - minStart) / (minStop - minStart));
+        return maxStart + (maxStop - maxStart) * ((value - minStart) / (minStop - minStart));
     }
 
-    public static int random(int howbig) {
-        return (int) (sRandom.nextFloat() * howbig);
+    /**
+     * Calculates a value in [rangeMin, rangeMax] that maps value in [valueMin, valueMax] to
+     * returnVal in [rangeMin, rangeMax].
+     * <p>
+     * Always returns a constrained value in the range [rangeMin, rangeMax], even if value is
+     * outside [valueMin, valueMax].
+     * <p>
+     * Eg:
+     *    constrainedMap(0f, 100f, 0f, 1f, 0.5f) = 50f
+     *    constrainedMap(20f, 200f, 10f, 20f, 20f) = 200f
+     *    constrainedMap(20f, 200f, 10f, 20f, 50f) = 200f
+     *    constrainedMap(10f, 50f, 10f, 20f, 5f) = 10f
+     *
+     * @param rangeMin minimum of the range that should be returned.
+     * @param rangeMax maximum of the range that should be returned.
+     * @param valueMin minimum of range to map {@code value} to.
+     * @param valueMax maximum of range to map {@code value} to.
+     * @param value to map to the range [{@code valueMin}, {@code valueMax}]. Note, can be outside
+     *              this range, resulting in a clamped value.
+     * @return the mapped value, constrained to [{@code rangeMin}, {@code rangeMax}.
+     */
+    public static float constrainedMap(
+            float rangeMin, float rangeMax, float valueMin, float valueMax, float value) {
+        return lerp(rangeMin, rangeMax, lerpInvSat(valueMin, valueMax, value));
     }
 
-    public static int random(int howsmall, int howbig) {
-        if (howsmall >= howbig) return howsmall;
-        return (int) (sRandom.nextFloat() * (howbig - howsmall) + howsmall);
-    }
-
-    public static float random(float howbig) {
-        return sRandom.nextFloat() * howbig;
-    }
-
-    public static float random(float howsmall, float howbig) {
-        if (howsmall >= howbig) return howsmall;
-        return sRandom.nextFloat() * (howbig - howsmall) + howsmall;
-    }
-
-    public static void randomSeed(long seed) {
-        sRandom.setSeed(seed);
+    /**
+     * Perform Hermite interpolation between two values.
+     * Eg:
+     *   smoothStep(0, 0.5f, 0.5f) = 1f
+     *   smoothStep(0, 0.5f, 0.25f) = 0.5f
+     *
+     * @param start Left edge.
+     * @param end Right edge.
+     * @param x A value between {@code start} and {@code end}.
+     * @return A number between 0 and 1 representing where {@code x} is in the interpolation.
+     */
+    public static float smoothStep(float start, float end, float x) {
+        return constrain((x - start) / (end - start), 0f, 1f);
     }
 
     /**
@@ -225,5 +273,19 @@ public final class MathUtils {
             return a + b;
         }
         throw new IllegalArgumentException("Addition overflow: " + a + " + " + b);
+    }
+
+    /**
+     * Resize a {@link Rect} so one size would be {@param largestSide}.
+     *
+     * @param outToResize Rectangle that will be resized.
+     * @param largestSide Size of the largest side.
+     */
+    public static void fitRect(Rect outToResize, int largestSide) {
+        if (outToResize.isEmpty()) {
+            return;
+        }
+        float maxSize = Math.max(outToResize.width(), outToResize.height());
+        outToResize.scale(largestSide / maxSize);
     }
 }

@@ -28,6 +28,7 @@ import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
+// Android-changed: removed ValueBased paragraph.
 /**
  * A container object which may or may not contain a {@code int} value.
  * If a value is present, {@code isPresent()} will return {@code true} and
@@ -86,7 +87,6 @@ public final class OptionalInt {
      */
     private OptionalInt(int value) {
         this.isPresent = true;
-
         this.value = value;
     }
 

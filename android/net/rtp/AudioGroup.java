@@ -16,7 +16,9 @@
 
 package android.net.rtp;
 
+import android.annotation.NonNull;
 import android.app.ActivityThread;
+import android.content.Context;
 import android.media.AudioManager;
 
 import java.util.HashMap;
@@ -96,14 +98,26 @@ public class AudioGroup {
     private int mMode = MODE_ON_HOLD;
 
     private long mNative;
+    private Context mContext;
     static {
         System.loadLibrary("rtp_jni");
     }
 
     /**
      * Creates an empty AudioGroup.
+     * @deprecated Replaced by {@link #AudioGroup(Context)}
      */
+    @Deprecated
     public AudioGroup() {
+        this(null);
+    }
+
+    /**
+     * Creates an empty AudioGroup.
+     * @param context Context used to get package name
+     */
+    public AudioGroup(@NonNull Context context) {
+        mContext = context;
         mStreams = new HashMap<AudioStream, Long>();
     }
 
@@ -153,7 +167,8 @@ public class AudioGroup {
                 long id = nativeAdd(stream.getMode(), stream.getSocket(),
                         stream.getRemoteAddress().getHostAddress(),
                         stream.getRemotePort(), codecSpec, stream.getDtmfType(),
-                        ActivityThread.currentOpPackageName());
+                        mContext != null ? mContext.getOpPackageName()
+                                : ActivityThread.currentOpPackageName());
                 mStreams.put(stream, id);
             } catch (NullPointerException e) {
                 throw new IllegalStateException(e);

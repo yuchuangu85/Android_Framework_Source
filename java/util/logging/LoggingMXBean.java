@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2003, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,7 @@
 
 package java.util.logging;
 
+// Android-removed: References to java.lang.management in javadoc.
 
 /**
  * The management interface for the logging facility.
@@ -44,28 +45,6 @@ package java.util.logging;
  * @since   1.5
  *
  */
-
-// Android-removed : References to java.lang.management.
-//
-// It is recommended
-// to use the {@link java.lang.management.PlatformLoggingMXBean} management
-// interface that implements all attributes defined in this
-// {@code LoggingMXBean}.  The
-// {@link java.lang.management.ManagementFactory#getPlatformMXBean(Class)
-// ManagementFactory.getPlatformMXBean} method can be used to obtain
-// the {@code PlatformLoggingMXBean} object representing the management
-// interface for logging.
-//
-// This instance is an {@link javax.management.MXBean MXBean} that
-// can be obtained by calling the {@link LogManager#getLoggingMXBean}
-// method or from the
-// {@linkplain java.lang.management.ManagementFactory#getPlatformMBeanServer
-// platform <tt>MBeanServer</tt>}.
-//
-// The instance registered in the platform {@code MBeanServer}
-// is also a {@link java.lang.management.PlatformLoggingMXBean}.
-//
-// @see java.lang.management.PlatformLoggingMXBean
 public interface LoggingMXBean {
 
     /**

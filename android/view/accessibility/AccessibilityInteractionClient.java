@@ -17,9 +17,13 @@
 package android.view.accessibility;
 
 import android.accessibilityservice.IAccessibilityServiceConnection;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.os.Message;
 import android.os.Process;
 import android.os.RemoteException;
@@ -27,6 +31,12 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.util.LongSparseArray;
 import android.util.SparseArray;
+import android.util.SparseLongArray;
+import android.view.Display;
+import android.view.ViewConfiguration;
+
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.ArrayUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -81,10 +91,23 @@ public final class AccessibilityInteractionClient
 
     private static final long TIMEOUT_INTERACTION_MILLIS = 5000;
 
+    private static final long DISABLE_PREFETCHING_FOR_SCROLLING_MILLIS =
+            (long) (ViewConfiguration.getSendRecurringAccessibilityEventsInterval() * 1.5);
+
     private static final Object sStaticLock = new Object();
 
     private static final LongSparseArray<AccessibilityInteractionClient> sClients =
         new LongSparseArray<>();
+
+    private static final SparseArray<IAccessibilityServiceConnection> sConnectionCache =
+            new SparseArray<>();
+
+    /** List of timestamps which indicate the latest time an a11y service receives a scroll event
+        from a window, mapping from windowId -> timestamp. */
+    private static final SparseLongArray sScrollingWindows = new SparseLongArray();
+
+    private static AccessibilityCache sAccessibilityCache =
+            new AccessibilityCache(new AccessibilityCache.AccessibilityNodeRefresher());
 
     private final AtomicInteger mInteractionIdCounter = new AtomicInteger();
 
@@ -100,15 +123,10 @@ public final class AccessibilityInteractionClient
 
     private Message mSameThreadMessage;
 
-    private static final SparseArray<IAccessibilityServiceConnection> sConnectionCache =
-        new SparseArray<>();
-
-    private static final AccessibilityCache sAccessibilityCache =
-        new AccessibilityCache();
-
     /**
      * @return The client for the current thread.
      */
+    @UnsupportedAppUsage
     public static AccessibilityInteractionClient getInstance() {
         final long threadId = Thread.currentThread().getId();
         return getInstanceForThread(threadId);
@@ -133,6 +151,50 @@ public final class AccessibilityInteractionClient
         }
     }
 
+    /**
+     * Gets a cached accessibility service connection.
+     *
+     * @param connectionId The connection id.
+     * @return The cached connection if such.
+     */
+    public static IAccessibilityServiceConnection getConnection(int connectionId) {
+        synchronized (sConnectionCache) {
+            return sConnectionCache.get(connectionId);
+        }
+    }
+
+    /**
+     * Adds a cached accessibility service connection.
+     *
+     * @param connectionId The connection id.
+     * @param connection The connection.
+     */
+    public static void addConnection(int connectionId, IAccessibilityServiceConnection connection) {
+        synchronized (sConnectionCache) {
+            sConnectionCache.put(connectionId, connection);
+        }
+    }
+
+    /**
+     * Removes a cached accessibility service connection.
+     *
+     * @param connectionId The connection id.
+     */
+    public static void removeConnection(int connectionId) {
+        synchronized (sConnectionCache) {
+            sConnectionCache.remove(connectionId);
+        }
+    }
+
+    /**
+     * This method is only for testing. Replacing the cache is a generally terrible idea, but
+     * tests need to be able to verify this class's interactions with the cache
+     */
+    @VisibleForTesting
+    public static void setCache(AccessibilityCache cache) {
+        sAccessibilityCache = cache;
+    }
+
     private AccessibilityInteractionClient() {
         /* reducing constructor visibility */
     }
@@ -143,6 +205,7 @@ public final class AccessibilityInteractionClient
      *
      * @param message The message.
      */
+    @UnsupportedAppUsage
     public void setSameThreadMessage(Message message) {
         synchronized (mInstanceLock) {
             mSameThreadMessage = message;
@@ -158,8 +221,8 @@ public final class AccessibilityInteractionClient
      */
     public AccessibilityNodeInfo getRootInActiveWindow(int connectionId) {
         return findAccessibilityNodeInfoByAccessibilityId(connectionId,
-                AccessibilityNodeInfo.ACTIVE_WINDOW_ID, AccessibilityNodeInfo.ROOT_NODE_ID,
-                false, AccessibilityNodeInfo.FLAG_PREFETCH_DESCENDANTS);
+                AccessibilityWindowInfo.ACTIVE_WINDOW_ID, AccessibilityNodeInfo.ROOT_NODE_ID,
+                false, AccessibilityNodeInfo.FLAG_PREFETCH_DESCENDANTS, null);
     }
 
     /**
@@ -167,30 +230,52 @@ public final class AccessibilityInteractionClient
      *
      * @param connectionId The id of a connection for interacting with the system.
      * @param accessibilityWindowId A unique window id. Use
-     *     {@link android.view.accessibility.AccessibilityNodeInfo#ACTIVE_WINDOW_ID}
+     *     {@link android.view.accessibility.AccessibilityWindowInfo#ACTIVE_WINDOW_ID}
      *     to query the currently active window.
      * @return The {@link AccessibilityWindowInfo}.
      */
     public AccessibilityWindowInfo getWindow(int connectionId, int accessibilityWindowId) {
+        return getWindow(connectionId, accessibilityWindowId, /* bypassCache */ false);
+    }
+
+    /**
+     * Gets the info for a window.
+     *
+     * @param connectionId The id of a connection for interacting with the system.
+     * @param accessibilityWindowId A unique window id. Use
+     *     {@link android.view.accessibility.AccessibilityWindowInfo#ACTIVE_WINDOW_ID}
+     *     to query the currently active window.
+     * @param bypassCache Whether to bypass the cache.
+     * @return The {@link AccessibilityWindowInfo}.
+     */
+    public AccessibilityWindowInfo getWindow(int connectionId, int accessibilityWindowId,
+            boolean bypassCache) {
         try {
             IAccessibilityServiceConnection connection = getConnection(connectionId);
             if (connection != null) {
-                AccessibilityWindowInfo window = sAccessibilityCache.getWindow(
-                        accessibilityWindowId);
-                if (window != null) {
-                    if (DEBUG) {
-                        Log.i(LOG_TAG, "Window cache hit");
+                AccessibilityWindowInfo window;
+                if (!bypassCache) {
+                    window = sAccessibilityCache.getWindow(accessibilityWindowId);
+                    if (window != null) {
+                        if (DEBUG) {
+                            Log.i(LOG_TAG, "Window cache hit");
+                        }
+                        return window;
                     }
-                    return window;
-                }
-                if (DEBUG) {
-                    Log.i(LOG_TAG, "Window cache miss");
+                    if (DEBUG) {
+                        Log.i(LOG_TAG, "Window cache miss");
+                    }
                 }
                 final long identityToken = Binder.clearCallingIdentity();
-                window = connection.getWindow(accessibilityWindowId);
-                Binder.restoreCallingIdentity(identityToken);
+                try {
+                    window = connection.getWindow(accessibilityWindowId);
+                } finally {
+                    Binder.restoreCallingIdentity(identityToken);
+                }
                 if (window != null) {
-                    sAccessibilityCache.addWindow(window);
+                    if (!bypassCache) {
+                        sAccessibilityCache.addWindow(window);
+                    }
                     return window;
                 }
             } else {
@@ -205,16 +290,33 @@ public final class AccessibilityInteractionClient
     }
 
     /**
-     * Gets the info for all windows.
+     * Gets the info for all windows of the default display.
      *
      * @param connectionId The id of a connection for interacting with the system.
      * @return The {@link AccessibilityWindowInfo} list.
      */
     public List<AccessibilityWindowInfo> getWindows(int connectionId) {
+        final SparseArray<List<AccessibilityWindowInfo>> windows =
+                getWindowsOnAllDisplays(connectionId);
+        if (windows.size() > 0) {
+            return windows.valueAt(Display.DEFAULT_DISPLAY);
+        }
+        return Collections.emptyList();
+    }
+
+    /**
+     * Gets the info for all windows of all displays.
+     *
+     * @param connectionId The id of a connection for interacting with the system.
+     * @return The SparseArray of {@link AccessibilityWindowInfo} list.
+     *         The key of SparseArray is display ID.
+     */
+    public SparseArray<List<AccessibilityWindowInfo>> getWindowsOnAllDisplays(int connectionId) {
         try {
             IAccessibilityServiceConnection connection = getConnection(connectionId);
             if (connection != null) {
-                List<AccessibilityWindowInfo> windows = sAccessibilityCache.getWindows();
+                SparseArray<List<AccessibilityWindowInfo>> windows =
+                        sAccessibilityCache.getWindowsOnAllDisplays();
                 if (windows != null) {
                     if (DEBUG) {
                         Log.i(LOG_TAG, "Windows cache hit");
@@ -225,10 +327,13 @@ public final class AccessibilityInteractionClient
                     Log.i(LOG_TAG, "Windows cache miss");
                 }
                 final long identityToken = Binder.clearCallingIdentity();
-                windows = connection.getWindows();
-                Binder.restoreCallingIdentity(identityToken);
+                try {
+                    windows = connection.getWindows();
+                } finally {
+                    Binder.restoreCallingIdentity(identityToken);
+                }
                 if (windows != null) {
-                    sAccessibilityCache.setWindows(windows);
+                    sAccessibilityCache.setWindowsOnAllDisplays(windows);
                     return windows;
                 }
             } else {
@@ -237,9 +342,53 @@ public final class AccessibilityInteractionClient
                 }
             }
         } catch (RemoteException re) {
-            Log.e(LOG_TAG, "Error while calling remote getWindows", re);
+            Log.e(LOG_TAG, "Error while calling remote getWindowsOnAllDisplays", re);
         }
-        return Collections.emptyList();
+
+        final SparseArray<List<AccessibilityWindowInfo>> emptyWindows = new SparseArray<>();
+        return emptyWindows;
+    }
+
+
+    /**
+     * Finds an {@link AccessibilityNodeInfo} by accessibility id and given leash token instead of
+     * window id. This method is used to find the leashed node on the embedded view hierarchy.
+     *
+     * @param connectionId The id of a connection for interacting with the system.
+     * @param leashToken The token of the embedded hierarchy.
+     * @param accessibilityNodeId A unique view id or virtual descendant id from
+     *     where to start the search. Use
+     *     {@link android.view.accessibility.AccessibilityNodeInfo#ROOT_NODE_ID}
+     *     to start from the root.
+     * @param bypassCache Whether to bypass the cache while looking for the node.
+     * @param prefetchFlags flags to guide prefetching.
+     * @param arguments Optional action arguments.
+     * @return An {@link AccessibilityNodeInfo} if found, null otherwise.
+     */
+    public @Nullable AccessibilityNodeInfo findAccessibilityNodeInfoByAccessibilityId(
+            int connectionId, @NonNull IBinder leashToken, long accessibilityNodeId,
+            boolean bypassCache, int prefetchFlags, Bundle arguments) {
+        if (leashToken == null) {
+            return null;
+        }
+        int windowId = -1;
+        try {
+            IAccessibilityServiceConnection connection = getConnection(connectionId);
+            if (connection != null) {
+                windowId = connection.getWindowIdForLeashToken(leashToken);
+            } else {
+                if (DEBUG) {
+                    Log.w(LOG_TAG, "No connection for connection id: " + connectionId);
+                }
+            }
+        } catch (RemoteException re) {
+            Log.e(LOG_TAG, "Error while calling remote getWindowIdForLeashToken", re);
+        }
+        if (windowId == -1) {
+            return null;
+        }
+        return findAccessibilityNodeInfoByAccessibilityId(connectionId, windowId,
+                accessibilityNodeId, bypassCache, prefetchFlags, arguments);
     }
 
     /**
@@ -247,7 +396,7 @@ public final class AccessibilityInteractionClient
      *
      * @param connectionId The id of a connection for interacting with the system.
      * @param accessibilityWindowId A unique window id. Use
-     *     {@link android.view.accessibility.AccessibilityNodeInfo#ACTIVE_WINDOW_ID}
+     *     {@link android.view.accessibility.AccessibilityWindowInfo#ACTIVE_WINDOW_ID}
      *     to query the currently active window.
      * @param accessibilityNodeId A unique view id or virtual descendant id from
      *     where to start the search. Use
@@ -259,7 +408,7 @@ public final class AccessibilityInteractionClient
      */
     public AccessibilityNodeInfo findAccessibilityNodeInfoByAccessibilityId(int connectionId,
             int accessibilityWindowId, long accessibilityNodeId, boolean bypassCache,
-            int prefetchFlags) {
+            int prefetchFlags, Bundle arguments) {
         if ((prefetchFlags & AccessibilityNodeInfo.FLAG_PREFETCH_SIBLINGS) != 0
                 && (prefetchFlags & AccessibilityNodeInfo.FLAG_PREFETCH_PREDECESSORS) == 0) {
             throw new IllegalArgumentException("FLAG_PREFETCH_SIBLINGS"
@@ -273,26 +422,43 @@ public final class AccessibilityInteractionClient
                             accessibilityWindowId, accessibilityNodeId);
                     if (cachedInfo != null) {
                         if (DEBUG) {
-                            Log.i(LOG_TAG, "Node cache hit");
+                            Log.i(LOG_TAG, "Node cache hit for "
+                                    + idToString(accessibilityWindowId, accessibilityNodeId));
                         }
                         return cachedInfo;
                     }
                     if (DEBUG) {
-                        Log.i(LOG_TAG, "Node cache miss");
+                        Log.i(LOG_TAG, "Node cache miss for "
+                                + idToString(accessibilityWindowId, accessibilityNodeId));
                     }
+                } else {
+                    // No need to prefech nodes in bypass cache case.
+                    prefetchFlags &= ~AccessibilityNodeInfo.FLAG_PREFETCH_MASK;
+                }
+                // Skip prefetching if window is scrolling.
+                if ((prefetchFlags & AccessibilityNodeInfo.FLAG_PREFETCH_MASK) != 0
+                        && isWindowScrolling(accessibilityWindowId)) {
+                    prefetchFlags &= ~AccessibilityNodeInfo.FLAG_PREFETCH_MASK;
                 }
                 final int interactionId = mInteractionIdCounter.getAndIncrement();
                 final long identityToken = Binder.clearCallingIdentity();
-                final boolean success = connection.findAccessibilityNodeInfoByAccessibilityId(
-                        accessibilityWindowId, accessibilityNodeId, interactionId, this,
-                        prefetchFlags, Thread.currentThread().getId());
-                Binder.restoreCallingIdentity(identityToken);
-                // If the scale is zero the call has failed.
-                if (success) {
+                final String[] packageNames;
+                try {
+                    packageNames = connection.findAccessibilityNodeInfoByAccessibilityId(
+                            accessibilityWindowId, accessibilityNodeId, interactionId, this,
+                            prefetchFlags, Thread.currentThread().getId(), arguments);
+                } finally {
+                    Binder.restoreCallingIdentity(identityToken);
+                }
+                if (packageNames != null) {
                     List<AccessibilityNodeInfo> infos = getFindAccessibilityNodeInfosResultAndClear(
                             interactionId);
-                    finalizeAndCacheAccessibilityNodeInfos(infos, connectionId);
+                    finalizeAndCacheAccessibilityNodeInfos(infos, connectionId,
+                            bypassCache, packageNames);
                     if (infos != null && !infos.isEmpty()) {
+                        for (int i = 1; i < infos.size(); i++) {
+                            infos.get(i).recycle();
+                        }
                         return infos.get(0);
                     }
                 }
@@ -308,6 +474,11 @@ public final class AccessibilityInteractionClient
         return null;
     }
 
+    private static String idToString(int accessibilityWindowId, long accessibilityNodeId) {
+        return accessibilityWindowId + "/"
+                + AccessibilityNodeInfo.idToString(accessibilityNodeId);
+    }
+
     /**
      * Finds an {@link AccessibilityNodeInfo} by View id. The search is performed in
      * the window whose id is specified and starts from the node whose accessibility
@@ -315,7 +486,7 @@ public final class AccessibilityInteractionClient
      *
      * @param connectionId The id of a connection for interacting with the system.
      * @param accessibilityWindowId A unique window id. Use
-     *     {@link android.view.accessibility.AccessibilityNodeInfo#ACTIVE_WINDOW_ID}
+     *     {@link android.view.accessibility.AccessibilityWindowInfo#ACTIVE_WINDOW_ID}
      *     to query the currently active window.
      * @param accessibilityNodeId A unique view id or virtual descendant id from
      *     where to start the search. Use
@@ -331,15 +502,21 @@ public final class AccessibilityInteractionClient
             if (connection != null) {
                 final int interactionId = mInteractionIdCounter.getAndIncrement();
                 final long identityToken = Binder.clearCallingIdentity();
-                final boolean success = connection.findAccessibilityNodeInfosByViewId(
-                        accessibilityWindowId, accessibilityNodeId, viewId, interactionId, this,
-                        Thread.currentThread().getId());
-                Binder.restoreCallingIdentity(identityToken);
-                if (success) {
+                final String[] packageNames;
+                try {
+                    packageNames = connection.findAccessibilityNodeInfosByViewId(
+                            accessibilityWindowId, accessibilityNodeId, viewId, interactionId, this,
+                            Thread.currentThread().getId());
+                } finally {
+                    Binder.restoreCallingIdentity(identityToken);
+                }
+
+                if (packageNames != null) {
                     List<AccessibilityNodeInfo> infos = getFindAccessibilityNodeInfosResultAndClear(
                             interactionId);
                     if (infos != null) {
-                        finalizeAndCacheAccessibilityNodeInfos(infos, connectionId);
+                        finalizeAndCacheAccessibilityNodeInfos(infos, connectionId,
+                                false, packageNames);
                         return infos;
                     }
                 }
@@ -363,7 +540,7 @@ public final class AccessibilityInteractionClient
      *
      * @param connectionId The id of a connection for interacting with the system.
      * @param accessibilityWindowId A unique window id. Use
-     *     {@link android.view.accessibility.AccessibilityNodeInfo#ACTIVE_WINDOW_ID}
+     *     {@link android.view.accessibility.AccessibilityWindowInfo#ACTIVE_WINDOW_ID}
      *     to query the currently active window.
      * @param accessibilityNodeId A unique view id or virtual descendant id from
      *     where to start the search. Use
@@ -379,15 +556,21 @@ public final class AccessibilityInteractionClient
             if (connection != null) {
                 final int interactionId = mInteractionIdCounter.getAndIncrement();
                 final long identityToken = Binder.clearCallingIdentity();
-                final boolean success = connection.findAccessibilityNodeInfosByText(
-                        accessibilityWindowId, accessibilityNodeId, text, interactionId, this,
-                        Thread.currentThread().getId());
-                Binder.restoreCallingIdentity(identityToken);
-                if (success) {
+                final String[] packageNames;
+                try {
+                    packageNames = connection.findAccessibilityNodeInfosByText(
+                            accessibilityWindowId, accessibilityNodeId, text, interactionId, this,
+                            Thread.currentThread().getId());
+                } finally {
+                    Binder.restoreCallingIdentity(identityToken);
+                }
+
+                if (packageNames != null) {
                     List<AccessibilityNodeInfo> infos = getFindAccessibilityNodeInfosResultAndClear(
                             interactionId);
                     if (infos != null) {
-                        finalizeAndCacheAccessibilityNodeInfos(infos, connectionId);
+                        finalizeAndCacheAccessibilityNodeInfos(infos, connectionId,
+                                false, packageNames);
                         return infos;
                     }
                 }
@@ -410,7 +593,7 @@ public final class AccessibilityInteractionClient
      *
      * @param connectionId The id of a connection for interacting with the system.
      * @param accessibilityWindowId A unique window id. Use
-     *     {@link android.view.accessibility.AccessibilityNodeInfo#ACTIVE_WINDOW_ID}
+     *     {@link android.view.accessibility.AccessibilityWindowInfo#ACTIVE_WINDOW_ID}
      *     to query the currently active window.
      * @param accessibilityNodeId A unique view id or virtual descendant id from
      *     where to start the search. Use
@@ -426,14 +609,19 @@ public final class AccessibilityInteractionClient
             if (connection != null) {
                 final int interactionId = mInteractionIdCounter.getAndIncrement();
                 final long identityToken = Binder.clearCallingIdentity();
-                final boolean success = connection.findFocus(accessibilityWindowId,
-                        accessibilityNodeId, focusType, interactionId, this,
-                        Thread.currentThread().getId());
-                Binder.restoreCallingIdentity(identityToken);
-                if (success) {
+                final String[] packageNames;
+                try {
+                    packageNames = connection.findFocus(accessibilityWindowId,
+                            accessibilityNodeId, focusType, interactionId, this,
+                            Thread.currentThread().getId());
+                } finally {
+                    Binder.restoreCallingIdentity(identityToken);
+                }
+
+                if (packageNames != null) {
                     AccessibilityNodeInfo info = getFindAccessibilityNodeInfoResultAndClear(
                             interactionId);
-                    finalizeAndCacheAccessibilityNodeInfo(info, connectionId);
+                    finalizeAndCacheAccessibilityNodeInfo(info, connectionId, false, packageNames);
                     return info;
                 }
             } else {
@@ -454,7 +642,7 @@ public final class AccessibilityInteractionClient
      *
      * @param connectionId The id of a connection for interacting with the system.
      * @param accessibilityWindowId A unique window id. Use
-     *     {@link android.view.accessibility.AccessibilityNodeInfo#ACTIVE_WINDOW_ID}
+     *     {@link android.view.accessibility.AccessibilityWindowInfo#ACTIVE_WINDOW_ID}
      *     to query the currently active window.
      * @param accessibilityNodeId A unique view id or virtual descendant id from
      *     where to start the search. Use
@@ -470,14 +658,19 @@ public final class AccessibilityInteractionClient
             if (connection != null) {
                 final int interactionId = mInteractionIdCounter.getAndIncrement();
                 final long identityToken = Binder.clearCallingIdentity();
-                final boolean success = connection.focusSearch(accessibilityWindowId,
-                        accessibilityNodeId, direction, interactionId, this,
-                        Thread.currentThread().getId());
-                Binder.restoreCallingIdentity(identityToken);
-                if (success) {
+                final String[] packageNames;
+                try {
+                    packageNames = connection.focusSearch(accessibilityWindowId,
+                            accessibilityNodeId, direction, interactionId, this,
+                            Thread.currentThread().getId());
+                } finally {
+                    Binder.restoreCallingIdentity(identityToken);
+                }
+
+                if (packageNames != null) {
                     AccessibilityNodeInfo info = getFindAccessibilityNodeInfoResultAndClear(
                             interactionId);
-                    finalizeAndCacheAccessibilityNodeInfo(info, connectionId);
+                    finalizeAndCacheAccessibilityNodeInfo(info, connectionId, false, packageNames);
                     return info;
                 }
             } else {
@@ -496,7 +689,7 @@ public final class AccessibilityInteractionClient
      *
      * @param connectionId The id of a connection for interacting with the system.
      * @param accessibilityWindowId A unique window id. Use
-     *     {@link android.view.accessibility.AccessibilityNodeInfo#ACTIVE_WINDOW_ID}
+     *     {@link android.view.accessibility.AccessibilityWindowInfo#ACTIVE_WINDOW_ID}
      *     to query the currently active window.
      * @param accessibilityNodeId A unique view id or virtual descendant id from
      *     where to start the search. Use
@@ -513,10 +706,15 @@ public final class AccessibilityInteractionClient
             if (connection != null) {
                 final int interactionId = mInteractionIdCounter.getAndIncrement();
                 final long identityToken = Binder.clearCallingIdentity();
-                final boolean success = connection.performAccessibilityAction(
-                        accessibilityWindowId, accessibilityNodeId, action, arguments,
-                        interactionId, this, Thread.currentThread().getId());
-                Binder.restoreCallingIdentity(identityToken);
+                final boolean success;
+                try {
+                    success = connection.performAccessibilityAction(
+                            accessibilityWindowId, accessibilityNodeId, action, arguments,
+                            interactionId, this, Thread.currentThread().getId());
+                } finally {
+                    Binder.restoreCallingIdentity(identityToken);
+                }
+
                 if (success) {
                     return getPerformAccessibilityActionResultAndClear(interactionId);
                 }
@@ -531,11 +729,24 @@ public final class AccessibilityInteractionClient
         return false;
     }
 
+    @UnsupportedAppUsage
     public void clearCache() {
         sAccessibilityCache.clear();
     }
 
     public void onAccessibilityEvent(AccessibilityEvent event) {
+        switch (event.getEventType()) {
+            case AccessibilityEvent.TYPE_VIEW_SCROLLED:
+                updateScrollingWindow(event.getWindowId(), SystemClock.uptimeMillis());
+                break;
+            case AccessibilityEvent.TYPE_WINDOWS_CHANGED:
+                if (event.getWindowChanges() == AccessibilityEvent.WINDOWS_CHANGE_REMOVED) {
+                    deleteScrollingWindow(event.getWindowId());
+                }
+                break;
+            default:
+                break;
+        }
         sAccessibilityCache.onAccessibilityEvent(event);
     }
 
@@ -578,7 +789,7 @@ public final class AccessibilityInteractionClient
                 int interactionId) {
         synchronized (mInstanceLock) {
             final boolean success = waitForResultTimedLocked(interactionId);
-            List<AccessibilityNodeInfo> result = null;
+            final List<AccessibilityNodeInfo> result;
             if (success) {
                 result = mFindAccessibilityNodeInfosResult;
             } else {
@@ -694,13 +905,28 @@ public final class AccessibilityInteractionClient
      *
      * @param info The info.
      * @param connectionId The id of the connection to the system.
+     * @param bypassCache Whether or not to bypass the cache. The node is added to the cache if
+     *                    this value is {@code false}
+     * @param packageNames The valid package names a node can come from.
      */
     private void finalizeAndCacheAccessibilityNodeInfo(AccessibilityNodeInfo info,
-            int connectionId) {
+            int connectionId, boolean bypassCache, String[] packageNames) {
         if (info != null) {
             info.setConnectionId(connectionId);
+            // Empty array means any package name is Okay
+            if (!ArrayUtils.isEmpty(packageNames)) {
+                CharSequence packageName = info.getPackageName();
+                if (packageName == null
+                        || !ArrayUtils.contains(packageNames, packageName.toString())) {
+                    // If the node package not one of the valid ones, pick the top one - this
+                    // is one of the packages running in the introspected UID.
+                    info.setPackageName(packageNames[0]);
+                }
+            }
             info.setSealed(true);
-            sAccessibilityCache.add(info);
+            if (!bypassCache) {
+                sAccessibilityCache.add(info);
+            }
         }
     }
 
@@ -709,14 +935,18 @@ public final class AccessibilityInteractionClient
      *
      * @param infos The {@link AccessibilityNodeInfo}s.
      * @param connectionId The id of the connection to the system.
+     * @param bypassCache Whether or not to bypass the cache. The nodes are added to the cache if
+     *                    this value is {@code false}
+     * @param packageNames The valid package names a node can come from.
      */
     private void finalizeAndCacheAccessibilityNodeInfos(List<AccessibilityNodeInfo> infos,
-            int connectionId) {
+            int connectionId, boolean bypassCache, String[] packageNames) {
         if (infos != null) {
             final int infosCount = infos.size();
             for (int i = 0; i < infosCount; i++) {
                 AccessibilityNodeInfo info = infos.get(i);
-                finalizeAndCacheAccessibilityNodeInfo(info, connectionId);
+                finalizeAndCacheAccessibilityNodeInfo(info, connectionId,
+                        bypassCache, packageNames);
             }
         }
     }
@@ -732,41 +962,6 @@ public final class AccessibilityInteractionClient
             Message result = mSameThreadMessage;
             mSameThreadMessage = null;
             return result;
-        }
-    }
-
-    /**
-     * Gets a cached accessibility service connection.
-     *
-     * @param connectionId The connection id.
-     * @return The cached connection if such.
-     */
-    public IAccessibilityServiceConnection getConnection(int connectionId) {
-        synchronized (sConnectionCache) {
-            return sConnectionCache.get(connectionId);
-        }
-    }
-
-    /**
-     * Adds a cached accessibility service connection.
-     *
-     * @param connectionId The connection id.
-     * @param connection The connection.
-     */
-    public void addConnection(int connectionId, IAccessibilityServiceConnection connection) {
-        synchronized (sConnectionCache) {
-            sConnectionCache.put(connectionId, connection);
-        }
-    }
-
-    /**
-     * Removes a cached accessibility service connection.
-     *
-     * @param connectionId The connection id.
-     */
-    public void removeConnection(int connectionId) {
-        synchronized (sConnectionCache) {
-            sConnectionCache.remove(connectionId);
         }
     }
 
@@ -819,5 +1014,49 @@ public final class AccessibilityInteractionClient
         if (disconnectedCount > 0) {
             Log.e(LOG_TAG, disconnectedCount + " Disconnected nodes.");
         }
+    }
+
+    /**
+     * Update scroll event timestamp of a given window.
+     *
+     * @param windowId The window id.
+     * @param uptimeMillis Device uptime millis.
+     */
+    private void updateScrollingWindow(int windowId, long uptimeMillis) {
+        synchronized (sScrollingWindows) {
+            sScrollingWindows.put(windowId, uptimeMillis);
+        }
+    }
+
+    /**
+     * Remove a window from the scrolling windows list.
+     *
+     * @param windowId The window id.
+     */
+    private void deleteScrollingWindow(int windowId) {
+        synchronized (sScrollingWindows) {
+            sScrollingWindows.delete(windowId);
+        }
+    }
+
+    /**
+     * Whether or not the window is scrolling.
+     *
+     * @param windowId
+     * @return true if it's scrolling.
+     */
+    private boolean isWindowScrolling(int windowId) {
+        synchronized (sScrollingWindows) {
+            final long latestScrollingTime = sScrollingWindows.get(windowId);
+            if (latestScrollingTime == 0) {
+                return false;
+            }
+            final long currentUptime = SystemClock.uptimeMillis();
+            if (currentUptime > (latestScrollingTime + DISABLE_PREFETCHING_FOR_SCROLLING_MILLIS)) {
+                sScrollingWindows.delete(windowId);
+                return false;
+            }
+        }
+        return true;
     }
 }

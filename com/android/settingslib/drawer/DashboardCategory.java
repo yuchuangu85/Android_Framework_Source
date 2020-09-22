@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2015 The Android Open Source Project
+/*
+ * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,65 +13,123 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.settingslib.drawer;
+
+import static java.lang.String.CASE_INSENSITIVE_ORDER;
 
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
+/**
+ * The category for handle {@link Tile}
+ */
 public class DashboardCategory implements Parcelable {
-
-    /**
-     * Title of the category that is shown to the user.
-     */
-    public CharSequence title;
 
     /**
      * Key used for placing external tiles.
      */
-    public String key;
-
-    /**
-     * Used to control display order.
-     */
-    public int priority;
+    public final String key;
 
     /**
      * List of the category's children
      */
-    public List<Tile> tiles = new ArrayList<Tile>();
+    private List<Tile> mTiles = new ArrayList<>();
 
-
-    public DashboardCategory() {
-        // Empty
+    public DashboardCategory(String key) {
+        this.key = key;
     }
 
-    public void addTile(Tile tile) {
-        tiles.add(tile);
+    DashboardCategory(Parcel in) {
+        key = in.readString();
+
+        final int count = in.readInt();
+
+        for (int n = 0; n < count; n++) {
+            Tile tile = Tile.CREATOR.createFromParcel(in);
+            mTiles.add(tile);
+        }
     }
 
-    public void addTile(int n, Tile tile) {
-        tiles.add(n, tile);
+    /**
+     * Get a copy of the list of the category's children.
+     *
+     * Note: the returned list serves as a read-only list. If tiles needs to be added or removed
+     * from the actual tiles list, it should be done through {@link #addTile}, {@link #removeTile}.
+     */
+    public synchronized List<Tile> getTiles() {
+        final List<Tile> result = new ArrayList<>(mTiles.size());
+        for (Tile tile : mTiles) {
+            result.add(tile);
+        }
+        return result;
     }
 
-    public void removeTile(Tile tile) {
-        tiles.remove(tile);
+    /**
+     * Add tile
+     */
+    public synchronized void addTile(Tile tile) {
+        mTiles.add(tile);
     }
 
-    public void removeTile(int n) {
-        tiles.remove(n);
+    /**
+     * Remove tile
+     */
+    public synchronized void removeTile(int n) {
+        mTiles.remove(n);
     }
 
+    /**
+     * Get size of tile
+     */
     public int getTilesCount() {
-        return tiles.size();
+        return mTiles.size();
     }
 
+    /**
+     * Get tile
+     */
     public Tile getTile(int n) {
-        return tiles.get(n);
+        return mTiles.get(n);
+    }
+
+    /**
+     * Sort priority value for tiles in this category.
+     */
+    public void sortTiles() {
+        Collections.sort(mTiles, Tile.TILE_COMPARATOR);
+    }
+
+    /**
+     * Sort priority value and package name for tiles in this category.
+     */
+    public synchronized void sortTiles(String skipPackageName) {
+        // Sort mTiles based on [order, package within order]
+        Collections.sort(mTiles, (tile1, tile2) -> {
+            // First sort by order
+            final int orderCompare = tile2.getOrder() - tile1.getOrder();
+            if (orderCompare != 0) {
+                return orderCompare;
+            }
+
+            // Then sort by package name, skip package take precedence
+            final String package1 = tile1.getPackageName();
+            final String package2 = tile2.getPackageName();
+            final int packageCompare = CASE_INSENSITIVE_ORDER.compare(package1, package2);
+            if (packageCompare != 0) {
+                if (TextUtils.equals(package1, skipPackageName)) {
+                    return -1;
+                }
+                if (TextUtils.equals(package2, skipPackageName)) {
+                    return 1;
+                }
+            }
+            return packageCompare;
+        });
     }
 
     @Override
@@ -81,34 +139,15 @@ public class DashboardCategory implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel dest, int flags) {
-        TextUtils.writeToParcel(title, dest, flags);
         dest.writeString(key);
-        dest.writeInt(priority);
 
-        final int count = tiles.size();
+        final int count = mTiles.size();
         dest.writeInt(count);
 
         for (int n = 0; n < count; n++) {
-            Tile tile = tiles.get(n);
+            Tile tile = mTiles.get(n);
             tile.writeToParcel(dest, flags);
         }
-    }
-
-    public void readFromParcel(Parcel in) {
-        title = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(in);
-        key = in.readString();
-        priority = in.readInt();
-
-        final int count = in.readInt();
-
-        for (int n = 0; n < count; n++) {
-            Tile tile = Tile.CREATOR.createFromParcel(in);
-            tiles.add(tile);
-        }
-    }
-
-    DashboardCategory(Parcel in) {
-        readFromParcel(in);
     }
 
     public static final Creator<DashboardCategory> CREATOR = new Creator<DashboardCategory>() {
@@ -120,4 +159,5 @@ public class DashboardCategory implements Parcelable {
             return new DashboardCategory[size];
         }
     };
+
 }

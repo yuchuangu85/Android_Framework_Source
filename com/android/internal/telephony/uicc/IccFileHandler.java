@@ -16,7 +16,11 @@
 
 package com.android.internal.telephony.uicc;
 
-import android.os.*;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.AsyncResult;
+import android.os.Handler;
+import android.os.Message;
+
 import com.android.internal.telephony.CommandsInterface;
 
 import java.util.ArrayList;
@@ -25,6 +29,7 @@ import java.util.ArrayList;
  * {@hide}
  */
 public abstract class IccFileHandler extends Handler implements IccConstants {
+    private static final boolean VDBG = false;
 
     //from TS 11.11 9.1 or elsewhere
     static protected final int COMMAND_READ_BINARY = 0xb0;
@@ -91,23 +96,31 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
     static protected final int EVENT_READ_ICON_DONE = 10;
     /** Finished retrieving size of record for EFimg now. */
     static protected final int EVENT_GET_RECORD_SIZE_IMG_DONE = 11;
+    /** Finished retriveing record size of transparent file. */
+    protected static final int EVENT_GET_EF_TRANSPARENT_SIZE_DONE = 12;
 
      // member variables
+    @UnsupportedAppUsage
     protected final CommandsInterface mCi;
+    @UnsupportedAppUsage
     protected final UiccCardApplication mParentApp;
+    @UnsupportedAppUsage
     protected final String mAid;
 
     static class LoadLinearFixedContext {
 
         int mEfid;
+        @UnsupportedAppUsage
         int mRecordNum, mRecordSize, mCountRecords;
         boolean mLoadAll;
         String mPath;
 
         Message mOnLoaded;
 
+        @UnsupportedAppUsage
         ArrayList<byte[]> results;
 
+        @UnsupportedAppUsage
         LoadLinearFixedContext(int efid, int recordNum, Message onLoaded) {
             mEfid = efid;
             mRecordNum = recordNum;
@@ -166,6 +179,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * ((AsyncResult)(onLoaded.obj)).result is the byte[]
      *
      */
+    @UnsupportedAppUsage
     public void loadEFLinearFixed(int fileid, String path, int recordNum, Message onLoaded) {
         String efPath = (path == null) ? getEFPath(fileid) : path;
         Message response
@@ -186,6 +200,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * ((AsyncResult)(onLoaded.obj)).result is the byte[]
      *
      */
+    @UnsupportedAppUsage
     public void loadEFLinearFixed(int fileid, int recordNum, Message onLoaded) {
         loadEFLinearFixed(fileid, getEFPath(fileid), recordNum, onLoaded);
     }
@@ -211,15 +226,16 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
     }
 
     /**
-     * get record size for a linear fixed EF
+     * Get record size for a linear fixed EF
      *
      * @param fileid EF id
      * @param path Path of the EF on the card
-     * @param onLoaded ((AsnyncResult)(onLoaded.obj)).result is the recordSize[]
-     *        int[0] is the record length int[1] is the total length of the EF
-     *        file int[3] is the number of records in the EF file So int[0] *
-     *        int[3] = int[1]
+     * @param onLoaded ((AsnyncResult)(onLoaded.obj)).result is the recordSize[]. recordSize[0] is
+     *                 the single record length, recordSize[1] is the total length of the EF file
+     *                 and recordSize[2] is the number of records in the EF file. So recordSize[0]
+     *                 * recordSize[2] = recordSize[1].
      */
+    @UnsupportedAppUsage
     public void getEFLinearRecordSize(int fileid, String path, Message onLoaded) {
         String efPath = (path == null) ? getEFPath(fileid) : path;
         Message response
@@ -230,16 +246,50 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
     }
 
     /**
-     * get record size for a linear fixed EF
+     * Get record size for a linear fixed EF
      *
      * @param fileid EF id
-     * @param onLoaded ((AsnyncResult)(onLoaded.obj)).result is the recordSize[]
-     *        int[0] is the record length int[1] is the total length of the EF
-     *        file int[3] is the number of records in the EF file So int[0] *
-     *        int[3] = int[1]
+     * @param onLoaded ((AsnyncResult)(onLoaded.obj)).result is the recordSize[]. recordSize[0] is
+     *                 the single record length, recordSize[1] is the total length of the EF file
+     *                 and recordSize[2] is the number of records in the EF file. So recordSize[0]
+     *                 * recordSize[2] = recordSize[1].
      */
+    @UnsupportedAppUsage
     public void getEFLinearRecordSize(int fileid, Message onLoaded) {
         getEFLinearRecordSize(fileid, getEFPath(fileid), onLoaded);
+    }
+
+    /**
+     * Get record size for a transparent EF
+     *
+     * @param fileid EF id
+     * @param path Path of the EF on the card
+     * @param onLoaded ((AsnyncResult)(onLoaded.obj)).result is the size of data int
+     */
+    public void getEFTransparentRecordSize(int fileid, String path, Message onLoaded) {
+        String efPath = (path == null) ? getEFPath(fileid) : path;
+        Message response = obtainMessage(EVENT_GET_EF_TRANSPARENT_SIZE_DONE, fileid, 0, onLoaded);
+        mCi.iccIOForApp(
+                COMMAND_GET_RESPONSE,
+                fileid,
+                getEFPath(fileid),
+                0,
+                0,
+                GET_RESPONSE_EF_SIZE_BYTES,
+                null,
+                null,
+                mAid,
+                response);
+    }
+
+    /**
+     * Get record size for a transparent EF
+     *
+     * @param fileid EF id
+     * @param onLoaded ((AsnyncResult)(onLoaded.obj)).result is the size of the data int
+     */
+    public void getEFTransparentRecordSize(int fileid, Message onLoaded) {
+        getEFTransparentRecordSize(fileid, getEFPath(fileid), onLoaded);
     }
 
     /**
@@ -250,8 +300,8 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * @param onLoaded
      *
      * ((AsyncResult)(onLoaded.obj)).result is an ArrayList<byte[]>
-     *
      */
+    @UnsupportedAppUsage
     public void loadEFLinearFixedAll(int fileid, String path, Message onLoaded) {
         String efPath = (path == null) ? getEFPath(fileid) : path;
         Message response = obtainMessage(EVENT_GET_RECORD_SIZE_DONE,
@@ -270,6 +320,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * ((AsyncResult)(onLoaded.obj)).result is an ArrayList<byte[]>
      *
      */
+    @UnsupportedAppUsage
     public void loadEFLinearFixedAll(int fileid, Message onLoaded) {
         loadEFLinearFixedAll(fileid, getEFPath(fileid), onLoaded);
     }
@@ -281,9 +332,8 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * @param onLoaded
      *
      * ((AsyncResult)(onLoaded.obj)).result is the byte[]
-     *
      */
-
+    @UnsupportedAppUsage
     public void loadEFTransparent(int fileid, Message onLoaded) {
         Message response = obtainMessage(EVENT_GET_BINARY_SIZE_DONE,
                         fileid, 0, onLoaded);
@@ -349,6 +399,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * @param onComplete onComplete.obj will be an AsyncResult
      *                   onComplete.obj.userObj will be a IccIoResult on success
      */
+    @UnsupportedAppUsage
     public void updateEFLinearFixed(int fileid, String path, int recordNum, byte[] data,
             String pin2, Message onComplete) {
         String efPath = (path == null) ? getEFPath(fileid) : path;
@@ -366,6 +417,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * @param onComplete onComplete.obj will be an AsyncResult
      *                   onComplete.obj.userObj will be a IccIoResult on success
      */
+    @UnsupportedAppUsage
     public void updateEFLinearFixed(int fileid, int recordNum, byte[] data,
             String pin2, Message onComplete) {
         mCi.iccIOForApp(COMMAND_UPDATE_RECORD, fileid, getEFPath(fileid),
@@ -378,6 +430,7 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      * @param fileid EF id
      * @param data must be exactly as long as the EF
      */
+    @UnsupportedAppUsage
     public void updateEFTransparent(int fileid, byte[] data, Message onComplete) {
         mCi.iccIOForApp(COMMAND_UPDATE_BINARY, fileid, getEFPath(fileid),
                         0, 0, data.length,
@@ -454,21 +507,21 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
 
                 recordSize = new int[3];
                 recordSize[0] = data[RESPONSE_DATA_RECORD_LENGTH] & 0xFF;
-                recordSize[1] = ((data[RESPONSE_DATA_FILE_SIZE_1] & 0xff) << 8)
-                       + (data[RESPONSE_DATA_FILE_SIZE_2] & 0xff);
+                recordSize[1] = getDataFileSize(data);
                 recordSize[2] = recordSize[1] / recordSize[0];
 
                 sendResult(response, recordSize, null);
                 break;
 
-             case EVENT_GET_RECORD_SIZE_IMG_DONE:
-             case EVENT_GET_RECORD_SIZE_DONE:
+            case EVENT_GET_RECORD_SIZE_IMG_DONE:
+            case EVENT_GET_RECORD_SIZE_DONE:
                 ar = (AsyncResult)msg.obj;
                 lc = (LoadLinearFixedContext) ar.userObj;
                 result = (IccIoResult) ar.result;
                 response = lc.mOnLoaded;
 
                 if (processException(response, (AsyncResult) msg.obj)) {
+                    loge("exception caught from EVENT_GET_RECORD_SIZE");
                     break;
                 }
 
@@ -485,24 +538,23 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
 
                 lc.mRecordSize = data[RESPONSE_DATA_RECORD_LENGTH] & 0xFF;
 
-                size = ((data[RESPONSE_DATA_FILE_SIZE_1] & 0xff) << 8)
-                       + (data[RESPONSE_DATA_FILE_SIZE_2] & 0xff);
+                size = getDataFileSize(data);
 
                 lc.mCountRecords = size / lc.mRecordSize;
 
-                 if (lc.mLoadAll) {
-                     lc.results = new ArrayList<byte[]>(lc.mCountRecords);
-                 }
+                if (lc.mLoadAll) {
+                    lc.results = new ArrayList<byte[]>(lc.mCountRecords);
+                }
 
-                 if (path == null) {
-                     path = getEFPath(lc.mEfid);
-                 }
-                 mCi.iccIOForApp(COMMAND_READ_RECORD, lc.mEfid, path,
-                         lc.mRecordNum,
-                         READ_RECORD_MODE_ABSOLUTE,
-                         lc.mRecordSize, null, null, mAid,
-                         obtainMessage(EVENT_READ_RECORD_DONE, lc));
-                 break;
+                if (path == null) {
+                    path = getEFPath(lc.mEfid);
+                }
+                mCi.iccIOForApp(COMMAND_READ_RECORD, lc.mEfid, path,
+                        lc.mRecordNum,
+                        READ_RECORD_MODE_ABSOLUTE,
+                        lc.mRecordSize, null, null, mAid,
+                        obtainMessage(EVENT_READ_RECORD_DONE, lc));
+                break;
             case EVENT_GET_BINARY_SIZE_DONE:
                 ar = (AsyncResult)msg.obj;
                 response = (Message) ar.userObj;
@@ -516,6 +568,11 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
 
                 fileid = msg.arg1;
 
+                if (VDBG) {
+                    logd(String.format("Contents of the Select Response for command %x: ", fileid)
+                            + IccUtils.bytesToHexString(data));
+                }
+
                 if (TYPE_EF != data[RESPONSE_DATA_FILE_TYPE]) {
                     throw new IccFileTypeMismatch();
                 }
@@ -524,13 +581,12 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
                     throw new IccFileTypeMismatch();
                 }
 
-                size = ((data[RESPONSE_DATA_FILE_SIZE_1] & 0xff) << 8)
-                       + (data[RESPONSE_DATA_FILE_SIZE_2] & 0xff);
+                size = getDataFileSize(data);
 
                 mCi.iccIOForApp(COMMAND_READ_BINARY, fileid, getEFPath(fileid),
                                 0, 0, size, null, null, mAid,
                                 obtainMessage(EVENT_READ_BINARY_DONE,
-                                              fileid, 0, response));
+                                            fileid, 0, response));
             break;
 
             case EVENT_READ_IMG_DONE:
@@ -583,6 +639,31 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
                 sendResult(response, result.payload, null);
             break;
 
+            case EVENT_GET_EF_TRANSPARENT_SIZE_DONE:
+                ar = (AsyncResult) msg.obj;
+                response = (Message) ar.userObj;
+                result = (IccIoResult) ar.result;
+
+                if (processException(response, (AsyncResult) msg.obj)) {
+                    break;
+                }
+
+                data = result.payload;
+
+                fileid = msg.arg1;
+
+                if (TYPE_EF != data[RESPONSE_DATA_FILE_TYPE]) {
+                    throw new IccFileTypeMismatch();
+                }
+
+                if (EF_TYPE_TRANSPARENT != data[RESPONSE_DATA_STRUCTURE]) {
+                    throw new IccFileTypeMismatch();
+                }
+
+                size = getDataFileSize(data);
+                sendResult(response, size, null);
+                break;
+
         }} catch (Exception exc) {
             if (response != null) {
                 sendResult(response, null, exc);
@@ -626,9 +707,19 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
         return null;
     }
 
+    @UnsupportedAppUsage
     protected abstract String getEFPath(int efid);
     protected abstract void logd(String s);
-
     protected abstract void loge(String s);
 
+    /**
+     * Calculate the size of a data file
+     *
+     * @param data the raw file
+     * @return the size of the file
+     */
+    private static int getDataFileSize(byte[] data) {
+        return (((data[RESPONSE_DATA_FILE_SIZE_1] & 0xff) << 8)
+                    + (data[RESPONSE_DATA_FILE_SIZE_2] & 0xff));
+    }
 }

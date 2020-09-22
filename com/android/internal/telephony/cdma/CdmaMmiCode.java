@@ -16,22 +16,23 @@
 
 package com.android.internal.telephony.cdma;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
-
-import com.android.internal.telephony.CommandException;
-import com.android.internal.telephony.GsmCdmaPhone;
-import com.android.internal.telephony.uicc.UiccCardApplication;
-import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
-import com.android.internal.telephony.MmiCode;
-import com.android.internal.telephony.Phone;
-
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
-import android.telephony.Rlog;
+import android.os.ResultReceiver;
 
-import java.util.regex.Pattern;
+import com.android.internal.telephony.CommandException;
+import com.android.internal.telephony.GsmCdmaPhone;
+import com.android.internal.telephony.MmiCode;
+import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
+import com.android.internal.telephony.uicc.UiccCardApplication;
+import com.android.telephony.Rlog;
+
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * This class can handle Puk code Mmi
@@ -64,6 +65,7 @@ public final class CdmaMmiCode  extends Handler implements MmiCode {
     UiccCardApplication mUiccApplication;
 
     String mAction;              // ACTION_REGISTER
+    @UnsupportedAppUsage
     String mSc;                  // Service Code
     String mSia, mSib, mSic;     // Service Info a,b,c
     String mPoundString;         // Entire MMI string up to and including #
@@ -134,6 +136,7 @@ public final class CdmaMmiCode  extends Handler implements MmiCode {
     /** make empty strings be null.
      *  Regexp returns empty strings for empty groups
      */
+    @UnsupportedAppUsage
     private static String
     makeEmptyNull (String s) {
         if (s != null && s.length() == 0) return null;
@@ -205,6 +208,11 @@ public final class CdmaMmiCode  extends Handler implements MmiCode {
     public boolean isUssdRequest() {
         Rlog.w(LOG_TAG, "isUssdRequest is not implemented in CdmaMmiCode");
         return false;
+    }
+
+    @Override
+    public String getDialString() {
+        return null;
     }
 
     /** Process a MMI PUK code */
@@ -368,4 +376,14 @@ public final class CdmaMmiCode  extends Handler implements MmiCode {
         mPhone.onMMIDone(this);
     }
 
+    @Override
+    public ResultReceiver getUssdCallbackReceiver() {
+        return null;
+    }
+
+    @Override
+    public boolean isNetworkInitiatedUssd() {
+        Rlog.w(LOG_TAG, "isNetworkInitiated is not implemented in CdmaMmiCode");
+        return false;
+    }
 }

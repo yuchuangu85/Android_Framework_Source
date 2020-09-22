@@ -16,22 +16,18 @@
 
 package com.android.server.location;
 
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
+import static com.android.internal.util.ConcurrentUtils.DIRECT_EXECUTOR;
+
+import android.content.Context;
+import android.location.Criteria;
+import android.location.Location;
+import android.os.Bundle;
 
 import com.android.internal.location.ProviderProperties;
 import com.android.internal.location.ProviderRequest;
 
-import android.location.Criteria;
-import android.location.ILocationManager;
-import android.location.Location;
-import android.location.LocationManager;
-import android.location.LocationProvider;
-import android.os.Bundle;
-import android.os.RemoteException;
-import android.os.WorkSource;
-import android.util.Log;
-
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 
 /**
  * A passive location provider reports locations received from other providers
@@ -40,80 +36,48 @@ import android.util.Log;
  *
  * {@hide}
  */
-public class PassiveProvider implements LocationProviderInterface {
-    private static final String TAG = "PassiveProvider";
+public class PassiveProvider extends AbstractLocationProvider {
 
     private static final ProviderProperties PROPERTIES = new ProviderProperties(
-            false, false, false, false, false, false, false,
-            Criteria.POWER_LOW, Criteria.ACCURACY_COARSE);
+            /* requiresNetwork = */false,
+            /* requiresSatellite = */false,
+            /* requiresCell = */false,
+            /* hasMonetaryCost = */false,
+            /* supportsAltitude = */false,
+            /* supportsSpeed = */false,
+            /* supportsBearing = */false,
+            Criteria.POWER_LOW,
+            Criteria.ACCURACY_COARSE);
 
-    private final ILocationManager mLocationManager;
-    private boolean mReportLocation;
+    private volatile boolean mReportLocation;
 
-    public PassiveProvider(ILocationManager locationManager) {
-        mLocationManager = locationManager;
+    public PassiveProvider(Context context) {
+        // using a direct executor is ok because this class has no locks that could deadlock
+        super(DIRECT_EXECUTOR, context);
+
+        mReportLocation = false;
+
+        setProperties(PROPERTIES);
+        setAllowed(true);
     }
 
-    @Override
-    public String getName() {
-        return LocationManager.PASSIVE_PROVIDER;
-    }
-
-    @Override
-    public ProviderProperties getProperties() {
-        return PROPERTIES;
-    }
-
-    @Override
-    public boolean isEnabled() {
-        return true;
-    }
-
-    @Override
-    public void enable() {
-    }
-
-    @Override
-    public void disable() {
-    }
-
-    @Override
-    public int getStatus(Bundle extras) {
+    /**
+     * Pass a location into the passive provider.
+     */
+    public void updateLocation(Location location) {
         if (mReportLocation) {
-            return LocationProvider.AVAILABLE;
-        } else {
-            return LocationProvider.TEMPORARILY_UNAVAILABLE;
+            reportLocation(location);
         }
     }
 
     @Override
-    public long getStatusUpdateTime() {
-        return -1;
-    }
-
-    @Override
-    public void setRequest(ProviderRequest request, WorkSource source) {
+    public void onSetRequest(ProviderRequest request) {
         mReportLocation = request.reportLocation;
     }
 
-    public void updateLocation(Location location) {
-        if (mReportLocation) {
-            try {
-                // pass the location back to the location manager
-                mLocationManager.reportLocation(location, true);
-            } catch (RemoteException e) {
-                Log.e(TAG, "RemoteException calling reportLocation");
-            }
-        }
-    }
+    @Override
+    protected void onExtraCommand(int uid, int pid, String command, Bundle extras) {}
 
     @Override
-    public boolean sendExtraCommand(String command, Bundle extras) {
-        return false;
-    }
-
-    @Override
-    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        pw.println("mReportLocation=" + mReportLocation);
-    }
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {}
 }

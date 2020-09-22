@@ -31,8 +31,9 @@ public interface ViewMediatorCallback {
      *
      * @param strongAuth whether the user has authenticated with strong authentication like
      *                   pattern, password or PIN but not by trust agents or fingerprint
+     * @param targetUserId a user that needs to be the foreground user at the completion.
      */
-    void keyguardDone(boolean strongAuth);
+    void keyguardDone(boolean strongAuth, int targetUserId);
 
     /**
      * Report that the keyguard is done drawing.
@@ -50,8 +51,9 @@ public interface ViewMediatorCallback {
      *
      * @param strongAuth whether the user has authenticated with strong authentication like
      *                   pattern, password or PIN but not by trust agents or fingerprint
+     * @param targetUserId a user that needs to be the foreground user at the completion.
      */
-    void keyguardDonePending(boolean strongAuth);
+    void keyguardDonePending(boolean strongAuth, int targetUserId);
 
     /**
      * Report when keyguard is actually gone
@@ -74,10 +76,10 @@ public interface ViewMediatorCallback {
     void playTrustedSound();
 
     /**
-     * @return true if and only if Keyguard is showing or if Keyguard is disabled by an external app
-     *         (legacy API)
+     * When the bouncer is shown or hides
+     * @param shown
      */
-    boolean isInputRestricted();
+    void onBouncerVisiblityChanged(boolean shown);
 
     /**
      * @return true if the screen is on
@@ -92,4 +94,15 @@ public interface ViewMediatorCallback {
      *         {@link KeyguardSecurityView#PROMPT_REASON_TIMEOUT}.
      */
     int getBouncerPromptReason();
+
+    /**
+     * Consumes a message that was enqueued to be displayed on the next time the bouncer shows up.
+     * @return Message that should be displayed above the challenge.
+     */
+    CharSequence consumeCustomMessage();
+
+    /**
+     * Call when cancel button is pressed in bouncer.
+     */
+    void onCancelClicked();
 }

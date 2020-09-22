@@ -16,6 +16,8 @@
 
 package android.content.pm;
 
+import android.Manifest;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -40,6 +42,9 @@ import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.FastXmlSerializer;
+
+import libcore.io.IoUtils;
+
 import com.google.android.collect.Lists;
 import com.google.android.collect.Maps;
 
@@ -61,8 +66,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-import libcore.io.IoUtils;
-
 /**
  * Cache of registered services. This cache is lazily built by interrogating
  * {@link PackageManager} on a per-user basis. It's updated as packages are
@@ -72,7 +75,7 @@ import libcore.io.IoUtils;
  * <p>
  * The services are referred to by type V and are made available via the
  * {@link #getServiceInfo} method.
- * 
+ *
  * @hide
  */
 public abstract class RegisteredServicesCache<V> {
@@ -98,6 +101,8 @@ public abstract class RegisteredServicesCache<V> {
         Map<V, ServiceInfo<V>> services = null;
         @GuardedBy("mServicesLock")
         boolean mPersistentServicesFileDidNotExist = true;
+        @GuardedBy("mServicesLock")
+        boolean mBindInstantServiceAllowed = false;
     }
 
     @GuardedBy("mServicesLock")
@@ -141,6 +146,7 @@ public abstract class RegisteredServicesCache<V> {
     private RegisteredServicesCacheListener<V> mListener;
     private Handler mHandler;
 
+    @UnsupportedAppUsage
     public RegisteredServicesCache(Context context, String interfaceName, String metaDataName,
             String attributeName, XmlSerializerAndParser<V> serializerAndParser) {
         mContext = context;
@@ -170,7 +176,7 @@ public abstract class RegisteredServicesCache<V> {
         mContext.registerReceiver(mUserRemovedReceiver, userFilter);
     }
 
-    private final void handlePackageEvent(Intent intent, int userId) {
+    private void handlePackageEvent(Intent intent, int userId) {
         // Don't regenerate the services map when the package is removed or its
         // ASEC container unmounted as a step in replacement.  The subsequent
         // _ADDED / _AVAILABLE call will regenerate the map in the final state.
@@ -273,7 +279,7 @@ public abstract class RegisteredServicesCache<V> {
             Log.d(TAG, "notifyListener: " + type + " is " + (removed ? "removed" : "added"));
         }
         RegisteredServicesCacheListener<V> listener;
-        Handler handler; 
+        Handler handler;
         synchronized (this) {
             listener = mListener;
             handler = mHandler;
@@ -281,11 +287,13 @@ public abstract class RegisteredServicesCache<V> {
         if (listener == null) {
             return;
         }
-        
+
         final RegisteredServicesCacheListener<V> listener2 = listener;
-        handler.post(new Runnable() {
-            public void run() {
+        handler.post(() -> {
+            try {
                 listener2.onServiceChanged(type, userId, removed);
+            } catch (Throwable th) {
+                Slog.wtf(TAG, "Exception from onServiceChanged", th);
             }
         });
     }
@@ -295,9 +303,12 @@ public abstract class RegisteredServicesCache<V> {
      * to bind to the service.
      */
     public static class ServiceInfo<V> {
+        @UnsupportedAppUsage
         public final V type;
         public final ComponentInfo componentInfo;
+        @UnsupportedAppUsage
         public final ComponentName componentName;
+        @UnsupportedAppUsage
         public final int uid;
 
         /** @hide */
@@ -361,7 +372,7 @@ public abstract class RegisteredServicesCache<V> {
         }
         IntArray updatedUids = null;
         for (ServiceInfo<V> service : allServices) {
-            int versionCode = service.componentInfo.applicationInfo.versionCode;
+            long versionCode = service.componentInfo.applicationInfo.versionCode;
             String pkg = service.componentInfo.packageName;
             ApplicationInfo newAppInfo = null;
             try {
@@ -387,18 +398,48 @@ public abstract class RegisteredServicesCache<V> {
         }
     }
 
+    /**
+     * @return whether the binding to service is allowed for instant apps.
+     */
+    public boolean getBindInstantServiceAllowed(int userId) {
+        mContext.enforceCallingOrSelfPermission(
+                Manifest.permission.MANAGE_BIND_INSTANT_SERVICE,
+                "getBindInstantServiceAllowed");
+
+        synchronized (mServicesLock) {
+            final UserServices<V> user = findOrCreateUserLocked(userId);
+            return user.mBindInstantServiceAllowed;
+        }
+    }
+
+    /**
+     * Set whether the binding to service is allowed or not for instant apps.
+     */
+    public void setBindInstantServiceAllowed(int userId, boolean allowed) {
+        mContext.enforceCallingOrSelfPermission(
+                Manifest.permission.MANAGE_BIND_INSTANT_SERVICE,
+                "setBindInstantServiceAllowed");
+
+        synchronized (mServicesLock) {
+            final UserServices<V> user = findOrCreateUserLocked(userId);
+            user.mBindInstantServiceAllowed = allowed;
+        }
+    }
+
     @VisibleForTesting
     protected boolean inSystemImage(int callerUid) {
         String[] packages = mContext.getPackageManager().getPackagesForUid(callerUid);
-        for (String name : packages) {
-            try {
-                PackageInfo packageInfo =
-                        mContext.getPackageManager().getPackageInfo(name, 0 /* flags */);
-                if ((packageInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
-                    return true;
+        if (packages != null) {
+            for (String name : packages) {
+                try {
+                    PackageInfo packageInfo =
+                            mContext.getPackageManager().getPackageInfo(name, 0 /* flags */);
+                    if ((packageInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0) {
+                        return true;
+                    }
+                } catch (PackageManager.NameNotFoundException e) {
+                    return false;
                 }
-            } catch (PackageManager.NameNotFoundException e) {
-                return false;
             }
         }
         return false;
@@ -407,10 +448,16 @@ public abstract class RegisteredServicesCache<V> {
     @VisibleForTesting
     protected List<ResolveInfo> queryIntentServices(int userId) {
         final PackageManager pm = mContext.getPackageManager();
-        return pm.queryIntentServicesAsUser(new Intent(mInterfaceName),
-                PackageManager.GET_META_DATA | PackageManager.MATCH_DIRECT_BOOT_AWARE
-                        | PackageManager.MATCH_DIRECT_BOOT_UNAWARE,
-                userId);
+        int flags = PackageManager.GET_META_DATA
+                | PackageManager.MATCH_DIRECT_BOOT_AWARE
+                | PackageManager.MATCH_DIRECT_BOOT_UNAWARE;
+        synchronized (mServicesLock) {
+            final UserServices<V> user = findOrCreateUserLocked(userId);
+            if (user.mBindInstantServiceAllowed) {
+                flags |= PackageManager.MATCH_INSTANT;
+            }
+        }
+        return pm.queryIntentServicesAsUser(new Intent(mInterfaceName), flags, userId);
     }
 
     /**
@@ -436,7 +483,7 @@ public abstract class RegisteredServicesCache<V> {
                     continue;
                 }
                 serviceInfos.add(info);
-            } catch (XmlPullParserException|IOException e) {
+            } catch (XmlPullParserException | IOException e) {
                 Log.w(TAG, "Unable to load service info " + resolveInfo.toString(), e);
             }
         }

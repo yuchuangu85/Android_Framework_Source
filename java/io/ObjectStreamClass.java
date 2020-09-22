@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -53,20 +53,20 @@ import sun.reflect.CallerSensitive;
 import sun.reflect.Reflection;
 import sun.reflect.misc.ReflectUtil;
 import dalvik.system.VMRuntime;
-import dalvik.system.VMStack;
+
 /**
  * Serialization's descriptor for classes.  It contains the name and
  * serialVersionUID of the class.  The ObjectStreamClass for a specific class
  * loaded in this Java VM can be found/created using the lookup method.
  *
  * <p>The algorithm to compute the SerialVersionUID is described in
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/platform/serialization/spec/class.html#4100">Object
+ * <a href="../../../platform/serialization/spec/class.html#4100">Object
  * Serialization Specification, Section 4.6, Stream Unique Identifiers</a>.
  *
  * @author      Mike Warres
  * @author      Roger Riggs
  * @see ObjectStreamField
- * @see <a href="{@docRoot}openjdk-redirect.html?v=8&path=/platform/serialization/spec/class.html">Object Serialization Specification, Section 4, Class Descriptors</a>
+ * @see <a href="../../../platform/serialization/spec/class.html">Object Serialization Specification, Section 4, Class Descriptors</a>
  * @since   JDK1.1
  */
 public class ObjectStreamClass implements Serializable {
@@ -79,7 +79,14 @@ public class ObjectStreamClass implements Serializable {
     private static final ObjectStreamField[] serialPersistentFields =
         NO_FIELDS;
 
-    /** reflection factory for obtaining serialization constructors */
+    // BEGIN Android-removed: ReflectionFactory not used on Android.
+    /*
+    /** reflection factory for obtaining serialization constructors *
+    private static final ReflectionFactory reflFactory =
+        AccessController.doPrivileged(
+            new ReflectionFactory.GetReflectionFactoryAction());
+    */
+    // END Android-removed: ReflectionFactory not used on Android.
 
     private static class Caches {
         /** cache mapping local classes -> descriptors */
@@ -169,7 +176,7 @@ public class ObjectStreamClass implements Serializable {
     private volatile ClassDataSlot[] dataLayout;
 
     /** serialization-appropriate constructor, or null if none */
-    private Constructor cons;
+    private Constructor<?> cons;
     /** class-defined writeObject method, or null if none */
     private Method writeObjectMethod;
     /** class-defined readObject method, or null if none */
@@ -185,6 +192,21 @@ public class ObjectStreamClass implements Serializable {
     private ObjectStreamClass localDesc;
     /** superclass descriptor appearing in stream */
     private ObjectStreamClass superDesc;
+
+    /** true if, and only if, the object has been correctly initialized */
+    private boolean initialized;
+
+    // BEGIN Android-removed: Initialization not required on Android.
+    /*
+    /**
+     * Initializes native code.
+     *
+    private static native void initNative();
+    static {
+        initNative();
+    }
+    */
+    // END Android-removed: Initialization not required on Android.
 
     /**
      * Find the descriptor for a class that can be serialized.  Creates an
@@ -255,9 +277,10 @@ public class ObjectStreamClass implements Serializable {
         if (cl == null) {
             return null;
         }
+        requireInitialized();
         if (System.getSecurityManager() != null) {
-            if (ReflectUtil.needsPackageAccessCheck(VMStack.getCallingClassLoader(),
-                  cl.getClassLoader())) {
+            Class<?> caller = Reflection.getCallerClass();
+            if (ReflectUtil.needsPackageAccessCheck(caller.getClassLoader(), cl.getClassLoader())) {
                 ReflectUtil.checkPackageAccess(cl);
             }
         }
@@ -506,7 +529,7 @@ public class ObjectStreamClass implements Serializable {
             fieldRefl = getReflector(fields, this);
         } catch (InvalidClassException ex) {
             // field mismatches impossible when matching local fields vs. self
-            throw new InternalError();
+            throw new InternalError(ex);
         }
 
         if (deserializeEx == null) {
@@ -522,6 +545,7 @@ public class ObjectStreamClass implements Serializable {
                     name, "unmatched serializable field(s) declared");
             }
         }
+        initialized = true;
     }
 
     /**
@@ -539,6 +563,14 @@ public class ObjectStreamClass implements Serializable {
                    ObjectStreamClass superDesc)
         throws InvalidClassException
     {
+        ObjectStreamClass osc = null;
+        if (cl != null) {
+            osc = lookup(cl, true);
+            if (!osc.isProxy) {
+                throw new InvalidClassException(
+                    "cannot bind proxy descriptor to a non-proxy class");
+            }
+        }
         this.cl = cl;
         this.resolveEx = resolveEx;
         this.superDesc = superDesc;
@@ -546,21 +578,17 @@ public class ObjectStreamClass implements Serializable {
         serializable = true;
         suid = Long.valueOf(0);
         fields = NO_FIELDS;
-
-        if (cl != null) {
-            localDesc = lookup(cl, true);
-            if (!localDesc.isProxy) {
-                throw new InvalidClassException(
-                    "cannot bind proxy descriptor to a non-proxy class");
-            }
+        if (osc != null) {
+            localDesc = osc;
             name = localDesc.name;
             externalizable = localDesc.externalizable;
-            cons = localDesc.cons;
             writeReplaceMethod = localDesc.writeReplaceMethod;
             readResolveMethod = localDesc.readResolveMethod;
             deserializeEx = localDesc.deserializeEx;
+            cons = localDesc.cons;
         }
         fieldRefl = getReflector(fields, localDesc);
+        initialized = true;
     }
 
     /**
@@ -572,11 +600,57 @@ public class ObjectStreamClass implements Serializable {
                       ObjectStreamClass superDesc)
         throws InvalidClassException
     {
+        long suid = Long.valueOf(model.getSerialVersionUID());
+        ObjectStreamClass osc = null;
+        if (cl != null) {
+            osc = lookup(cl, true);
+            if (osc.isProxy) {
+                throw new InvalidClassException(
+                        "cannot bind non-proxy descriptor to a proxy class");
+            }
+            if (model.isEnum != osc.isEnum) {
+                throw new InvalidClassException(model.isEnum ?
+                        "cannot bind enum descriptor to a non-enum class" :
+                        "cannot bind non-enum descriptor to an enum class");
+            }
+
+            if (model.serializable == osc.serializable &&
+                    !cl.isArray() &&
+                    suid != osc.getSerialVersionUID()) {
+                throw new InvalidClassException(osc.name,
+                        "local class incompatible: " +
+                                "stream classdesc serialVersionUID = " + suid +
+                                ", local class serialVersionUID = " +
+                                osc.getSerialVersionUID());
+            }
+
+            if (!classNamesEqual(model.name, osc.name)) {
+                throw new InvalidClassException(osc.name,
+                        "local class name incompatible with stream class " +
+                                "name \"" + model.name + "\"");
+            }
+
+            if (!model.isEnum) {
+                if ((model.serializable == osc.serializable) &&
+                        (model.externalizable != osc.externalizable)) {
+                    throw new InvalidClassException(osc.name,
+                            "Serializable incompatible with Externalizable");
+                }
+
+                if ((model.serializable != osc.serializable) ||
+                        (model.externalizable != osc.externalizable) ||
+                        !(model.serializable || model.externalizable)) {
+                    deserializeEx = new ExceptionInfo(
+                            osc.name, "class invalid for deserialization");
+                }
+            }
+        }
+
         this.cl = cl;
         this.resolveEx = resolveEx;
         this.superDesc = superDesc;
         name = model.name;
-        suid = Long.valueOf(model.getSerialVersionUID());
+        this.suid = suid;
         isProxy = false;
         isEnum = model.isEnum;
         serializable = model.serializable;
@@ -587,53 +661,8 @@ public class ObjectStreamClass implements Serializable {
         primDataSize = model.primDataSize;
         numObjFields = model.numObjFields;
 
-        if (cl != null) {
-            localDesc = lookup(cl, true);
-            if (localDesc.isProxy) {
-                throw new InvalidClassException(
-                    "cannot bind non-proxy descriptor to a proxy class");
-            }
-            if (isEnum != localDesc.isEnum) {
-                throw new InvalidClassException(isEnum ?
-                    "cannot bind enum descriptor to a non-enum class" :
-                    "cannot bind non-enum descriptor to an enum class");
-            }
-
-            if (serializable == localDesc.serializable &&
-                !cl.isArray() &&
-                suid.longValue() != localDesc.getSerialVersionUID())
-            {
-                throw new InvalidClassException(localDesc.name,
-                    "local class incompatible: " +
-                    "stream classdesc serialVersionUID = " + suid +
-                    ", local class serialVersionUID = " +
-                    localDesc.getSerialVersionUID());
-            }
-
-            if (!classNamesEqual(name, localDesc.name)) {
-                throw new InvalidClassException(localDesc.name,
-                    "local class name incompatible with stream class " +
-                    "name \"" + name + "\"");
-            }
-
-            if (!isEnum) {
-                if ((serializable == localDesc.serializable) &&
-                    (externalizable != localDesc.externalizable))
-                {
-                    throw new InvalidClassException(localDesc.name,
-                        "Serializable incompatible with Externalizable");
-                }
-
-                if ((serializable != localDesc.serializable) ||
-                    (externalizable != localDesc.externalizable) ||
-                    !(serializable || externalizable))
-                {
-                    deserializeEx = new ExceptionInfo(
-                        localDesc.name, "class invalid for deserialization");
-                }
-            }
-
-            cons = localDesc.cons;
+        if (osc != null) {
+            localDesc = osc;
             writeObjectMethod = localDesc.writeObjectMethod;
             readObjectMethod = localDesc.readObjectMethod;
             readObjectNoDataMethod = localDesc.readObjectNoDataMethod;
@@ -642,10 +671,13 @@ public class ObjectStreamClass implements Serializable {
             if (deserializeEx == null) {
                 deserializeEx = localDesc.deserializeEx;
             }
+            cons = localDesc.cons;
         }
+
         fieldRefl = getReflector(fields, localDesc);
         // reassign to matched fields so as to reflect local unshared settings
         fields = fieldRefl.getFields();
+        initialized = true;
     }
 
     /**
@@ -748,11 +780,20 @@ public class ObjectStreamClass implements Serializable {
     }
 
     /**
+     * Throws InternalError if not initialized.
+     */
+    private final void requireInitialized() {
+        if (!initialized)
+            throw new InternalError("Unexpected call when not initialized");
+    }
+
+    /**
      * Throws an InvalidClassException if object instances referencing this
      * class descriptor should not be allowed to deserialize.  This method does
      * not apply to deserialization of enum constants.
      */
     void checkDeserialize() throws InvalidClassException {
+        requireInitialized();
         if (deserializeEx != null) {
             throw deserializeEx.newInvalidClassException();
         }
@@ -764,6 +805,7 @@ public class ObjectStreamClass implements Serializable {
      * not apply to serialization of enum constants.
      */
     void checkSerialize() throws InvalidClassException {
+        requireInitialized();
         if (serializeEx != null) {
             throw serializeEx.newInvalidClassException();
         }
@@ -777,6 +819,7 @@ public class ObjectStreamClass implements Serializable {
      * does not apply to deserialization of enum constants.
      */
     void checkDefaultSerialize() throws InvalidClassException {
+        requireInitialized();
         if (defaultSerializeEx != null) {
             throw defaultSerializeEx.newInvalidClassException();
         }
@@ -788,6 +831,7 @@ public class ObjectStreamClass implements Serializable {
      * of the subclass descriptor's bound class.
      */
     ObjectStreamClass getSuperDesc() {
+        requireInitialized();
         return superDesc;
     }
 
@@ -798,6 +842,7 @@ public class ObjectStreamClass implements Serializable {
      * associated with this descriptor.
      */
     ObjectStreamClass getLocalDesc() {
+        requireInitialized();
         return localDesc;
     }
 
@@ -840,6 +885,7 @@ public class ObjectStreamClass implements Serializable {
      * otherwise.
      */
     boolean isProxy() {
+        requireInitialized();
         return isProxy;
     }
 
@@ -848,6 +894,7 @@ public class ObjectStreamClass implements Serializable {
      * otherwise.
      */
     boolean isEnum() {
+        requireInitialized();
         return isEnum;
     }
 
@@ -856,6 +903,7 @@ public class ObjectStreamClass implements Serializable {
      * otherwise.
      */
     boolean isExternalizable() {
+        requireInitialized();
         return externalizable;
     }
 
@@ -864,6 +912,7 @@ public class ObjectStreamClass implements Serializable {
      * otherwise.
      */
     boolean isSerializable() {
+        requireInitialized();
         return serializable;
     }
 
@@ -872,6 +921,7 @@ public class ObjectStreamClass implements Serializable {
      * has written its data in 1.2 (block data) format, false otherwise.
      */
     boolean hasBlockExternalData() {
+        requireInitialized();
         return hasBlockExternalData;
     }
 
@@ -881,6 +931,7 @@ public class ObjectStreamClass implements Serializable {
      * writeObject() method, false otherwise.
      */
     boolean hasWriteObjectData() {
+        requireInitialized();
         return hasWriteObjectData;
     }
 
@@ -892,6 +943,7 @@ public class ObjectStreamClass implements Serializable {
      * accessible no-arg constructor.  Otherwise, returns false.
      */
     boolean isInstantiable() {
+        requireInitialized();
         return (cons != null);
     }
 
@@ -901,6 +953,7 @@ public class ObjectStreamClass implements Serializable {
      * returns false.
      */
     boolean hasWriteObjectMethod() {
+        requireInitialized();
         return (writeObjectMethod != null);
     }
 
@@ -910,6 +963,7 @@ public class ObjectStreamClass implements Serializable {
      * returns false.
      */
     boolean hasReadObjectMethod() {
+        requireInitialized();
         return (readObjectMethod != null);
     }
 
@@ -919,6 +973,7 @@ public class ObjectStreamClass implements Serializable {
      * Otherwise, returns false.
      */
     boolean hasReadObjectNoDataMethod() {
+        requireInitialized();
         return (readObjectNoDataMethod != null);
     }
 
@@ -927,6 +982,7 @@ public class ObjectStreamClass implements Serializable {
      * defines a conformant writeReplace method.  Otherwise, returns false.
      */
     boolean hasWriteReplaceMethod() {
+        requireInitialized();
         return (writeReplaceMethod != null);
     }
 
@@ -935,6 +991,7 @@ public class ObjectStreamClass implements Serializable {
      * defines a conformant readResolve method.  Otherwise, returns false.
      */
     boolean hasReadResolveMethod() {
+        requireInitialized();
         return (readResolveMethod != null);
     }
 
@@ -951,12 +1008,13 @@ public class ObjectStreamClass implements Serializable {
         throws InstantiationException, InvocationTargetException,
                UnsupportedOperationException
     {
+        requireInitialized();
         if (cons != null) {
             try {
                 return cons.newInstance();
             } catch (IllegalAccessException ex) {
                 // should not occur, as access checks have been suppressed
-                throw new InternalError();
+                throw new InternalError(ex);
             }
         } else {
             throw new UnsupportedOperationException();
@@ -972,6 +1030,7 @@ public class ObjectStreamClass implements Serializable {
     void invokeWriteObject(Object obj, ObjectOutputStream out)
         throws IOException, UnsupportedOperationException
     {
+        requireInitialized();
         if (writeObjectMethod != null) {
             try {
                 writeObjectMethod.invoke(obj, new Object[]{ out });
@@ -984,7 +1043,7 @@ public class ObjectStreamClass implements Serializable {
                 }
             } catch (IllegalAccessException ex) {
                 // should not occur, as access checks have been suppressed
-                throw new InternalError();
+                throw new InternalError(ex);
             }
         } else {
             throw new UnsupportedOperationException();
@@ -1001,6 +1060,7 @@ public class ObjectStreamClass implements Serializable {
         throws ClassNotFoundException, IOException,
                UnsupportedOperationException
     {
+        requireInitialized();
         if (readObjectMethod != null) {
             try {
                 readObjectMethod.invoke(obj, new Object[]{ in });
@@ -1015,7 +1075,7 @@ public class ObjectStreamClass implements Serializable {
                 }
             } catch (IllegalAccessException ex) {
                 // should not occur, as access checks have been suppressed
-                throw new InternalError();
+                throw new InternalError(ex);
             }
         } else {
             throw new UnsupportedOperationException();
@@ -1031,6 +1091,7 @@ public class ObjectStreamClass implements Serializable {
     void invokeReadObjectNoData(Object obj)
         throws IOException, UnsupportedOperationException
     {
+        requireInitialized();
         if (readObjectNoDataMethod != null) {
             try {
                 readObjectNoDataMethod.invoke(obj, (Object[]) null);
@@ -1043,7 +1104,7 @@ public class ObjectStreamClass implements Serializable {
                 }
             } catch (IllegalAccessException ex) {
                 // should not occur, as access checks have been suppressed
-                throw new InternalError();
+                throw new InternalError(ex);
             }
         } else {
             throw new UnsupportedOperationException();
@@ -1059,6 +1120,7 @@ public class ObjectStreamClass implements Serializable {
     Object invokeWriteReplace(Object obj)
         throws IOException, UnsupportedOperationException
     {
+        requireInitialized();
         if (writeReplaceMethod != null) {
             try {
                 return writeReplaceMethod.invoke(obj, (Object[]) null);
@@ -1068,11 +1130,11 @@ public class ObjectStreamClass implements Serializable {
                     throw (ObjectStreamException) th;
                 } else {
                     throwMiscException(th);
-                    throw new InternalError();  // never reached
+                    throw new InternalError(th);  // never reached
                 }
             } catch (IllegalAccessException ex) {
                 // should not occur, as access checks have been suppressed
-                throw new InternalError();
+                throw new InternalError(ex);
             }
         } else {
             throw new UnsupportedOperationException();
@@ -1088,6 +1150,7 @@ public class ObjectStreamClass implements Serializable {
     Object invokeReadResolve(Object obj)
         throws IOException, UnsupportedOperationException
     {
+        requireInitialized();
         if (readResolveMethod != null) {
             try {
                 return readResolveMethod.invoke(obj, (Object[]) null);
@@ -1097,11 +1160,11 @@ public class ObjectStreamClass implements Serializable {
                     throw (ObjectStreamException) th;
                 } else {
                     throwMiscException(th);
-                    throw new InternalError();  // never reached
+                    throw new InternalError(th);  // never reached
                 }
             } catch (IllegalAccessException ex) {
                 // should not occur, as access checks have been suppressed
-                throw new InternalError();
+                throw new InternalError(ex);
             }
         } else {
             throw new UnsupportedOperationException();
@@ -1330,9 +1393,9 @@ public class ObjectStreamClass implements Serializable {
      * Access checks are disabled on the returned constructor (if any), since
      * the defining class may still be non-public.
      */
-    private static Constructor getExternalizableConstructor(Class<?> cl) {
+    private static Constructor<?> getExternalizableConstructor(Class<?> cl) {
         try {
-            Constructor cons = cl.getDeclaredConstructor((Class<?>[]) null);
+            Constructor<?> cons = cl.getDeclaredConstructor((Class<?>[]) null);
             cons.setAccessible(true);
             return ((cons.getModifiers() & Modifier.PUBLIC) != 0) ?
                 cons : null;
@@ -1346,7 +1409,7 @@ public class ObjectStreamClass implements Serializable {
      * superclass, or null if none found.  Access checks are disabled on the
      * returned constructor (if any).
      */
-    private static Constructor getSerializableConstructor(Class<?> cl) {
+    private static Constructor<?> getSerializableConstructor(Class<?> cl) {
         Class<?> initCl = cl;
         while (Serializable.class.isAssignableFrom(initCl)) {
             if ((initCl = initCl.getSuperclass()) == null) {
@@ -1354,7 +1417,7 @@ public class ObjectStreamClass implements Serializable {
             }
         }
         try {
-            Constructor cons = initCl.getDeclaredConstructor((Class<?>[]) null);
+            Constructor<?> cons = initCl.getDeclaredConstructor((Class<?>[]) null);
             int mods = cons.getModifiers();
             if ((mods & Modifier.PRIVATE) != 0 ||
                 ((mods & (Modifier.PUBLIC | Modifier.PROTECTED)) == 0 &&
@@ -1362,9 +1425,12 @@ public class ObjectStreamClass implements Serializable {
             {
                 return null;
             }
+            // BEGIN Android-changed: Serialization constructor obtained differently
+            // cons = reflFactory.newConstructorForSerialization(cl, cons);
             if (cons.getDeclaringClass() != cl) {
                 cons = cons.serializationCopy(cons.getDeclaringClass(), cl);
             }
+            // END Android-changed: Serialization constructor obtained differently
             cons.setAccessible(true);
             return cons;
         } catch (NoSuchMethodException ex) {
@@ -1731,15 +1797,33 @@ public class ObjectStreamClass implements Serializable {
                 }
             }
 
-            boolean checkSuperclass = !(VMRuntime.getRuntime().getTargetSdkVersion()
-                                       <= MAX_SDK_TARGET_FOR_CLINIT_UIDGEN_WORKAROUND);
-            if (hasStaticInitializer(cl, checkSuperclass)) {
+            // BEGIN Android-changed: Fix/log clinit serialization workaround b/29064453
+            // Prior to SDK 24 hasStaticInitializer() would return true if the superclass had a
+            // static initializer, that was contrary to the specification. In SDK 24 the default
+            // behavior was corrected but the old behavior was preserved for apps that targeted 23
+            // or below in order to maintain backwards compatibility.
+            //
+            // if (hasStaticInitializer(cl)) {
+            boolean inheritStaticInitializer =
+                (VMRuntime.getRuntime().getTargetSdkVersion()
+                <= MAX_SDK_TARGET_FOR_CLINIT_UIDGEN_WORKAROUND);
+            boolean warnIncompatibleSUIDChange = false;
+            if (hasStaticInitializer(cl, inheritStaticInitializer)) {
+                // If a static initializer was found but the current class does not have one then
+                // the class's default SUID will change if the app targets SDK > 24 so send a
+                // warning.
+                if (inheritStaticInitializer && !hasStaticInitializer(cl, false)) {
+                    // Defer until hash has been calculated so the warning message can give precise
+                    // instructions to the developer on how to fix the problems.
+                    warnIncompatibleSUIDChange = true;
+                }
+                // END Android-changed: Fix/log clinit serialization workaround b/29064453
                 dout.writeUTF("<clinit>");
                 dout.writeInt(Modifier.STATIC);
                 dout.writeUTF("()V");
             }
 
-            Constructor[] cons = cl.getDeclaredConstructors();
+            Constructor<?>[] cons = cl.getDeclaredConstructors();
             MemberSignature[] consSigs = new MemberSignature[cons.length];
             for (int i = 0; i < cons.length; i++) {
                 consSigs[i] = new MemberSignature(cons[i]);
@@ -1798,25 +1882,68 @@ public class ObjectStreamClass implements Serializable {
             for (int i = Math.min(hashBytes.length, 8) - 1; i >= 0; i--) {
                 hash = (hash << 8) | (hashBytes[i] & 0xFF);
             }
+            // BEGIN Android-added: Fix/log clinit serialization workaround b/29064453
+            // ObjectStreamClass instances are cached per Class and caches its default
+            // serialVersionUID so it will only log one message per class per app process
+            // irrespective of the number of times the class is serialized.
+            if (warnIncompatibleSUIDChange) {
+                suidCompatibilityListener.warnDefaultSUIDTargetVersionDependent(cl, hash);
+            }
+            // END Android-added: Fix/log clinit serialization workaround b/29064453
             return hash;
         } catch (IOException ex) {
-            throw new InternalError();
+            throw new InternalError(ex);
         } catch (NoSuchAlgorithmException ex) {
             throw new SecurityException(ex.getMessage());
         }
     }
 
-    /** Max SDK target version for which we use buggy hasStaticIntializier implementation. */
+    // BEGIN Android-changed: Fix/log clinit serialization workaround b/29064453
+    /**
+     * Created for testing as there is no nice way to detect when a message is logged.
+     *
+     * @hide
+     */
+    public interface DefaultSUIDCompatibilityListener {
+        /**
+         * Called when a class being serialized/deserialized relies on the default SUID computation
+         * (because it has no explicit {@code serialVersionUID} field) where that computation is
+         * dependent on the app's targetSdkVersion.
+         *
+         * @param clazz the clazz for which the default SUID is being computed.
+         * @param hash the computed value.
+         */
+        void warnDefaultSUIDTargetVersionDependent(Class<?> clazz, long hash);
+    }
+
+    /**
+     * Public and mutable for testing purposes.
+     *
+     * @hide
+     */
+    public static DefaultSUIDCompatibilityListener suidCompatibilityListener =
+        (clazz, hash) -> {
+            System.logW("Class " + clazz.getCanonicalName() + " relies on its default SUID which"
+                + " is dependent on the app's targetSdkVersion. To avoid problems during upgrade"
+                + " add the following to class " + clazz.getCanonicalName() + "\n"
+                + "    private static final long serialVersionUID = " + hash + "L;");
+        };
+
+    /** Max SDK target version for which we use buggy hasStaticInitializer implementation. */
     static final int MAX_SDK_TARGET_FOR_CLINIT_UIDGEN_WORKAROUND = 23;
 
     /**
      * Returns true if the given class defines a static initializer method,
      * false otherwise.
-     * if checkSuperclass is false, we use a buggy version (for compatibility reason) that
-     * will return true even if only the superclass has a static initializer method.
+     *
+     * @param inheritStaticInitializer if false then this method will return true iff the given
+     * class has its own static initializer, if true (used for backwards compatibility for apps
+     * that target SDK version <= {@link #MAX_SDK_TARGET_FOR_CLINIT_UIDGEN_WORKAROUND}) it will
+     * return true if the given class or any of its ancestor classes have a static initializer.
      */
-    private native static boolean hasStaticInitializer(Class<?> cl, boolean checkSuperclass);
-
+    private native static boolean hasStaticInitializer(
+        Class<?> cl, boolean inheritStaticInitializer);
+    // END Android-changed: Fix/log clinit serialization workaround b/29064453
 
     /**
      * Class for computing and caching field/constructor/method signatures
@@ -1834,7 +1961,7 @@ public class ObjectStreamClass implements Serializable {
             signature = getClassSignature(field.getType());
         }
 
-        public MemberSignature(Constructor cons) {
+        public MemberSignature(Constructor<?> cons) {
             member = cons;
             name = cons.getName();
             signature = getMethodSignature(
@@ -2267,32 +2394,45 @@ public class ObjectStreamClass implements Serializable {
         }
         return matches;
     }
-
+    // BEGIN Android-added: Keep some private API for app compat. b/28283540.
     // NOTE: The following couple of methods are left here because frameworks such as objenesis
     // use them.
     //
     // **** THESE METHODS WILL BE REMOVED IN A FUTURE ANDROID RELEASE ****.
     //
     private static long getConstructorId(Class<?> clazz) {
-        System.logE("WARNING: ObjectStreamClass.getConstructorId(Class<?>) is private API and" +
-                "will be removed in a future Android release.");
-        // NOTE: This method is a stub that returns a fixed value. It's meant to be used
-        // with newInstance(Class<?>, long) and our current implementation of that method ignores
-        // the "constructorId" argument. We return :
-        //
-        // oh one one eight nine nine nine
-        // eight eight one nine nine
-        // nine one one nine seven two five
-        // three
-        //
-        // in all cases.
-        return 1189998819991197253L;
+        final int targetSdkVersion = VMRuntime.getRuntime().getTargetSdkVersion();
+        if (targetSdkVersion > 0 && targetSdkVersion <= 24) {
+            System.logE("WARNING: ObjectStreamClass.getConstructorId(Class<?>) is private API and" +
+                        "will be removed in a future Android release.");
+            // NOTE: This method is a stub that returns a fixed value. It's meant to be used
+            // with newInstance(Class<?>, long) and our current implementation of that method ignores
+            // the "constructorId" argument. We return :
+            //
+            // oh one one eight nine nine nine
+            // eight eight one nine nine
+            // nine one one nine seven two five
+            // three
+            //
+            // in all cases.
+            return 1189998819991197253L;
+        }
+
+        throw new UnsupportedOperationException("ObjectStreamClass.getConstructorId(Class<?>) is " +
+                                                "not supported on SDK " + targetSdkVersion);
     }
     private static Object newInstance(Class<?> clazz, long constructorId) {
-        System.logE("WARNING: ObjectStreamClass.newInstance(Class<?>, long) is private API and" +
-                "will be removed in a future Android release.");
-        return sun.misc.Unsafe.getUnsafe().allocateInstance(clazz);
+        final int targetSdkVersion = VMRuntime.getRuntime().getTargetSdkVersion();
+        if (targetSdkVersion > 0 && targetSdkVersion <= 24) {
+            System.logE("WARNING: ObjectStreamClass.newInstance(Class<?>, long) is private API and" +
+                        "will be removed in a future Android release.");
+            return sun.misc.Unsafe.getUnsafe().allocateInstance(clazz);
+        }
+
+        throw new UnsupportedOperationException("ObjectStreamClass.newInstance(Class<?>, long) " +
+                                                "is not supported on SDK " + targetSdkVersion);
     }
+    // END Android-added: Keep some private API for app compat. b/28283540.
 
     /**
      * Removes from the specified map any keys that have been enqueued

@@ -16,40 +16,48 @@
 
 package com.android.setupwizardlib.test;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
-import android.test.AndroidTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
 import android.view.View;
-
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import com.android.setupwizardlib.view.Illustration;
+import org.junit.Test;
+import org.junit.runner.RunWith;
 
-public class IllustrationTest extends AndroidTestCase {
+@RunWith(AndroidJUnit4.class)
+@SmallTest
+public class IllustrationTest {
 
-    @SmallTest
-    public void testWillDraw() {
-        final Illustration illustration = new Illustration(getContext());
-        assertFalse("The illustration needs to be drawn", illustration.willNotDraw());
-    }
+  @Test
+  public void testWillDraw() {
+    final Illustration illustration = new Illustration(InstrumentationRegistry.getContext());
+    assertFalse("The illustration needs to be drawn", illustration.willNotDraw());
+  }
 
-    @SmallTest
-    public void testAspectRatio() {
-        final Context context = getContext();
-        // Force the context to be xhdpi
-        context.getResources().getDisplayMetrics().density = 2.0f;
+  @Test
+  public void testAspectRatio() {
+    final Context context = InstrumentationRegistry.getContext();
+    // Force the context to be xhdpi
+    context.getResources().getDisplayMetrics().density = 2.0f;
 
-        final Illustration illustration = new Illustration(context);
-        illustration.setAspectRatio(3.0f);
-        final Drawable backgroundDrawable = new ColorDrawable(Color.RED);
-        final Drawable illustrationDrawable = new ColorDrawable(Color.BLUE);
-        illustration.setBackgroundDrawable(backgroundDrawable);
-        illustration.setIllustration(illustrationDrawable);
+    final Illustration illustration = new Illustration(context);
+    illustration.setAspectRatio(3.0f);
+    final Drawable backgroundDrawable = new ColorDrawable(Color.RED);
+    final Drawable illustrationDrawable = new ColorDrawable(Color.BLUE);
+    illustration.setBackgroundDrawable(backgroundDrawable);
+    illustration.setIllustration(illustrationDrawable);
 
-        illustration.measure(View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        // (300px / 3) round down to nearest mod (8dp = 16px) = 96px
-        assertEquals("Top padding should be 96", 96, illustration.getPaddingTop());
-    }
+    illustration.measure(
+        View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY),
+        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+    // (300px / 3) round down to nearest mod (8dp = 16px) = 96px
+    assertEquals("Top padding should be 96", 96, illustration.getPaddingTop());
+  }
 }

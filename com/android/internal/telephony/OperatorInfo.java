@@ -16,47 +16,66 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.telephony.AccessNetworkConstants.AccessNetworkType;
 
 /**
- * {@hide}
+ * @hide
  */
 public class OperatorInfo implements Parcelable {
     public enum State {
         UNKNOWN,
         AVAILABLE,
+        @UnsupportedAppUsage
         CURRENT,
+        @UnsupportedAppUsage
         FORBIDDEN;
     }
 
+    @UnsupportedAppUsage
     private String mOperatorAlphaLong;
+    @UnsupportedAppUsage
     private String mOperatorAlphaShort;
+    @UnsupportedAppUsage
     private String mOperatorNumeric;
 
+    @UnsupportedAppUsage
     private State mState = State.UNKNOWN;
+    private int mRan = AccessNetworkType.UNKNOWN;
 
 
+    @UnsupportedAppUsage
     public String
     getOperatorAlphaLong() {
         return mOperatorAlphaLong;
     }
 
+    @UnsupportedAppUsage
     public String
     getOperatorAlphaShort() {
         return mOperatorAlphaShort;
     }
 
+    @UnsupportedAppUsage
     public String
     getOperatorNumeric() {
         return mOperatorNumeric;
     }
 
+    @UnsupportedAppUsage
     public State
     getState() {
         return mState;
     }
 
+    public int getRan() {
+        return mRan;
+    }
+
+    @UnsupportedAppUsage
     OperatorInfo(String operatorAlphaLong,
                 String operatorAlphaShort,
                 String operatorNumeric,
@@ -69,7 +88,16 @@ public class OperatorInfo implements Parcelable {
         mState = state;
     }
 
+    OperatorInfo(String operatorAlphaLong,
+                String operatorAlphaShort,
+                String operatorNumeric,
+                State state,
+                int ran) {
+        this (operatorAlphaLong, operatorAlphaShort, operatorNumeric, state);
+        mRan = ran;
+    }
 
+    @UnsupportedAppUsage
     public OperatorInfo(String operatorAlphaLong,
                 String operatorAlphaShort,
                 String operatorNumeric,
@@ -79,6 +107,15 @@ public class OperatorInfo implements Parcelable {
     }
 
     public OperatorInfo(String operatorAlphaLong,
+                String operatorAlphaShort,
+                String operatorNumeric,
+                int ran) {
+        this (operatorAlphaLong, operatorAlphaShort, operatorNumeric);
+        mRan = ran;
+    }
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+    public OperatorInfo(String operatorAlphaLong,
             String operatorAlphaShort,
             String operatorNumeric) {
         this(operatorAlphaLong, operatorAlphaShort, operatorNumeric, State.UNKNOWN);
@@ -87,6 +124,7 @@ public class OperatorInfo implements Parcelable {
     /**
      * See state strings defined in ril.h RIL_REQUEST_QUERY_AVAILABLE_NETWORKS
      */
+    @UnsupportedAppUsage
     private static State rilStateToState(String s) {
         if (s.equals("unknown")) {
             return State.UNKNOWN;
@@ -108,7 +146,8 @@ public class OperatorInfo implements Parcelable {
         return "OperatorInfo " + mOperatorAlphaLong
                 + "/" + mOperatorAlphaShort
                 + "/" + mOperatorNumeric
-                + "/" + mState;
+                + "/" + mState
+                + "/" + mRan;
     }
 
     /**
@@ -134,27 +173,30 @@ public class OperatorInfo implements Parcelable {
         dest.writeString(mOperatorAlphaShort);
         dest.writeString(mOperatorNumeric);
         dest.writeSerializable(mState);
+        dest.writeInt(mRan);
     }
 
     /**
      * Implement the Parcelable interface
      * Method to deserialize a OperatorInfo object, or an array thereof.
      */
+    @UnsupportedAppUsage
     public static final Creator<OperatorInfo> CREATOR =
-        new Creator<OperatorInfo>() {
-            @Override
-            public OperatorInfo createFromParcel(Parcel in) {
-                OperatorInfo opInfo = new OperatorInfo(
-                        in.readString(), /*operatorAlphaLong*/
-                        in.readString(), /*operatorAlphaShort*/
-                        in.readString(), /*operatorNumeric*/
-                        (State) in.readSerializable()); /*state*/
-                return opInfo;
-            }
+            new Creator<OperatorInfo>() {
+                @Override
+                public OperatorInfo createFromParcel(Parcel in) {
+                    OperatorInfo opInfo = new OperatorInfo(
+                            in.readString(), /*operatorAlphaLong*/
+                            in.readString(), /*operatorAlphaShort*/
+                            in.readString(), /*operatorNumeric*/
+                            (State) in.readSerializable(), /*state*/
+                            in.readInt()); /*ran*/
+                    return opInfo;
+                }
 
-            @Override
-            public OperatorInfo[] newArray(int size) {
-                return new OperatorInfo[size];
-            }
-        };
+                @Override
+                public OperatorInfo[] newArray(int size) {
+                    return new OperatorInfo[size];
+                }
+            };
 }

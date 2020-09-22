@@ -19,11 +19,16 @@ package com.android.commands.svc;
 import android.content.Context;
 import android.os.BatteryManager;
 import android.os.IPowerManager;
+import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
+import android.os.SystemProperties;
+import android.sysprop.InitProperties;
 
 public class PowerCommand extends Svc.Command {
+    private static final int FORCE_SUSPEND_DELAY_DEFAULT_MILLIS = 0;
+
     public PowerCommand() {
         super("power");
     }
@@ -40,7 +45,17 @@ public class PowerCommand extends Svc.Command {
                 + "       svc power reboot [reason]\n"
                 + "         Perform a runtime shutdown and reboot device with specified reason.\n"
                 + "       svc power shutdown\n"
-                + "         Perform a runtime shutdown and power off the device.\n";
+                + "         Perform a runtime shutdown and power off the device.\n"
+                + "       svc power forcesuspend [t]\n"
+                + "         Force the system into suspend, ignoring all wakelocks.\n"
+                + "         t - Number of milliseconds to wait before issuing force-suspend.\n"
+                + "             Helps with devices that can't suspend while plugged in.\n"
+                + "             Defaults to " + FORCE_SUSPEND_DELAY_DEFAULT_MILLIS + ".\n"
+                + "             When using a delay, you must use the nohup shell modifier:\n"
+                + "             'adb shell nohup svc power forcesuspend [time]'\n"
+                + "         Use caution; this is dangerous. It puts the device to sleep\n"
+                + "         immediately without giving apps or the system an opportunity to\n"
+                + "         save their state.\n";
     }
 
     public void run(String[] args) {
@@ -70,7 +85,8 @@ public class PowerCommand extends Svc.Command {
                         if (val != 0) {
                             // if the request is not to set it to false, wake up the screen so that
                             // it can stay on as requested
-                            pm.wakeUp(SystemClock.uptimeMillis(), "PowerCommand", null);
+                            pm.wakeUp(SystemClock.uptimeMillis(),
+                                    PowerManager.WAKE_REASON_UNKNOWN, "PowerCommand", null);
                         }
                         pm.setStayOnSetting(val);
                     }
@@ -87,7 +103,9 @@ public class PowerCommand extends Svc.Command {
                         // no confirm, wait till device is rebooted
                         pm.reboot(false, mode, true);
                     } catch (RemoteException e) {
-                        System.err.println("Failed to reboot.");
+                        maybeLogRemoteException("Failed to reboot.");
+                    } catch (Exception e) {
+                        System.err.println("Failed to reboot: " + e.getMessage());
                     }
                     return;
                 } else if ("shutdown".equals(args[1])) {
@@ -95,12 +113,38 @@ public class PowerCommand extends Svc.Command {
                         // no confirm, wait till device is off
                         pm.shutdown(false, null, true);
                     } catch (RemoteException e) {
-                        System.err.println("Failed to shutdown.");
+                        maybeLogRemoteException("Failed to shutdown.");
+                    }
+                    return;
+                } else if ("forcesuspend".equals(args[1])) {
+                    int delayMillis = args.length > 2
+                            ? Integer.parseInt(args[2]) : FORCE_SUSPEND_DELAY_DEFAULT_MILLIS;
+                    try {
+                        Thread.sleep(delayMillis);
+                        if (!pm.forceSuspend()) {
+                            System.err.println("Failed to force suspend.");
+                        }
+                    } catch (InterruptedException e) {
+                        System.err.println("Failed to force suspend: " + e);
+                    } catch (RemoteException e) {
+                        maybeLogRemoteException("Failed to force-suspend with exception: " + e);
                     }
                     return;
                 }
             }
         }
         System.err.println(longHelp());
+    }
+
+    // Check if remote exception is benign during shutdown. Pm can be killed
+    // before system server during shutdown, so remote exception can be ignored
+    // if it is already in shutdown flow.
+    private void maybeLogRemoteException(String msg) {
+        String powerProp = SystemProperties.get("sys.powerctl");
+        // Also check if userspace reboot is ongoing, since in case of userspace reboot value of the
+        // sys.powerctl property will be reset.
+        if (powerProp.isEmpty() && !InitProperties.userspace_reboot_in_progress().orElse(false)) {
+            System.err.println(msg);
+        }
     }
 }

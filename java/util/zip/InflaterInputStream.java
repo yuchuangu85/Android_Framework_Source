@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -56,7 +56,20 @@ class InflaterInputStream extends FilterInputStream {
      */
     protected int len;
 
-    // Android-changed: closed is now protected.
+    // Android-changed: Make closed accessible to subclasses.
+    // This was made protected because it needed to be accessed by
+    // StrictJarFile.ZipInflaterInputStream. Unfortunately, it was not marked as @hide and so it
+    // inadvertently became part of the public API. It will be marked as @removed to remove it from
+    // the public API in a future release of Android. See http://b/111592689 for more information.
+    // private boolean closed = false;
+    /**
+     * Indicates whether the {@link #close()} method has been called, internal use only.
+     *
+     * @deprecated This field will be removed from a future version of Android and should not be
+     * used. Subclasses that access this field need to be modified to keep track of their own
+     * closed state by overriding close().
+     */
+    @Deprecated
     protected boolean closed = false;
 
     // this flag is set to true after EOF has reached
@@ -78,7 +91,7 @@ class InflaterInputStream extends FilterInputStream {
      * @param in the input stream
      * @param inf the decompressor ("inflater")
      * @param size the input buffer size
-     * @exception IllegalArgumentException if size is <= 0
+     * @exception IllegalArgumentException if {@code size <= 0}
      */
     public InflaterInputStream(InputStream in, Inflater inf, int size) {
         super(in);
@@ -101,12 +114,18 @@ class InflaterInputStream extends FilterInputStream {
         this(in, inf, 512);
     }
 
+    // Android-changed: Unconditionally close external inflaters (b/26462400)
+    // See http://b/111630946 for more details.
+    // boolean usesDefaultInflater = false;
+
     /**
      * Creates a new input stream with a default decompressor and buffer size.
      * @param in the input stream
      */
     public InflaterInputStream(InputStream in) {
         this(in, new Inflater());
+        // Android-changed: Unconditionally close external inflaters (b/26462400)
+        // usesDefaultInflater = true;
     }
 
     private byte[] singleByteBuf = new byte[1];
@@ -119,7 +138,7 @@ class InflaterInputStream extends FilterInputStream {
      */
     public int read() throws IOException {
         ensureOpen();
-        return read(singleByteBuf, 0, 1) == -1 ? -1 : singleByteBuf[0] & 0xff;
+        return read(singleByteBuf, 0, 1) == -1 ? -1 : Byte.toUnsignedInt(singleByteBuf[0]);
     }
 
     /**
@@ -158,12 +177,6 @@ class InflaterInputStream extends FilterInputStream {
                     fill();
                 }
             }
-
-            // Android changed : Eagerly set reachEOF.
-            if (inf.finished()) {
-                reachEOF = true;
-            }
-
             return n;
         } catch (DataFormatException e) {
             String s = e.getMessage();
@@ -185,6 +198,14 @@ class InflaterInputStream extends FilterInputStream {
         ensureOpen();
         if (reachEOF) {
             return 0;
+        // BEGIN Android-added: Return more accurate value from available().
+        // Integrates change http://hg.openjdk.java.net/jdk9/jdk9/jdk/rev/dbcf47bfb044 made as part
+        // of https://bugs.openjdk.java.net/browse/JDK-7031075.
+        } else if (inf.finished()) {
+            // the end of the compressed data stream has been reached
+            reachEOF = true;
+            return 0;
+        // END Android-added: Return more accurate value from available().
         } else {
             return 1;
         }
@@ -197,7 +218,7 @@ class InflaterInputStream extends FilterInputStream {
      * @param n the number of bytes to skip
      * @return the actual number of bytes skipped.
      * @exception IOException if an I/O error has occurred
-     * @exception IllegalArgumentException if n < 0
+     * @exception IllegalArgumentException if {@code n < 0}
      */
     public long skip(long n) throws IOException {
         if (n < 0) {
@@ -228,6 +249,8 @@ class InflaterInputStream extends FilterInputStream {
      */
     public void close() throws IOException {
         if (!closed) {
+            // Android-changed: Unconditionally close external inflaters (b/26462400)
+            //if (usesDefaultInflater)
             inf.end();
             in.close();
             closed = true;

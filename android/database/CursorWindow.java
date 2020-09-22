@@ -16,8 +16,8 @@
 
 package android.database;
 
-import dalvik.system.CloseGuard;
-
+import android.annotation.BytesLong;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.Resources;
 import android.database.sqlite.SQLiteClosable;
 import android.database.sqlite.SQLiteException;
@@ -26,8 +26,11 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.Process;
 import android.util.Log;
-import android.util.SparseIntArray;
 import android.util.LongSparseArray;
+import android.util.SparseIntArray;
+
+import dalvik.annotation.optimization.FastNative;
+import dalvik.system.CloseGuard;
 
 /**
  * A buffer containing multiple cursor rows.
@@ -43,12 +46,14 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
     private static final String STATS_TAG = "CursorWindowStats";
 
     // This static member will be evaluated when first used.
+    @UnsupportedAppUsage
     private static int sCursorWindowSize = -1;
 
     /**
      * The native CursorWindow object pointer.  (FOR INTERNAL USE ONLY)
      * @hide
      */
+    @UnsupportedAppUsage
     public long mWindowPtr;
 
     private int mStartPos;
@@ -56,33 +61,51 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
 
     private final CloseGuard mCloseGuard = CloseGuard.get();
 
+    // May throw CursorWindowAllocationException
     private static native long nativeCreate(String name, int cursorWindowSize);
+
+    // May throw CursorWindowAllocationException
     private static native long nativeCreateFromParcel(Parcel parcel);
     private static native void nativeDispose(long windowPtr);
     private static native void nativeWriteToParcel(long windowPtr, Parcel parcel);
 
-    private static native void nativeClear(long windowPtr);
-
-    private static native int nativeGetNumRows(long windowPtr);
-    private static native boolean nativeSetNumColumns(long windowPtr, int columnNum);
-    private static native boolean nativeAllocRow(long windowPtr);
-    private static native void nativeFreeLastRow(long windowPtr);
-
-    private static native int nativeGetType(long windowPtr, int row, int column);
+    private static native String nativeGetName(long windowPtr);
     private static native byte[] nativeGetBlob(long windowPtr, int row, int column);
     private static native String nativeGetString(long windowPtr, int row, int column);
-    private static native long nativeGetLong(long windowPtr, int row, int column);
-    private static native double nativeGetDouble(long windowPtr, int row, int column);
     private static native void nativeCopyStringToBuffer(long windowPtr, int row, int column,
             CharArrayBuffer buffer);
-
     private static native boolean nativePutBlob(long windowPtr, byte[] value, int row, int column);
-    private static native boolean nativePutString(long windowPtr, String value, int row, int column);
+    private static native boolean nativePutString(long windowPtr, String value,
+            int row, int column);
+
+    // Below native methods don't do unconstrained work, so are FastNative for performance
+
+    @FastNative
+    private static native void nativeClear(long windowPtr);
+
+    @FastNative
+    private static native int nativeGetNumRows(long windowPtr);
+    @FastNative
+    private static native boolean nativeSetNumColumns(long windowPtr, int columnNum);
+    @FastNative
+    private static native boolean nativeAllocRow(long windowPtr);
+    @FastNative
+    private static native void nativeFreeLastRow(long windowPtr);
+
+    @FastNative
+    private static native int nativeGetType(long windowPtr, int row, int column);
+    @FastNative
+    private static native long nativeGetLong(long windowPtr, int row, int column);
+    @FastNative
+    private static native double nativeGetDouble(long windowPtr, int row, int column);
+
+    @FastNative
     private static native boolean nativePutLong(long windowPtr, long value, int row, int column);
+    @FastNative
     private static native boolean nativePutDouble(long windowPtr, double value, int row, int column);
+    @FastNative
     private static native boolean nativePutNull(long windowPtr, int row, int column);
 
-    private static native String nativeGetName(long windowPtr);
 
     /**
      * Creates a new empty cursor window and gives it a name.
@@ -94,19 +117,28 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
      * @param name The name of the cursor window, or null if none.
      */
     public CursorWindow(String name) {
+        this(name, getCursorWindowSize());
+    }
+
+    /**
+     * Creates a new empty cursor window and gives it a name.
+     * <p>
+     * The cursor initially has no rows or columns.  Call {@link #setNumColumns(int)} to
+     * set the number of columns before adding any rows to the cursor.
+     * </p>
+     *
+     * @param name The name of the cursor window, or null if none.
+     * @param windowSizeBytes Size of cursor window in bytes.
+     * <p><strong>Note:</strong> Memory is dynamically allocated as data rows are added to the
+     * window. Depending on the amount of data stored, the actual amount of memory allocated can be
+     * lower than specified size, but cannot exceed it.
+     */
+    public CursorWindow(String name, @BytesLong long windowSizeBytes) {
         mStartPos = 0;
         mName = name != null && name.length() != 0 ? name : "<unnamed>";
-        if (sCursorWindowSize < 0) {
-            /** The cursor window size. resource xml file specifies the value in kB.
-             * convert it to bytes here by multiplying with 1024.
-             */
-            sCursorWindowSize = Resources.getSystem().getInteger(
-                com.android.internal.R.integer.config_cursorWindowSize) * 1024;
-        }
-        mWindowPtr = nativeCreate(mName, sCursorWindowSize);
+        mWindowPtr = nativeCreate(mName, (int) windowSizeBytes);
         if (mWindowPtr == 0) {
-            throw new CursorWindowAllocationException("Cursor window allocation of " +
-                    (sCursorWindowSize / 1024) + " kb failed. " + printStats());
+            throw new AssertionError(); // Not possible, the native code won't return it.
         }
         mCloseGuard.open("close");
         recordNewWindow(Binder.getCallingPid(), mWindowPtr);
@@ -134,8 +166,7 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
         mStartPos = source.readInt();
         mWindowPtr = nativeCreateFromParcel(source);
         if (mWindowPtr == 0) {
-            throw new CursorWindowAllocationException("Cursor window could not be "
-                    + "created from binder.");
+            throw new AssertionError(); // Not possible, the native code won't return it.
         }
         mName = nativeGetName(mWindowPtr);
         mCloseGuard.open("close");
@@ -679,7 +710,7 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<CursorWindow> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<CursorWindow> CREATOR
             = new Parcelable.Creator<CursorWindow>() {
         public CursorWindow createFromParcel(Parcel source) {
             return new CursorWindow(source);
@@ -717,6 +748,7 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
         dispose();
     }
 
+    @UnsupportedAppUsage
     private static final LongSparseArray<Integer> sWindowToPidMap = new LongSparseArray<Integer>();
 
     private void recordNewWindow(int pid, long window) {
@@ -738,6 +770,7 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
         }
     }
 
+    @UnsupportedAppUsage
     private String printStats() {
         StringBuilder buff = new StringBuilder();
         int myPid = Process.myPid();
@@ -771,6 +804,16 @@ public class CursorWindow extends SQLiteClosable implements Parcelable {
         // limit the returned string size to 1000
         String s = (buff.length() > 980) ? buff.substring(0, 980) : buff.toString();
         return "# Open Cursors=" + total + s;
+    }
+
+    private static int getCursorWindowSize() {
+        if (sCursorWindowSize < 0) {
+            // The cursor window size. resource xml file specifies the value in kB.
+            // convert it to bytes here by multiplying with 1024.
+            sCursorWindowSize = Resources.getSystem().getInteger(
+                    com.android.internal.R.integer.config_cursorWindowSize) * 1024;
+        }
+        return sCursorWindowSize;
     }
 
     @Override

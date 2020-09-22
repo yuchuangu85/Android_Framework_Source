@@ -18,13 +18,22 @@ package android.graphics.drawable;
 
 import android.annotation.ColorInt;
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo.Config;
-import android.graphics.*;
-import android.graphics.PorterDuff.Mode;
 import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
+import android.graphics.BlendMode;
+import android.graphics.BlendModeColorFilter;
+import android.graphics.Canvas;
+import android.graphics.ColorFilter;
+import android.graphics.Outline;
+import android.graphics.Paint;
+import android.graphics.PixelFormat;
+import android.graphics.Xfermode;
 import android.util.AttributeSet;
 import android.view.ViewDebug;
 
@@ -44,11 +53,12 @@ import java.io.IOException;
  * @attr ref android.R.styleable#ColorDrawable_color
  */
 public class ColorDrawable extends Drawable {
+    @UnsupportedAppUsage
     private final Paint mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     @ViewDebug.ExportedProperty(deepExport = true, prefix = "state_")
     private ColorState mColorState;
-    private PorterDuffColorFilter mTintFilter;
+    private BlendModeColorFilter mBlendModeColorFilter;
 
     private boolean mMutated;
 
@@ -101,9 +111,10 @@ public class ColorDrawable extends Drawable {
     @Override
     public void draw(Canvas canvas) {
         final ColorFilter colorFilter = mPaint.getColorFilter();
-        if ((mColorState.mUseColor >>> 24) != 0 || colorFilter != null || mTintFilter != null) {
+        if ((mColorState.mUseColor >>> 24) != 0 || colorFilter != null
+                || mBlendModeColorFilter != null) {
             if (colorFilter == null) {
-                mPaint.setColorFilter(mTintFilter);
+                mPaint.setColorFilter(mBlendModeColorFilter);
             }
 
             mPaint.setColor(mColorState.mUseColor);
@@ -139,9 +150,13 @@ public class ColorDrawable extends Drawable {
     }
 
     /**
-     * Returns the alpha value of this drawable's color.
+     * Returns the alpha value of this drawable's color. Note this may not be the same alpha value
+     * provided in {@link Drawable#setAlpha(int)}. Instead this will return the alpha of the color
+     * combined with the alpha provided by setAlpha
      *
      * @return A value between 0 and 255.
+     *
+     * @see ColorDrawable#setAlpha(int)
      */
     @Override
     public int getAlpha() {
@@ -149,7 +164,9 @@ public class ColorDrawable extends Drawable {
     }
 
     /**
-     * Sets the color's alpha value.
+     * Applies the given alpha to the underlying color. Note if the color already has
+     * an alpha applied to it, this will apply this alpha to the existing value instead of
+     * overwriting it.
      *
      * @param alpha The alpha value to set, between 0 and 255.
      */
@@ -178,25 +195,39 @@ public class ColorDrawable extends Drawable {
         mPaint.setColorFilter(colorFilter);
     }
 
+    /**
+     * Returns the color filter applied to this color configured by
+     * {@link #setColorFilter(ColorFilter)}
+     *
+     * @see android.graphics.drawable.Drawable#getColorFilter()
+     */
+    @Override
+    public @Nullable ColorFilter getColorFilter() {
+        return mPaint.getColorFilter();
+    }
+
     @Override
     public void setTintList(ColorStateList tint) {
         mColorState.mTint = tint;
-        mTintFilter = updateTintFilter(mTintFilter, tint, mColorState.mTintMode);
+        mBlendModeColorFilter = updateBlendModeFilter(mBlendModeColorFilter, tint,
+                mColorState.mBlendMode);
         invalidateSelf();
     }
 
     @Override
-    public void setTintMode(Mode tintMode) {
-        mColorState.mTintMode = tintMode;
-        mTintFilter = updateTintFilter(mTintFilter, mColorState.mTint, tintMode);
+    public void setTintBlendMode(@NonNull BlendMode blendMode) {
+        mColorState.mBlendMode = blendMode;
+        mBlendModeColorFilter = updateBlendModeFilter(mBlendModeColorFilter, mColorState.mTint,
+                blendMode);
         invalidateSelf();
     }
 
     @Override
     protected boolean onStateChange(int[] stateSet) {
         final ColorState state = mColorState;
-        if (state.mTint != null && state.mTintMode != null) {
-            mTintFilter = updateTintFilter(mTintFilter, state.mTint, state.mTintMode);
+        if (state.mTint != null && state.mBlendMode != null) {
+            mBlendModeColorFilter = updateBlendModeFilter(mBlendModeColorFilter, state.mTint,
+                    state.mBlendMode);
             return true;
         }
         return false;
@@ -207,9 +238,34 @@ public class ColorDrawable extends Drawable {
         return mColorState.mTint != null && mColorState.mTint.isStateful();
     }
 
+    /** @hide */
+    @Override
+    public boolean hasFocusStateSpecified() {
+        return mColorState.mTint != null && mColorState.mTint.hasFocusStateSpecified();
+    }
+
+    /**
+     * @hide
+     * @param mode new transfer mode
+     */
+    @Override
+    public void setXfermode(@Nullable Xfermode mode) {
+        mPaint.setXfermode(mode);
+        invalidateSelf();
+    }
+
+    /**
+     * @hide
+     * @return current transfer mode
+     */
+    @TestApi
+    public Xfermode getXfermode() {
+        return mPaint.getXfermode();
+    }
+
     @Override
     public int getOpacity() {
-        if (mTintFilter != null || mPaint.getColorFilter() != null) {
+        if (mBlendModeColorFilter != null || mPaint.getColorFilter() != null) {
             return PixelFormat.TRANSLUCENT;
         }
 
@@ -292,10 +348,11 @@ public class ColorDrawable extends Drawable {
         int[] mThemeAttrs;
         int mBaseColor; // base color, independent of setAlpha()
         @ViewDebug.ExportedProperty
+        @UnsupportedAppUsage
         int mUseColor;  // basecolor modulated by setAlpha()
         @Config int mChangingConfigurations;
         ColorStateList mTint = null;
-        Mode mTintMode = DEFAULT_TINT_MODE;
+        BlendMode mBlendMode = DEFAULT_BLEND_MODE;
 
         ColorState() {
             // Empty constructor.
@@ -307,7 +364,7 @@ public class ColorDrawable extends Drawable {
             mUseColor = state.mUseColor;
             mChangingConfigurations = state.mChangingConfigurations;
             mTint = state.mTint;
-            mTintMode = state.mTintMode;
+            mBlendMode = state.mBlendMode;
         }
 
         @Override
@@ -345,6 +402,7 @@ public class ColorDrawable extends Drawable {
      * after inflating or applying a theme.
      */
     private void updateLocalState(Resources r) {
-        mTintFilter = updateTintFilter(mTintFilter, mColorState.mTint, mColorState.mTintMode);
+        mBlendModeColorFilter = updateBlendModeFilter(mBlendModeColorFilter, mColorState.mTint,
+                mColorState.mBlendMode);
     }
 }

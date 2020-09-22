@@ -16,11 +16,16 @@
 
 package com.android.server.pm;
 
-import android.content.pm.PackageParser;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledAfter;
+import android.content.pm.PackageParser.SigningDetails;
 import android.content.pm.Signature;
 import android.os.Environment;
 import android.util.Slog;
 import android.util.Xml;
+
+import com.android.server.compat.PlatformCompat;
+import com.android.server.pm.parsing.pkg.AndroidPackage;
 
 import libcore.io.IoUtils;
 
@@ -57,24 +62,81 @@ public final class SELinuxMMAC {
     // All policy stanzas read from mac_permissions.xml. This is also the lock
     // to synchronize access during policy load and access attempts.
     private static List<Policy> sPolicies = new ArrayList<>();
+    /** Whether or not the policy files have been read */
+    private static boolean sPolicyRead;
 
-    /** Path to MAC permissions on system image */
-    private static final File MAC_PERMISSIONS = new File(Environment.getRootDirectory(),
-            "/etc/security/mac_permissions.xml");
+    /** Required MAC permissions files */
+    private static List<File> sMacPermissions = new ArrayList<>();
+
+    private static final String DEFAULT_SEINFO = "default";
 
     // Append privapp to existing seinfo label
     private static final String PRIVILEGED_APP_STR = ":privapp";
 
-    // Append autoplay to existing seinfo label
-    private static final String AUTOPLAY_APP_STR = ":autoplayapp";
+    // Append targetSdkVersion=n to existing seinfo label where n is the app's targetSdkVersion
+    private static final String TARGETSDKVERSION_STR = ":targetSdkVersion=";
+
+    /**
+     * This change gates apps access to untrusted_app_R-targetSDk SELinux domain. Allows opt-in
+     * to R targetSdkVersion enforced changes without changing target SDK. Turning this change
+     * off for an app targeting R is a no-op.
+     *
+     * <p>Has no effect for apps using shared user id.
+     *
+     * TODO(b/143539591): Update description with relevant SELINUX changes this opts in to.
+     */
+    @EnabledAfter(targetSdkVersion = android.os.Build.VERSION_CODES.Q)
+    @ChangeId
+    static final long SELINUX_LATEST_CHANGES = 143539591L;
+
+    // Only initialize sMacPermissions once.
+    static {
+        // Platform mac permissions.
+        sMacPermissions.add(new File(
+            Environment.getRootDirectory(), "/etc/selinux/plat_mac_permissions.xml"));
+
+        // SystemExt mac permissions (optional).
+        final File systemExtMacPermission = new File(
+                Environment.getSystemExtDirectory(), "/etc/selinux/system_ext_mac_permissions.xml");
+        if (systemExtMacPermission.exists()) {
+            sMacPermissions.add(systemExtMacPermission);
+        }
+
+        // Product mac permissions (optional).
+        final File productMacPermission = new File(
+                Environment.getProductDirectory(), "/etc/selinux/product_mac_permissions.xml");
+        if (productMacPermission.exists()) {
+            sMacPermissions.add(productMacPermission);
+        }
+
+        // Vendor mac permissions.
+        // The filename has been renamed from nonplat_mac_permissions to
+        // vendor_mac_permissions. Either of them should exist.
+        final File vendorMacPermission = new File(
+            Environment.getVendorDirectory(), "/etc/selinux/vendor_mac_permissions.xml");
+        if (vendorMacPermission.exists()) {
+            sMacPermissions.add(vendorMacPermission);
+        } else {
+            // For backward compatibility.
+            sMacPermissions.add(new File(Environment.getVendorDirectory(),
+                                         "/etc/selinux/nonplat_mac_permissions.xml"));
+        }
+
+        // ODM mac permissions (optional).
+        final File odmMacPermission = new File(
+            Environment.getOdmDirectory(), "/etc/selinux/odm_mac_permissions.xml");
+        if (odmMacPermission.exists()) {
+            sMacPermissions.add(odmMacPermission);
+        }
+    }
 
     /**
      * Load the mac_permissions.xml file containing all seinfo assignments used to
-     * label apps. The loaded mac_permissions.xml file is determined by the
-     * MAC_PERMISSIONS class variable which is set at class load time which itself
-     * is based on the USE_OVERRIDE_POLICY class variable. For further guidance on
+     * label apps. The loaded mac_permissions.xml files are plat_mac_permissions.xml and
+     * vendor_mac_permissions.xml, on /system and /vendor partitions, respectively.
+     * odm_mac_permissions.xml on /odm partition is optional. For further guidance on
      * the proper structure of a mac_permissions.xml file consult the source code
-     * located at system/sepolicy/mac_permissions.xml.
+     * located at system/sepolicy/private/mac_permissions.xml.
      *
      * @return boolean indicating if policy was correctly loaded. A value of false
      *         typically indicates a structural problem with the xml or incorrectly
@@ -82,59 +144,72 @@ public final class SELinuxMMAC {
      *         were loaded successfully; no partial loading is possible.
      */
     public static boolean readInstallPolicy() {
+        synchronized (sPolicies) {
+            if (sPolicyRead) {
+                return true;
+            }
+        }
+
         // Temp structure to hold the rules while we parse the xml file
         List<Policy> policies = new ArrayList<>();
 
         FileReader policyFile = null;
         XmlPullParser parser = Xml.newPullParser();
-        try {
-            policyFile = new FileReader(MAC_PERMISSIONS);
-            Slog.d(TAG, "Using policy file " + MAC_PERMISSIONS);
 
-            parser.setInput(policyFile);
-            parser.nextTag();
-            parser.require(XmlPullParser.START_TAG, null, "policy");
+        final int count = sMacPermissions.size();
+        for (int i = 0; i < count; ++i) {
+            final File macPermission = sMacPermissions.get(i);
+            try {
+                policyFile = new FileReader(macPermission);
+                Slog.d(TAG, "Using policy file " + macPermission);
 
-            while (parser.next() != XmlPullParser.END_TAG) {
-                if (parser.getEventType() != XmlPullParser.START_TAG) {
-                    continue;
+                parser.setInput(policyFile);
+                parser.nextTag();
+                parser.require(XmlPullParser.START_TAG, null, "policy");
+
+                while (parser.next() != XmlPullParser.END_TAG) {
+                    if (parser.getEventType() != XmlPullParser.START_TAG) {
+                        continue;
+                    }
+
+                    switch (parser.getName()) {
+                        case "signer":
+                            policies.add(readSignerOrThrow(parser));
+                            break;
+                        default:
+                            skip(parser);
+                    }
                 }
-
-                switch (parser.getName()) {
-                    case "signer":
-                        policies.add(readSignerOrThrow(parser));
-                        break;
-                    default:
-                        skip(parser);
-                }
+            } catch (IllegalStateException | IllegalArgumentException |
+                     XmlPullParserException ex) {
+                StringBuilder sb = new StringBuilder("Exception @");
+                sb.append(parser.getPositionDescription());
+                sb.append(" while parsing ");
+                sb.append(macPermission);
+                sb.append(":");
+                sb.append(ex);
+                Slog.w(TAG, sb.toString());
+                return false;
+            } catch (IOException ioe) {
+                Slog.w(TAG, "Exception parsing " + macPermission, ioe);
+                return false;
+            } finally {
+                IoUtils.closeQuietly(policyFile);
             }
-        } catch (IllegalStateException | IllegalArgumentException |
-                XmlPullParserException ex) {
-            StringBuilder sb = new StringBuilder("Exception @");
-            sb.append(parser.getPositionDescription());
-            sb.append(" while parsing ");
-            sb.append(MAC_PERMISSIONS);
-            sb.append(":");
-            sb.append(ex);
-            Slog.w(TAG, sb.toString());
-            return false;
-        } catch (IOException ioe) {
-            Slog.w(TAG, "Exception parsing " + MAC_PERMISSIONS, ioe);
-            return false;
-        } finally {
-            IoUtils.closeQuietly(policyFile);
         }
 
         // Now sort the policy stanzas
         PolicyComparator policySort = new PolicyComparator();
         Collections.sort(policies, policySort);
         if (policySort.foundDuplicate()) {
-            Slog.w(TAG, "ERROR! Duplicate entries found parsing " + MAC_PERMISSIONS);
+            Slog.w(TAG, "ERROR! Duplicate entries found parsing mac_permissions.xml files");
             return false;
         }
 
         synchronized (sPolicies) {
-            sPolicies = policies;
+            sPolicies.clear();
+            sPolicies.addAll(policies);
+            sPolicyRead = true;
 
             if (DEBUG_POLICY_ORDER) {
                 for (Policy policy : sPolicies) {
@@ -261,43 +336,102 @@ public final class SELinuxMMAC {
         }
     }
 
+    private static int getTargetSdkVersionForSeInfo(AndroidPackage pkg,
+            SharedUserSetting sharedUserSetting, PlatformCompat compatibility) {
+        // Apps which share a sharedUserId must be placed in the same selinux domain. If this
+        // package is the first app installed as this shared user, set seInfoTargetSdkVersion to its
+        // targetSdkVersion. These are later adjusted in PackageManagerService's constructor to be
+        // the lowest targetSdkVersion of all apps within the shared user, which corresponds to the
+        // least restrictive selinux domain.
+        // NOTE: As new packages are installed / updated, the shared user's seinfoTargetSdkVersion
+        // will NOT be modified until next boot, even if a lower targetSdkVersion is used. This
+        // ensures that all packages continue to run in the same selinux domain.
+        if ((sharedUserSetting != null) && (sharedUserSetting.packages.size() != 0)) {
+            return sharedUserSetting.seInfoTargetSdkVersion;
+        }
+        if (compatibility.isChangeEnabledInternal(SELINUX_LATEST_CHANGES,
+                pkg.toAppInfoWithoutState())) {
+            return android.os.Build.VERSION_CODES.R;
+        }
+
+        return pkg.getTargetSdkVersion();
+    }
+
     /**
-     * Applies a security label to a package based on an seinfo tag taken from a matched
-     * policy. All signature based policy stanzas are consulted and, if no match is
-     * found, the default seinfo label of 'default' (set in ApplicationInfo object) is
-     * used. The security label is attached to the ApplicationInfo instance of the package
-     * in the event that a matching policy was found.
+     * Selects a security label to a package based on input parameters and the seinfo tag taken
+     * from a matched policy. All signature based policy stanzas are consulted and, if no match
+     * is found, the default seinfo label of 'default' is used. The security label is attached to
+     * the ApplicationInfo instance of the package.
+     *
+     * @param pkg               object representing the package to be labeled.
+     * @param sharedUserSetting if the app shares a sharedUserId, then this has the shared setting.
+     * @param compatibility     the PlatformCompat service to ask about state of compat changes.
+     * @return String representing the resulting seinfo.
+     */
+    public static String getSeInfo(AndroidPackage pkg, SharedUserSetting sharedUserSetting,
+            PlatformCompat compatibility) {
+        final int targetSdkVersion = getTargetSdkVersionForSeInfo(pkg, sharedUserSetting,
+                compatibility);
+        // TODO(b/71593002): isPrivileged for sharedUser and appInfo should never be out of sync.
+        // They currently can be if the sharedUser apps are signed with the platform key.
+        final boolean isPrivileged = (sharedUserSetting != null)
+                ? sharedUserSetting.isPrivileged() | pkg.isPrivileged() : pkg.isPrivileged();
+        return getSeInfo(pkg, isPrivileged, targetSdkVersion);
+    }
+
+    /**
+     * Selects a security label to a package based on input parameters and the seinfo tag taken
+     * from a matched policy. All signature based policy stanzas are consulted and, if no match
+     * is found, the default seinfo label of 'default' is used. The security label is attached to
+     * the ApplicationInfo instance of the package.
      *
      * @param pkg object representing the package to be labeled.
+     * @param isPrivileged boolean.
+     * @param targetSdkVersion int. If this pkg runs as a sharedUser, targetSdkVersion is the
+     *        greater of: lowest targetSdk for all pkgs in the sharedUser, or
+     *        MINIMUM_TARGETSDKVERSION.
+     * @return String representing the resulting seinfo.
      */
-    public static void assignSeinfoValue(PackageParser.Package pkg) {
+    public static String getSeInfo(AndroidPackage pkg, boolean isPrivileged,
+            int targetSdkVersion) {
+        String seInfo = null;
         synchronized (sPolicies) {
-            for (Policy policy : sPolicies) {
-                String seinfo = policy.getMatchedSeinfo(pkg);
-                if (seinfo != null) {
-                    pkg.applicationInfo.seinfo = seinfo;
-                    break;
+            if (!sPolicyRead) {
+                if (DEBUG_POLICY) {
+                    Slog.d(TAG, "Policy not read");
+                }
+            } else {
+                for (Policy policy : sPolicies) {
+                    seInfo = policy.getMatchedSeInfo(pkg);
+                    if (seInfo != null) {
+                        break;
+                    }
                 }
             }
         }
 
-        if (pkg.applicationInfo.isAutoPlayApp())
-            pkg.applicationInfo.seinfo += AUTOPLAY_APP_STR;
+        if (seInfo == null) {
+            seInfo = DEFAULT_SEINFO;
+        }
 
-        if (pkg.applicationInfo.isPrivilegedApp())
-            pkg.applicationInfo.seinfo += PRIVILEGED_APP_STR;
+        if (isPrivileged) {
+            seInfo += PRIVILEGED_APP_STR;
+        }
+
+        seInfo += TARGETSDKVERSION_STR + targetSdkVersion;
 
         if (DEBUG_POLICY_INSTALL) {
-            Slog.i(TAG, "package (" + pkg.packageName + ") labeled with " +
-                    "seinfo=" + pkg.applicationInfo.seinfo);
+            Slog.i(TAG, "package (" + pkg.getPackageName() + ") labeled with "
+                    + "seinfo=" + seInfo);
         }
+        return seInfo;
     }
 }
 
 /**
  * Holds valid policy representations of individual stanzas from a mac_permissions.xml
  * file. Each instance can further be used to assign seinfo values to apks using the
- * {@link Policy#getMatchedSeinfo} method. To create an instance of this use the
+ * {@link Policy#getMatchedSeInfo(AndroidPackage)} method. To create an instance of this use the
  * {@link PolicyBuilder} pattern class, where each instance is validated against a set
  * of invariants before being built and returned. Each instance can be guaranteed to
  * hold one valid policy stanza as outlined in the system/sepolicy/mac_permissions.xml
@@ -424,16 +558,21 @@ final class Policy {
      * @return A string representing the seinfo matched during policy lookup.
      *         A value of null can also be returned if no match occured.
      */
-    public String getMatchedSeinfo(PackageParser.Package pkg) {
+    public String getMatchedSeInfo(AndroidPackage pkg) {
         // Check for exact signature matches across all certs.
         Signature[] certs = mCerts.toArray(new Signature[0]);
-        if (!Signature.areExactMatch(certs, pkg.mSignatures)) {
-            return null;
+        if (pkg.getSigningDetails() != SigningDetails.UNKNOWN
+                && !Signature.areExactMatch(certs, pkg.getSigningDetails().signatures)) {
+
+            // certs aren't exact match, but the package may have rotated from the known system cert
+            if (certs.length > 1 || !pkg.getSigningDetails().hasCertificate(certs[0])) {
+                return null;
+            }
         }
 
         // Check for inner package name matches given that the
         // signature checks already passed.
-        String seinfoValue = mPkgMap.get(pkg.packageName);
+        String seinfoValue = mPkgMap.get(pkg.getPackageName());
         if (seinfoValue != null) {
             return seinfoValue;
         }

@@ -18,6 +18,8 @@ package android.content.res;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.res.loader.ResourcesLoader;
 import android.text.TextUtils;
 
 import java.util.Arrays;
@@ -26,9 +28,11 @@ import java.util.Objects;
 /** @hide */
 public final class ResourcesKey {
     @Nullable
+    @UnsupportedAppUsage
     public final String mResDir;
 
     @Nullable
+    @UnsupportedAppUsage
     public final String[] mSplitResDirs;
 
     @Nullable
@@ -45,6 +49,9 @@ public final class ResourcesKey {
     @NonNull
     public final CompatibilityInfo mCompatInfo;
 
+    @Nullable
+    public final ResourcesLoader[] mLoaders;
+
     private final int mHash;
 
     public ResourcesKey(@Nullable String resDir,
@@ -53,13 +60,16 @@ public final class ResourcesKey {
                         @Nullable String[] libDirs,
                         int displayId,
                         @Nullable Configuration overrideConfig,
-                        @Nullable CompatibilityInfo compatInfo) {
+                        @Nullable CompatibilityInfo compatInfo,
+                        @Nullable ResourcesLoader[] loader) {
         mResDir = resDir;
         mSplitResDirs = splitResDirs;
         mOverlayDirs = overlayDirs;
         mLibDirs = libDirs;
+        mLoaders = (loader != null && loader.length == 0) ? null : loader;
         mDisplayId = displayId;
-        mOverrideConfiguration = overrideConfig != null ? overrideConfig : Configuration.EMPTY;
+        mOverrideConfiguration = new Configuration(overrideConfig != null
+                ? overrideConfig : Configuration.EMPTY);
         mCompatInfo = compatInfo != null ? compatInfo : CompatibilityInfo.DEFAULT_COMPATIBILITY_INFO;
 
         int hash = 17;
@@ -70,7 +80,20 @@ public final class ResourcesKey {
         hash = 31 * hash + mDisplayId;
         hash = 31 * hash + Objects.hashCode(mOverrideConfiguration);
         hash = 31 * hash + Objects.hashCode(mCompatInfo);
+        hash = 31 * hash + Arrays.hashCode(mLoaders);
         mHash = hash;
+    }
+
+    @UnsupportedAppUsage
+    public ResourcesKey(@Nullable String resDir,
+            @Nullable String[] splitResDirs,
+            @Nullable String[] overlayDirs,
+            @Nullable String[] libDirs,
+            int displayId,
+            @Nullable Configuration overrideConfig,
+            @Nullable CompatibilityInfo compatInfo) {
+        this(resDir, splitResDirs, overlayDirs, libDirs, displayId, overrideConfig, compatInfo,
+                null);
     }
 
     public boolean hasOverrideConfiguration() {
@@ -135,6 +158,9 @@ public final class ResourcesKey {
         if (!Objects.equals(mCompatInfo, peer.mCompatInfo)) {
             return false;
         }
+        if (!Arrays.equals(mLoaders, peer.mLoaders)) {
+            return false;
+        }
         return true;
     }
 
@@ -162,7 +188,11 @@ public final class ResourcesKey {
         builder.append(" mOverrideConfig=").append(Configuration.resourceQualifierString(
                 mOverrideConfiguration));
         builder.append(" mCompatInfo=").append(mCompatInfo);
-        builder.append("}");
+        builder.append(" mLoaders=[");
+        if (mLoaders != null) {
+            builder.append(TextUtils.join(",", mLoaders));
+        }
+        builder.append("]}");
         return builder.toString();
     }
 }

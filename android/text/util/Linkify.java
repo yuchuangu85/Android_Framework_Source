@@ -19,17 +19,27 @@ package android.text.util;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.app.ActivityThread;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.Context;
 import android.telephony.PhoneNumberUtils;
-import android.text.method.LinkMovementMethod;
-import android.text.method.MovementMethod;
-import android.text.style.URLSpan;
+import android.telephony.TelephonyManager;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.Spanned;
+import android.text.method.LinkMovementMethod;
+import android.text.method.MovementMethod;
+import android.text.style.URLSpan;
+import android.util.Log;
 import android.util.Patterns;
 import android.webkit.WebView;
 import android.widget.TextView;
 
+import com.android.i18n.phonenumbers.PhoneNumberMatch;
+import com.android.i18n.phonenumbers.PhoneNumberUtil;
+import com.android.i18n.phonenumbers.PhoneNumberUtil.Leniency;
+
+import libcore.util.EmptyArray;
 
 import java.io.UnsupportedEncodingException;
 import java.lang.annotation.Retention;
@@ -39,14 +49,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Locale;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import com.android.i18n.phonenumbers.PhoneNumberMatch;
-import com.android.i18n.phonenumbers.PhoneNumberUtil;
-import com.android.i18n.phonenumbers.PhoneNumberUtil.Leniency;
-
-import libcore.util.EmptyArray;
 
 /**
  *  Linkify take a piece of text and a regular expression and turns all of the
@@ -62,9 +67,23 @@ import libcore.util.EmptyArray;
  *  does not have a URL scheme prefix, the supplied scheme will be prepended to
  *  create <code>http://example.com</code> when the clickable URL link is
  *  created.
+ *
+ *  <p class="note"><b>Note:</b> When using {@link #MAP_ADDRESSES} or {@link #ALL}
+ *  to match street addresses on API level {@link android.os.Build.VERSION_CODES#O_MR1}
+ *  and earlier, methods in this class may throw
+ *  {@link android.util.AndroidRuntimeException} or other exceptions if the
+ *  device's WebView implementation is currently being updated, because
+ *  {@link android.webkit.WebView#findAddress} is required to match street
+ *  addresses.
+ *
+ * @see MatchFilter
+ * @see TransformFilter
  */
 
 public class Linkify {
+
+    private static final String LOG_TAG = "Linkify";
+
     /**
      *  Bit field indicating that web URLs should be matched in methods that
      *  take an options mask
@@ -85,16 +104,24 @@ public class Linkify {
 
     /**
      *  Bit field indicating that street addresses should be matched in methods that
-     *  take an options mask. Note that this uses the
-     *  {@link android.webkit.WebView#findAddress(String) findAddress()} method in
-     *  {@link android.webkit.WebView} for finding addresses, which has various
-     *  limitations.
+     *  take an options mask. Note that this should be avoided, as it uses the
+     *  {@link android.webkit.WebView#findAddress(String)} method, which has various
+     *  limitations and has been deprecated: see the documentation for
+     *  {@link android.webkit.WebView#findAddress(String)} for more information.
+     *
+     *  @deprecated use {@link android.view.textclassifier.TextClassifier#generateLinks(
+     *  TextLinks.Request)} instead and avoid it even when targeting API levels where no alternative
+     *  is available.
      */
+    @Deprecated
     public static final int MAP_ADDRESSES = 0x08;
 
     /**
      *  Bit mask indicating that all available patterns should be matched in
      *  methods that take an options mask
+     *  <p><strong>Note:</strong></p> {@link #MAP_ADDRESSES} is deprecated.
+     *  Use {@link android.view.textclassifier.TextClassifier#generateLinks(TextLinks.Request)}
+     *  instead and avoid it even when targeting API levels where no alternative is available.
      */
     public static final int ALL = WEB_URLS | EMAIL_ADDRESSES | PHONE_NUMBERS | MAP_ADDRESSES;
 
@@ -220,19 +247,60 @@ public class Linkify {
      *  @param mask Mask to define which kinds of links will be searched.
      *
      *  @return True if at least one link is found and applied.
+     *
+     * @see #addLinks(Spannable, int, Function)
      */
     public static final boolean addLinks(@NonNull Spannable text, @LinkifyMask int mask) {
+        return addLinks(text, mask, null, null);
+    }
+
+    /**
+     *  Scans the text of the provided Spannable and turns all occurrences
+     *  of the link types indicated in the mask into clickable links.
+     *  If the mask is nonzero, it also removes any existing URLSpans
+     *  attached to the Spannable, to avoid problems if you call it
+     *  repeatedly on the same text.
+     *
+     *  @param text Spannable whose text is to be marked-up with links
+     *  @param mask mask to define which kinds of links will be searched
+     *  @param urlSpanFactory function used to create {@link URLSpan}s
+     *  @return True if at least one link is found and applied.
+     */
+    public static final boolean addLinks(@NonNull Spannable text, @LinkifyMask int mask,
+            @Nullable Function<String, URLSpan> urlSpanFactory) {
+        return addLinks(text, mask, null, urlSpanFactory);
+    }
+
+    /**
+     *  Scans the text of the provided Spannable and turns all occurrences of the link types
+     *  indicated in the mask into clickable links. If the mask is nonzero, it also removes any
+     *  existing URLSpans attached to the Spannable, to avoid problems if you call it repeatedly
+     *  on the same text.
+     *
+     * @param text Spannable whose text is to be marked-up with links
+     * @param mask mask to define which kinds of links will be searched
+     * @param context Context to be used while identifying phone numbers
+     * @param urlSpanFactory function used to create {@link URLSpan}s
+     * @return true if at least one link is found and applied.
+     */
+    private static boolean addLinks(@NonNull Spannable text, @LinkifyMask int mask,
+            @Nullable Context context, @Nullable Function<String, URLSpan> urlSpanFactory) {
+        if (text != null && containsUnsupportedCharacters(text.toString())) {
+            android.util.EventLog.writeEvent(0x534e4554, "116321860", -1, "");
+            return false;
+        }
+
         if (mask == 0) {
             return false;
         }
 
-        URLSpan[] old = text.getSpans(0, text.length(), URLSpan.class);
+        final URLSpan[] old = text.getSpans(0, text.length(), URLSpan.class);
 
         for (int i = old.length - 1; i >= 0; i--) {
             text.removeSpan(old[i]);
         }
 
-        ArrayList<LinkSpec> links = new ArrayList<LinkSpec>();
+        final ArrayList<LinkSpec> links = new ArrayList<LinkSpec>();
 
         if ((mask & WEB_URLS) != 0) {
             gatherLinks(links, text, Patterns.AUTOLINK_WEB_URL,
@@ -247,7 +315,7 @@ public class Linkify {
         }
 
         if ((mask & PHONE_NUMBERS) != 0) {
-            gatherTelLinks(links, text);
+            gatherTelLinks(links, text, context);
         }
 
         if ((mask & MAP_ADDRESSES) != 0) {
@@ -261,10 +329,33 @@ public class Linkify {
         }
 
         for (LinkSpec link: links) {
-            applyLink(link.url, link.start, link.end, text);
+            applyLink(link.url, link.start, link.end, text, urlSpanFactory);
         }
 
         return true;
+    }
+
+    /**
+     * Returns true if the specified text contains at least one unsupported character for applying
+     * links. Also logs the error.
+     *
+     * @param text the text to apply links to
+     * @hide
+     */
+    public static boolean containsUnsupportedCharacters(String text) {
+        if (text.contains("\u202C")) {
+            Log.e(LOG_TAG, "Unsupported character for applying links: u202C");
+            return true;
+        }
+        if (text.contains("\u202D")) {
+            Log.e(LOG_TAG, "Unsupported character for applying links: u202D");
+            return true;
+        }
+        if (text.contains("\u202E")) {
+            Log.e(LOG_TAG, "Unsupported character for applying links: u202E");
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -277,16 +368,18 @@ public class Linkify {
      *  @param mask Mask to define which kinds of links will be searched.
      *
      *  @return True if at least one link is found and applied.
+     *
+     *  @see #addLinks(Spannable, int, Function)
      */
     public static final boolean addLinks(@NonNull TextView text, @LinkifyMask int mask) {
         if (mask == 0) {
             return false;
         }
 
-        CharSequence t = text.getText();
-
+        final Context context = text.getContext();
+        final CharSequence t = text.getText();
         if (t instanceof Spannable) {
-            if (addLinks((Spannable) t, mask)) {
+            if (addLinks((Spannable) t, mask, context, null)) {
                 addLinkMovementMethod(text);
                 return true;
             }
@@ -295,7 +388,7 @@ public class Linkify {
         } else {
             SpannableString s = SpannableString.valueOf(t);
 
-            if (addLinks(s, mask)) {
+            if (addLinks(s, mask, context, null)) {
                 addLinkMovementMethod(text);
                 text.setText(s);
 
@@ -390,6 +483,7 @@ public class Linkify {
      *  @param pattern      Regex pattern to be used for finding links
      *  @param scheme       URL scheme string (eg <code>http://</code>) to be
      *                      prepended to the links that do not start with this scheme.
+     * @see #addLinks(Spannable, Pattern, String, String[], MatchFilter, TransformFilter, Function)
      */
     public static final boolean addLinks(@NonNull Spannable text, @NonNull Pattern pattern,
             @Nullable String scheme) {
@@ -410,6 +504,7 @@ public class Linkify {
      * @param transformFilter Filter to allow the client code to update the link found.
      *
      * @return True if at least one link is found and applied.
+     * @see #addLinks(Spannable, Pattern, String, String[], MatchFilter, TransformFilter, Function)
      */
     public static final boolean addLinks(@NonNull Spannable spannable, @NonNull Pattern pattern,
             @Nullable String scheme, @Nullable MatchFilter matchFilter,
@@ -433,10 +528,43 @@ public class Linkify {
      * @param transformFilter Filter to allow the client code to update the link found.
      *
      * @return True if at least one link is found and applied.
+     *
+     * @see #addLinks(Spannable, Pattern, String, String[], MatchFilter, TransformFilter, Function)
      */
     public static final boolean addLinks(@NonNull Spannable spannable, @NonNull Pattern pattern,
-            @Nullable  String defaultScheme, @Nullable String[] schemes,
+            @Nullable String defaultScheme, @Nullable String[] schemes,
             @Nullable MatchFilter matchFilter, @Nullable TransformFilter transformFilter) {
+        return addLinks(spannable, pattern, defaultScheme, schemes, matchFilter, transformFilter,
+                null);
+    }
+
+    /**
+     * Applies a regex to a Spannable turning the matches into links.
+     *
+     * @param spannable       spannable whose text is to be marked-up with links.
+     * @param pattern         regex pattern to be used for finding links.
+     * @param defaultScheme   the default scheme to be prepended to links if the link does not
+     *                        start with one of the <code>schemes</code> given.
+     * @param schemes         array of schemes (eg <code>http://</code>) to check if the link found
+     *                        contains a scheme. Passing a null or empty value means prepend
+     *                        defaultScheme
+     *                        to all links.
+     * @param matchFilter     the filter that is used to allow the client code additional control
+     *                        over which pattern matches are to be converted into links.
+     * @param transformFilter filter to allow the client code to update the link found.
+     * @param urlSpanFactory  function used to create {@link URLSpan}s
+     *
+     * @return True if at least one link is found and applied.
+     */
+    public static final boolean addLinks(@NonNull Spannable spannable, @NonNull Pattern pattern,
+            @Nullable String defaultScheme, @Nullable String[] schemes,
+            @Nullable MatchFilter matchFilter, @Nullable TransformFilter transformFilter,
+            @Nullable Function<String, URLSpan> urlSpanFactory) {
+        if (spannable != null && containsUnsupportedCharacters(spannable.toString())) {
+            android.util.EventLog.writeEvent(0x534e4554, "116321860", -1, "");
+            return false;
+        }
+
         final String[] schemesCopy;
         if (defaultScheme == null) defaultScheme = "";
         if (schemes == null || schemes.length < 1) {
@@ -465,7 +593,7 @@ public class Linkify {
             if (allowed) {
                 String url = makeUrl(m.group(0), schemesCopy, m, transformFilter);
 
-                applyLink(url, start, end, spannable);
+                applyLink(url, start, end, spannable, urlSpanFactory);
                 hasMatches = true;
             }
         }
@@ -473,9 +601,12 @@ public class Linkify {
         return hasMatches;
     }
 
-    private static final void applyLink(String url, int start, int end, Spannable text) {
-        URLSpan span = new URLSpan(url);
-
+    private static void applyLink(String url, int start, int end, Spannable text,
+            @Nullable Function<String, URLSpan> urlSpanFactory) {
+        if (urlSpanFactory == null) {
+            urlSpanFactory = DEFAULT_SPAN_FACTORY;
+        }
+        final URLSpan span = urlSpanFactory.apply(url);
         text.setSpan(span, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
 
@@ -529,10 +660,15 @@ public class Linkify {
         }
     }
 
-    private static final void gatherTelLinks(ArrayList<LinkSpec> links, Spannable s) {
+    @UnsupportedAppUsage
+    private static void gatherTelLinks(ArrayList<LinkSpec> links, Spannable s,
+            @Nullable Context context) {
         PhoneNumberUtil phoneUtil = PhoneNumberUtil.getInstance();
+        final Context ctx = (context != null) ? context : ActivityThread.currentApplication();
+        final String regionCode = (ctx != null) ? ctx.getSystemService(TelephonyManager.class).
+                getSimCountryIso().toUpperCase(Locale.US) : Locale.getDefault().getCountry();
         Iterable<PhoneNumberMatch> matches = phoneUtil.findNumbers(s.toString(),
-                Locale.getDefault().getCountry(), Leniency.POSSIBLE, Long.MAX_VALUE);
+                regionCode, Leniency.POSSIBLE, Long.MAX_VALUE);
         for (PhoneNumberMatch match : matches) {
             LinkSpec spec = new LinkSpec();
             spec.url = "tel:" + PhoneNumberUtils.normalizeNumber(match.rawString());
@@ -636,6 +772,13 @@ public class Linkify {
             i++;
         }
     }
+
+    /**
+     * Default factory function to create {@link URLSpan}s. While adding spans to a
+     * {@link Spannable}, {@link Linkify} will call this function to create a {@link URLSpan}.
+     */
+    private static final Function<String, URLSpan> DEFAULT_SPAN_FACTORY =
+            (String string) -> new URLSpan(string);
 }
 
 class LinkSpec {

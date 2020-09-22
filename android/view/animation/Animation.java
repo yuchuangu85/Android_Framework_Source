@@ -19,13 +19,16 @@ package android.view.animation;
 import android.annotation.AnimRes;
 import android.annotation.ColorInt;
 import android.annotation.InterpolatorRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.RectF;
+import android.os.Build;
 import android.os.Handler;
 import android.os.SystemProperties;
 import android.util.AttributeSet;
 import android.util.TypedValue;
+
 import dalvik.system.CloseGuard;
 
 /**
@@ -80,13 +83,13 @@ public abstract class Animation implements Cloneable {
      * order.
      */
     public static final int ZORDER_NORMAL = 0;
-    
+
     /**
      * Requests that the content being animated be forced on top of all other
      * content for the duration of the animation.
      */
     public static final int ZORDER_TOP = 1;
-    
+
     /**
      * Requests that the content being animated be forced under all other
      * content for the duration of the animation.
@@ -138,7 +141,7 @@ public abstract class Animation implements Cloneable {
     /**
      * Indicates whether fillBefore should be taken into account.
      */
-    boolean mFillEnabled = false;    
+    boolean mFillEnabled = false;
 
     /**
      * The time in milliseconds at which the animation must start;
@@ -180,9 +183,12 @@ public abstract class Animation implements Cloneable {
     Interpolator mInterpolator;
 
     /**
-     * The animation listener to be notified when the animation starts, ends or repeats.
+     * An animation listener to be notified when the animation starts, ends or repeats.
      */
-    AnimationListener mListener;
+    // If you need to chain the AnimationListener, wrap the existing Animation into an AnimationSet
+    // and add your new listener to that set
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 117519981)
+    private AnimationListener mListener;
 
     /**
      * Desired Z order mode during animation.
@@ -200,17 +206,19 @@ public abstract class Animation implements Cloneable {
      */
     private float mScaleFactor = 1f;
 
-    /**
-     * Don't animate the wallpaper.
-     */
-    private boolean mDetachWallpaper = false;
+    private boolean mShowWallpaper;
+    private boolean mHasRoundedCorners;
 
     private boolean mMore = true;
     private boolean mOneMoreTime = true;
 
+    @UnsupportedAppUsage
     RectF mPreviousRegion = new RectF();
+    @UnsupportedAppUsage
     RectF mRegion = new RectF();
+    @UnsupportedAppUsage
     Transformation mTransformation = new Transformation();
+    @UnsupportedAppUsage
     Transformation mPreviousTransformation = new Transformation();
 
     private final CloseGuard guard = CloseGuard.get();
@@ -240,7 +248,7 @@ public abstract class Animation implements Cloneable {
 
         setDuration((long) a.getInt(com.android.internal.R.styleable.Animation_duration, 0));
         setStartOffset((long) a.getInt(com.android.internal.R.styleable.Animation_startOffset, 0));
-        
+
         setFillEnabled(a.getBoolean(com.android.internal.R.styleable.Animation_fillEnabled, mFillEnabled));
         setFillBefore(a.getBoolean(com.android.internal.R.styleable.Animation_fillBefore, mFillBefore));
         setFillAfter(a.getBoolean(com.android.internal.R.styleable.Animation_fillAfter, mFillAfter));
@@ -249,10 +257,15 @@ public abstract class Animation implements Cloneable {
         setRepeatMode(a.getInt(com.android.internal.R.styleable.Animation_repeatMode, RESTART));
 
         setZAdjustment(a.getInt(com.android.internal.R.styleable.Animation_zAdjustment, ZORDER_NORMAL));
-        
+
         setBackgroundColor(a.getInt(com.android.internal.R.styleable.Animation_background, 0));
 
-        setDetachWallpaper(a.getBoolean(com.android.internal.R.styleable.Animation_detachWallpaper, false));
+        setDetachWallpaper(
+                a.getBoolean(com.android.internal.R.styleable.Animation_detachWallpaper, false));
+        setShowWallpaper(
+                a.getBoolean(com.android.internal.R.styleable.Animation_showWallpaper, false));
+        setHasRoundedCorners(
+                a.getBoolean(com.android.internal.R.styleable.Animation_hasRoundedCorners, false));
 
         final int resID = a.getResourceId(com.android.internal.R.styleable.Animation_interpolator, 0);
 
@@ -294,13 +307,13 @@ public abstract class Animation implements Cloneable {
     /**
      * Cancel the animation. Cancelling an animation invokes the animation
      * listener, if set, to notify the end of the animation.
-     * 
+     *
      * If you cancel an animation manually, you must call {@link #reset()}
      * before starting the animation again.
-     * 
-     * @see #reset() 
-     * @see #start() 
-     * @see #startNow() 
+     *
+     * @see #reset()
+     * @see #start()
+     * @see #startNow()
      */
     public void cancel() {
         if (mStarted && !mEnded) {
@@ -316,6 +329,7 @@ public abstract class Animation implements Cloneable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public void detach() {
         if (mStarted && !mEnded) {
             mEnded = true;
@@ -356,30 +370,24 @@ public abstract class Animation implements Cloneable {
 
     /**
      * Sets the handler used to invoke listeners.
-     * 
+     *
      * @hide
      */
     public void setListenerHandler(Handler handler) {
         if (mListenerHandler == null) {
             mOnStart = new Runnable() {
                 public void run() {
-                    if (mListener != null) {
-                        mListener.onAnimationStart(Animation.this);
-                    }
+                    dispatchAnimationStart();
                 }
             };
             mOnRepeat = new Runnable() {
                 public void run() {
-                    if (mListener != null) {
-                        mListener.onAnimationRepeat(Animation.this);
-                    }
+                    dispatchAnimationRepeat();
                 }
             };
             mOnEnd = new Runnable() {
                 public void run() {
-                    if (mListener != null) {
-                        mListener.onAnimationEnd(Animation.this);
-                    }
+                    dispatchAnimationEnd();
                 }
             };
         }
@@ -424,7 +432,7 @@ public abstract class Animation implements Cloneable {
 
     /**
      * How long this animation should last. The duration cannot be negative.
-     * 
+     *
      * @param durationMillis Duration in milliseconds
      *
      * @throws java.lang.IllegalArgumentException if the duration is < 0
@@ -443,7 +451,7 @@ public abstract class Animation implements Cloneable {
      * than <var>durationMillis</var>.  In addition to adjusting the duration
      * itself, this ensures that the repeat count also will not make it run
      * longer than the given time.
-     * 
+     *
      * @param durationMillis The maximum duration the animation is allowed
      * to run.
      */
@@ -455,7 +463,7 @@ public abstract class Animation implements Cloneable {
             mRepeatCount = 0;
             return;
         }
-        
+
         long dur = mDuration + mStartOffset;
         if (dur > durationMillis) {
             mDuration = durationMillis-mStartOffset;
@@ -480,7 +488,7 @@ public abstract class Animation implements Cloneable {
             }
         }
     }
-    
+
     /**
      * How much to scale the duration by.
      *
@@ -528,7 +536,7 @@ public abstract class Animation implements Cloneable {
     /**
      * Defines what this animation should do when it reaches the end. This
      * setting is applied only when the repeat count is either greater than
-     * 0 or {@link #INFINITE}. Defaults to {@link #RESTART}. 
+     * 0 or {@link #INFINITE}. Defaults to {@link #RESTART}.
      *
      * @param repeatMode {@link #RESTART} or {@link #REVERSE}
      * @attr ref android.R.styleable#Animation_repeatMode
@@ -606,7 +614,7 @@ public abstract class Animation implements Cloneable {
      * @param fillAfter true if the animation should apply its transformation after it ends
      * @attr ref android.R.styleable#Animation_fillAfter
      *
-     * @see #setFillEnabled(boolean) 
+     * @see #setFillEnabled(boolean)
      */
     public void setFillAfter(boolean fillAfter) {
         mFillAfter = fillAfter;
@@ -614,7 +622,7 @@ public abstract class Animation implements Cloneable {
 
     /**
      * Set the Z ordering mode to use while running the animation.
-     * 
+     *
      * @param zAdjustment The desired mode, one of {@link #ZORDER_NORMAL},
      * {@link #ZORDER_TOP}, or {@link #ZORDER_BOTTOM}.
      * @attr ref android.R.styleable#Animation_zAdjustment
@@ -622,23 +630,26 @@ public abstract class Animation implements Cloneable {
     public void setZAdjustment(int zAdjustment) {
         mZAdjustment = zAdjustment;
     }
-    
+
     /**
      * Set background behind animation.
      *
      * @param bg The background color.  If 0, no background.  Currently must
      * be black, with any desired alpha level.
+     *
+     * @deprecated None of window animations are running with background color.
      */
+    @Deprecated
     public void setBackgroundColor(@ColorInt int bg) {
-        mBackgroundColor = bg;
+        // The background color is not needed any more, do nothing.
     }
 
     /**
-     * The scale factor is set by the call to <code>getTransformation</code>. Overrides of 
+     * The scale factor is set by the call to <code>getTransformation</code>. Overrides of
      * {@link #getTransformation(long, Transformation, float)} will get this value
      * directly. Overrides of {@link #applyTransformation(float, Transformation)} can
      * call this method to get the value.
-     * 
+     *
      * @return float The scale factor that should be applied to pre-scaled values in
      * an Animation such as the pivot points in {@link ScaleAnimation} and {@link RotateAnimation}.
      */
@@ -654,9 +665,36 @@ public abstract class Animation implements Cloneable {
      *
      * @param detachWallpaper true if the wallpaper should be detached from the animation
      * @attr ref android.R.styleable#Animation_detachWallpaper
+     *
+     * @deprecated All window animations are running with detached wallpaper.
      */
+    @Deprecated
     public void setDetachWallpaper(boolean detachWallpaper) {
-        mDetachWallpaper = detachWallpaper;
+    }
+
+    /**
+     * If this animation is run as a window animation, this will make the wallpaper visible behind
+     * the animation.
+     *
+     * @param showWallpaper Whether the wallpaper should be shown during the animation.
+     * @attr ref android.R.styleable#Animation_detachWallpaper
+     * @hide
+     */
+    public void setShowWallpaper(boolean showWallpaper) {
+        mShowWallpaper = showWallpaper;
+    }
+
+    /**
+     * If this is a window animation, the window will have rounded corners matching the display
+     * corner radius.
+     *
+     * @param hasRoundedCorners Whether the window should have rounded corners or not.
+     * @attr ref android.R.styleable#Animation_hasRoundedCorners
+     * @see com.android.internal.policy.ScreenDecorationsUtils#getWindowCornerRadius(Resources)
+     * @hide
+     */
+    public void setHasRoundedCorners(boolean hasRoundedCorners) {
+        mHasRoundedCorners = hasRoundedCorners;
     }
 
     /**
@@ -748,7 +786,7 @@ public abstract class Animation implements Cloneable {
     /**
      * Returns the Z ordering mode to use while running the animation as
      * previously set by {@link #setZAdjustment}.
-     * 
+     *
      * @return Returns one of {@link #ZORDER_NORMAL},
      * {@link #ZORDER_TOP}, or {@link #ZORDER_BOTTOM}.
      * @attr ref android.R.styleable#Animation_zAdjustment
@@ -759,18 +797,44 @@ public abstract class Animation implements Cloneable {
 
     /**
      * Returns the background color behind the animation.
+     *
+     * @deprecated None of window animations are running with background color.
      */
+    @Deprecated
     @ColorInt
     public int getBackgroundColor() {
-        return mBackgroundColor;
+        return 0;
     }
 
     /**
      * Return value of {@link #setDetachWallpaper(boolean)}.
      * @attr ref android.R.styleable#Animation_detachWallpaper
+     *
+     * @deprecated All window animations are running with detached wallpaper.
      */
+    @Deprecated
     public boolean getDetachWallpaper() {
-        return mDetachWallpaper;
+        return true;
+    }
+
+    /**
+     * @return If run as a window animation, returns whether the wallpaper will be shown behind
+     *         during the animation.
+     * @attr ref android.R.styleable#Animation_showWallpaper
+     * @hide
+     */
+    public boolean getShowWallpaper() {
+        return mShowWallpaper;
+    }
+
+    /**
+     * @return if a window animation should have rounded corners or not.
+     *
+     * @attr ref android.R.styleable#Animation_hasRoundedCorners
+     * @hide
+     */
+    public boolean hasRoundedCorners() {
+        return mHasRoundedCorners;
     }
 
     /**
@@ -795,6 +859,10 @@ public abstract class Animation implements Cloneable {
     public boolean willChangeBounds() {
         // assume we will change the bounds
         return true;
+    }
+
+    private boolean hasAnimationListener() {
+        return mListener != null;
     }
 
     /**
@@ -827,7 +895,7 @@ public abstract class Animation implements Cloneable {
     public long computeDurationHint() {
         return (getStartOffset() + getDuration()) * (getRepeatCount() + 1);
     }
-    
+
     /**
      * Gets the transformation to apply at a specified point in time. Implementations of this
      * method should always replace the specified Transformation or document they are doing
@@ -843,25 +911,25 @@ public abstract class Animation implements Cloneable {
             mStartTime = currentTime;
         }
 
-        final long startOffset = getStartOffset();// 获取动画开始延迟的时间
-        final long duration = mDuration;// 获取动画时长
+        final long startOffset = getStartOffset();
+        final long duration = mDuration;
         float normalizedTime;
-        if (duration != 0) {// 计算已经过去的时间除以动画时长的值，结果可能大于1
+        if (duration != 0) {
             normalizedTime = ((float) (currentTime - (mStartTime + startOffset))) /
                     (float) duration;
-        } else {// 如果动画时长为0，要么动画没有开始，要么直接设置为1
+        } else {
             // time is a step-change with a zero duration
             normalizedTime = currentTime < mStartTime ? 0.0f : 1.0f;
         }
 
-        final boolean expired = normalizedTime >= 1.0f || isCanceled();// 大于1说明动画结束
-        mMore = !expired;// more表面动画是否还有后续
+        final boolean expired = normalizedTime >= 1.0f || isCanceled();
+        mMore = !expired;
 
         if (!mFillEnabled) normalizedTime = Math.max(Math.min(normalizedTime, 1.0f), 0.0f);
 
         if ((normalizedTime >= 0.0f || mFillBefore) && (normalizedTime <= 1.0f || mFillAfter)) {
             if (!mStarted) {
-                fireAnimationStart();// 执行onAnimationStart
+                fireAnimationStart();
                 mStarted = true;
                 if (NoImagePreloadHolder.USE_CLOSEGUARD) {
                     guard.open("cancel or detach or getTransformation");
@@ -870,12 +938,11 @@ public abstract class Animation implements Cloneable {
 
             if (mFillEnabled) normalizedTime = Math.max(Math.min(normalizedTime, 1.0f), 0.0f);
 
-            if (mCycleFlip) {// 表面是否反向减少
+            if (mCycleFlip) {
                 normalizedTime = 1.0f - normalizedTime;
             }
 
             final float interpolatedTime = mInterpolator.getInterpolation(normalizedTime);
-            // 这是自定义动画的一个重载函数
             applyTransformation(interpolatedTime, outTransformation);
         }
 
@@ -884,7 +951,7 @@ public abstract class Animation implements Cloneable {
                 if (!mEnded) {
                     mEnded = true;
                     guard.close();
-                    fireAnimationEnd();// 执行onAnimationEnd
+                    fireAnimationEnd();
                 }
             } else {
                 if (mRepeatCount > 0) {
@@ -898,7 +965,7 @@ public abstract class Animation implements Cloneable {
                 mStartTime = -1;
                 mMore = true;
 
-                fireAnimationRepeat();// 执行onAnimationRepeat
+                fireAnimationRepeat();
             }
         }
 
@@ -915,23 +982,41 @@ public abstract class Animation implements Cloneable {
     }
 
     private void fireAnimationStart() {
-        if (mListener != null) {
-            if (mListenerHandler == null) mListener.onAnimationStart(this);
+        if (hasAnimationListener()) {
+            if (mListenerHandler == null) dispatchAnimationStart();
             else mListenerHandler.postAtFrontOfQueue(mOnStart);
         }
     }
 
     private void fireAnimationRepeat() {
-        if (mListener != null) {
-            if (mListenerHandler == null) mListener.onAnimationRepeat(this);
+        if (hasAnimationListener()) {
+            if (mListenerHandler == null) dispatchAnimationRepeat();
             else mListenerHandler.postAtFrontOfQueue(mOnRepeat);
         }
     }
 
     private void fireAnimationEnd() {
-        if (mListener != null) {
-            if (mListenerHandler == null) mListener.onAnimationEnd(this);
+        if (hasAnimationListener()) {
+            if (mListenerHandler == null) dispatchAnimationEnd();
             else mListenerHandler.postAtFrontOfQueue(mOnEnd);
+        }
+    }
+
+    void dispatchAnimationStart() {
+        if (mListener != null) {
+            mListener.onAnimationStart(this);
+        }
+    }
+
+    void dispatchAnimationRepeat() {
+        if (mListener != null) {
+            mListener.onAnimationRepeat(this);
+        }
+    }
+
+    void dispatchAnimationEnd() {
+        if (mListener != null) {
+            mListener.onAnimationEnd(this);
         }
     }
 
@@ -976,7 +1061,7 @@ public abstract class Animation implements Cloneable {
      * their transforms given an interpolation value.  Implementations of this
      * method should always replace the specified Transformation or document
      * they are doing otherwise.
-     * 
+     *
      * @param interpolatedTime The value of the normalized time (0.0 to 1.0)
      *        after it has been run through the interpolation function.
      * @param t The Transformation object to fill in with the current
@@ -1016,9 +1101,10 @@ public abstract class Animation implements Cloneable {
      * @param bottom
      * @param invalidate
      * @param transformation
-     * 
+     *
      * @hide
      */
+    @UnsupportedAppUsage
     public void getInvalidateRegion(int left, int top, int right, int bottom,
             RectF invalidate, Transformation transformation) {
 
@@ -1050,6 +1136,7 @@ public abstract class Animation implements Cloneable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void initializeInvalidateRegion(int left, int top, int right, int bottom) {
         final RectF region = mPreviousRegion;
         region.set(left, top, right, bottom);
@@ -1073,7 +1160,7 @@ public abstract class Animation implements Cloneable {
 
     /**
      * Return true if this animation changes the view's alpha property.
-     * 
+     *
      * @hide
      */
     public boolean hasAlpha() {

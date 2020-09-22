@@ -17,10 +17,14 @@
 package android.os;
 
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.util.ArrayMap;
 import android.util.Size;
 import android.util.SizeF;
 import android.util.SparseArray;
+import android.util.proto.ProtoOutputStream;
+
+import com.android.internal.annotations.VisibleForTesting;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -32,15 +36,29 @@ import java.util.List;
  * @see PersistableBundle
  */
 public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
-    private static final int FLAG_HAS_FDS = 1 << 8;
-    private static final int FLAG_HAS_FDS_KNOWN = 1 << 9;
-    private static final int FLAG_ALLOW_FDS = 1 << 10;
+    @VisibleForTesting
+    static final int FLAG_HAS_FDS = 1 << 8;
+
+    @VisibleForTesting
+    static final int FLAG_HAS_FDS_KNOWN = 1 << 9;
+
+    @VisibleForTesting
+    static final int FLAG_ALLOW_FDS = 1 << 10;
 
     public static final Bundle EMPTY;
+
+    /**
+     * Special extras used to denote extras have been stripped off.
+     * @hide
+     */
+    public static final Bundle STRIPPED;
 
     static {
         EMPTY = new Bundle();
         EMPTY.mMap = ArrayMap.EMPTY;
+
+        STRIPPED = new Bundle();
+        STRIPPED.putInt("STRIPPED", 1);
     }
 
     /**
@@ -56,20 +74,42 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
      * will be unparcelled on first contact, using the assigned ClassLoader.
      *
      * @param parcelledData a Parcel containing a Bundle
+     *
+     * @hide
      */
-    Bundle(Parcel parcelledData) {
+    @VisibleForTesting
+    public Bundle(Parcel parcelledData) {
         super(parcelledData);
-        mFlags = FLAG_HAS_FDS_KNOWN | FLAG_ALLOW_FDS;
-        if (mParcelledData.hasFileDescriptors()) {
-            mFlags |= FLAG_HAS_FDS;
-        }
+        mFlags = FLAG_ALLOW_FDS;
+        maybePrefillHasFds();
     }
 
-    /* package */ Bundle(Parcel parcelledData, int length) {
+    /**
+     * Constructor from a parcel for when the length is known *and is not stored in the parcel.*
+     * The other constructor that takes a parcel assumes the length is in the parcel.
+     *
+     * @hide
+     */
+    @VisibleForTesting
+    public Bundle(Parcel parcelledData, int length) {
         super(parcelledData, length);
-        mFlags = FLAG_HAS_FDS_KNOWN | FLAG_ALLOW_FDS;
-        if (mParcelledData.hasFileDescriptors()) {
-            mFlags |= FLAG_HAS_FDS;
+        mFlags = FLAG_ALLOW_FDS;
+        maybePrefillHasFds();
+    }
+
+    /**
+     * If {@link #mParcelledData} is not null, copy the HAS FDS bit from it because it's fast.
+     * Otherwise (if {@link #mParcelledData} is already null), leave {@link #FLAG_HAS_FDS_KNOWN}
+     * unset, because scanning a map is slower.  We'll do it lazily in
+     * {@link #hasFileDescriptors()}.
+     */
+    private void maybePrefillHasFds() {
+        if (mParcelledData != null) {
+            if (mParcelledData.hasFileDescriptors()) {
+                mFlags |= FLAG_HAS_FDS | FLAG_HAS_FDS_KNOWN;
+            } else {
+                mFlags |= FLAG_HAS_FDS_KNOWN;
+            }
         }
     }
 
@@ -98,9 +138,12 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
 
     /**
      * Constructs a Bundle containing a copy of the mappings from the given
-     * Bundle.
+     * Bundle.  Does only a shallow copy of the original Bundle -- see
+     * {@link #deepCopy()} if that is not what you want.
      *
      * @param b a Bundle to be copied.
+     *
+     * @see #deepCopy()
      */
     public Bundle(Bundle b) {
         super(b);
@@ -109,9 +152,10 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
 
     /**
      * Constructs a Bundle containing a copy of the mappings from the given
-     * PersistableBundle.
+     * PersistableBundle.  Does only a shallow copy of the PersistableBundle -- see
+     * {@link PersistableBundle#deepCopy()} if you don't want that.
      *
-     * @param b a Bundle to be copied.
+     * @param b a PersistableBundle to be copied.
      */
     public Bundle(PersistableBundle b) {
         super(b);
@@ -119,10 +163,18 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     /**
+     * Constructs a Bundle without initializing it.
+     */
+    Bundle(boolean doInit) {
+        super(doInit);
+    }
+
+    /**
      * Make a Bundle for a single key/value pair.
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static Bundle forPair(String key, String value) {
         Bundle b = new Bundle(1);
         b.putString(key, value);
@@ -179,6 +231,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public static Bundle setDefusable(Bundle bundle, boolean defusable) {
         if (bundle != null) {
             bundle.setDefusable(defusable);
@@ -193,6 +246,19 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     @Override
     public Object clone() {
         return new Bundle(this);
+    }
+
+    /**
+     * Make a deep copy of the given bundle.  Traverses into inner containers and copies
+     * them as well, so they are not shared across bundles.  Will traverse in to
+     * {@link Bundle}, {@link PersistableBundle}, {@link ArrayList}, and all types of
+     * primitive arrays.  Other types of objects (such as Parcelable or Serializable)
+     * are referenced as-is and not copied in any way.
+     */
+    public Bundle deepCopy() {
+        Bundle b = new Bundle(false);
+        b.copyInternal(this, true);
+        return b;
     }
 
     /**
@@ -232,6 +298,20 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
         }
         if ((bundle.mFlags & FLAG_HAS_FDS_KNOWN) == 0) {
             mFlags &= ~FLAG_HAS_FDS_KNOWN;
+        }
+    }
+
+    /**
+     * Return the size of {@link #mParcelledData} in bytes if available, otherwise {@code 0}.
+     *
+     * @hide
+     */
+    @UnsupportedAppUsage
+    public int getSize() {
+        if (mParcelledData != null) {
+            return mParcelledData.dataSize();
+        } else {
+            return 0;
         }
     }
 
@@ -309,6 +389,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
      * Filter values in Bundle to only basic types.
      * @hide
      */
+    @UnsupportedAppUsage
     public Bundle filterValues() {
         unparcel();
         Bundle bundle = this;
@@ -352,6 +433,56 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
         mFlags |= FLAG_HAS_FDS_KNOWN;
         mFlags &= ~FLAG_HAS_FDS;
         return bundle;
+    }
+
+    /** {@hide} */
+    @Override
+    public void putObject(@Nullable String key, @Nullable Object value) {
+        if (value instanceof Byte) {
+            putByte(key, (Byte) value);
+        } else if (value instanceof Character) {
+            putChar(key, (Character) value);
+        } else if (value instanceof Short) {
+            putShort(key, (Short) value);
+        } else if (value instanceof Float) {
+            putFloat(key, (Float) value);
+        } else if (value instanceof CharSequence) {
+            putCharSequence(key, (CharSequence) value);
+        } else if (value instanceof Parcelable) {
+            putParcelable(key, (Parcelable) value);
+        } else if (value instanceof Size) {
+            putSize(key, (Size) value);
+        } else if (value instanceof SizeF) {
+            putSizeF(key, (SizeF) value);
+        } else if (value instanceof Parcelable[]) {
+            putParcelableArray(key, (Parcelable[]) value);
+        } else if (value instanceof ArrayList) {
+            putParcelableArrayList(key, (ArrayList) value);
+        } else if (value instanceof List) {
+            putParcelableList(key, (List) value);
+        } else if (value instanceof SparseArray) {
+            putSparseParcelableArray(key, (SparseArray) value);
+        } else if (value instanceof Serializable) {
+            putSerializable(key, (Serializable) value);
+        } else if (value instanceof byte[]) {
+            putByteArray(key, (byte[]) value);
+        } else if (value instanceof short[]) {
+            putShortArray(key, (short[]) value);
+        } else if (value instanceof char[]) {
+            putCharArray(key, (char[]) value);
+        } else if (value instanceof float[]) {
+            putFloatArray(key, (float[]) value);
+        } else if (value instanceof CharSequence[]) {
+            putCharSequenceArray(key, (CharSequence[]) value);
+        } else if (value instanceof Bundle) {
+            putBundle(key, (Bundle) value);
+        } else if (value instanceof Binder) {
+            putBinder(key, (Binder) value);
+        } else if (value instanceof IBinder) {
+            putIBinder(key, (IBinder) value);
+        } else {
+            super.putObject(key, value);
+        }
     }
 
     /**
@@ -481,6 +612,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public void putParcelableList(String key, List<? extends Parcelable> value) {
         unparcel();
         mMap.put(key, value);
@@ -652,6 +784,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
      * @deprecated
      * @hide This is the old name of the function.
      */
+    @UnsupportedAppUsage
     @Deprecated
     public void putIBinder(@Nullable String key, @Nullable IBinder value) {
         unparcel();
@@ -852,12 +985,16 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     /**
-     * Returns the value associated with the given key, or null if
-     * no mapping of the desired type exists for the given key or a null
+     * Returns the value associated with the given key, or {@code null} if
+     * no mapping of the desired type exists for the given key or a {@code null}
      * value is explicitly associated with the key.
      *
-     * @param key a String, or null
-     * @return a Parcelable value, or null
+     * <p><b>Note: </b> if the expected value is not a class provided by the Android platform,
+     * you must call {@link #setClassLoader(ClassLoader)} with the proper {@link ClassLoader} first.
+     * Otherwise, this method might throw an exception or return {@code null}.
+     *
+     * @param key a String, or {@code null}
+     * @return a Parcelable value, or {@code null}
      */
     @Nullable
     public <T extends Parcelable> T getParcelable(@Nullable String key) {
@@ -875,12 +1012,16 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     /**
-     * Returns the value associated with the given key, or null if
+     * Returns the value associated with the given key, or {@code null} if
      * no mapping of the desired type exists for the given key or a null
      * value is explicitly associated with the key.
      *
-     * @param key a String, or null
-     * @return a Parcelable[] value, or null
+     * <p><b>Note: </b> if the expected value is not a class provided by the Android platform,
+     * you must call {@link #setClassLoader(ClassLoader)} with the proper {@link ClassLoader} first.
+     * Otherwise, this method might throw an exception or return {@code null}.
+     *
+     * @param key a String, or {@code null}
+     * @return a Parcelable[] value, or {@code null}
      */
     @Nullable
     public Parcelable[] getParcelableArray(@Nullable String key) {
@@ -898,12 +1039,16 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
     }
 
     /**
-     * Returns the value associated with the given key, or null if
-     * no mapping of the desired type exists for the given key or a null
+     * Returns the value associated with the given key, or {@code null} if
+     * no mapping of the desired type exists for the given key or a {@code null}
      * value is explicitly associated with the key.
      *
-     * @param key a String, or null
-     * @return an ArrayList<T> value, or null
+     * <p><b>Note: </b> if the expected value is not a class provided by the Android platform,
+     * you must call {@link #setClassLoader(ClassLoader)} with the proper {@link ClassLoader} first.
+     * Otherwise, this method might throw an exception or return {@code null}.
+     *
+     * @param key a String, or {@code null}
+     * @return an ArrayList<T> value, or {@code null}
      */
     @Nullable
     public <T extends Parcelable> ArrayList<T> getParcelableArrayList(@Nullable String key) {
@@ -1104,6 +1249,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
      * @deprecated
      * @hide This is the old name of the function.
      */
+    @UnsupportedAppUsage
     @Deprecated
     @Nullable
     public IBinder getIBinder(@Nullable String key) {
@@ -1120,7 +1266,7 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<Bundle> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<Bundle> CREATOR =
         new Parcelable.Creator<Bundle>() {
         @Override
         public Bundle createFromParcel(Parcel in) {
@@ -1167,10 +1313,8 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
      */
     public void readFromParcel(Parcel parcel) {
         super.readFromParcelInner(parcel);
-        mFlags = FLAG_HAS_FDS_KNOWN | FLAG_ALLOW_FDS;
-        if (mParcelledData.hasFileDescriptors()) {
-            mFlags |= FLAG_HAS_FDS;
-        }
+        mFlags = FLAG_ALLOW_FDS;
+        maybePrefillHasFds();
     }
 
     @Override
@@ -1184,5 +1328,36 @@ public final class Bundle extends BaseBundle implements Cloneable, Parcelable {
             }
         }
         return "Bundle[" + mMap.toString() + "]";
+    }
+
+    /**
+     * @hide
+     */
+    public synchronized String toShortString() {
+        if (mParcelledData != null) {
+            if (isEmptyParcel()) {
+                return "EMPTY_PARCEL";
+            } else {
+                return "mParcelledData.dataSize=" + mParcelledData.dataSize();
+            }
+        }
+        return mMap.toString();
+    }
+
+    /** @hide */
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
+        final long token = proto.start(fieldId);
+
+        if (mParcelledData != null) {
+            if (isEmptyParcel()) {
+                proto.write(BundleProto.PARCELLED_DATA_SIZE, 0);
+            } else {
+                proto.write(BundleProto.PARCELLED_DATA_SIZE, mParcelledData.dataSize());
+            }
+        } else {
+            proto.write(BundleProto.MAP_DATA, mMap.toString());
+        }
+
+        proto.end(token);
     }
 }

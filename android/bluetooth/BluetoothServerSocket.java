@@ -16,6 +16,7 @@
 
 package android.bluetooth;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Handler;
 import android.os.ParcelUuid;
 import android.util.Log;
@@ -34,21 +35,28 @@ import java.io.IOException;
  * On the client side, use a single {@link BluetoothSocket} to both initiate
  * an outgoing connection and to manage the connection.
  *
- * <p>The most common type of Bluetooth socket is RFCOMM, which is the type
- * supported by the Android APIs. RFCOMM is a connection-oriented, streaming
- * transport over Bluetooth. It is also known as the Serial Port Profile (SPP).
+ * <p>For Bluetooth BR/EDR, the most common type of socket is RFCOMM, which is the type supported by
+ * the Android APIs. RFCOMM is a connection-oriented, streaming transport over Bluetooth BR/EDR. It
+ * is also known as the Serial Port Profile (SPP). To create a listening
+ * {@link BluetoothServerSocket} that's ready for incoming Bluetooth BR/EDR connections, use {@link
+ * BluetoothAdapter#listenUsingRfcommWithServiceRecord
+ * BluetoothAdapter.listenUsingRfcommWithServiceRecord()}.
  *
- * <p>To create a listening {@link BluetoothServerSocket} that's ready for
- * incoming connections, use
- * {@link BluetoothAdapter#listenUsingRfcommWithServiceRecord
- * BluetoothAdapter.listenUsingRfcommWithServiceRecord()}. Then call
- * {@link #accept()} to listen for incoming connection requests. This call
- * will block until a connection is established, at which point, it will return
- * a {@link BluetoothSocket} to manage the connection. Once the {@link
- * BluetoothSocket} is acquired, it's a good idea to call {@link #close()} on
- * the {@link BluetoothServerSocket} when it's no longer needed for accepting
- * connections. Closing the {@link BluetoothServerSocket} will <em>not</em>
- * close the returned {@link BluetoothSocket}.
+ * <p>For Bluetooth LE, the socket uses LE Connection-oriented Channel (CoC). LE CoC is a
+ * connection-oriented, streaming transport over Bluetooth LE and has a credit-based flow control.
+ * Correspondingly, use {@link BluetoothAdapter#listenUsingL2capChannel
+ * BluetoothAdapter.listenUsingL2capChannel()} to create a listening {@link BluetoothServerSocket}
+ * that's ready for incoming Bluetooth LE CoC connections. For LE CoC, you can use {@link #getPsm()}
+ * to get the protocol/service multiplexer (PSM) value that the peer needs to use to connect to your
+ * socket.
+ *
+ * <p> After the listening {@link BluetoothServerSocket} is created, call {@link #accept()} to
+ * listen for incoming connection requests. This call will block until a connection is established,
+ * at which point, it will return a {@link BluetoothSocket} to manage the connection. Once the
+ * {@link BluetoothSocket} is acquired, it's a good idea to call {@link #close()} on the {@link
+ * BluetoothServerSocket} when it's no longer needed for accepting
+ * connections. Closing the {@link BluetoothServerSocket} will <em>not</em> close the returned
+ * {@link BluetoothSocket}.
  *
  * <p>{@link BluetoothServerSocket} is thread
  * safe. In particular, {@link #close} will always immediately abort ongoing
@@ -60,7 +68,7 @@ import java.io.IOException;
  * <div class="special reference">
  * <h3>Developer Guides</h3>
  * <p>For more information about using Bluetooth, read the
- * <a href="{@docRoot}guide/topics/wireless/bluetooth.html">Bluetooth</a> developer guide.</p>
+ * <a href="{@docRoot}guide/topics/connectivity/bluetooth.html">Bluetooth</a> developer guide.</p>
  * </div>
  *
  * {@see BluetoothSocket}
@@ -68,6 +76,9 @@ import java.io.IOException;
 public final class BluetoothServerSocket implements Closeable {
 
     private static final String TAG = "BluetoothServerSocket";
+    private static final boolean DBG = false;
+    @UnsupportedAppUsage(publicAlternatives = "Use public {@link BluetoothServerSocket} API "
+            + "instead.")
     /*package*/ final BluetoothSocket mSocket;
     private Handler mHandler;
     private int mMessage;
@@ -75,12 +86,13 @@ public final class BluetoothServerSocket implements Closeable {
 
     /**
      * Construct a socket for incoming connections.
-     * @param type    type of socket
-     * @param auth    require the remote device to be authenticated
+     *
+     * @param type type of socket
+     * @param auth require the remote device to be authenticated
      * @param encrypt require the connection to be encrypted
-     * @param port    remote port
-     * @throws IOException On error, for example Bluetooth not available, or
-     *                     insufficient privileges
+     * @param port remote port
+     * @throws IOException On error, for example Bluetooth not available, or insufficient
+     * privileges
      */
     /*package*/ BluetoothServerSocket(int type, boolean auth, boolean encrypt, int port)
             throws IOException {
@@ -93,14 +105,15 @@ public final class BluetoothServerSocket implements Closeable {
 
     /**
      * Construct a socket for incoming connections.
-     * @param type    type of socket
-     * @param auth    require the remote device to be authenticated
+     *
+     * @param type type of socket
+     * @param auth require the remote device to be authenticated
      * @param encrypt require the connection to be encrypted
-     * @param port    remote port
-     * @param mitm    enforce man-in-the-middle protection for authentication.
+     * @param port remote port
+     * @param mitm enforce man-in-the-middle protection for authentication.
      * @param min16DigitPin enforce a minimum length of 16 digits for a sec mode 2 connection
-     * @throws IOException On error, for example Bluetooth not available, or
-     *                     insufficient privileges
+     * @throws IOException On error, for example Bluetooth not available, or insufficient
+     * privileges
      */
     /*package*/ BluetoothServerSocket(int type, boolean auth, boolean encrypt, int port,
             boolean mitm, boolean min16DigitPin)
@@ -108,19 +121,20 @@ public final class BluetoothServerSocket implements Closeable {
         mChannel = port;
         mSocket = new BluetoothSocket(type, -1, auth, encrypt, null, port, null, mitm,
                 min16DigitPin);
-        if(port == BluetoothAdapter.SOCKET_CHANNEL_AUTO_STATIC_NO_SDP) {
+        if (port == BluetoothAdapter.SOCKET_CHANNEL_AUTO_STATIC_NO_SDP) {
             mSocket.setExcludeSdp(true);
         }
     }
 
     /**
      * Construct a socket for incoming connections.
-     * @param type    type of socket
-     * @param auth    require the remote device to be authenticated
+     *
+     * @param type type of socket
+     * @param auth require the remote device to be authenticated
      * @param encrypt require the connection to be encrypted
-     * @param uuid    uuid
-     * @throws IOException On error, for example Bluetooth not available, or
-     *                     insufficient privileges
+     * @param uuid uuid
+     * @throws IOException On error, for example Bluetooth not available, or insufficient
+     * privileges
      */
     /*package*/ BluetoothServerSocket(int type, boolean auth, boolean encrypt, ParcelUuid uuid)
             throws IOException {
@@ -136,9 +150,9 @@ public final class BluetoothServerSocket implements Closeable {
      * <p>Once this call returns, it can be called again to accept subsequent
      * incoming connections.
      * <p>{@link #close} can be used to abort this call from another thread.
+     *
      * @return a connected {@link BluetoothSocket}
-     * @throws IOException on error, for example this call was aborted, or
-     *                     timeout
+     * @throws IOException on error, for example this call was aborted, or timeout
      */
     public BluetoothSocket accept() throws IOException {
         return accept(-1);
@@ -150,9 +164,9 @@ public final class BluetoothServerSocket implements Closeable {
      * <p>Once this call returns, it can be called again to accept subsequent
      * incoming connections.
      * <p>{@link #close} can be used to abort this call from another thread.
+     *
      * @return a connected {@link BluetoothSocket}
-     * @throws IOException on error, for example this call was aborted, or
-     *                     timeout
+     * @throws IOException on error, for example this call was aborted, or timeout
      */
     public BluetoothSocket accept(int timeout) throws IOException {
         return mSocket.accept(timeout);
@@ -166,6 +180,7 @@ public final class BluetoothServerSocket implements Closeable {
      * close any {@link BluetoothSocket} received from {@link #accept()}.
      */
     public void close() throws IOException {
+        if (DBG) Log.d(TAG, "BluetoothServerSocket:close() called. mChannel=" + mChannel);
         synchronized (this) {
             if (mHandler != null) {
                 mHandler.obtainMessage(mMessage).sendToTarget();
@@ -174,19 +189,35 @@ public final class BluetoothServerSocket implements Closeable {
         mSocket.close();
     }
 
-    /*package*/ synchronized void setCloseHandler(Handler handler, int message) {
+    /*package*/
+    synchronized void setCloseHandler(Handler handler, int message) {
         mHandler = handler;
         mMessage = message;
     }
-    /*package*/ void setServiceName(String ServiceName) {
-        mSocket.setServiceName(ServiceName);
+
+    /*package*/ void setServiceName(String serviceName) {
+        mSocket.setServiceName(serviceName);
     }
 
     /**
      * Returns the channel on which this socket is bound.
+     *
      * @hide
      */
     public int getChannel() {
+        return mChannel;
+    }
+
+    /**
+     * Returns the assigned dynamic protocol/service multiplexer (PSM) value for the listening L2CAP
+     * Connection-oriented Channel (CoC) server socket. This server socket must be returned by the
+     * {@link BluetoothAdapter#listenUsingL2capChannel()} or {@link
+     * BluetoothAdapter#listenUsingInsecureL2capChannel()}. The returned value is undefined if this
+     * method is called on non-L2CAP server sockets.
+     *
+     * @return the assigned PSM or LE_PSM value depending on transport
+     */
+    public int getPsm() {
         return mChannel;
     }
 
@@ -199,10 +230,10 @@ public final class BluetoothServerSocket implements Closeable {
          *       The bind operation should be conducted through this class
          *       and the resulting port should be kept in mChannel, and
          *       not set from BluetoothAdapter. */
-        if(mSocket != null) {
-            if(mSocket.getPort() != newChannel) {
-                Log.w(TAG,"The port set is different that the underlying port. mSocket.getPort(): "
-                            + mSocket.getPort() + " requested newChannel: " + newChannel);
+        if (mSocket != null) {
+            if (mSocket.getPort() != newChannel) {
+                Log.w(TAG, "The port set is different that the underlying port. mSocket.getPort(): "
+                        + mSocket.getPort() + " requested newChannel: " + newChannel);
             }
         }
         mChannel = newChannel;
@@ -212,19 +243,20 @@ public final class BluetoothServerSocket implements Closeable {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("ServerSocket: Type: ");
-        switch(mSocket.getConnectionType()) {
-            case BluetoothSocket.TYPE_RFCOMM:
-            {
+        switch (mSocket.getConnectionType()) {
+            case BluetoothSocket.TYPE_RFCOMM: {
                 sb.append("TYPE_RFCOMM");
                 break;
             }
-            case BluetoothSocket.TYPE_L2CAP:
-            {
+            case BluetoothSocket.TYPE_L2CAP: {
                 sb.append("TYPE_L2CAP");
                 break;
             }
-            case BluetoothSocket.TYPE_SCO:
-            {
+            case BluetoothSocket.TYPE_L2CAP_LE: {
+                sb.append("TYPE_L2CAP_LE");
+                break;
+            }
+            case BluetoothSocket.TYPE_SCO: {
                 sb.append("TYPE_SCO");
                 break;
             }

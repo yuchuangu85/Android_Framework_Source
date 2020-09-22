@@ -19,7 +19,8 @@ package android.os;
 import android.annotation.SystemApi;
 
 /**
- * Callback function for UpdateEngine.
+ * Callback function for UpdateEngine. Used to keep the caller up to date
+ * with progress, so the UI (if any) can be updated.
  *
  * The APIs defined in this class and UpdateEngine class must be in sync with
  * the ones in
@@ -31,9 +32,18 @@ import android.annotation.SystemApi;
 @SystemApi
 public abstract class UpdateEngineCallback {
 
-    @SystemApi
+    /**
+     * Invoked when anything changes. The value of {@code status} will
+     * be one of the values from {@link UpdateEngine.UpdateStatusConstants},
+     * and {@code percent} will be valid [TODO: in which cases?].
+     */
     public abstract void onStatusUpdate(int status, float percent);
 
-    @SystemApi
-    public abstract void onPayloadApplicationComplete(int errorCode);
+    /**
+     * Invoked when the payload has been applied, whether successfully or
+     * unsuccessfully. The value of {@code errorCode} will be one of the
+     * values from {@link UpdateEngine.ErrorCodeConstants}.
+     */
+    public abstract void onPayloadApplicationComplete(
+            @UpdateEngine.ErrorCode int errorCode);
 }

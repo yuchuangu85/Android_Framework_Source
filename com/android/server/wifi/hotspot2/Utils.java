@@ -1,6 +1,9 @@
 package com.android.server.wifi.hotspot2;
 
-import com.android.server.wifi.anqp.Constants;
+import static com.android.server.wifi.hotspot2.anqp.Constants.BYTE_MASK;
+import static com.android.server.wifi.hotspot2.anqp.Constants.NIBBLE_MASK;
+
+import com.android.server.wifi.hotspot2.anqp.Constants;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -9,9 +12,6 @@ import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.TimeZone;
-
-import static com.android.server.wifi.anqp.Constants.BYTE_MASK;
-import static com.android.server.wifi.anqp.Constants.NIBBLE_MASK;
 
 public abstract class Utils {
 
@@ -44,7 +44,9 @@ public abstract class Utils {
     }
 
     public static long parseMac(String s) {
-
+        if (s == null) {
+            throw new IllegalArgumentException("Null MAC adddress");
+        }
         long mac = 0;
         int count = 0;
         for (int n = 0; n < s.length(); n++) {

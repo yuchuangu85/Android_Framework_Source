@@ -16,6 +16,9 @@
 
 package android.nfc.cardemulation;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.app.Activity;
@@ -27,13 +30,13 @@ import android.content.pm.PackageManager;
 import android.nfc.INfcCardEmulation;
 import android.nfc.NfcAdapter;
 import android.os.RemoteException;
-import android.os.UserHandle;
 import android.provider.Settings;
 import android.provider.Settings.SettingNotFoundException;
 import android.util.Log;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * This class can be used to query the state of
@@ -48,6 +51,7 @@ import java.util.List;
  * on the device.
  */
 public final class CardEmulation {
+    private static final Pattern AID_PATTERN = Pattern.compile("[0-9A-Fa-f]{10,32}\\*?\\#?");
     static final String TAG = "CardEmulation";
 
     /**
@@ -201,7 +205,7 @@ public final class CardEmulation {
      */
     public boolean isDefaultServiceForCategory(ComponentName service, String category) {
         try {
-            return sService.isDefaultServiceForCategory(UserHandle.myUserId(), service, category);
+            return sService.isDefaultServiceForCategory(mContext.getUserId(), service, category);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -210,7 +214,7 @@ public final class CardEmulation {
                 return false;
             }
             try {
-                return sService.isDefaultServiceForCategory(UserHandle.myUserId(), service,
+                return sService.isDefaultServiceForCategory(mContext.getUserId(), service,
                         category);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to recover CardEmulationService.");
@@ -232,7 +236,7 @@ public final class CardEmulation {
      */
     public boolean isDefaultServiceForAid(ComponentName service, String aid) {
         try {
-            return sService.isDefaultServiceForAid(UserHandle.myUserId(), service, aid);
+            return sService.isDefaultServiceForAid(mContext.getUserId(), service, aid);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -241,7 +245,7 @@ public final class CardEmulation {
                 return false;
             }
             try {
-                return sService.isDefaultServiceForAid(UserHandle.myUserId(), service, aid);
+                return sService.isDefaultServiceForAid(mContext.getUserId(), service, aid);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to reach CardEmulationService.");
                 return false;
@@ -326,7 +330,7 @@ public final class CardEmulation {
             List<String> aids) {
         AidGroup aidGroup = new AidGroup(aids, category);
         try {
-            return sService.registerAidGroupForService(UserHandle.myUserId(), service, aidGroup);
+            return sService.registerAidGroupForService(mContext.getUserId(), service, aidGroup);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -335,8 +339,129 @@ public final class CardEmulation {
                 return false;
             }
             try {
-                return sService.registerAidGroupForService(UserHandle.myUserId(), service,
+                return sService.registerAidGroupForService(mContext.getUserId(), service,
                         aidGroup);
+            } catch (RemoteException ee) {
+                Log.e(TAG, "Failed to reach CardEmulationService.");
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Unsets the off-host Secure Element for the given service.
+     *
+     * <p>Note that this will only remove Secure Element that was dynamically
+     * set using the {@link #setOffHostForService(ComponentName, String)}
+     * and resets it to a value that was statically assigned using manifest.
+     *
+     * <p>Note that you can only unset off-host SE for a service that
+     * is running under the same UID as the caller of this API. Typically
+     * this means you need to call this from the same
+     * package as the service itself, though UIDs can also
+     * be shared between packages using shared UIDs.
+     *
+     * @param service The component name of the service
+     * @return whether the registration was successful.
+     */
+    @RequiresPermission(android.Manifest.permission.NFC)
+    @NonNull
+    public boolean unsetOffHostForService(@NonNull ComponentName service) {
+        NfcAdapter adapter = NfcAdapter.getDefaultAdapter(mContext);
+        if (adapter == null) {
+            return false;
+        }
+
+        try {
+            return sService.unsetOffHostForService(mContext.getUserId(), service);
+        } catch (RemoteException e) {
+            // Try one more time
+            recoverService();
+            if (sService == null) {
+                Log.e(TAG, "Failed to recover CardEmulationService.");
+                return false;
+            }
+            try {
+                return sService.unsetOffHostForService(mContext.getUserId(), service);
+            } catch (RemoteException ee) {
+                Log.e(TAG, "Failed to reach CardEmulationService.");
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Sets the off-host Secure Element for the given service.
+     *
+     * <p>If off-host SE was initially set (either statically
+     * through the manifest, or dynamically by using this API),
+     * it will be replaced with this one. All AIDs registered by
+     * this service will be re-routed to this Secure Element if
+     * successful. AIDs that was statically assigned using manifest
+     * will re-route to off-host SE that stated in manifest after NFC
+     * toggle.
+     *
+     * <p>Note that you can only set off-host SE for a service that
+     * is running under the same UID as the caller of this API. Typically
+     * this means you need to call this from the same
+     * package as the service itself, though UIDs can also
+     * be shared between packages using shared UIDs.
+     *
+     * <p>Registeration will be successful only if the Secure Element
+     * exists on the device.
+     *
+     * @param service The component name of the service
+     * @param offHostSecureElement Secure Element to register the AID to. Only accept strings with
+     *                             prefix SIM or prefix eSE.
+     *                             Ref: GSMA TS.26 - NFC Handset Requirements
+     *                             TS26_NFC_REQ_069: For UICC, Secure Element Name SHALL be
+     *                                               SIM[smartcard slot]
+     *                                               (e.g. SIM/SIM1, SIM2… SIMn).
+     *                             TS26_NFC_REQ_070: For embedded SE, Secure Element Name SHALL be
+     *                                               eSE[number]
+     *                                               (e.g. eSE/eSE1, eSE2, etc.).
+     * @return whether the registration was successful.
+     */
+    @RequiresPermission(android.Manifest.permission.NFC)
+    @NonNull
+    public boolean setOffHostForService(@NonNull ComponentName service,
+            @NonNull String offHostSecureElement) {
+        boolean validSecureElement = false;
+
+        NfcAdapter adapter = NfcAdapter.getDefaultAdapter(mContext);
+        if (adapter == null || offHostSecureElement == null) {
+            return false;
+        }
+
+        List<String> validSE = adapter.getSupportedOffHostSecureElements();
+        if ((offHostSecureElement.startsWith("eSE") && !validSE.contains("eSE"))
+                || (offHostSecureElement.startsWith("SIM") && !validSE.contains("SIM"))) {
+            return false;
+        }
+
+        if (!offHostSecureElement.startsWith("eSE") && !offHostSecureElement.startsWith("SIM")) {
+            return false;
+        }
+
+        if (offHostSecureElement.equals("eSE")) {
+            offHostSecureElement = "eSE1";
+        } else if (offHostSecureElement.equals("SIM")) {
+            offHostSecureElement = "SIM1";
+        }
+
+        try {
+            return sService.setOffHostForService(mContext.getUserId(), service,
+                offHostSecureElement);
+        } catch (RemoteException e) {
+            // Try one more time
+            recoverService();
+            if (sService == null) {
+                Log.e(TAG, "Failed to recover CardEmulationService.");
+                return false;
+            }
+            try {
+                return sService.setOffHostForService(mContext.getUserId(), service,
+                        offHostSecureElement);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to reach CardEmulationService.");
                 return false;
@@ -360,7 +485,7 @@ public final class CardEmulation {
      */
     public List<String> getAidsForService(ComponentName service, String category) {
         try {
-            AidGroup group =  sService.getAidGroupForService(UserHandle.myUserId(), service,
+            AidGroup group =  sService.getAidGroupForService(mContext.getUserId(), service,
                     category);
             return (group != null ? group.getAids() : null);
         } catch (RemoteException e) {
@@ -370,7 +495,7 @@ public final class CardEmulation {
                 return null;
             }
             try {
-                AidGroup group = sService.getAidGroupForService(UserHandle.myUserId(), service,
+                AidGroup group = sService.getAidGroupForService(mContext.getUserId(), service,
                         category);
                 return (group != null ? group.getAids() : null);
             } catch (RemoteException ee) {
@@ -397,7 +522,7 @@ public final class CardEmulation {
      */
     public boolean removeAidsForService(ComponentName service, String category) {
         try {
-            return sService.removeAidGroupForService(UserHandle.myUserId(), service, category);
+            return sService.removeAidGroupForService(mContext.getUserId(), service, category);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -406,7 +531,7 @@ public final class CardEmulation {
                 return false;
             }
             try {
-                return sService.removeAidGroupForService(UserHandle.myUserId(), service, category);
+                return sService.removeAidGroupForService(mContext.getUserId(), service, category);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to reach CardEmulationService.");
                 return false;
@@ -533,11 +658,121 @@ public final class CardEmulation {
     }
 
     /**
+     * Retrieves the registered AIDs for the preferred payment service.
+     *
+     * @return The list of AIDs registered for this category, or null if it couldn't be found.
+     */
+    @RequiresPermission(android.Manifest.permission.NFC_PREFERRED_PAYMENT_INFO)
+    @Nullable
+    public List<String> getAidsForPreferredPaymentService() {
+        try {
+            ApduServiceInfo serviceInfo = sService.getPreferredPaymentService(mContext.getUserId());
+            return (serviceInfo != null ? serviceInfo.getAids() : null);
+        } catch (RemoteException e) {
+            recoverService();
+            if (sService == null) {
+                Log.e(TAG, "Failed to recover CardEmulationService.");
+                throw e.rethrowFromSystemServer();
+            }
+            try {
+                ApduServiceInfo serviceInfo =
+                        sService.getPreferredPaymentService(mContext.getUserId());
+                return (serviceInfo != null ? serviceInfo.getAids() : null);
+            } catch (RemoteException ee) {
+                Log.e(TAG, "Failed to recover CardEmulationService.");
+                throw e.rethrowFromSystemServer();
+            }
+        }
+    }
+
+    /**
+     * Retrieves the route destination for the preferred payment service.
+     *
+     * @return The route destination secure element name of the preferred payment service.
+     *         HCE payment: "Host"
+     *         OffHost payment: 1. String with prefix SIM or prefix eSE string.
+     *                             Ref: GSMA TS.26 - NFC Handset Requirements
+     *                             TS26_NFC_REQ_069: For UICC, Secure Element Name SHALL be
+     *                                               SIM[smartcard slot]
+     *                                               (e.g. SIM/SIM1, SIM2… SIMn).
+     *                             TS26_NFC_REQ_070: For embedded SE, Secure Element Name SHALL be
+     *                                               eSE[number]
+     *                                               (e.g. eSE/eSE1, eSE2, etc.).
+     *                          2. "OffHost" if the payment service does not specify secure element
+     *                             name.
+     */
+    @RequiresPermission(android.Manifest.permission.NFC_PREFERRED_PAYMENT_INFO)
+    @Nullable
+    public String getRouteDestinationForPreferredPaymentService() {
+        try {
+            ApduServiceInfo serviceInfo = sService.getPreferredPaymentService(mContext.getUserId());
+            if (serviceInfo != null) {
+                if (!serviceInfo.isOnHost()) {
+                    return serviceInfo.getOffHostSecureElement() == null ?
+                            "OffHost" : serviceInfo.getOffHostSecureElement();
+                }
+                return "Host";
+            }
+            return null;
+        } catch (RemoteException e) {
+            recoverService();
+            if (sService == null) {
+                Log.e(TAG, "Failed to recover CardEmulationService.");
+                throw e.rethrowFromSystemServer();
+            }
+            try {
+                ApduServiceInfo serviceInfo =
+                        sService.getPreferredPaymentService(mContext.getUserId());
+                if (serviceInfo != null) {
+                    if (!serviceInfo.isOnHost()) {
+                        return serviceInfo.getOffHostSecureElement() == null ?
+                                "Offhost" : serviceInfo.getOffHostSecureElement();
+                    }
+                    return "Host";
+                }
+                return null;
+
+            } catch (RemoteException ee) {
+                Log.e(TAG, "Failed to recover CardEmulationService.");
+                throw e.rethrowFromSystemServer();
+            }
+        }
+    }
+
+    /**
+     * Returns a user-visible description of the preferred payment service.
+     *
+     * @return the preferred payment service description
+     */
+    @RequiresPermission(android.Manifest.permission.NFC_PREFERRED_PAYMENT_INFO)
+    @Nullable
+    public CharSequence getDescriptionForPreferredPaymentService() {
+        try {
+            ApduServiceInfo serviceInfo = sService.getPreferredPaymentService(mContext.getUserId());
+            return (serviceInfo != null ? serviceInfo.getDescription() : null);
+        } catch (RemoteException e) {
+            recoverService();
+            if (sService == null) {
+                Log.e(TAG, "Failed to recover CardEmulationService.");
+                throw e.rethrowFromSystemServer();
+            }
+            try {
+                ApduServiceInfo serviceInfo =
+                        sService.getPreferredPaymentService(mContext.getUserId());
+                return (serviceInfo != null ? serviceInfo.getDescription() : null);
+            } catch (RemoteException ee) {
+                Log.e(TAG, "Failed to recover CardEmulationService.");
+                throw e.rethrowFromSystemServer();
+            }
+        }
+    }
+
+    /**
      * @hide
      */
     public boolean setDefaultServiceForCategory(ComponentName service, String category) {
         try {
-            return sService.setDefaultServiceForCategory(UserHandle.myUserId(), service, category);
+            return sService.setDefaultServiceForCategory(mContext.getUserId(), service, category);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -546,7 +781,7 @@ public final class CardEmulation {
                 return false;
             }
             try {
-                return sService.setDefaultServiceForCategory(UserHandle.myUserId(), service,
+                return sService.setDefaultServiceForCategory(mContext.getUserId(), service,
                         category);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to reach CardEmulationService.");
@@ -560,7 +795,7 @@ public final class CardEmulation {
      */
     public boolean setDefaultForNextTap(ComponentName service) {
         try {
-            return sService.setDefaultForNextTap(UserHandle.myUserId(), service);
+            return sService.setDefaultForNextTap(mContext.getUserId(), service);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -569,7 +804,7 @@ public final class CardEmulation {
                 return false;
             }
             try {
-                return sService.setDefaultForNextTap(UserHandle.myUserId(), service);
+                return sService.setDefaultForNextTap(mContext.getUserId(), service);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to reach CardEmulationService.");
                 return false;
@@ -582,7 +817,7 @@ public final class CardEmulation {
      */
     public List<ApduServiceInfo> getServices(String category) {
         try {
-            return sService.getServices(UserHandle.myUserId(), category);
+            return sService.getServices(mContext.getUserId(), category);
         } catch (RemoteException e) {
             // Try one more time
             recoverService();
@@ -591,7 +826,7 @@ public final class CardEmulation {
                 return null;
             }
             try {
-                return sService.getServices(UserHandle.myUserId(), category);
+                return sService.getServices(mContext.getUserId(), category);
             } catch (RemoteException ee) {
                 Log.e(TAG, "Failed to reach CardEmulationService.");
                 return null;
@@ -606,6 +841,8 @@ public final class CardEmulation {
      * <li>Consist of only hex characters
      * <li>Additionally, we allow an asterisk at the end, to indicate
      *     a prefix
+     * <li>Additinally we allow an (#) at symbol at the end, to indicate
+     *     a subset
      * </ul>
      *
      * @hide
@@ -614,20 +851,20 @@ public final class CardEmulation {
         if (aid == null)
             return false;
 
-        // If a prefix AID, the total length must be odd (even # of AID chars + '*')
-        if (aid.endsWith("*") && ((aid.length() % 2) == 0)) {
+        // If a prefix/subset AID, the total length must be odd (even # of AID chars + '*')
+        if ((aid.endsWith("*") || aid.endsWith("#")) && ((aid.length() % 2) == 0)) {
             Log.e(TAG, "AID " + aid + " is not a valid AID.");
             return false;
         }
 
-        // If not a prefix AID, the total length must be even (even # of AID chars)
-        if (!aid.endsWith("*") && ((aid.length() % 2) != 0)) {
+        // If not a prefix/subset AID, the total length must be even (even # of AID chars)
+        if ((!(aid.endsWith("*") || aid.endsWith("#"))) && ((aid.length() % 2) != 0)) {
             Log.e(TAG, "AID " + aid + " is not a valid AID.");
             return false;
         }
 
         // Verify hex characters
-        if (!aid.matches("[0-9A-Fa-f]{10,32}\\*?")) {
+        if (!AID_PATTERN.matcher(aid).matches()) {
             Log.e(TAG, "AID " + aid + " is not a valid AID.");
             return false;
         }

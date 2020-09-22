@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * See also RIL_SimRefresh in include/telephony/ril.h
  *
@@ -28,12 +30,18 @@ public class IccRefreshResponse {
     public static final int REFRESH_RESULT_INIT = 1;        /* The Icc has been initialized */
     public static final int REFRESH_RESULT_RESET = 2;       /* The Icc was reset */
 
+    @UnsupportedAppUsage
     public int             refreshResult;      /* Sim Refresh result */
+    @UnsupportedAppUsage
     public int             efId;               /* EFID */
+    @UnsupportedAppUsage
     public String          aid;                /* null terminated string, e.g.,
                                                   from 0xA0, 0x00 -> 0x41,
                                                   0x30, 0x30, 0x30 */
                                                /* Example: a0000000871002f310ffff89080000ff */
+    @UnsupportedAppUsage
+    public IccRefreshResponse() {
+    }
 
     @Override
     public String toString() {

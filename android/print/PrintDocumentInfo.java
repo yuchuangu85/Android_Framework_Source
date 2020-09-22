@@ -83,11 +83,14 @@ public final class PrintDocumentInfo implements Parcelable {
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef({
-            CONTENT_TYPE_UNKNOWN, CONTENT_TYPE_DOCUMENT, CONTENT_TYPE_PHOTO
+    @IntDef(prefix = { "CONTENT_TYPE_" }, value = {
+            CONTENT_TYPE_UNKNOWN,
+            CONTENT_TYPE_DOCUMENT,
+            CONTENT_TYPE_PHOTO
     })
     public @interface ContentType {
     }
+
     /**
      * Content type: unknown.
      */
@@ -334,7 +337,7 @@ public final class PrintDocumentInfo implements Parcelable {
         /**
          * Sets the content type.
          * <p>
-         * <strong>Default: </strong> {@link #CONTENT_TYPE_UNKNOWN}
+         * <strong>Default: </strong> {@link #CONTENT_TYPE_DOCUMENT}
          * </p>
          *
          * @param type The content type.
@@ -364,7 +367,7 @@ public final class PrintDocumentInfo implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<PrintDocumentInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<PrintDocumentInfo> CREATOR =
             new Creator<PrintDocumentInfo>() {
         @Override
         public PrintDocumentInfo createFromParcel(Parcel parcel) {

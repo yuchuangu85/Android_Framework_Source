@@ -18,29 +18,30 @@ package com.android.systemui.qs.tiles;
 
 import android.content.Intent;
 import android.provider.Settings;
+import android.service.quicksettings.Tile;
 import android.widget.Switch;
 
-import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.MetricsProto.MetricsEvent;
+import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.systemui.R;
-import com.android.systemui.qs.QSTile;
+import com.android.systemui.plugins.qs.QSTile.BooleanState;
+import com.android.systemui.qs.QSHost;
+import com.android.systemui.qs.tileimpl.QSTileImpl;
 import com.android.systemui.statusbar.phone.ManagedProfileController;
 
+import javax.inject.Inject;
+
 /** Quick settings tile: Work profile on/off */
-public class WorkModeTile extends QSTile<QSTile.BooleanState> implements
+public class WorkModeTile extends QSTileImpl<BooleanState> implements
         ManagedProfileController.Callback {
-    private final AnimationIcon mEnable =
-            new AnimationIcon(R.drawable.ic_signal_workmode_enable_animation,
-                    R.drawable.ic_signal_workmode_disable);
-    private final AnimationIcon mDisable =
-            new AnimationIcon(R.drawable.ic_signal_workmode_disable_animation,
-                    R.drawable.ic_signal_workmode_enable);
+    private final Icon mIcon = ResourceIcon.get(R.drawable.stat_sys_managed_profile_status);
 
     private final ManagedProfileController mProfileController;
 
-    public WorkModeTile(Host host) {
+    @Inject
+    public WorkModeTile(QSHost host, ManagedProfileController managedProfileController) {
         super(host);
-        mProfileController = host.getManagedProfileController();
+        mProfileController = managedProfileController;
+        mProfileController.observe(getLifecycle(), this);
     }
 
     @Override
@@ -49,22 +50,12 @@ public class WorkModeTile extends QSTile<QSTile.BooleanState> implements
     }
 
     @Override
-    public void setListening(boolean listening) {
-        if (listening) {
-            mProfileController.addCallback(this);
-        } else {
-            mProfileController.removeCallback(this);
-        }
-    }
-
-    @Override
     public Intent getLongClickIntent() {
-        return new Intent(Settings.ACTION_SYNC_SETTINGS);
+        return new Intent(Settings.ACTION_MANAGED_PROFILE_SETTINGS);
     }
 
     @Override
     public void handleClick() {
-        MetricsLogger.action(mContext, getMetricsCategory(), !mState.value);
         mProfileController.setWorkModeEnabled(!mState.value);
     }
 
@@ -81,6 +72,7 @@ public class WorkModeTile extends QSTile<QSTile.BooleanState> implements
     @Override
     public void onManagedProfileRemoved() {
         mHost.removeTile(getTileSpec());
+        mHost.unmarkTileAsAutoAdded(getTileSpec());
     }
 
     @Override
@@ -90,24 +82,30 @@ public class WorkModeTile extends QSTile<QSTile.BooleanState> implements
 
     @Override
     protected void handleUpdateState(BooleanState state, Object arg) {
+        if (!isAvailable()) {
+            onManagedProfileRemoved();
+        }
+
+        if (state.slash == null) {
+            state.slash = new SlashState();
+        }
+
         if (arg instanceof Boolean) {
             state.value = (Boolean) arg;
         } else {
             state.value = mProfileController.isWorkModeEnabled();
         }
 
-        state.label = mContext.getString(R.string.quick_settings_work_mode_label);
+        state.icon = mIcon;
         if (state.value) {
-            state.icon = mEnable;
-            state.contentDescription =  mContext.getString(
-                    R.string.accessibility_quick_settings_work_mode_on);
+            state.slash.isSlashed = false;
         } else {
-            state.icon = mDisable;
-            state.contentDescription =  mContext.getString(
-                    R.string.accessibility_quick_settings_work_mode_off);
+            state.slash.isSlashed = true;
         }
-        state.minimalAccessibilityClassName = state.expandedAccessibilityClassName
-                = Switch.class.getName();
+        state.label = mContext.getString(R.string.quick_settings_work_mode_label);
+        state.contentDescription = state.label;
+        state.expandedAccessibilityClassName = Switch.class.getName();
+        state.state = state.value ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE;
     }
 
     @Override

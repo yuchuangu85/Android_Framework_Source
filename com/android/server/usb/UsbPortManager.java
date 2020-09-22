@@ -16,36 +16,71 @@
 
 package com.android.server.usb;
 
-import com.android.internal.util.IndentingPrintWriter;
-import com.android.server.FgThread;
+import static android.hardware.usb.UsbPortStatus.CONTAMINANT_DETECTION_NOT_SUPPORTED;
+import static android.hardware.usb.UsbPortStatus.CONTAMINANT_PROTECTION_NONE;
+import static android.hardware.usb.UsbPortStatus.DATA_ROLE_DEVICE;
+import static android.hardware.usb.UsbPortStatus.DATA_ROLE_HOST;
+import static android.hardware.usb.UsbPortStatus.MODE_DFP;
+import static android.hardware.usb.UsbPortStatus.MODE_DUAL;
+import static android.hardware.usb.UsbPortStatus.MODE_UFP;
+import static android.hardware.usb.UsbPortStatus.POWER_ROLE_SINK;
+import static android.hardware.usb.UsbPortStatus.POWER_ROLE_SOURCE;
 
+import static com.android.internal.usb.DumpUtils.writePort;
+import static com.android.internal.usb.DumpUtils.writePortStatus;
+
+import android.Manifest;
+import android.annotation.NonNull;
+import android.app.Notification;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Resources;
+import android.hardware.usb.ParcelableUsbPort;
 import android.hardware.usb.UsbManager;
 import android.hardware.usb.UsbPort;
 import android.hardware.usb.UsbPortStatus;
+import android.hardware.usb.V1_0.IUsb;
+import android.hardware.usb.V1_0.PortRole;
+import android.hardware.usb.V1_0.PortRoleType;
+import android.hardware.usb.V1_0.Status;
+import android.hardware.usb.V1_1.PortStatus_1_1;
+import android.hardware.usb.V1_2.IUsbCallback;
+import android.hardware.usb.V1_2.PortStatus;
+import android.hidl.manager.V1_0.IServiceManager;
+import android.hidl.manager.V1_0.IServiceNotification;
+import android.os.Bundle;
 import android.os.Handler;
+import android.os.HwBinder;
 import android.os.Message;
+import android.os.Parcel;
+import android.os.Parcelable;
+import android.os.RemoteException;
 import android.os.SystemClock;
-import android.os.SystemProperties;
-import android.os.UEventObserver;
 import android.os.UserHandle;
-import android.system.ErrnoException;
-import android.system.Os;
-import android.system.OsConstants;
+import android.service.usb.UsbPortInfoProto;
+import android.service.usb.UsbPortManagerProto;
+import android.service.usb.UsbServiceProto;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.util.Slog;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
+import com.android.internal.notification.SystemNotificationChannels;
+import com.android.internal.util.FrameworkStatsLog;
+import com.android.internal.util.IndentingPrintWriter;
+import com.android.internal.util.dump.DualDumpOutputStream;
+import com.android.server.FgThread;
 
-import libcore.io.IoUtils;
+import java.util.ArrayList;
+import java.util.NoSuchElementException;
 
 /**
  * Allows trusted components to control the properties of physical USB ports
- * via the "/sys/class/dual_role_usb" kernel interface.
+ * via the IUsb.hal.
  * <p>
  * Note: This interface may not be supported on all chipsets since the USB drivers
  * must be changed to publish this information through the module.  At the moment
@@ -59,59 +94,38 @@ public class UsbPortManager {
     private static final String TAG = "UsbPortManager";
 
     private static final int MSG_UPDATE_PORTS = 1;
-
-    // UEvent path to watch.
-    private static final String UEVENT_FILTER = "SUBSYSTEM=dual_role_usb";
-
-    // SysFS directory that contains USB ports as subdirectories.
-    private static final String SYSFS_CLASS = "/sys/class/dual_role_usb";
-
-    // SysFS file that contains a USB port's supported modes.  (read-only)
-    // Contents: "", "ufp", "dfp", or "ufp dfp".
-    private static final String SYSFS_PORT_SUPPORTED_MODES = "supported_modes";
-
-    // SysFS file that contains a USB port's current mode.  (read-write if configurable)
-    // Contents: "", "ufp", or "dfp".
-    private static final String SYSFS_PORT_MODE = "mode";
-
-    // SysFS file that contains a USB port's current power role.  (read-write if configurable)
-    // Contents: "", "source", or "sink".
-    private static final String SYSFS_PORT_POWER_ROLE = "power_role";
-
-    // SysFS file that contains a USB port's current data role.  (read-write if configurable)
-    // Contents: "", "host", or "device".
-    private static final String SYSFS_PORT_DATA_ROLE = "data_role";
-
-    // Port modes: upstream facing port or downstream facing port.
-    private static final String PORT_MODE_DFP = "dfp";
-    private static final String PORT_MODE_UFP = "ufp";
-
-    // Port power roles: source or sink.
-    private static final String PORT_POWER_ROLE_SOURCE = "source";
-    private static final String PORT_POWER_ROLE_SINK = "sink";
-
-    // Port data roles: host or device.
-    private static final String PORT_DATA_ROLE_HOST = "host";
-    private static final String PORT_DATA_ROLE_DEVICE = "device";
-
-    private static final String USB_TYPEC_PROP_PREFIX = "sys.usb.typec.";
-    private static final String USB_TYPEC_STATE = "sys.usb.typec.state";
+    private static final int MSG_SYSTEM_READY = 2;
 
     // All non-trivial role combinations.
     private static final int COMBO_SOURCE_HOST =
-            UsbPort.combineRolesAsBit(UsbPort.POWER_ROLE_SOURCE, UsbPort.DATA_ROLE_HOST);
-    private static final int COMBO_SOURCE_DEVICE =
-            UsbPort.combineRolesAsBit(UsbPort.POWER_ROLE_SOURCE, UsbPort.DATA_ROLE_DEVICE);
+            UsbPort.combineRolesAsBit(POWER_ROLE_SOURCE, DATA_ROLE_HOST);
+    private static final int COMBO_SOURCE_DEVICE = UsbPort.combineRolesAsBit(
+            POWER_ROLE_SOURCE, DATA_ROLE_DEVICE);
     private static final int COMBO_SINK_HOST =
-            UsbPort.combineRolesAsBit(UsbPort.POWER_ROLE_SINK, UsbPort.DATA_ROLE_HOST);
-    private static final int COMBO_SINK_DEVICE =
-            UsbPort.combineRolesAsBit(UsbPort.POWER_ROLE_SINK, UsbPort.DATA_ROLE_DEVICE);
+            UsbPort.combineRolesAsBit(POWER_ROLE_SINK, DATA_ROLE_HOST);
+    private static final int COMBO_SINK_DEVICE = UsbPort.combineRolesAsBit(
+            POWER_ROLE_SINK, DATA_ROLE_DEVICE);
 
     // The system context.
     private final Context mContext;
 
-    // True if we have kernel support.
-    private final boolean mHaveKernelSupport;
+    // Proxy object for the usb hal daemon.
+    @GuardedBy("mLock")
+    private IUsb mProxy = null;
+
+    // Callback when the UsbPort status is changed by the kernel.
+    // Mostly due a command sent by the remote Usb device.
+    private HALCallback mHALCallback = new HALCallback(null, this);
+
+    // Cookie sent for usb hal death notification.
+    private static final int USB_HAL_DEATH_COOKIE = 1000;
+
+    // Used as the key while sending the bundle to Main thread.
+    private static final String PORT_INFO = "port_info";
+
+    // This is monitored to prevent updating the protInfo before the system
+    // is ready.
+    private boolean mSystemReady;
 
     // Mutex for all mutable shared state.
     private final Object mLock = new Object();
@@ -120,20 +134,157 @@ public class UsbPortManager {
     // Ports may temporarily have different dispositions as they are added or removed
     // but the class invariant is that this list will only contain ports with DISPOSITION_READY
     // except while updatePortsLocked() is in progress.
-    private final ArrayMap<String, PortInfo> mPorts = new ArrayMap<String, PortInfo>();
+    private final ArrayMap<String, PortInfo> mPorts = new ArrayMap<>();
 
     // List of all simulated ports, indexed by id.
-    private final ArrayMap<String, SimulatedPortInfo> mSimulatedPorts =
-            new ArrayMap<String, SimulatedPortInfo>();
+    private final ArrayMap<String, RawPortInfo> mSimulatedPorts =
+            new ArrayMap<>();
+
+    // Maintains the current connected status of the port.
+    // Uploads logs only when the connection status is changes.
+    private final ArrayMap<String, Boolean> mConnected = new ArrayMap<>();
+
+    // Maintains the USB contaminant status that was previously logged.
+    // Logs get uploaded only when contaminant presence status changes.
+    private final ArrayMap<String, Integer> mContaminantStatus = new ArrayMap<>();
+
+    private NotificationManager mNotificationManager;
+
+    /**
+     * If there currently is a notification related to contaminated USB port management
+     * shown the id of the notification, or 0 if there is none.
+     */
+    private int mIsPortContaminatedNotificationId;
 
     public UsbPortManager(Context context) {
         mContext = context;
-        mHaveKernelSupport = new File(SYSFS_CLASS).exists();
+        try {
+            ServiceNotification serviceNotification = new ServiceNotification();
+
+            boolean ret = IServiceManager.getService()
+                    .registerForNotifications("android.hardware.usb@1.0::IUsb",
+                            "", serviceNotification);
+            if (!ret) {
+                logAndPrint(Log.ERROR, null,
+                        "Failed to register service start notification");
+            }
+        } catch (RemoteException e) {
+            logAndPrintException(null,
+                    "Failed to register service start notification", e);
+            return;
+        }
+        connectToProxy(null);
     }
 
     public void systemReady() {
-        mUEventObserver.startObserving(UEVENT_FILTER);
-        scheduleUpdatePorts();
+	mSystemReady = true;
+        if (mProxy != null) {
+            try {
+                mProxy.queryPortStatus();
+            } catch (RemoteException e) {
+                logAndPrintException(null,
+                        "ServiceStart: Failed to query port status", e);
+            }
+        }
+        mHandler.sendEmptyMessage(MSG_SYSTEM_READY);
+    }
+
+    private void updateContaminantNotification() {
+        PortInfo currentPortInfo = null;
+        Resources r = mContext.getResources();
+        int contaminantStatus = UsbPortStatus.CONTAMINANT_DETECTION_NOT_DETECTED;
+
+        // Not handling multiple ports here. Showing the notification
+        // for the first port that returns CONTAMINANT_PRESENCE_DETECTED.
+        for (PortInfo portInfo : mPorts.values()) {
+            contaminantStatus = portInfo.mUsbPortStatus.getContaminantDetectionStatus();
+            if (contaminantStatus == UsbPortStatus.CONTAMINANT_DETECTION_DETECTED
+                    || contaminantStatus == UsbPortStatus.CONTAMINANT_DETECTION_DISABLED) {
+                currentPortInfo = portInfo;
+                break;
+            }
+        }
+
+        // Current contminant status is detected while "safe to use usb port"
+        // notification is displayed. Remove safe to use usb port notification
+        // and push contaminant detected notification.
+        if (contaminantStatus == UsbPortStatus.CONTAMINANT_DETECTION_DETECTED
+                    && mIsPortContaminatedNotificationId
+                    != SystemMessage.NOTE_USB_CONTAMINANT_DETECTED) {
+            if (mIsPortContaminatedNotificationId
+                    == SystemMessage.NOTE_USB_CONTAMINANT_NOT_DETECTED) {
+                mNotificationManager.cancelAsUser(null, mIsPortContaminatedNotificationId,
+                        UserHandle.ALL);
+            }
+
+            mIsPortContaminatedNotificationId = SystemMessage.NOTE_USB_CONTAMINANT_DETECTED;
+            int titleRes = com.android.internal.R.string.usb_contaminant_detected_title;
+            CharSequence title = r.getText(titleRes);
+            String channel = SystemNotificationChannels.ALERTS;
+            CharSequence message = r.getText(
+                    com.android.internal.R.string.usb_contaminant_detected_message);
+
+            Intent intent = new Intent();
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            intent.setComponent(ComponentName.unflattenFromString(r.getString(
+                    com.android.internal.R.string.config_usbContaminantActivity)));
+            intent.putExtra(UsbManager.EXTRA_PORT, ParcelableUsbPort.of(currentPortInfo.mUsbPort));
+
+            PendingIntent pi = PendingIntent.getActivityAsUser(mContext, 0,
+                                intent, 0, null, UserHandle.CURRENT);
+
+            Notification.Builder builder = new Notification.Builder(mContext, channel)
+                    .setOngoing(true)
+                    .setTicker(title)
+                    .setColor(mContext.getColor(
+                           com.android.internal.R.color
+                           .system_notification_accent_color))
+                    .setContentIntent(pi)
+                    .setContentTitle(title)
+                    .setContentText(message)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC)
+                    .setSmallIcon(android.R.drawable.stat_sys_warning)
+                    .setStyle(new Notification.BigTextStyle()
+                    .bigText(message));
+            Notification notification = builder.build();
+            mNotificationManager.notifyAsUser(null, mIsPortContaminatedNotificationId, notification,
+                    UserHandle.ALL);
+        // No contaminant is detected but contaminant detection notification is displayed.
+        // Remove contaminant detection notification and push safe to use USB port notification.
+        } else if (contaminantStatus != UsbPortStatus.CONTAMINANT_DETECTION_DETECTED
+                && mIsPortContaminatedNotificationId
+                == SystemMessage.NOTE_USB_CONTAMINANT_DETECTED) {
+            mNotificationManager.cancelAsUser(null, mIsPortContaminatedNotificationId,
+                    UserHandle.ALL);
+            mIsPortContaminatedNotificationId = 0;
+
+            // Dont show safe to use notification when contaminant detection is disabled.
+            // Show only when the status is changing from detected to not detected.
+            if (contaminantStatus == UsbPortStatus.CONTAMINANT_DETECTION_NOT_DETECTED) {
+                mIsPortContaminatedNotificationId =
+                        SystemMessage.NOTE_USB_CONTAMINANT_NOT_DETECTED;
+                int titleRes = com.android.internal.R.string.usb_contaminant_not_detected_title;
+                CharSequence title = r.getText(titleRes);
+                String channel = SystemNotificationChannels.ALERTS;
+                CharSequence message = r.getText(
+                        com.android.internal.R.string.usb_contaminant_not_detected_message);
+
+                Notification.Builder builder = new Notification.Builder(mContext, channel)
+                        .setSmallIcon(com.android.internal.R.drawable.ic_usb_48dp)
+                        .setTicker(title)
+                        .setColor(mContext.getColor(
+                               com.android.internal.R.color
+                               .system_notification_accent_color))
+                        .setContentTitle(title)
+                        .setContentText(message)
+                        .setVisibility(Notification.VISIBILITY_PUBLIC)
+                        .setStyle(new Notification.BigTextStyle()
+                        .bigText(message));
+                Notification notification = builder.build();
+                mNotificationManager.notifyAsUser(null, mIsPortContaminatedNotificationId,
+                        notification, UserHandle.ALL);
+            }
+        }
     }
 
     public UsbPort[] getPorts() {
@@ -151,6 +302,46 @@ public class UsbPortManager {
         synchronized (mLock) {
             final PortInfo portInfo = mPorts.get(portId);
             return portInfo != null ? portInfo.mUsbPortStatus : null;
+        }
+    }
+
+    /**
+     * Enables/disables contaminant detection.
+     *
+     * @param portId port identifier.
+     * @param enable enable contaminant detection when set to true.
+     */
+    public void enableContaminantDetection(@NonNull String portId, boolean enable,
+            @NonNull IndentingPrintWriter pw) {
+        final PortInfo portInfo = mPorts.get(portId);
+        if (portInfo == null) {
+            if (pw != null) {
+                pw.println("No such USB port: " + portId);
+            }
+            return;
+        }
+
+        if (!portInfo.mUsbPort.supportsEnableContaminantPresenceDetection()) {
+            return;
+        }
+
+        if ((enable && portInfo.mUsbPortStatus.getContaminantDetectionStatus()
+                != UsbPortStatus.CONTAMINANT_DETECTION_DISABLED) || (!enable
+                && portInfo.mUsbPortStatus.getContaminantDetectionStatus()
+                == UsbPortStatus.CONTAMINANT_DETECTION_DISABLED)
+                || (portInfo.mUsbPortStatus.getContaminantDetectionStatus()
+                == UsbPortStatus.CONTAMINANT_DETECTION_NOT_SUPPORTED)) {
+            return;
+        }
+
+        try {
+            // Oneway call into the hal. Use the castFrom method from HIDL.
+            android.hardware.usb.V1_2.IUsb proxy = android.hardware.usb.V1_2.IUsb.castFrom(mProxy);
+            proxy.enableContaminantPresenceDetection(portId, enable);
+        } catch (RemoteException e) {
+            logAndPrintException(pw, "Failed to set contaminant detection", e);
+        } catch (ClassCastException e) {
+            logAndPrintException(pw, "Method only applicable to V1.2 or above implementation", e);
         }
     }
 
@@ -197,12 +388,12 @@ public class UsbPortManager {
             final int newMode;
             if ((!canChangePowerRole && currentPowerRole != newPowerRole)
                     || (!canChangeDataRole && currentDataRole != newDataRole)) {
-                if (canChangeMode && newPowerRole == UsbPort.POWER_ROLE_SOURCE
-                        && newDataRole == UsbPort.DATA_ROLE_HOST) {
-                    newMode = UsbPort.MODE_DFP;
-                } else if (canChangeMode && newPowerRole == UsbPort.POWER_ROLE_SINK
-                        && newDataRole == UsbPort.DATA_ROLE_DEVICE) {
-                    newMode = UsbPort.MODE_UFP;
+                if (canChangeMode && newPowerRole == POWER_ROLE_SOURCE
+                        && newDataRole == DATA_ROLE_HOST) {
+                    newMode = MODE_DFP;
+                } else if (canChangeMode && newPowerRole == POWER_ROLE_SINK
+                        && newDataRole == DATA_ROLE_DEVICE) {
+                    newMode = MODE_UFP;
                 } else {
                     logAndPrint(Log.ERROR, pw, "Found mismatch in supported USB role combinations "
                             + "while attempting to change role: " + portInfo
@@ -223,20 +414,14 @@ public class UsbPortManager {
                     + ", newPowerRole=" + UsbPort.powerRoleToString(newPowerRole)
                     + ", newDataRole=" + UsbPort.dataRoleToString(newDataRole));
 
-            SimulatedPortInfo sim = mSimulatedPorts.get(portId);
+            RawPortInfo sim = mSimulatedPorts.get(portId);
             if (sim != null) {
                 // Change simulated state.
-                sim.mCurrentMode = newMode;
-                sim.mCurrentPowerRole = newPowerRole;
-                sim.mCurrentDataRole = newDataRole;
-            } else if (mHaveKernelSupport) {
-                // Change actual state.
-                final File portDir = new File(SYSFS_CLASS, portId);
-                if (!portDir.exists()) {
-                    logAndPrint(Log.ERROR, pw, "USB port not found: portId=" + portId);
-                    return;
-                }
-
+                sim.currentMode = newMode;
+                sim.currentPowerRole = newPowerRole;
+                sim.currentDataRole = newDataRole;
+                updatePortsLocked(pw, null);
+            } else if (mProxy != null) {
                 if (currentMode != newMode) {
                     // Changing the mode will have the side-effect of also changing
                     // the power and data roles but it might take some time to apply
@@ -244,38 +429,53 @@ public class UsbPortManager {
                     // hardware, we have no way of knowing whether it will work apriori
                     // which is why we would prefer to set the power and data roles
                     // directly instead.
-                    if (!writeFile(portDir, SYSFS_PORT_MODE,
-                            newMode == UsbPort.MODE_DFP ? PORT_MODE_DFP : PORT_MODE_UFP)) {
-                        logAndPrint(Log.ERROR, pw, "Failed to set the USB port mode: "
+
+                    logAndPrint(Log.ERROR, pw, "Trying to set the USB port mode: "
+                            + "portId=" + portId
+                            + ", newMode=" + UsbPort.modeToString(newMode));
+                    PortRole newRole = new PortRole();
+                    newRole.type = PortRoleType.MODE;
+                    newRole.role = newMode;
+                    try {
+                        mProxy.switchRole(portId, newRole);
+                    } catch (RemoteException e) {
+                        logAndPrintException(pw, "Failed to set the USB port mode: "
                                 + "portId=" + portId
-                                + ", newMode=" + UsbPort.modeToString(newMode));
-                        return;
+                                + ", newMode=" + UsbPort.modeToString(newRole.role), e);
                     }
                 } else {
                     // Change power and data role independently as needed.
                     if (currentPowerRole != newPowerRole) {
-                        if (!writeFile(portDir, SYSFS_PORT_POWER_ROLE,
-                                newPowerRole == UsbPort.POWER_ROLE_SOURCE
-                                ? PORT_POWER_ROLE_SOURCE : PORT_POWER_ROLE_SINK)) {
-                            logAndPrint(Log.ERROR, pw, "Failed to set the USB port power role: "
-                                    + "portId=" + portId
-                                    + ", newPowerRole=" + UsbPort.powerRoleToString(newPowerRole));
+                        PortRole newRole = new PortRole();
+                        newRole.type = PortRoleType.POWER_ROLE;
+                        newRole.role = newPowerRole;
+                        try {
+                            mProxy.switchRole(portId, newRole);
+                        } catch (RemoteException e) {
+                            logAndPrintException(pw, "Failed to set the USB port power role: "
+                                            + "portId=" + portId
+                                            + ", newPowerRole=" + UsbPort.powerRoleToString
+                                            (newRole.role),
+                                    e);
                             return;
                         }
                     }
                     if (currentDataRole != newDataRole) {
-                        if (!writeFile(portDir, SYSFS_PORT_DATA_ROLE,
-                                newDataRole == UsbPort.DATA_ROLE_HOST
-                                ? PORT_DATA_ROLE_HOST : PORT_DATA_ROLE_DEVICE)) {
-                            logAndPrint(Log.ERROR, pw, "Failed to set the USB port data role: "
-                                    + "portId=" + portId
-                                    + ", newDataRole=" + UsbPort.dataRoleToString(newDataRole));
-                            return;
+                        PortRole newRole = new PortRole();
+                        newRole.type = PortRoleType.DATA_ROLE;
+                        newRole.role = newDataRole;
+                        try {
+                            mProxy.switchRole(portId, newRole);
+                        } catch (RemoteException e) {
+                            logAndPrintException(pw, "Failed to set the USB port data role: "
+                                            + "portId=" + portId
+                                            + ", newDataRole=" + UsbPort.dataRoleToString(newRole
+                                            .role),
+                                    e);
                         }
                     }
                 }
             }
-            updatePortsLocked(pw);
         }
     }
 
@@ -289,8 +489,8 @@ public class UsbPortManager {
             pw.println("Adding simulated port: portId=" + portId
                     + ", supportedModes=" + UsbPort.modeToString(supportedModes));
             mSimulatedPorts.put(portId,
-                    new SimulatedPortInfo(portId, supportedModes));
-            updatePortsLocked(pw);
+                    new RawPortInfo(portId, supportedModes));
+            updatePortsLocked(pw, null);
         }
     }
 
@@ -298,7 +498,7 @@ public class UsbPortManager {
             int powerRole, boolean canChangePowerRole,
             int dataRole, boolean canChangeDataRole, IndentingPrintWriter pw) {
         synchronized (mLock) {
-            final SimulatedPortInfo portInfo = mSimulatedPorts.get(portId);
+            final RawPortInfo portInfo = mSimulatedPorts.get(portId);
             if (portInfo == null) {
                 pw.println("Cannot connect simulated port which does not exist.");
                 return;
@@ -310,7 +510,7 @@ public class UsbPortManager {
                 return;
             }
 
-            if ((portInfo.mSupportedModes & mode) == 0) {
+            if ((portInfo.supportedModes & mode) == 0) {
                 pw.println("Simulated port does not support mode: " + UsbPort.modeToString(mode));
                 return;
             }
@@ -322,32 +522,53 @@ public class UsbPortManager {
                     + ", canChangePowerRole=" + canChangePowerRole
                     + ", dataRole=" + UsbPort.dataRoleToString(dataRole)
                     + ", canChangeDataRole=" + canChangeDataRole);
-            portInfo.mCurrentMode = mode;
-            portInfo.mCanChangeMode = canChangeMode;
-            portInfo.mCurrentPowerRole = powerRole;
-            portInfo.mCanChangePowerRole = canChangePowerRole;
-            portInfo.mCurrentDataRole = dataRole;
-            portInfo.mCanChangeDataRole = canChangeDataRole;
-            updatePortsLocked(pw);
+            portInfo.currentMode = mode;
+            portInfo.canChangeMode = canChangeMode;
+            portInfo.currentPowerRole = powerRole;
+            portInfo.canChangePowerRole = canChangePowerRole;
+            portInfo.currentDataRole = dataRole;
+            portInfo.canChangeDataRole = canChangeDataRole;
+            updatePortsLocked(pw, null);
+        }
+    }
+
+    /**
+     * Sets contaminant status for simulated USB port objects.
+     */
+    public void simulateContaminantStatus(String portId, boolean detected,
+            IndentingPrintWriter pw) {
+        synchronized (mLock) {
+            final RawPortInfo portInfo = mSimulatedPorts.get(portId);
+            if (portInfo == null) {
+                pw.println("Simulated port not found.");
+                return;
+            }
+
+            pw.println("Simulating wet port: portId=" + portId
+                    + ", wet=" + detected);
+            portInfo.contaminantDetectionStatus = detected
+                    ? UsbPortStatus.CONTAMINANT_DETECTION_DETECTED
+                    : UsbPortStatus.CONTAMINANT_DETECTION_NOT_DETECTED;
+            updatePortsLocked(pw, null);
         }
     }
 
     public void disconnectSimulatedPort(String portId, IndentingPrintWriter pw) {
         synchronized (mLock) {
-            final SimulatedPortInfo portInfo = mSimulatedPorts.get(portId);
+            final RawPortInfo portInfo = mSimulatedPorts.get(portId);
             if (portInfo == null) {
                 pw.println("Cannot disconnect simulated port which does not exist.");
                 return;
             }
 
             pw.println("Disconnecting simulated port: portId=" + portId);
-            portInfo.mCurrentMode = 0;
-            portInfo.mCanChangeMode = false;
-            portInfo.mCurrentPowerRole = 0;
-            portInfo.mCanChangePowerRole = false;
-            portInfo.mCurrentDataRole = 0;
-            portInfo.mCanChangeDataRole = false;
-            updatePortsLocked(pw);
+            portInfo.currentMode = 0;
+            portInfo.canChangeMode = false;
+            portInfo.currentPowerRole = 0;
+            portInfo.canChangePowerRole = false;
+            portInfo.currentDataRole = 0;
+            portInfo.canChangeDataRole = false;
+            updatePortsLocked(pw, null);
         }
     }
 
@@ -361,7 +582,7 @@ public class UsbPortManager {
 
             pw.println("Disconnecting simulated port: portId=" + portId);
             mSimulatedPorts.removeAt(index);
-            updatePortsLocked(pw);
+            updatePortsLocked(pw, null);
         }
     }
 
@@ -370,32 +591,211 @@ public class UsbPortManager {
             pw.println("Removing all simulated ports and ending simulation.");
             if (!mSimulatedPorts.isEmpty()) {
                 mSimulatedPorts.clear();
-                updatePortsLocked(pw);
+                updatePortsLocked(pw, null);
             }
         }
     }
 
-    public void dump(IndentingPrintWriter pw) {
-        synchronized (mLock) {
-            pw.print("USB Port State:");
-            if (!mSimulatedPorts.isEmpty()) {
-                pw.print(" (simulation active; end with 'dumpsys usb reset')");
-            }
-            pw.println();
+    /**
+     * Dump the USB port state.
+     */
+    public void dump(DualDumpOutputStream dump, String idName, long id) {
+        long token = dump.start(idName, id);
 
-            if (mPorts.isEmpty()) {
-                pw.println("  <no ports>");
+        synchronized (mLock) {
+            dump.write("is_simulation_active", UsbPortManagerProto.IS_SIMULATION_ACTIVE,
+                    !mSimulatedPorts.isEmpty());
+
+            for (PortInfo portInfo : mPorts.values()) {
+                portInfo.dump(dump, "usb_ports", UsbPortManagerProto.USB_PORTS);
+            }
+        }
+
+        dump.end(token);
+    }
+
+    private static class HALCallback extends IUsbCallback.Stub {
+        public IndentingPrintWriter pw;
+        public UsbPortManager portManager;
+
+        HALCallback(IndentingPrintWriter pw, UsbPortManager portManager) {
+            this.pw = pw;
+            this.portManager = portManager;
+        }
+
+        public void notifyPortStatusChange(
+                ArrayList<android.hardware.usb.V1_0.PortStatus> currentPortStatus, int retval) {
+            if (!portManager.mSystemReady) {
+                return;
+            }
+
+            if (retval != Status.SUCCESS) {
+                logAndPrint(Log.ERROR, pw, "port status enquiry failed");
+                return;
+            }
+
+            ArrayList<RawPortInfo> newPortInfo = new ArrayList<>();
+
+            for (android.hardware.usb.V1_0.PortStatus current : currentPortStatus) {
+                RawPortInfo temp = new RawPortInfo(current.portName,
+                        current.supportedModes, CONTAMINANT_PROTECTION_NONE,
+                        current.currentMode,
+                        current.canChangeMode, current.currentPowerRole,
+                        current.canChangePowerRole,
+                        current.currentDataRole, current.canChangeDataRole,
+                        false, CONTAMINANT_PROTECTION_NONE,
+                        false, CONTAMINANT_DETECTION_NOT_SUPPORTED);
+                newPortInfo.add(temp);
+                logAndPrint(Log.INFO, pw, "ClientCallback V1_0: " + current.portName);
+            }
+
+            Message message = portManager.mHandler.obtainMessage();
+            Bundle bundle = new Bundle();
+            bundle.putParcelableArrayList(PORT_INFO, newPortInfo);
+            message.what = MSG_UPDATE_PORTS;
+            message.setData(bundle);
+            portManager.mHandler.sendMessage(message);
+        }
+
+
+        public void notifyPortStatusChange_1_1(ArrayList<PortStatus_1_1> currentPortStatus,
+                int retval) {
+            if (!portManager.mSystemReady) {
+                return;
+            }
+
+            if (retval != Status.SUCCESS) {
+                logAndPrint(Log.ERROR, pw, "port status enquiry failed");
+                return;
+            }
+
+            ArrayList<RawPortInfo> newPortInfo = new ArrayList<>();
+
+            int numStatus = currentPortStatus.size();
+            for (int i = 0; i < numStatus; i++) {
+                PortStatus_1_1 current = currentPortStatus.get(i);
+                RawPortInfo temp = new RawPortInfo(current.status.portName,
+                        current.supportedModes, CONTAMINANT_PROTECTION_NONE,
+                        current.currentMode,
+                        current.status.canChangeMode, current.status.currentPowerRole,
+                        current.status.canChangePowerRole,
+                        current.status.currentDataRole, current.status.canChangeDataRole,
+                        false, CONTAMINANT_PROTECTION_NONE,
+                        false, CONTAMINANT_DETECTION_NOT_SUPPORTED);
+                newPortInfo.add(temp);
+                logAndPrint(Log.INFO, pw, "ClientCallback V1_1: " + current.status.portName);
+            }
+
+            Message message = portManager.mHandler.obtainMessage();
+            Bundle bundle = new Bundle();
+            bundle.putParcelableArrayList(PORT_INFO, newPortInfo);
+            message.what = MSG_UPDATE_PORTS;
+            message.setData(bundle);
+            portManager.mHandler.sendMessage(message);
+        }
+
+        public void notifyPortStatusChange_1_2(
+                ArrayList<PortStatus> currentPortStatus, int retval) {
+            if (!portManager.mSystemReady) {
+                return;
+            }
+
+            if (retval != Status.SUCCESS) {
+                logAndPrint(Log.ERROR, pw, "port status enquiry failed");
+                return;
+            }
+
+            ArrayList<RawPortInfo> newPortInfo = new ArrayList<>();
+
+            int numStatus = currentPortStatus.size();
+            for (int i = 0; i < numStatus; i++) {
+                PortStatus current = currentPortStatus.get(i);
+                RawPortInfo temp = new RawPortInfo(current.status_1_1.status.portName,
+                        current.status_1_1.supportedModes,
+                        current.supportedContaminantProtectionModes,
+                        current.status_1_1.currentMode,
+                        current.status_1_1.status.canChangeMode,
+                        current.status_1_1.status.currentPowerRole,
+                        current.status_1_1.status.canChangePowerRole,
+                        current.status_1_1.status.currentDataRole,
+                        current.status_1_1.status.canChangeDataRole,
+                        current.supportsEnableContaminantPresenceProtection,
+                        current.contaminantProtectionStatus,
+                        current.supportsEnableContaminantPresenceDetection,
+                        current.contaminantDetectionStatus);
+                newPortInfo.add(temp);
+                logAndPrint(Log.INFO, pw, "ClientCallback V1_2: "
+                        + current.status_1_1.status.portName);
+            }
+
+            Message message = portManager.mHandler.obtainMessage();
+            Bundle bundle = new Bundle();
+            bundle.putParcelableArrayList(PORT_INFO, newPortInfo);
+            message.what = MSG_UPDATE_PORTS;
+            message.setData(bundle);
+            portManager.mHandler.sendMessage(message);
+        }
+
+        public void notifyRoleSwitchStatus(String portName, PortRole role, int retval) {
+            if (retval == Status.SUCCESS) {
+                logAndPrint(Log.INFO, pw, portName + " role switch successful");
             } else {
-                for (PortInfo portInfo : mPorts.values()) {
-                    pw.println("  " + portInfo.mUsbPort.getId() + ": " + portInfo);
+                logAndPrint(Log.ERROR, pw, portName + " role switch failed");
+            }
+        }
+    }
+
+    final class DeathRecipient implements HwBinder.DeathRecipient {
+        public IndentingPrintWriter pw;
+
+        DeathRecipient(IndentingPrintWriter pw) {
+            this.pw = pw;
+        }
+
+        @Override
+        public void serviceDied(long cookie) {
+            if (cookie == USB_HAL_DEATH_COOKIE) {
+                logAndPrint(Log.ERROR, pw, "Usb hal service died cookie: " + cookie);
+                synchronized (mLock) {
+                    mProxy = null;
                 }
             }
         }
     }
 
-    private void updatePortsLocked(IndentingPrintWriter pw) {
-        // Assume all ports are gone unless informed otherwise.
-        // Kind of pessimistic but simple.
+    final class ServiceNotification extends IServiceNotification.Stub {
+        @Override
+        public void onRegistration(String fqName, String name, boolean preexisting) {
+            logAndPrint(Log.INFO, null, "Usb hal service started " + fqName + " " + name);
+            connectToProxy(null);
+        }
+    }
+
+    private void connectToProxy(IndentingPrintWriter pw) {
+        synchronized (mLock) {
+            if (mProxy != null) {
+                return;
+            }
+
+            try {
+                mProxy = IUsb.getService();
+                mProxy.linkToDeath(new DeathRecipient(pw), USB_HAL_DEATH_COOKIE);
+                mProxy.setCallback(mHALCallback);
+                mProxy.queryPortStatus();
+            } catch (NoSuchElementException e) {
+                logAndPrintException(pw, "connectToProxy: usb hal service not found."
+                        + " Did the service fail to start?", e);
+            } catch (RemoteException e) {
+                logAndPrintException(pw, "connectToProxy: usb hal service not responding", e);
+            }
+        }
+    }
+
+    /**
+     * Simulated ports directly add the new roles to mSimulatedPorts before calling.
+     * USB hal callback populates and sends the newPortInfo.
+     */
+    private void updatePortsLocked(IndentingPrintWriter pw, ArrayList<RawPortInfo> newPortInfo) {
         for (int i = mPorts.size(); i-- > 0; ) {
             mPorts.valueAt(i).mDisposition = PortInfo.DISPOSITION_REMOVED;
         }
@@ -404,34 +804,28 @@ public class UsbPortManager {
         if (!mSimulatedPorts.isEmpty()) {
             final int count = mSimulatedPorts.size();
             for (int i = 0; i < count; i++) {
-                final SimulatedPortInfo portInfo = mSimulatedPorts.valueAt(i);
-                addOrUpdatePortLocked(portInfo.mPortId, portInfo.mSupportedModes,
-                        portInfo.mCurrentMode, portInfo.mCanChangeMode,
-                        portInfo.mCurrentPowerRole, portInfo.mCanChangePowerRole,
-                        portInfo.mCurrentDataRole, portInfo.mCanChangeDataRole, pw);
+                final RawPortInfo portInfo = mSimulatedPorts.valueAt(i);
+                addOrUpdatePortLocked(portInfo.portId, portInfo.supportedModes,
+                        portInfo.supportedContaminantProtectionModes,
+                        portInfo.currentMode, portInfo.canChangeMode,
+                        portInfo.currentPowerRole, portInfo.canChangePowerRole,
+                        portInfo.currentDataRole, portInfo.canChangeDataRole,
+                        portInfo.supportsEnableContaminantPresenceProtection,
+                        portInfo.contaminantProtectionStatus,
+                        portInfo.supportsEnableContaminantPresenceDetection,
+                        portInfo.contaminantDetectionStatus, pw);
             }
-        } else if (mHaveKernelSupport) {
-            final File[] portDirs = new File(SYSFS_CLASS).listFiles();
-            if (portDirs != null) {
-                for (File portDir : portDirs) {
-                    if (!portDir.isDirectory()) {
-                        continue;
-                    }
-
-                    // Parse the sysfs file contents.
-                    final String portId = portDir.getName();
-                    final int supportedModes = readSupportedModes(portDir);
-                    final int currentMode = readCurrentMode(portDir);
-                    final boolean canChangeMode = canChangeMode(portDir);
-                    final int currentPowerRole = readCurrentPowerRole(portDir);
-                    final boolean canChangePowerRole = canChangePowerRole(portDir);
-                    final int currentDataRole = readCurrentDataRole(portDir);
-                    final boolean canChangeDataRole = canChangeDataRole(portDir);
-                    addOrUpdatePortLocked(portId, supportedModes,
-                            currentMode, canChangeMode,
-                            currentPowerRole, canChangePowerRole,
-                            currentDataRole, canChangeDataRole, pw);
-                 }
+        } else {
+            for (RawPortInfo currentPortInfo : newPortInfo) {
+                addOrUpdatePortLocked(currentPortInfo.portId, currentPortInfo.supportedModes,
+                        currentPortInfo.supportedContaminantProtectionModes,
+                        currentPortInfo.currentMode, currentPortInfo.canChangeMode,
+                        currentPortInfo.currentPowerRole, currentPortInfo.canChangePowerRole,
+                        currentPortInfo.currentDataRole, currentPortInfo.canChangeDataRole,
+                        currentPortInfo.supportsEnableContaminantPresenceProtection,
+                        currentPortInfo.contaminantProtectionStatus,
+                        currentPortInfo.supportsEnableContaminantPresenceDetection,
+                        currentPortInfo.contaminantDetectionStatus, pw);
             }
         }
 
@@ -459,13 +853,18 @@ public class UsbPortManager {
 
     // Must only be called by updatePortsLocked.
     private void addOrUpdatePortLocked(String portId, int supportedModes,
+            int supportedContaminantProtectionModes,
             int currentMode, boolean canChangeMode,
             int currentPowerRole, boolean canChangePowerRole,
             int currentDataRole, boolean canChangeDataRole,
+            boolean supportsEnableContaminantPresenceProtection,
+            int contaminantProtectionStatus,
+            boolean supportsEnableContaminantPresenceDetection,
+            int contaminantDetectionStatus,
             IndentingPrintWriter pw) {
         // Only allow mode switch capability for dual role ports.
         // Validate that the current mode matches the supported modes we expect.
-        if (supportedModes != UsbPort.MODE_DUAL) {
+        if ((supportedModes & MODE_DUAL) != MODE_DUAL) {
             canChangeMode = false;
             if (currentMode != 0 && currentMode != supportedModes) {
                 logAndPrint(Log.WARN, pw, "Ignoring inconsistent current mode from USB "
@@ -491,16 +890,16 @@ public class UsbPortManager {
                 // Can only change power role.
                 // Assume data role must remain at its current value.
                 supportedRoleCombinations |= UsbPort.combineRolesAsBit(
-                        UsbPort.POWER_ROLE_SOURCE, currentDataRole);
+                        POWER_ROLE_SOURCE, currentDataRole);
                 supportedRoleCombinations |= UsbPort.combineRolesAsBit(
-                        UsbPort.POWER_ROLE_SINK, currentDataRole);
+                        POWER_ROLE_SINK, currentDataRole);
             } else if (canChangeDataRole) {
                 // Can only change data role.
                 // Assume power role must remain at its current value.
                 supportedRoleCombinations |= UsbPort.combineRolesAsBit(
-                        currentPowerRole, UsbPort.DATA_ROLE_HOST);
+                        currentPowerRole, DATA_ROLE_HOST);
                 supportedRoleCombinations |= UsbPort.combineRolesAsBit(
-                        currentPowerRole, UsbPort.DATA_ROLE_DEVICE);
+                        currentPowerRole, DATA_ROLE_DEVICE);
             } else if (canChangeMode) {
                 // Can only change the mode.
                 // Assume both standard UFP and DFP configurations will become available
@@ -512,11 +911,15 @@ public class UsbPortManager {
         // Update the port data structures.
         PortInfo portInfo = mPorts.get(portId);
         if (portInfo == null) {
-            portInfo = new PortInfo(portId, supportedModes);
+            portInfo = new PortInfo(mContext.getSystemService(UsbManager.class),
+                portId, supportedModes, supportedContaminantProtectionModes,
+                supportsEnableContaminantPresenceProtection,
+                supportsEnableContaminantPresenceDetection);
             portInfo.setStatus(currentMode, canChangeMode,
                     currentPowerRole, canChangePowerRole,
                     currentDataRole, canChangeDataRole,
-                    supportedRoleCombinations);
+                    supportedRoleCombinations, contaminantProtectionStatus,
+                    contaminantDetectionStatus);
             mPorts.put(portId, portInfo);
         } else {
             // Sanity check that ports aren't changing definition out from under us.
@@ -524,14 +927,36 @@ public class UsbPortManager {
                 logAndPrint(Log.WARN, pw, "Ignoring inconsistent list of supported modes from "
                         + "USB port driver (should be immutable): "
                         + "previous=" + UsbPort.modeToString(
-                                portInfo.mUsbPort.getSupportedModes())
+                        portInfo.mUsbPort.getSupportedModes())
                         + ", current=" + UsbPort.modeToString(supportedModes));
             }
+
+            if (supportsEnableContaminantPresenceProtection
+                    != portInfo.mUsbPort.supportsEnableContaminantPresenceProtection()) {
+                logAndPrint(Log.WARN, pw,
+                        "Ignoring inconsistent supportsEnableContaminantPresenceProtection"
+                        + "USB port driver (should be immutable): "
+                        + "previous="
+                        + portInfo.mUsbPort.supportsEnableContaminantPresenceProtection()
+                        + ", current=" + supportsEnableContaminantPresenceProtection);
+            }
+
+            if (supportsEnableContaminantPresenceDetection
+                    != portInfo.mUsbPort.supportsEnableContaminantPresenceDetection()) {
+                logAndPrint(Log.WARN, pw,
+                        "Ignoring inconsistent supportsEnableContaminantPresenceDetection "
+                        + "USB port driver (should be immutable): "
+                        + "previous="
+                        + portInfo.mUsbPort.supportsEnableContaminantPresenceDetection()
+                        + ", current=" + supportsEnableContaminantPresenceDetection);
+            }
+
 
             if (portInfo.setStatus(currentMode, canChangeMode,
                     currentPowerRole, canChangePowerRole,
                     currentDataRole, canChangeDataRole,
-                    supportedRoleCombinations)) {
+                    supportedRoleCombinations, contaminantProtectionStatus,
+                    contaminantDetectionStatus)) {
                 portInfo.mDisposition = PortInfo.DISPOSITION_CHANGED;
             } else {
                 portInfo.mDisposition = PortInfo.DISPOSITION_READY;
@@ -539,149 +964,125 @@ public class UsbPortManager {
         }
     }
 
+    private void handlePortLocked(PortInfo portInfo, IndentingPrintWriter pw) {
+        sendPortChangedBroadcastLocked(portInfo);
+        logToStatsd(portInfo, pw);
+        updateContaminantNotification();
+    }
+
     private void handlePortAddedLocked(PortInfo portInfo, IndentingPrintWriter pw) {
         logAndPrint(Log.INFO, pw, "USB port added: " + portInfo);
-        sendPortChangedBroadcastLocked(portInfo);
+        handlePortLocked(portInfo, pw);
     }
 
     private void handlePortChangedLocked(PortInfo portInfo, IndentingPrintWriter pw) {
         logAndPrint(Log.INFO, pw, "USB port changed: " + portInfo);
-        sendPortChangedBroadcastLocked(portInfo);
+        enableContaminantDetectionIfNeeded(portInfo, pw);
+        handlePortLocked(portInfo, pw);
     }
 
     private void handlePortRemovedLocked(PortInfo portInfo, IndentingPrintWriter pw) {
         logAndPrint(Log.INFO, pw, "USB port removed: " + portInfo);
-        sendPortChangedBroadcastLocked(portInfo);
+        handlePortLocked(portInfo, pw);
+    }
+
+    // Constants have to be converted between USB HAL V1.2 ContaminantDetectionStatus
+    // to usb.proto as proto guidelines recommends 0 to be UNKNOWN/UNSUPPORTTED
+    // whereas HAL policy is against a loosely defined constant.
+    private static int convertContaminantDetectionStatusToProto(int contaminantDetectionStatus) {
+        switch (contaminantDetectionStatus) {
+            case UsbPortStatus.CONTAMINANT_DETECTION_NOT_SUPPORTED:
+                return UsbServiceProto.CONTAMINANT_STATUS_NOT_SUPPORTED;
+            case UsbPortStatus.CONTAMINANT_DETECTION_DISABLED:
+                return UsbServiceProto.CONTAMINANT_STATUS_DISABLED;
+            case UsbPortStatus.CONTAMINANT_DETECTION_NOT_DETECTED:
+                return UsbServiceProto.CONTAMINANT_STATUS_NOT_DETECTED;
+            case UsbPortStatus.CONTAMINANT_DETECTION_DETECTED:
+                return UsbServiceProto.CONTAMINANT_STATUS_DETECTED;
+            default:
+                return UsbServiceProto.CONTAMINANT_STATUS_UNKNOWN;
+        }
     }
 
     private void sendPortChangedBroadcastLocked(PortInfo portInfo) {
         final Intent intent = new Intent(UsbManager.ACTION_USB_PORT_CHANGED);
-        intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
-        intent.putExtra(UsbManager.EXTRA_PORT, portInfo.mUsbPort);
+        intent.addFlags(
+                Intent.FLAG_RECEIVER_FOREGROUND |
+                        Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND);
+        intent.putExtra(UsbManager.EXTRA_PORT, ParcelableUsbPort.of(portInfo.mUsbPort));
         intent.putExtra(UsbManager.EXTRA_PORT_STATUS, portInfo.mUsbPortStatus);
 
         // Guard against possible reentrance by posting the broadcast from the handler
         // instead of from within the critical section.
-        mHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
-            }
-        });
+        mHandler.post(() -> mContext.sendBroadcastAsUser(intent, UserHandle.ALL,
+                Manifest.permission.MANAGE_USB));
     }
 
-    private void scheduleUpdatePorts() {
-        if (!mHandler.hasMessages(MSG_UPDATE_PORTS)) {
-            mHandler.sendEmptyMessage(MSG_UPDATE_PORTS);
+    private void enableContaminantDetectionIfNeeded(PortInfo portInfo, IndentingPrintWriter pw) {
+        if (!mConnected.containsKey(portInfo.mUsbPort.getId())) {
+            return;
+        }
+
+        if (mConnected.get(portInfo.mUsbPort.getId())
+                && !portInfo.mUsbPortStatus.isConnected()
+                && portInfo.mUsbPortStatus.getContaminantDetectionStatus()
+                == UsbPortStatus.CONTAMINANT_DETECTION_DISABLED) {
+            // Contaminant detection might have been temporarily disabled by the user
+            // through SystemUI.
+            // Re-enable contaminant detection when the accessory is unplugged.
+            enableContaminantDetection(portInfo.mUsbPort.getId(), true, pw);
         }
     }
 
-    private static int readSupportedModes(File portDir) {
-        int modes = 0;
-        final String contents = readFile(portDir, SYSFS_PORT_SUPPORTED_MODES);
-        if (contents != null) {
-            if (contents.contains(PORT_MODE_DFP)) {
-                modes |= UsbPort.MODE_DFP;
+    private void logToStatsd(PortInfo portInfo, IndentingPrintWriter pw) {
+        // Port is removed
+        if (portInfo.mUsbPortStatus == null) {
+            if (mConnected.containsKey(portInfo.mUsbPort.getId())) {
+                //Previous logged a connected. Set it to disconnected.
+                if (mConnected.get(portInfo.mUsbPort.getId())) {
+                    FrameworkStatsLog.write(FrameworkStatsLog.USB_CONNECTOR_STATE_CHANGED,
+                            FrameworkStatsLog
+                                    .USB_CONNECTOR_STATE_CHANGED__STATE__STATE_DISCONNECTED,
+                            portInfo.mUsbPort.getId(), portInfo.mLastConnectDurationMillis);
+                }
+                mConnected.remove(portInfo.mUsbPort.getId());
             }
-            if (contents.contains(PORT_MODE_UFP)) {
-                modes |= UsbPort.MODE_UFP;
+
+            if (mContaminantStatus.containsKey(portInfo.mUsbPort.getId())) {
+                //Previous logged a contaminant detected. Set it to not detected.
+                if ((mContaminantStatus.get(portInfo.mUsbPort.getId())
+                        == UsbPortStatus.CONTAMINANT_DETECTION_DETECTED)) {
+                    FrameworkStatsLog.write(FrameworkStatsLog.USB_CONTAMINANT_REPORTED,
+                            portInfo.mUsbPort.getId(),
+                            convertContaminantDetectionStatusToProto(
+                                    UsbPortStatus.CONTAMINANT_DETECTION_NOT_DETECTED));
+                }
+                mContaminantStatus.remove(portInfo.mUsbPort.getId());
             }
+            return;
         }
-        return modes;
-    }
 
-    private static int readCurrentMode(File portDir) {
-        final String contents = readFile(portDir, SYSFS_PORT_MODE);
-        if (contents != null) {
-            if (contents.equals(PORT_MODE_DFP)) {
-                return UsbPort.MODE_DFP;
-            }
-            if (contents.equals(PORT_MODE_UFP)) {
-                return UsbPort.MODE_UFP;
-            }
+        if (!mConnected.containsKey(portInfo.mUsbPort.getId())
+                || (mConnected.get(portInfo.mUsbPort.getId())
+                != portInfo.mUsbPortStatus.isConnected())) {
+            mConnected.put(portInfo.mUsbPort.getId(), portInfo.mUsbPortStatus.isConnected());
+            FrameworkStatsLog.write(FrameworkStatsLog.USB_CONNECTOR_STATE_CHANGED,
+                    portInfo.mUsbPortStatus.isConnected()
+                    ? FrameworkStatsLog.USB_CONNECTOR_STATE_CHANGED__STATE__STATE_CONNECTED :
+                    FrameworkStatsLog.USB_CONNECTOR_STATE_CHANGED__STATE__STATE_DISCONNECTED,
+                    portInfo.mUsbPort.getId(), portInfo.mLastConnectDurationMillis);
         }
-        return 0;
-    }
 
-    private static int readCurrentPowerRole(File portDir) {
-        final String contents = readFile(portDir, SYSFS_PORT_POWER_ROLE);
-        if (contents != null) {
-            if (contents.equals(PORT_POWER_ROLE_SOURCE)) {
-                return UsbPort.POWER_ROLE_SOURCE;
-            }
-            if (contents.equals(PORT_POWER_ROLE_SINK)) {
-                return UsbPort.POWER_ROLE_SINK;
-            }
+        if (!mContaminantStatus.containsKey(portInfo.mUsbPort.getId())
+                || (mContaminantStatus.get(portInfo.mUsbPort.getId())
+                != portInfo.mUsbPortStatus.getContaminantDetectionStatus())) {
+            mContaminantStatus.put(portInfo.mUsbPort.getId(),
+                    portInfo.mUsbPortStatus.getContaminantDetectionStatus());
+            FrameworkStatsLog.write(FrameworkStatsLog.USB_CONTAMINANT_REPORTED,
+                    portInfo.mUsbPort.getId(),
+                    convertContaminantDetectionStatusToProto(
+                            portInfo.mUsbPortStatus.getContaminantDetectionStatus()));
         }
-        return 0;
-    }
-
-    private static int readCurrentDataRole(File portDir) {
-        final String contents = readFile(portDir, SYSFS_PORT_DATA_ROLE);
-        if (contents != null) {
-            if (contents.equals(PORT_DATA_ROLE_HOST)) {
-                return UsbPort.DATA_ROLE_HOST;
-            }
-            if (contents.equals(PORT_DATA_ROLE_DEVICE)) {
-                return UsbPort.DATA_ROLE_DEVICE;
-            }
-        }
-        return 0;
-    }
-
-    private static boolean fileIsRootWritable(String path) {
-        try {
-            // If the file is user writable, then it is root writable.
-            return (Os.stat(path).st_mode & OsConstants.S_IWUSR) != 0;
-        } catch (ErrnoException e) {
-            return false;
-        }
-    }
-
-    private static boolean canChangeMode(File portDir) {
-        return fileIsRootWritable(new File(portDir, SYSFS_PORT_MODE).getPath());
-    }
-
-    private static boolean canChangePowerRole(File portDir) {
-        return fileIsRootWritable(new File(portDir, SYSFS_PORT_POWER_ROLE).getPath());
-    }
-
-    private static boolean canChangeDataRole(File portDir) {
-        return fileIsRootWritable(new File(portDir, SYSFS_PORT_DATA_ROLE).getPath());
-    }
-
-    private static String readFile(File dir, String filename) {
-        final File file = new File(dir, filename);
-        try {
-            return IoUtils.readFileAsString(file.getAbsolutePath()).trim();
-        } catch (IOException ex) {
-            return null;
-        }
-    }
-
-    private static boolean waitForState(String property, String state) {
-        // wait for the transition to complete.
-        // give up after 5 seconds.
-        // 5 seconds is probably too long, but we have seen hardware that takes
-        // over 3 seconds to change states.
-        String value = null;
-        for (int i = 0; i < 100; i++) {
-            // State transition is done when property is set to the new configuration
-            value = SystemProperties.get(property);
-            if (state.equals(value)) return true;
-            SystemClock.sleep(50);
-        }
-        Slog.e(TAG, "waitForState(" + state + ") for " + property + " FAILED: got " + value);
-        return false;
-    }
-
-    private static String propertyFromFilename(String filename) {
-        return USB_TYPEC_PROP_PREFIX + filename;
-    }
-
-    private static boolean writeFile(File dir, String filename, String contents) {
-        SystemProperties.set(propertyFromFilename(filename), contents);
-        return waitForState(USB_TYPEC_STATE, contents);
     }
 
     private static void logAndPrint(int priority, IndentingPrintWriter pw, String msg) {
@@ -691,24 +1092,31 @@ public class UsbPortManager {
         }
     }
 
+    private static void logAndPrintException(IndentingPrintWriter pw, String msg, Exception e) {
+        Slog.e(TAG, msg, e);
+        if (pw != null) {
+            pw.println(msg + e);
+        }
+    }
+
     private final Handler mHandler = new Handler(FgThread.get().getLooper()) {
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
                 case MSG_UPDATE_PORTS: {
+                    Bundle b = msg.getData();
+                    ArrayList<RawPortInfo> PortInfo = b.getParcelableArrayList(PORT_INFO);
                     synchronized (mLock) {
-                        updatePortsLocked(null);
+                        updatePortsLocked(null, PortInfo);
                     }
                     break;
                 }
+                case MSG_SYSTEM_READY: {
+                    mNotificationManager = (NotificationManager)
+                            mContext.getSystemService(Context.NOTIFICATION_SERVICE);
+                    break;
+                }
             }
-        }
-    };
-
-    private final UEventObserver mUEventObserver = new UEventObserver() {
-        @Override
-        public void onUEvent(UEvent event) {
-            scheduleUpdatePorts();
         }
     };
 
@@ -726,16 +1134,29 @@ public class UsbPortManager {
         public boolean mCanChangeMode;
         public boolean mCanChangePowerRole;
         public boolean mCanChangeDataRole;
-        public int mDisposition; // default initialized to 0 which means added
+        // default initialized to 0 which means added
+        public int mDisposition;
+        // Tracks elapsedRealtime() of when the port was connected
+        public long mConnectedAtMillis;
+        // 0 when port is connected. Else reports the last connected duration
+        public long mLastConnectDurationMillis;
 
-        public PortInfo(String portId, int supportedModes) {
-            mUsbPort = new UsbPort(portId, supportedModes);
+        PortInfo(@NonNull UsbManager usbManager, @NonNull String portId, int supportedModes,
+                int supportedContaminantProtectionModes,
+                boolean supportsEnableContaminantPresenceDetection,
+                boolean supportsEnableContaminantPresenceProtection) {
+            mUsbPort = new UsbPort(usbManager, portId, supportedModes,
+                    supportedContaminantProtectionModes,
+                    supportsEnableContaminantPresenceDetection,
+                    supportsEnableContaminantPresenceProtection);
         }
 
         public boolean setStatus(int currentMode, boolean canChangeMode,
                 int currentPowerRole, boolean canChangePowerRole,
                 int currentDataRole, boolean canChangeDataRole,
                 int supportedRoleCombinations) {
+            boolean dispositionChanged = false;
+
             mCanChangeMode = canChangeMode;
             mCanChangePowerRole = canChangePowerRole;
             mCanChangeDataRole = canChangeDataRole;
@@ -744,12 +1165,77 @@ public class UsbPortManager {
                     || mUsbPortStatus.getCurrentPowerRole() != currentPowerRole
                     || mUsbPortStatus.getCurrentDataRole() != currentDataRole
                     || mUsbPortStatus.getSupportedRoleCombinations()
-                            != supportedRoleCombinations) {
+                    != supportedRoleCombinations) {
                 mUsbPortStatus = new UsbPortStatus(currentMode, currentPowerRole, currentDataRole,
-                        supportedRoleCombinations);
-                return true;
+                        supportedRoleCombinations, UsbPortStatus.CONTAMINANT_PROTECTION_NONE,
+                        UsbPortStatus.CONTAMINANT_DETECTION_NOT_SUPPORTED);
+                dispositionChanged = true;
             }
-            return false;
+
+            if (mUsbPortStatus.isConnected() && mConnectedAtMillis == 0) {
+                mConnectedAtMillis = SystemClock.elapsedRealtime();
+                mLastConnectDurationMillis = 0;
+            } else if (!mUsbPortStatus.isConnected() && mConnectedAtMillis != 0) {
+                mLastConnectDurationMillis = SystemClock.elapsedRealtime() - mConnectedAtMillis;
+                mConnectedAtMillis = 0;
+            }
+
+            return dispositionChanged;
+        }
+
+        public boolean setStatus(int currentMode, boolean canChangeMode,
+                int currentPowerRole, boolean canChangePowerRole,
+                int currentDataRole, boolean canChangeDataRole,
+                int supportedRoleCombinations, int contaminantProtectionStatus,
+                int contaminantDetectionStatus) {
+            boolean dispositionChanged = false;
+
+            mCanChangeMode = canChangeMode;
+            mCanChangePowerRole = canChangePowerRole;
+            mCanChangeDataRole = canChangeDataRole;
+            if (mUsbPortStatus == null
+                    || mUsbPortStatus.getCurrentMode() != currentMode
+                    || mUsbPortStatus.getCurrentPowerRole() != currentPowerRole
+                    || mUsbPortStatus.getCurrentDataRole() != currentDataRole
+                    || mUsbPortStatus.getSupportedRoleCombinations()
+                    != supportedRoleCombinations
+                    || mUsbPortStatus.getContaminantProtectionStatus()
+                    != contaminantProtectionStatus
+                    || mUsbPortStatus.getContaminantDetectionStatus()
+                    != contaminantDetectionStatus) {
+                mUsbPortStatus = new UsbPortStatus(currentMode, currentPowerRole, currentDataRole,
+                        supportedRoleCombinations, contaminantProtectionStatus,
+                        contaminantDetectionStatus);
+                dispositionChanged = true;
+            }
+
+            if (mUsbPortStatus.isConnected() && mConnectedAtMillis == 0) {
+                mConnectedAtMillis = SystemClock.elapsedRealtime();
+                mLastConnectDurationMillis = 0;
+            } else if (!mUsbPortStatus.isConnected() && mConnectedAtMillis != 0) {
+                mLastConnectDurationMillis = SystemClock.elapsedRealtime() - mConnectedAtMillis;
+                mConnectedAtMillis = 0;
+            }
+
+            return dispositionChanged;
+        }
+
+        void dump(@NonNull DualDumpOutputStream dump, @NonNull String idName, long id) {
+            long token = dump.start(idName, id);
+
+            writePort(dump, "port", UsbPortInfoProto.PORT, mUsbPort);
+            writePortStatus(dump, "status", UsbPortInfoProto.STATUS, mUsbPortStatus);
+            dump.write("can_change_mode", UsbPortInfoProto.CAN_CHANGE_MODE, mCanChangeMode);
+            dump.write("can_change_power_role", UsbPortInfoProto.CAN_CHANGE_POWER_ROLE,
+                    mCanChangePowerRole);
+            dump.write("can_change_data_role", UsbPortInfoProto.CAN_CHANGE_DATA_ROLE,
+                    mCanChangeDataRole);
+            dump.write("connected_at_millis",
+                    UsbPortInfoProto.CONNECTED_AT_MILLIS, mConnectedAtMillis);
+            dump.write("last_connect_duration_millis",
+                    UsbPortInfoProto.LAST_CONNECT_DURATION_MILLIS, mLastConnectDurationMillis);
+
+            dump.end(token);
         }
 
         @Override
@@ -757,27 +1243,120 @@ public class UsbPortManager {
             return "port=" + mUsbPort + ", status=" + mUsbPortStatus
                     + ", canChangeMode=" + mCanChangeMode
                     + ", canChangePowerRole=" + mCanChangePowerRole
-                    + ", canChangeDataRole=" + mCanChangeDataRole;
+                    + ", canChangeDataRole=" + mCanChangeDataRole
+                    + ", connectedAtMillis=" + mConnectedAtMillis
+                    + ", lastConnectDurationMillis=" + mLastConnectDurationMillis;
         }
     }
 
     /**
-     * Describes a simulated USB port.
-     * Roughly mirrors the information we would ordinarily get from the kernel.
+     * Used for storing the raw data from the kernel
+     * Values of the member variables mocked directly incase of emulation.
      */
-    private static final class SimulatedPortInfo {
-        public final String mPortId;
-        public final int mSupportedModes;
-        public int mCurrentMode;
-        public boolean mCanChangeMode;
-        public int mCurrentPowerRole;
-        public boolean mCanChangePowerRole;
-        public int mCurrentDataRole;
-        public boolean mCanChangeDataRole;
+    private static final class RawPortInfo implements Parcelable {
+        public final String portId;
+        public final int supportedModes;
+        public final int supportedContaminantProtectionModes;
+        public int currentMode;
+        public boolean canChangeMode;
+        public int currentPowerRole;
+        public boolean canChangePowerRole;
+        public int currentDataRole;
+        public boolean canChangeDataRole;
+        public boolean supportsEnableContaminantPresenceProtection;
+        public int contaminantProtectionStatus;
+        public boolean supportsEnableContaminantPresenceDetection;
+        public int contaminantDetectionStatus;
 
-        public SimulatedPortInfo(String portId, int supportedModes) {
-            mPortId = portId;
-            mSupportedModes = supportedModes;
+        RawPortInfo(String portId, int supportedModes) {
+            this.portId = portId;
+            this.supportedModes = supportedModes;
+            this.supportedContaminantProtectionModes = UsbPortStatus.CONTAMINANT_PROTECTION_NONE;
+            this.supportsEnableContaminantPresenceProtection = false;
+            this.contaminantProtectionStatus = UsbPortStatus.CONTAMINANT_PROTECTION_NONE;
+            this.supportsEnableContaminantPresenceDetection = false;
+            this.contaminantDetectionStatus = UsbPortStatus.CONTAMINANT_DETECTION_NOT_SUPPORTED;
         }
+
+        RawPortInfo(String portId, int supportedModes, int supportedContaminantProtectionModes,
+                int currentMode, boolean canChangeMode,
+                int currentPowerRole, boolean canChangePowerRole,
+                int currentDataRole, boolean canChangeDataRole,
+                boolean supportsEnableContaminantPresenceProtection,
+                int contaminantProtectionStatus,
+                boolean supportsEnableContaminantPresenceDetection,
+                int contaminantDetectionStatus) {
+            this.portId = portId;
+            this.supportedModes = supportedModes;
+            this.supportedContaminantProtectionModes = supportedContaminantProtectionModes;
+            this.currentMode = currentMode;
+            this.canChangeMode = canChangeMode;
+            this.currentPowerRole = currentPowerRole;
+            this.canChangePowerRole = canChangePowerRole;
+            this.currentDataRole = currentDataRole;
+            this.canChangeDataRole = canChangeDataRole;
+            this.supportsEnableContaminantPresenceProtection =
+                    supportsEnableContaminantPresenceProtection;
+            this.contaminantProtectionStatus = contaminantProtectionStatus;
+            this.supportsEnableContaminantPresenceDetection =
+                    supportsEnableContaminantPresenceDetection;
+            this.contaminantDetectionStatus = contaminantDetectionStatus;
+        }
+
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeString(portId);
+            dest.writeInt(supportedModes);
+            dest.writeInt(supportedContaminantProtectionModes);
+            dest.writeInt(currentMode);
+            dest.writeByte((byte) (canChangeMode ? 1 : 0));
+            dest.writeInt(currentPowerRole);
+            dest.writeByte((byte) (canChangePowerRole ? 1 : 0));
+            dest.writeInt(currentDataRole);
+            dest.writeByte((byte) (canChangeDataRole ? 1 : 0));
+            dest.writeBoolean(supportsEnableContaminantPresenceProtection);
+            dest.writeInt(contaminantProtectionStatus);
+            dest.writeBoolean(supportsEnableContaminantPresenceDetection);
+            dest.writeInt(contaminantDetectionStatus);
+        }
+
+        public static final Parcelable.Creator<RawPortInfo> CREATOR =
+                new Parcelable.Creator<RawPortInfo>() {
+            @Override
+            public RawPortInfo createFromParcel(Parcel in) {
+                String id = in.readString();
+                int supportedModes = in.readInt();
+                int supportedContaminantProtectionModes = in.readInt();
+                int currentMode = in.readInt();
+                boolean canChangeMode = in.readByte() != 0;
+                int currentPowerRole = in.readInt();
+                boolean canChangePowerRole = in.readByte() != 0;
+                int currentDataRole = in.readInt();
+                boolean canChangeDataRole = in.readByte() != 0;
+                boolean supportsEnableContaminantPresenceProtection = in.readBoolean();
+                int contaminantProtectionStatus = in.readInt();
+                boolean supportsEnableContaminantPresenceDetection = in.readBoolean();
+                int contaminantDetectionStatus = in.readInt();
+                return new RawPortInfo(id, supportedModes,
+                        supportedContaminantProtectionModes, currentMode, canChangeMode,
+                        currentPowerRole, canChangePowerRole,
+                        currentDataRole, canChangeDataRole,
+                        supportsEnableContaminantPresenceProtection,
+                        contaminantProtectionStatus,
+                        supportsEnableContaminantPresenceDetection,
+                        contaminantDetectionStatus);
+            }
+
+            @Override
+            public RawPortInfo[] newArray(int size) {
+                return new RawPortInfo[size];
+            }
+        };
     }
 }

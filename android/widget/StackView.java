@@ -15,8 +15,6 @@
 
 package android.widget;
 
-import java.lang.ref.WeakReference;
-
 import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
 import android.content.Context;
@@ -30,7 +28,6 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
 import android.graphics.RectF;
-import android.graphics.Region;
 import android.graphics.TableMaskFilter;
 import android.os.Bundle;
 import android.util.AttributeSet;
@@ -44,6 +41,10 @@ import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.animation.LinearInterpolator;
 import android.widget.RemoteViews.RemoteView;
+
+import com.android.internal.R;
+
+import java.lang.ref.WeakReference;
 
 @RemoteView
 /**
@@ -177,6 +178,8 @@ public class StackView extends AdapterViewAnimator {
         super(context, attrs, defStyleAttr, defStyleRes);
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, com.android.internal.R.styleable.StackView, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.StackView,
+                attrs, a, defStyleAttr, defStyleRes);
 
         mResOutColor = a.getColor(
                 com.android.internal.R.styleable.StackView_resOutColor, 0);
@@ -550,8 +553,8 @@ public class StackView extends AdapterViewAnimator {
 
         // We only expand the clip bounds if necessary.
         if (expandClipRegion) {
-            canvas.save(Canvas.CLIP_SAVE_FLAG);
-            canvas.clipRect(stackInvalidateRect, Region.Op.UNION);
+            canvas.save();
+            canvas.clipRectUnion(stackInvalidateRect);
             super.dispatchDraw(canvas);
             canvas.restore();
         } else {
@@ -670,12 +673,12 @@ public class StackView extends AdapterViewAnimator {
                 activeIndex = (swipeGestureType == GESTURE_SLIDE_DOWN) ? 1 : 0;
             }
 
-            boolean endOfStack = mLoopViews && adapterCount == 1 && 
-                ((mStackMode == ITEMS_SLIDE_UP && swipeGestureType == GESTURE_SLIDE_UP) ||
-                 (mStackMode == ITEMS_SLIDE_DOWN && swipeGestureType == GESTURE_SLIDE_DOWN));
-            boolean beginningOfStack = mLoopViews && adapterCount == 1 && 
-                ((mStackMode == ITEMS_SLIDE_DOWN && swipeGestureType == GESTURE_SLIDE_UP) ||
-                 (mStackMode == ITEMS_SLIDE_UP && swipeGestureType == GESTURE_SLIDE_DOWN));
+            boolean endOfStack = mLoopViews && adapterCount == 1
+                    && ((mStackMode == ITEMS_SLIDE_UP && swipeGestureType == GESTURE_SLIDE_UP)
+                    || (mStackMode == ITEMS_SLIDE_DOWN && swipeGestureType == GESTURE_SLIDE_DOWN));
+            boolean beginningOfStack = mLoopViews && adapterCount == 1
+                    && ((mStackMode == ITEMS_SLIDE_DOWN && swipeGestureType == GESTURE_SLIDE_UP)
+                    || (mStackMode == ITEMS_SLIDE_UP && swipeGestureType == GESTURE_SLIDE_DOWN));
 
             int stackMode;
             if (mLoopViews && !beginningOfStack && !endOfStack) {
@@ -1051,6 +1054,11 @@ public class StackView extends AdapterViewAnimator {
 
                 float d = (float) Math.hypot(viewLp.horizontalOffset, viewLp.verticalOffset);
                 float maxd = (float) Math.hypot(mSlideAmount, 0.4f * mSlideAmount);
+                if (d > maxd) {
+                    // Because mSlideAmount is updated in onLayout(), it is possible that d > maxd
+                    // if we get onLayout() right before this method is called.
+                    d = maxd;
+                }
 
                 if (velocity == 0) {
                     return (invert ? (1 - d / maxd) : d / maxd) * DEFAULT_ANIMATION_DURATION;
@@ -1235,12 +1243,38 @@ public class StackView extends AdapterViewAnimator {
         info.setScrollable(getChildCount() > 1);
         if (isEnabled()) {
             if (getDisplayedChild() < getChildCount() - 1) {
-                info.addAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
+                if (mStackMode == ITEMS_SLIDE_UP) {
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_PAGE_DOWN);
+                } else {
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_PAGE_UP);
+                }
             }
             if (getDisplayedChild() > 0) {
-                info.addAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);
+                info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
+                if (mStackMode == ITEMS_SLIDE_UP) {
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_PAGE_UP);
+                } else {
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_PAGE_DOWN);
+                }
             }
         }
+    }
+
+    private boolean goForward() {
+        if (getDisplayedChild() < getChildCount() - 1) {
+            showNext();
+            return true;
+        }
+        return false;
+    }
+
+    private boolean goBackward() {
+        if (getDisplayedChild() > 0) {
+            showPrevious();
+            return true;
+        }
+        return false;
     }
 
     /** @hide */
@@ -1254,17 +1288,25 @@ public class StackView extends AdapterViewAnimator {
         }
         switch (action) {
             case AccessibilityNodeInfo.ACTION_SCROLL_FORWARD: {
-                if (getDisplayedChild() < getChildCount() - 1) {
-                    showNext();
-                    return true;
-                }
-            } return false;
+                return goForward();
+            }
             case AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD: {
-                if (getDisplayedChild() > 0) {
-                    showPrevious();
-                    return true;
+                return goBackward();
+            }
+            case R.id.accessibilityActionPageUp: {
+                if (mStackMode == ITEMS_SLIDE_UP) {
+                    return goBackward();
+                } else {
+                    return goForward();
                 }
-            } return false;
+            }
+            case R.id.accessibilityActionPageDown: {
+                if (mStackMode == ITEMS_SLIDE_UP) {
+                    return goForward();
+                } else {
+                    return goBackward();
+                }
+            }
         }
         return false;
     }

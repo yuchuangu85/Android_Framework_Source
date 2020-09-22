@@ -24,6 +24,8 @@ import android.view.animation.AnimationUtils;
 
 import com.android.settingslib.animation.AppearAnimationUtils;
 import com.android.settingslib.animation.DisappearAnimationUtils;
+import com.android.systemui.Dependency;
+import com.android.systemui.R;
 
 /**
  * Displays a PIN pad for unlocking.
@@ -61,13 +63,15 @@ public class KeyguardPINView extends KeyguardPinBasedInputView {
                         mContext, android.R.interpolator.fast_out_linear_in));
         mDisappearYTranslation = getResources().getDimensionPixelSize(
                 R.dimen.disappear_y_translation);
-        mKeyguardUpdateMonitor = KeyguardUpdateMonitor.getInstance(context);
+        mKeyguardUpdateMonitor = Dependency.get(KeyguardUpdateMonitor.class);
     }
 
     @Override
     protected void resetState() {
         super.resetState();
-        mSecurityMessageDisplay.setMessage(R.string.kg_pin_instructions, false);
+        if (mSecurityMessageDisplay != null) {
+            mSecurityMessageDisplay.setMessage("");
+        }
     }
 
     @Override
@@ -79,11 +83,11 @@ public class KeyguardPINView extends KeyguardPinBasedInputView {
     protected void onFinishInflate() {
         super.onFinishInflate();
 
-        mContainer = (ViewGroup) findViewById(R.id.container);
-        mRow0 = (ViewGroup) findViewById(R.id.row0);
-        mRow1 = (ViewGroup) findViewById(R.id.row1);
-        mRow2 = (ViewGroup) findViewById(R.id.row2);
-        mRow3 = (ViewGroup) findViewById(R.id.row3);
+        mContainer = findViewById(R.id.container);
+        mRow0 = findViewById(R.id.row0);
+        mRow1 = findViewById(R.id.row1);
+        mRow2 = findViewById(R.id.row2);
+        mRow3 = findViewById(R.id.row3);
         mDivider = findViewById(R.id.divider);
         mViews = new View[][]{
                 new View[]{
@@ -102,11 +106,20 @@ public class KeyguardPINView extends KeyguardPinBasedInputView {
                         findViewById(R.id.key9)
                 },
                 new View[]{
-                        null, findViewById(R.id.key0), findViewById(R.id.key_enter)
+                        findViewById(R.id.delete_button), findViewById(R.id.key0),
+                        findViewById(R.id.key_enter)
                 },
                 new View[]{
                         null, mEcaView, null
                 }};
+
+        View cancelBtn = findViewById(R.id.cancel_button);
+        if (cancelBtn != null) {
+            cancelBtn.setOnClickListener(view -> {
+                mCallback.reset();
+                mCallback.onCancelClicked();
+            });
+        }
     }
 
     @Override

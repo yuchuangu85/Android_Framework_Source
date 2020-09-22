@@ -16,17 +16,19 @@
 
 package android.nfc.cardemulation;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Parcel;
+import android.os.Parcelable;
+import android.util.Log;
+import android.util.proto.ProtoOutputStream;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
 
-import android.os.Parcel;
-import android.os.Parcelable;
-import android.util.Log;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * The AidGroup class represents a group of Application Identifiers (AIDs).
@@ -45,8 +47,11 @@ public final class AidGroup implements Parcelable {
 
     static final String TAG = "AidGroup";
 
+    @UnsupportedAppUsage
     final List<String> aids;
+    @UnsupportedAppUsage
     final String category;
+    @UnsupportedAppUsage
     final String description;
 
     /**
@@ -79,6 +84,7 @@ public final class AidGroup implements Parcelable {
         this.description = null;
     }
 
+    @UnsupportedAppUsage
     AidGroup(String category, String description) {
         this.aids = new ArrayList<String>();
         this.category = category;
@@ -88,6 +94,7 @@ public final class AidGroup implements Parcelable {
     /**
      * @return the category of this AID group
      */
+    @UnsupportedAppUsage
     public String getCategory() {
         return category;
     }
@@ -95,6 +102,7 @@ public final class AidGroup implements Parcelable {
     /**
      * @return the list of AIDs in this group
      */
+    @UnsupportedAppUsage
     public List<String> getAids() {
         return aids;
     }
@@ -108,6 +116,21 @@ public final class AidGroup implements Parcelable {
             out.append(", ");
         }
         return out.toString();
+    }
+
+    /**
+     * Dump debugging info as AidGroupProto
+     *
+     * If the output belongs to a sub message, the caller is responsible for wrapping this function
+     * between {@link ProtoOutputStream#start(long)} and {@link ProtoOutputStream#end(long)}.
+     *
+     * @param proto the ProtoOutputStream to write to
+     */
+    public void dump(ProtoOutputStream proto) {
+        proto.write(AidGroupProto.CATEGORY, category);
+        for (String aid : aids) {
+            proto.write(AidGroupProto.AIDS, aid);
+        }
     }
 
     @Override
@@ -124,7 +147,8 @@ public final class AidGroup implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<AidGroup> CREATOR =
+    @UnsupportedAppUsage
+    public static final @android.annotation.NonNull Parcelable.Creator<AidGroup> CREATOR =
             new Parcelable.Creator<AidGroup>() {
 
         @Override
@@ -144,6 +168,7 @@ public final class AidGroup implements Parcelable {
         }
     };
 
+    @UnsupportedAppUsage
     static public AidGroup createFromXml(XmlPullParser parser) throws XmlPullParserException, IOException {
         String category = null;
         ArrayList<String> aids = new ArrayList<String>();
@@ -185,6 +210,7 @@ public final class AidGroup implements Parcelable {
         return group;
     }
 
+    @UnsupportedAppUsage
     public void writeAsXml(XmlSerializer out) throws IOException {
         out.startTag(null, "aid-group");
         out.attribute(null, "category", category);

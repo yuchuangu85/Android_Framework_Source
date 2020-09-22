@@ -16,15 +16,26 @@
 
 package android.view;
 
+import static android.Manifest.permission.CONFIGURE_DISPLAY_COLOR_MODE;
+
 import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
-import android.content.Context;
+import android.annotation.SuppressLint;
+import android.annotation.TestApi;
+import android.app.KeyguardManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.CompatibilityInfo;
+import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.graphics.ColorSpace;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.hardware.display.DisplayManager;
 import android.hardware.display.DisplayManagerGlobal;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.Process;
@@ -34,9 +45,9 @@ import android.util.Log;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
 import java.util.Arrays;
-
-import static android.Manifest.permission.CONFIGURE_DISPLAY_COLOR_MODE;
+import java.util.List;
 
 /**
  * Provides information about the size and density of a logical display.
@@ -46,17 +57,17 @@ import static android.Manifest.permission.CONFIGURE_DISPLAY_COLOR_MODE;
  * <li>The application display area specifies the part of the display that may contain
  * an application window, excluding the system decorations.  The application display area may
  * be smaller than the real display area because the system subtracts the space needed
- * for decor elements such as the status bar.  Use the following methods to query the
- * application display area: {@link #getSize}, {@link #getRectSize} and {@link #getMetrics}.</li>
+ * for decor elements such as the status bar.  Use {@link WindowMetrics#getBounds()} to query the
+ * application window bounds.</li>
  * <li>The real display area specifies the part of the display that contains content
  * including the system decorations.  Even so, the real display area may be smaller than the
  * physical size of the display if the window manager is emulating a smaller display
- * using (adb shell am display-size).  Use the following methods to query the
+ * using (adb shell wm size).  Use the following methods to query the
  * real display area: {@link #getRealSize}, {@link #getRealMetrics}.</li>
  * </ul>
  * </p><p>
  * A logical display does not necessarily represent a particular physical display device
- * such as the built-in screen or an external monitor.  The contents of a logical
+ * such as the internal display or an external display.  The contents of a logical
  * display may be presented on one or more physical displays according to the devices
  * that are currently attached and whether mirroring has been enabled.
  * </p>
@@ -70,11 +81,13 @@ public final class Display {
     private final int mLayerStack;
     private final int mFlags;
     private final int mType;
-    private final String mAddress;
+    private final DisplayAddress mAddress;
     private final int mOwnerUid;
     private final String mOwnerPackageName;
-    private final DisplayAdjustments mDisplayAdjustments;
+    private final Resources mResources;
+    private DisplayAdjustments mDisplayAdjustments;
 
+    @UnsupportedAppUsage
     private DisplayInfo mDisplayInfo; // never null
     private boolean mIsValid;
 
@@ -84,15 +97,22 @@ public final class Display {
     // We cache the app width and height properties briefly between calls
     // to getHeight() and getWidth() to ensure that applications perceive
     // consistent results when the size changes (most of the time).
-    // Applications should now be using getSize() instead.
+    // Applications should now be using WindowMetrics instead.
     private static final int CACHED_APP_SIZE_DURATION_MILLIS = 20;
     private long mLastCachedAppSizeUpdate;
     private int mCachedAppWidthCompat;
     private int mCachedAppHeightCompat;
 
     /**
-     * The default Display id, which is the id of the built-in primary display
-     * assuming there is one.
+     * Indicates that the application is started in a different rotation than the real display, so
+     * the display information may be adjusted. That ensures the methods {@link #getRotation},
+     * {@link #getRealSize}, {@link #getRealMetrics}, and {@link #getCutout} are consistent with how
+     * the application window is laid out.
+     */
+    private boolean mMayAdjustByFixedRotation;
+
+    /**
+     * The default Display id, which is the id of the primary display assuming there is one.
      */
     public static final int DEFAULT_DISPLAY = 0;
 
@@ -165,7 +185,7 @@ public final class Display {
 
     /**
      * Display flag: Indicates that the display is private.  Only the application that
-     * owns the display can create windows on it.
+     * owns the display and apps that are already on the display can create windows on it.
      *
      * @see #getFlags
      */
@@ -175,7 +195,7 @@ public final class Display {
      * Display flag: Indicates that the display is a presentation display.
      * <p>
      * This flag identifies secondary displays that are suitable for
-     * use as presentation displays such as HDMI or Wireless displays.  Applications
+     * use as presentation displays such as external or wireless displays.  Applications
      * may automatically project their content to presentation displays to provide
      * richer second screen experiences.
      * </p>
@@ -196,6 +216,51 @@ public final class Display {
     public static final int FLAG_ROUND = 1 << 4;
 
     /**
+     * Display flag: Indicates that the display can show its content when non-secure keyguard is
+     * shown.
+     * <p>
+     * This flag identifies secondary displays that will continue showing content if keyguard can be
+     * dismissed without entering credentials.
+     * </p><p>
+     * An example of usage is a virtual display which content is displayed on external hardware
+     * display that is not visible to the system directly.
+     * </p>
+     *
+     * @see DisplayManager#VIRTUAL_DISPLAY_FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD
+     * @see KeyguardManager#isDeviceSecure()
+     * @see KeyguardManager#isDeviceLocked()
+     * @see #getFlags
+     * @hide
+     */
+    // TODO (b/114338689): Remove the flag and use IWindowManager#shouldShowWithInsecureKeyguard
+    public static final int FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD = 1 << 5;
+
+    /**
+     * Display flag: Indicates that the display should show system decorations.
+     * <p>
+     * This flag identifies secondary displays that should show system decorations, such as status
+     * bar, navigation bar, home activity or IME.
+     * </p>
+     * <p>Note that this flag doesn't work without {@link #FLAG_TRUSTED}</p>
+     *
+     * @see #getFlags()
+     * @hide
+     */
+    // TODO (b/114338689): Remove the flag and use IWindowManager#setShouldShowSystemDecors
+    public static final int FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS = 1 << 6;
+
+    /**
+     * Flag: The display is trusted to show system decorations and receive inputs without users'
+     * touch.
+     * @see #FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS
+     *
+     * @see #getFlags()
+     * @hide
+     */
+    @TestApi
+    public static final int FLAG_TRUSTED = 1 << 7;
+
+    /**
      * Display flag: Indicates that the contents of the display should not be scaled
      * to fit the physical screen dimensions.  Used for development only to emulate
      * devices with smaller physicals screens while preserving density.
@@ -208,36 +273,46 @@ public final class Display {
      * Display type: Unknown display type.
      * @hide
      */
+    @UnsupportedAppUsage
+    @TestApi
     public static final int TYPE_UNKNOWN = 0;
 
     /**
-     * Display type: Built-in display.
+     * Display type: Physical display connected through an internal port.
      * @hide
      */
-    public static final int TYPE_BUILT_IN = 1;
+    @TestApi
+    public static final int TYPE_INTERNAL = 1;
 
     /**
-     * Display type: HDMI display.
+     * Display type: Physical display connected through an external port.
      * @hide
      */
-    public static final int TYPE_HDMI = 2;
+    @UnsupportedAppUsage
+    @TestApi
+    public static final int TYPE_EXTERNAL = 2;
 
     /**
      * Display type: WiFi display.
      * @hide
      */
+    @UnsupportedAppUsage
+    @TestApi
     public static final int TYPE_WIFI = 3;
 
     /**
      * Display type: Overlay display.
      * @hide
      */
+    @TestApi
     public static final int TYPE_OVERLAY = 4;
 
     /**
      * Display type: Virtual display.
      * @hide
      */
+    @UnsupportedAppUsage
+    @TestApi
     public static final int TYPE_VIRTUAL = 5;
 
     /**
@@ -245,21 +320,21 @@ public final class Display {
      *
      * @see #getState
      */
-    public static final int STATE_UNKNOWN = 0;
+    public static final int STATE_UNKNOWN = ViewProtoEnums.DISPLAY_STATE_UNKNOWN; // 0
 
     /**
      * Display state: The display is off.
      *
      * @see #getState
      */
-    public static final int STATE_OFF = 1;
+    public static final int STATE_OFF = ViewProtoEnums.DISPLAY_STATE_OFF; // 1
 
     /**
      * Display state: The display is on.
      *
      * @see #getState
      */
-    public static final int STATE_ON = 2;
+    public static final int STATE_ON = ViewProtoEnums.DISPLAY_STATE_ON; // 2
 
     /**
      * Display state: The display is dozing in a low power state; it is still
@@ -269,23 +344,42 @@ public final class Display {
      * @see #getState
      * @see android.os.PowerManager#isInteractive
      */
-    public static final int STATE_DOZE = 3;
+    public static final int STATE_DOZE = ViewProtoEnums.DISPLAY_STATE_DOZE; // 3
 
     /**
      * Display state: The display is dozing in a suspended low power state; it is still
-     * on but is optimized for showing static system-provided content while the device
-     * is non-interactive.  This mode may be used to conserve even more power by allowing
-     * the hardware to stop applying frame buffer updates from the graphics subsystem or
-     * to take over the display and manage it autonomously to implement low power always-on
-     * display functionality.
+     * on but the CPU is not updating it. This may be used in one of two ways: to show
+     * static system-provided content while the device is non-interactive, or to allow
+     * a "Sidekick" compute resource to update the display. For this reason, the
+     * CPU must not control the display in this mode.
      *
      * @see #getState
      * @see android.os.PowerManager#isInteractive
      */
-    public static final int STATE_DOZE_SUSPEND = 4;
+    public static final int STATE_DOZE_SUSPEND = ViewProtoEnums.DISPLAY_STATE_DOZE_SUSPEND; // 4
+
+    /**
+     * Display state: The display is on and optimized for VR mode.
+     *
+     * @see #getState
+     * @see android.os.PowerManager#isInteractive
+     */
+    public static final int STATE_VR = ViewProtoEnums.DISPLAY_STATE_VR; // 5
+
+    /**
+     * Display state: The display is in a suspended full power state; it is still
+     * on but the CPU is not updating it. This may be used in one of two ways: to show
+     * static system-provided content while the device is non-interactive, or to allow
+     * a "Sidekick" compute resource to update the display. For this reason, the
+     * CPU must not control the display in this mode.
+     *
+     * @see #getState
+     * @see android.os.PowerManager#isInteractive
+     */
+    public static final int STATE_ON_SUSPEND = ViewProtoEnums.DISPLAY_STATE_ON_SUSPEND; // 6
 
     /* The color mode constants defined below must be kept in sync with the ones in
-     * system/graphics.h */
+     * system/core/include/system/graphics-base.h */
 
     /**
      * Display color mode: The current color mode is unknown or invalid.
@@ -299,27 +393,98 @@ public final class Display {
      */
     public static final int COLOR_MODE_DEFAULT = 0;
 
-    /**
-     * Display color mode: SRGB
-     * @hide
-     */
+    /** @hide */
+    public static final int COLOR_MODE_BT601_625 = 1;
+    /** @hide */
+    public static final int COLOR_MODE_BT601_625_UNADJUSTED = 2;
+    /** @hide */
+    public static final int COLOR_MODE_BT601_525 = 3;
+    /** @hide */
+    public static final int COLOR_MODE_BT601_525_UNADJUSTED = 4;
+    /** @hide */
+    public static final int COLOR_MODE_BT709 = 5;
+    /** @hide */
+    public static final int COLOR_MODE_DCI_P3 = 6;
+    /** @hide */
     public static final int COLOR_MODE_SRGB = 7;
+    /** @hide */
+    public static final int COLOR_MODE_ADOBE_RGB = 8;
+    /** @hide */
+    public static final int COLOR_MODE_DISPLAY_P3 = 9;
+
+    /** @hide **/
+    @IntDef(prefix = {"COLOR_MODE_"}, value = {
+            COLOR_MODE_INVALID,
+            COLOR_MODE_DEFAULT,
+            COLOR_MODE_BT601_625,
+            COLOR_MODE_BT601_625_UNADJUSTED,
+            COLOR_MODE_BT601_525,
+            COLOR_MODE_BT601_525_UNADJUSTED,
+            COLOR_MODE_BT709,
+            COLOR_MODE_DCI_P3,
+            COLOR_MODE_SRGB,
+            COLOR_MODE_ADOBE_RGB,
+            COLOR_MODE_DISPLAY_P3
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface ColorMode {}
 
     /**
-     * Internal method to create a display.
-     * Applications should use {@link android.view.WindowManager#getDefaultDisplay()}
-     * or {@link android.hardware.display.DisplayManager#getDisplay}
-     * to get a display object.
+     * Indicates that when display is removed, all its activities will be moved to the primary
+     * display and the topmost activity should become focused.
      *
      * @hide
      */
-    public Display(DisplayManagerGlobal global,
-            int displayId, DisplayInfo displayInfo /*not null*/,
+    // TODO (b/114338689): Remove the flag and use WindowManager#REMOVE_CONTENT_MODE_MOVE_TO_PRIMARY
+    public static final int REMOVE_MODE_MOVE_CONTENT_TO_PRIMARY = 0;
+    /**
+     * Indicates that when display is removed, all its stacks and tasks will be removed, all
+     * activities will be destroyed according to the usual lifecycle.
+     *
+     * @hide
+     */
+    // TODO (b/114338689): Remove the flag and use WindowManager#REMOVE_CONTENT_MODE_DESTROY
+    public static final int REMOVE_MODE_DESTROY_CONTENT = 1;
+
+    /**
+     * Internal method to create a display.
+     * The display created with this method will have a static {@link DisplayAdjustments} applied.
+     * Applications should use {@link android.content.Context#getDisplay} with
+     * {@link android.app.Activity} or a context associated with a {@link Display} via
+     * {@link android.content.Context#createDisplayContext(Display)}
+     * to get a display object associated with a {@link android.app.Context}, or
+     * {@link android.hardware.display.DisplayManager#getDisplay} to get a display object by id.
+     *
+     * @see android.content.Context#getDisplay()
+     * @see android.content.Context#createDisplayContext(Display)
+     * @hide
+     */
+    public Display(DisplayManagerGlobal global, int displayId, /*@NotNull*/ DisplayInfo displayInfo,
             DisplayAdjustments daj) {
+        this(global, displayId, displayInfo, daj, null /*res*/);
+    }
+
+    /**
+     * Internal method to create a display.
+     * The display created with this method will be adjusted based on the adjustments in the
+     * supplied {@link Resources}.
+     *
+     * @hide
+     */
+    public Display(DisplayManagerGlobal global, int displayId, /*@NotNull*/ DisplayInfo displayInfo,
+            Resources res) {
+        this(global, displayId, displayInfo, null /*daj*/, res);
+    }
+
+    private Display(DisplayManagerGlobal global, int displayId,
+            /*@NotNull*/ DisplayInfo displayInfo, DisplayAdjustments daj, Resources res) {
         mGlobal = global;
         mDisplayId = displayId;
         mDisplayInfo = displayInfo;
-        mDisplayAdjustments = new DisplayAdjustments(daj);
+        mResources = res;
+        mDisplayAdjustments = mResources != null
+            ? new DisplayAdjustments(mResources.getConfiguration())
+            : daj != null ? new DisplayAdjustments(daj) : new DisplayAdjustments();
         mIsValid = true;
 
         // Cache properties that cannot change as long as the display is valid.
@@ -340,6 +505,19 @@ public final class Display {
      */
     public int getDisplayId() {
         return mDisplayId;
+    }
+
+    /**
+     * Gets the display unique id.
+     * <p>
+     * Unique id is different from display id because physical displays have stable unique id across
+     * reboots.
+     *
+     * @see com.android.service.display.DisplayDevice#hasStableUniqueId().
+     * @hide
+     */
+    public String getUniqueId() {
+        return mDisplayInfo.uniqueId;
     }
 
     /**
@@ -369,6 +547,7 @@ public final class Display {
      * @return True if the display is still valid.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public boolean getDisplayInfo(DisplayInfo outDisplayInfo) {
         synchronized (this) {
             updateDisplayInfoLocked();
@@ -398,6 +577,7 @@ public final class Display {
      * @see #FLAG_SUPPORTS_PROTECTED_BUFFERS
      * @see #FLAG_SECURE
      * @see #FLAG_PRIVATE
+     * @see #FLAG_ROUND
      */
     public int getFlags() {
         return mFlags;
@@ -409,13 +589,15 @@ public final class Display {
      * @return The display type.
      *
      * @see #TYPE_UNKNOWN
-     * @see #TYPE_BUILT_IN
-     * @see #TYPE_HDMI
+     * @see #TYPE_INTERNAL
+     * @see #TYPE_EXTERNAL
      * @see #TYPE_WIFI
      * @see #TYPE_OVERLAY
      * @see #TYPE_VIRTUAL
      * @hide
      */
+    @UnsupportedAppUsage
+    @TestApi
     public int getType() {
         return mType;
     }
@@ -427,7 +609,7 @@ public final class Display {
      * @return The display address.
      * @hide
      */
-    public String getAddress() {
+    public DisplayAddress getAddress() {
         return mAddress;
     }
 
@@ -453,6 +635,7 @@ public final class Display {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public String getOwnerPackageName() {
         return mOwnerPackageName;
     }
@@ -463,7 +646,15 @@ public final class Display {
      * @return The display adjustments holder, or null if none is required.
      * @hide
      */
+    @UnsupportedAppUsage
     public DisplayAdjustments getDisplayAdjustments() {
+        if (mResources != null) {
+            final DisplayAdjustments currentAdjustements = mResources.getDisplayAdjustments();
+            if (!mDisplayAdjustments.equals(currentAdjustements)) {
+                mDisplayAdjustments = new DisplayAdjustments(currentAdjustements);
+            }
+        }
+
         return mDisplayAdjustments;
     }
 
@@ -510,11 +701,14 @@ public final class Display {
      * </p>
      *
      * @param outSize A {@link Point} object to receive the size information.
+     * @deprecated Use {@link WindowManager#getCurrentWindowMetrics()} to obtain an instance of
+     * {@link WindowMetrics} and use {@link WindowMetrics#getBounds()} instead.
      */
+    @Deprecated
     public void getSize(Point outSize) {
         synchronized (this) {
             updateDisplayInfoLocked();
-            mDisplayInfo.getAppMetrics(mTempMetrics, mDisplayAdjustments);
+            mDisplayInfo.getAppMetrics(mTempMetrics, getDisplayAdjustments());
             outSize.x = mTempMetrics.widthPixels;
             outSize.y = mTempMetrics.heightPixels;
         }
@@ -524,12 +718,14 @@ public final class Display {
      * Gets the size of the display as a rectangle, in pixels.
      *
      * @param outSize A {@link Rect} object to receive the size information.
-     * @see #getSize(Point)
+     * @deprecated Use {@link WindowMetrics#getBounds()} to get the dimensions of the application
+     * window area.
      */
+    @Deprecated
     public void getRectSize(Rect outSize) {
         synchronized (this) {
             updateDisplayInfoLocked();
-            mDisplayInfo.getAppMetrics(mTempMetrics, mDisplayAdjustments);
+            mDisplayInfo.getAppMetrics(mTempMetrics, getDisplayAdjustments());
             outSize.set(0, 0, mTempMetrics.widthPixels, mTempMetrics.heightPixels);
         }
     }
@@ -579,6 +775,7 @@ public final class Display {
      * mostly for wallpapers.
      * @hide
      */
+    @UnsupportedAppUsage
     public int getMaximumSizeDimension() {
         synchronized (this) {
             updateDisplayInfoLocked();
@@ -587,7 +784,7 @@ public final class Display {
     }
 
     /**
-     * @deprecated Use {@link #getSize(Point)} instead.
+     * @deprecated Use {@link WindowMetrics#getBounds#width()} instead.
      */
     @Deprecated
     public int getWidth() {
@@ -598,27 +795,13 @@ public final class Display {
     }
 
     /**
-     * @deprecated Use {@link #getSize(Point)} instead.
+     * @deprecated Use {@link WindowMetrics#getBounds()#height()} instead.
      */
     @Deprecated
     public int getHeight() {
         synchronized (this) {
             updateCachedAppSizeIfNeededLocked();
             return mCachedAppHeightCompat;
-        }
-    }
-
-    /**
-     * @hide
-     * Return a rectangle defining the insets of the overscan region of the display.
-     * Each field of the rectangle is the number of pixels the overscan area extends
-     * into the display on that side.
-     */
-    public void getOverscanInsets(Rect outRect) {
-        synchronized (this) {
-            updateDisplayInfoLocked();
-            outRect.set(mDisplayInfo.overscanLeft, mDisplayInfo.overscanTop,
-                    mDisplayInfo.overscanRight, mDisplayInfo.overscanBottom);
         }
     }
 
@@ -643,7 +826,9 @@ public final class Display {
     public int getRotation() {
         synchronized (this) {
             updateDisplayInfoLocked();
-            return mDisplayInfo.rotation;
+            return mMayAdjustByFixedRotation
+                    ? getDisplayAdjustments().getRotation(mDisplayInfo.rotation)
+                    : mDisplayInfo.rotation;
         }
     }
 
@@ -655,6 +840,22 @@ public final class Display {
     @Surface.Rotation
     public int getOrientation() {
         return getRotation();
+    }
+
+
+    /**
+     * Returns the {@link DisplayCutout}, or {@code null} if there is none.
+     *
+     * @see DisplayCutout
+     */
+    @Nullable
+    public DisplayCutout getCutout() {
+        synchronized (this) {
+            updateDisplayInfoLocked();
+            return mMayAdjustByFixedRotation
+                    ? getDisplayAdjustments().getDisplayCutout(mDisplayInfo.displayCutout)
+                    : mDisplayInfo.displayCutout;
+        }
     }
 
     /**
@@ -717,6 +918,31 @@ public final class Display {
     }
 
     /**
+     * <p> Returns true if the connected display can be switched into a mode with minimal
+     * post processing. </p>
+     *
+     * <p> If the Display sink is connected via HDMI, this method will return true if the
+     * display supports either Auto Low Latency Mode or Game Content Type.
+     *
+     * <p> If the Display sink has an internal connection or uses some other protocol than
+     * HDMI, this method will return true if the sink can be switched into an
+     * implementation-defined low latency image processing mode. </p>
+     *
+     * <p> The ability to switch to a mode with minimal post processing may be disabled
+     * by a user setting in the system settings menu. In that case, this method returns
+     * false. </p>
+     *
+     * @see android.view.Window#setPreferMinimalPostProcessing
+     */
+    @SuppressLint("VisiblySynchronized")
+    public boolean isMinimalPostProcessingSupported() {
+        synchronized (this) {
+            updateDisplayInfoLocked();
+            return mDisplayInfo.minimalPostProcessingSupported;
+        }
+    }
+
+    /**
      * Request the display applies a color mode.
      * @hide
      */
@@ -737,12 +963,73 @@ public final class Display {
     }
 
     /**
+     * @hide
+     * Get current remove mode of the display - what actions should be performed with the display's
+     * content when it is removed. Default behavior for public displays in this case is to move all
+     * activities to the primary display and make it focused. For private display - destroy all
+     * activities.
+     *
+     * @see #REMOVE_MODE_MOVE_CONTENT_TO_PRIMARY
+     * @see #REMOVE_MODE_DESTROY_CONTENT
+     */
+    // TODO (b/114338689): Remove the method and use IWindowManager#getRemoveContentMode
+    public int getRemoveMode() {
+        return mDisplayInfo.removeMode;
+    }
+
+    /**
      * Returns the display's HDR capabilities.
+     *
+     * @see #isHdr()
      */
     public HdrCapabilities getHdrCapabilities() {
         synchronized (this) {
             updateDisplayInfoLocked();
             return mDisplayInfo.hdrCapabilities;
+        }
+    }
+
+    /**
+     * Returns whether this display supports any HDR type.
+     *
+     * @see #getHdrCapabilities()
+     * @see HdrCapabilities#getSupportedHdrTypes()
+     */
+    public boolean isHdr() {
+        synchronized (this) {
+            updateDisplayInfoLocked();
+            return mDisplayInfo.isHdr();
+        }
+    }
+
+    /**
+     * Returns whether this display can be used to display wide color gamut content.
+     * This does not necessarily mean the device itself can render wide color gamut
+     * content. To ensure wide color gamut content can be produced, refer to
+     * {@link Configuration#isScreenWideColorGamut()}.
+     */
+    public boolean isWideColorGamut() {
+        synchronized (this) {
+            updateDisplayInfoLocked();
+            return mDisplayInfo.isWideColorGamut();
+        }
+    }
+
+    /**
+     * Returns the preferred wide color space of the Display.
+     * The returned wide gamut color space is based on hardware capability and
+     * is preferred by the composition pipeline.
+     * Returns null if the display doesn't support wide color gamut.
+     * {@link Display#isWideColorGamut()}.
+     */
+    @Nullable
+    public ColorSpace getPreferredWideGamutColorSpace() {
+        synchronized (this) {
+            updateDisplayInfoLocked();
+            if (mDisplayInfo.isWideColorGamut()) {
+                return mGlobal.getPreferredWideGamutColorSpace();
+            }
+            return null;
         }
     }
 
@@ -755,6 +1042,40 @@ public final class Display {
             updateDisplayInfoLocked();
             int[] colorModes = mDisplayInfo.supportedColorModes;
             return Arrays.copyOf(colorModes, colorModes.length);
+        }
+    }
+
+    /**
+     * Gets the supported wide color gamuts of this device.
+     *
+     * @return Supported WCG color spaces.
+     * @hide
+     */
+    @SuppressLint("VisiblySynchronized")
+    @NonNull
+    @TestApi
+    public @ColorMode ColorSpace[] getSupportedWideColorGamut() {
+        synchronized (this) {
+            final ColorSpace[] defaultColorSpaces = new ColorSpace[0];
+            updateDisplayInfoLocked();
+            if (!isWideColorGamut()) {
+                return defaultColorSpaces;
+            }
+
+            final int[] colorModes = getSupportedColorModes();
+            final List<ColorSpace> colorSpaces = new ArrayList<>();
+            for (int colorMode : colorModes) {
+                // Refer to DisplayInfo#isWideColorGamut.
+                switch (colorMode) {
+                    case COLOR_MODE_DCI_P3:
+                        colorSpaces.add(ColorSpace.get(ColorSpace.Named.DCI_P3));
+                        break;
+                    case COLOR_MODE_DISPLAY_P3:
+                        colorSpaces.add(ColorSpace.get(ColorSpace.Named.DISPLAY_P3));
+                        break;
+                }
+            }
+            return colorSpaces.toArray(defaultColorSpaces);
         }
     }
 
@@ -817,11 +1138,14 @@ public final class Display {
      * </p>
      *
      * @param outMetrics A {@link DisplayMetrics} object to receive the metrics.
+     * @deprecated Use {@link WindowMetrics#getBounds()} to get the dimensions of the application
+     * window area, and {@link Configuration#densityDpi} to get the current density.
      */
+    @Deprecated
     public void getMetrics(DisplayMetrics outMetrics) {
         synchronized (this) {
             updateDisplayInfoLocked();
-            mDisplayInfo.getAppMetrics(outMetrics, mDisplayAdjustments);
+            mDisplayInfo.getAppMetrics(outMetrics, getDisplayAdjustments());
         }
     }
 
@@ -832,7 +1156,7 @@ public final class Display {
      * The size is adjusted based on the current rotation of the display.
      * </p><p>
      * The real size may be smaller than the physical size of the screen when the
-     * window manager is emulating a smaller display (using adb shell am display-size).
+     * window manager is emulating a smaller display (using adb shell wm size).
      * </p>
      *
      * @param outSize Set to the real size of the display.
@@ -842,6 +1166,9 @@ public final class Display {
             updateDisplayInfoLocked();
             outSize.x = mDisplayInfo.logicalWidth;
             outSize.y = mDisplayInfo.logicalHeight;
+            if (mMayAdjustByFixedRotation) {
+                getDisplayAdjustments().adjustSize(outSize, mDisplayInfo.rotation);
+            }
         }
     }
 
@@ -861,6 +1188,9 @@ public final class Display {
             updateDisplayInfoLocked();
             mDisplayInfo.getLogicalMetrics(outMetrics,
                     CompatibilityInfo.DEFAULT_COMPATIBILITY_INFO, null);
+            if (mMayAdjustByFixedRotation) {
+                getDisplayAdjustments().adjustMetrics(outMetrics, mDisplayInfo.rotation);
+            }
         }
     }
 
@@ -868,7 +1198,8 @@ public final class Display {
      * Gets the state of the display, such as whether it is on or off.
      *
      * @return The state of the display: one of {@link #STATE_OFF}, {@link #STATE_ON},
-     * {@link #STATE_DOZE}, {@link #STATE_DOZE_SUSPEND}, or {@link #STATE_UNKNOWN}.
+     * {@link #STATE_DOZE}, {@link #STATE_DOZE_SUSPEND}, {@link #STATE_ON_SUSPEND}, or
+     * {@link #STATE_UNKNOWN}.
      */
     public int getState() {
         synchronized (this) {
@@ -881,16 +1212,19 @@ public final class Display {
      * Returns true if the specified UID has access to this display.
      * @hide
      */
+    @TestApi
     public boolean hasAccess(int uid) {
-        return Display.hasAccess(uid, mFlags, mOwnerUid);
+        return hasAccess(uid, mFlags, mOwnerUid, mDisplayId);
     }
 
     /** @hide */
-    public static boolean hasAccess(int uid, int flags, int ownerUid) {
+    public static boolean hasAccess(int uid, int flags, int ownerUid, int displayId) {
         return (flags & Display.FLAG_PRIVATE) == 0
                 || uid == ownerUid
                 || uid == Process.SYSTEM_UID
-                || uid == 0;
+                || uid == 0
+                // Check if the UID is present on given display.
+                || DisplayManagerGlobal.getInstance().isUidPresentOnDisplay(uid, displayId);
     }
 
     /**
@@ -900,6 +1234,16 @@ public final class Display {
     public boolean isPublicPresentation() {
         return (mFlags & (Display.FLAG_PRIVATE | Display.FLAG_PRESENTATION)) ==
                 Display.FLAG_PRESENTATION;
+    }
+
+    /**
+     * @return {@code true} if the display is a trusted display.
+     *
+     * @see #FLAG_TRUSTED
+     * @hide
+     */
+    public boolean isTrusted() {
+        return (mFlags & FLAG_TRUSTED) == FLAG_TRUSTED;
     }
 
     private void updateDisplayInfoLocked() {
@@ -923,13 +1267,16 @@ public final class Display {
                 }
             }
         }
+
+        mMayAdjustByFixedRotation = mResources != null
+                && mResources.hasOverrideDisplayAdjustments();
     }
 
     private void updateCachedAppSizeIfNeededLocked() {
         long now = SystemClock.uptimeMillis();
         if (now > mLastCachedAppSizeUpdate + CACHED_APP_SIZE_DURATION_MILLIS) {
             updateDisplayInfoLocked();
-            mDisplayInfo.getAppMetrics(mTempMetrics, mDisplayAdjustments);
+            mDisplayInfo.getAppMetrics(mTempMetrics, getDisplayAdjustments());
             mCachedAppWidthCompat = mTempMetrics.widthPixels;
             mCachedAppHeightCompat = mTempMetrics.heightPixels;
             mLastCachedAppSizeUpdate = now;
@@ -941,9 +1288,12 @@ public final class Display {
     public String toString() {
         synchronized (this) {
             updateDisplayInfoLocked();
-            mDisplayInfo.getAppMetrics(mTempMetrics, mDisplayAdjustments);
+            final DisplayAdjustments adjustments = getDisplayAdjustments();
+            mDisplayInfo.getAppMetrics(mTempMetrics, adjustments);
             return "Display id " + mDisplayId + ": " + mDisplayInfo
-                    + ", " + mTempMetrics + ", isValid=" + mIsValid;
+                    + (mMayAdjustByFixedRotation
+                            ? (", " + adjustments.getFixedRotationAdjustments() + ", ") : ", ")
+                    + mTempMetrics + ", isValid=" + mIsValid;
         }
     }
 
@@ -954,10 +1304,10 @@ public final class Display {
         switch (type) {
             case TYPE_UNKNOWN:
                 return "UNKNOWN";
-            case TYPE_BUILT_IN:
-                return "BUILT_IN";
-            case TYPE_HDMI:
-                return "HDMI";
+            case TYPE_INTERNAL:
+                return "INTERNAL";
+            case TYPE_EXTERNAL:
+                return "EXTERNAL";
             case TYPE_WIFI:
                 return "WIFI";
             case TYPE_OVERLAY:
@@ -984,6 +1334,10 @@ public final class Display {
                 return "DOZE";
             case STATE_DOZE_SUSPEND:
                 return "DOZE_SUSPEND";
+            case STATE_VR:
+                return "VR";
+            case STATE_ON_SUSPEND:
+                return "ON_SUSPEND";
             default:
                 return Integer.toString(state);
         }
@@ -991,11 +1345,29 @@ public final class Display {
 
     /**
      * Returns true if display updates may be suspended while in the specified
-     * display power state.
+     * display power state. In SUSPEND states, updates are absolutely forbidden.
      * @hide
      */
     public static boolean isSuspendedState(int state) {
-        return state == STATE_OFF || state == STATE_DOZE_SUSPEND;
+        return state == STATE_OFF || state == STATE_DOZE_SUSPEND || state == STATE_ON_SUSPEND;
+    }
+
+    /**
+     * Returns true if the display may be in a reduced operating mode while in the
+     * specified display power state.
+     * @hide
+     */
+    public static boolean isDozeState(int state) {
+        return state == STATE_DOZE || state == STATE_DOZE_SUSPEND;
+    }
+
+    /**
+     * Returns true if the display is in active state such as {@link #STATE_ON}
+     * or {@link #STATE_VR}.
+     * @hide
+     */
+    public static boolean isActiveState(int state) {
+        return state == STATE_ON || state == STATE_VR;
     }
 
     /**
@@ -1017,6 +1389,7 @@ public final class Display {
         /**
          * @hide
          */
+        @UnsupportedAppUsage
         public Mode(int modeId, int width, int height, float refreshRate) {
             mModeId = modeId;
             mWidth = width;
@@ -1132,7 +1505,7 @@ public final class Display {
         }
 
         @SuppressWarnings("hiding")
-        public static final Parcelable.Creator<Mode> CREATOR
+        public static final @android.annotation.NonNull Parcelable.Creator<Mode> CREATOR
                 = new Parcelable.Creator<Mode>() {
             @Override
             public Mode createFromParcel(Parcel in) {
@@ -1170,11 +1543,17 @@ public final class Display {
          */
         public static final int HDR_TYPE_HLG = 3;
 
+        /**
+         * HDR10+ display.
+         */
+        public static final int HDR_TYPE_HDR10_PLUS = 4;
+
         /** @hide */
-        @IntDef({
-            HDR_TYPE_DOLBY_VISION,
-            HDR_TYPE_HDR10,
-            HDR_TYPE_HLG,
+        @IntDef(prefix = { "HDR_TYPE_" }, value = {
+                HDR_TYPE_DOLBY_VISION,
+                HDR_TYPE_HDR10,
+                HDR_TYPE_HLG,
+                HDR_TYPE_HDR10_PLUS,
         })
         @Retention(RetentionPolicy.SOURCE)
         public @interface HdrType {}
@@ -1193,9 +1572,11 @@ public final class Display {
         /**
          * @hide
          */
+        @UnsupportedAppUsage
         public HdrCapabilities(int[] supportedHdrTypes, float maxLuminance,
                 float maxAverageLuminance, float minLuminance) {
             mSupportedHdrTypes = supportedHdrTypes;
+            Arrays.sort(mSupportedHdrTypes);
             mMaxLuminance = maxLuminance;
             mMaxAverageLuminance = maxAverageLuminance;
             mMinLuminance = minLuminance;
@@ -1254,7 +1635,7 @@ public final class Display {
             return hash;
         }
 
-        public static final Creator<HdrCapabilities> CREATOR = new Creator<HdrCapabilities>() {
+        public static final @android.annotation.NonNull Creator<HdrCapabilities> CREATOR = new Creator<HdrCapabilities>() {
             @Override
             public HdrCapabilities createFromParcel(Parcel source) {
                 return new HdrCapabilities(source);
@@ -1298,6 +1679,15 @@ public final class Display {
         @Override
         public int describeContents() {
             return 0;
+        }
+
+        @Override
+        public String toString() {
+            return "HdrCapabilities{"
+                    + "mSupportedHdrTypes=" + Arrays.toString(mSupportedHdrTypes)
+                    + ", mMaxLuminance=" + mMaxLuminance
+                    + ", mMaxAverageLuminance=" + mMaxAverageLuminance
+                    + ", mMinLuminance=" + mMinLuminance + '}';
         }
     }
 }

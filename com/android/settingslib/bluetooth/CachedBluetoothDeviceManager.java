@@ -21,6 +21,8 @@ import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.util.Log;
 
+import com.android.internal.annotations.VisibleForTesting;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -28,26 +30,30 @@ import java.util.List;
 /**
  * CachedBluetoothDeviceManager manages the set of remote Bluetooth devices.
  */
-public final class CachedBluetoothDeviceManager {
+public class CachedBluetoothDeviceManager {
     private static final String TAG = "CachedBluetoothDeviceManager";
-    private static final boolean DEBUG = Utils.D;
+    private static final boolean DEBUG = BluetoothUtils.D;
 
     private Context mContext;
-    private final List<CachedBluetoothDevice> mCachedDevices =
-            new ArrayList<CachedBluetoothDevice>();
     private final LocalBluetoothManager mBtManager;
+
+    @VisibleForTesting
+    final List<CachedBluetoothDevice> mCachedDevices = new ArrayList<CachedBluetoothDevice>();
+    @VisibleForTesting
+    HearingAidDeviceManager mHearingAidDeviceManager;
 
     CachedBluetoothDeviceManager(Context context, LocalBluetoothManager localBtManager) {
         mContext = context;
         mBtManager = localBtManager;
+        mHearingAidDeviceManager = new HearingAidDeviceManager(localBtManager, mCachedDevices);
     }
 
     public synchronized Collection<CachedBluetoothDevice> getCachedDevicesCopy() {
-        return new ArrayList<CachedBluetoothDevice>(mCachedDevices);
+        return new ArrayList<>(mCachedDevices);
     }
 
     public static boolean onDeviceDisappeared(CachedBluetoothDevice cachedDevice) {
-        cachedDevice.setVisible(false);
+        cachedDevice.setJustDiscovered(false);
         return cachedDevice.getBondState() == BluetoothDevice.BOND_NONE;
     }
 
@@ -68,12 +74,18 @@ public final class CachedBluetoothDeviceManager {
      * @return the cached device object for this device, or null if it has
      *   not been previously seen
      */
-    public CachedBluetoothDevice findDevice(BluetoothDevice device) {
+    public synchronized CachedBluetoothDevice findDevice(BluetoothDevice device) {
         for (CachedBluetoothDevice cachedDevice : mCachedDevices) {
             if (cachedDevice.getDevice().equals(device)) {
                 return cachedDevice;
             }
+            // Check sub devices if it exists
+            CachedBluetoothDevice subDevice = cachedDevice.getSubDevice();
+            if (subDevice != null && subDevice.getDevice().equals(device)) {
+                return subDevice;
+            }
         }
+
         return null;
     }
 
@@ -83,16 +95,65 @@ public final class CachedBluetoothDeviceManager {
      * @param device the address of the new Bluetooth device
      * @return the newly created CachedBluetoothDevice object
      */
-    public CachedBluetoothDevice addDevice(LocalBluetoothAdapter adapter,
-            LocalBluetoothProfileManager profileManager,
-            BluetoothDevice device) {
-        CachedBluetoothDevice newDevice = new CachedBluetoothDevice(mContext, adapter,
-            profileManager, device);
-        synchronized (mCachedDevices) {
-            mCachedDevices.add(newDevice);
-            mBtManager.getEventManager().dispatchDeviceAdded(newDevice);
+    public CachedBluetoothDevice addDevice(BluetoothDevice device) {
+        CachedBluetoothDevice newDevice;
+        final LocalBluetoothProfileManager profileManager = mBtManager.getProfileManager();
+        synchronized (this) {
+            newDevice = findDevice(device);
+            if (newDevice == null) {
+                newDevice = new CachedBluetoothDevice(mContext, profileManager, device);
+                mHearingAidDeviceManager.initHearingAidDeviceIfNeeded(newDevice);
+                if (!mHearingAidDeviceManager.setSubDeviceIfNeeded(newDevice)) {
+                    mCachedDevices.add(newDevice);
+                    mBtManager.getEventManager().dispatchDeviceAdded(newDevice);
+                }
+            }
         }
+
         return newDevice;
+    }
+
+    /**
+     * Returns device summary of the pair of the hearing aid passed as the parameter.
+     *
+     * @param CachedBluetoothDevice device
+     * @return Device summary, or if the pair does not exist or if it is not a hearing aid,
+     * then {@code null}.
+     */
+    public synchronized String getSubDeviceSummary(CachedBluetoothDevice device) {
+        CachedBluetoothDevice subDevice = device.getSubDevice();
+        if (subDevice != null && subDevice.isConnected()) {
+            return subDevice.getConnectionSummary();
+        }
+        return null;
+    }
+
+    /**
+     * Search for existing sub device {@link CachedBluetoothDevice}.
+     *
+     * @param device the address of the Bluetooth device
+     * @return true for found sub device or false.
+     */
+    public synchronized boolean isSubDevice(BluetoothDevice device) {
+        for (CachedBluetoothDevice cachedDevice : mCachedDevices) {
+            if (!cachedDevice.getDevice().equals(device)) {
+                // Check sub devices if it exists
+                CachedBluetoothDevice subDevice = cachedDevice.getSubDevice();
+                if (subDevice != null && subDevice.getDevice().equals(device)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Updates the Hearing Aid devices; specifically the HiSyncId's. This routine is called when the
+     * Hearing Aid Service is connected and the HiSyncId's are now available.
+     * @param LocalBluetoothProfileManager profileManager
+     */
+    public synchronized void updateHearingAidsDevices() {
+        mHearingAidDeviceManager.updateHearingAidsDevices();
     }
 
     /**
@@ -103,11 +164,11 @@ public final class CachedBluetoothDeviceManager {
      */
     public String getName(BluetoothDevice device) {
         CachedBluetoothDevice cachedDevice = findDevice(device);
-        if (cachedDevice != null) {
+        if (cachedDevice != null && cachedDevice.getName() != null) {
             return cachedDevice.getName();
         }
 
-        String name = device.getAliasName();
+        String name = device.getAlias();
         if (name != null) {
             return name;
         }
@@ -116,36 +177,34 @@ public final class CachedBluetoothDeviceManager {
     }
 
     public synchronized void clearNonBondedDevices() {
+        clearNonBondedSubDevices();
+        mCachedDevices.removeIf(cachedDevice
+            -> cachedDevice.getBondState() == BluetoothDevice.BOND_NONE);
+    }
+
+    private void clearNonBondedSubDevices() {
         for (int i = mCachedDevices.size() - 1; i >= 0; i--) {
             CachedBluetoothDevice cachedDevice = mCachedDevices.get(i);
-            if (cachedDevice.getBondState() != BluetoothDevice.BOND_BONDED) {
-                mCachedDevices.remove(i);
+            CachedBluetoothDevice subDevice = cachedDevice.getSubDevice();
+            if (subDevice != null
+                    && subDevice.getDevice().getBondState() == BluetoothDevice.BOND_NONE) {
+                // Sub device exists and it is not bonded
+                cachedDevice.setSubDevice(null);
             }
         }
     }
 
     public synchronized void onScanningStateChanged(boolean started) {
         if (!started) return;
-
         // If starting a new scan, clear old visibility
         // Iterate in reverse order since devices may be removed.
         for (int i = mCachedDevices.size() - 1; i >= 0; i--) {
             CachedBluetoothDevice cachedDevice = mCachedDevices.get(i);
-            cachedDevice.setVisible(false);
-        }
-    }
-
-    public synchronized void onBtClassChanged(BluetoothDevice device) {
-        CachedBluetoothDevice cachedDevice = findDevice(device);
-        if (cachedDevice != null) {
-            cachedDevice.refreshBtClass();
-        }
-    }
-
-    public synchronized void onUuidChanged(BluetoothDevice device) {
-        CachedBluetoothDevice cachedDevice = findDevice(device);
-        if (cachedDevice != null) {
-            cachedDevice.onUuidChanged();
+            cachedDevice.setJustDiscovered(false);
+            final CachedBluetoothDevice subDevice = cachedDevice.getSubDevice();
+            if (subDevice != null) {
+                subDevice.setJustDiscovered(false);
+            }
         }
     }
 
@@ -155,18 +214,40 @@ public final class CachedBluetoothDeviceManager {
         if (bluetoothState == BluetoothAdapter.STATE_TURNING_OFF) {
             for (int i = mCachedDevices.size() - 1; i >= 0; i--) {
                 CachedBluetoothDevice cachedDevice = mCachedDevices.get(i);
+                CachedBluetoothDevice subDevice = cachedDevice.getSubDevice();
+                if (subDevice != null) {
+                    if (subDevice.getBondState() != BluetoothDevice.BOND_BONDED) {
+                        cachedDevice.setSubDevice(null);
+                    }
+                }
                 if (cachedDevice.getBondState() != BluetoothDevice.BOND_BONDED) {
-                    cachedDevice.setVisible(false);
+                    cachedDevice.setJustDiscovered(false);
                     mCachedDevices.remove(i);
-                } else {
-                    // For bonded devices, we need to clear the connection status so that
-                    // when BT is enabled next time, device connection status shall be retrieved
-                    // by making a binder call.
-                    cachedDevice.clearProfileConnectionState();
                 }
             }
         }
     }
+
+    public synchronized boolean onProfileConnectionStateChangedIfProcessed(CachedBluetoothDevice
+            cachedDevice, int state) {
+        return mHearingAidDeviceManager.onProfileConnectionStateChangedIfProcessed(cachedDevice,
+                state);
+    }
+
+    public synchronized void onDeviceUnpaired(CachedBluetoothDevice device) {
+        CachedBluetoothDevice mainDevice = mHearingAidDeviceManager.findMainDevice(device);
+        CachedBluetoothDevice subDevice = device.getSubDevice();
+        if (subDevice != null) {
+            // Main device is unpaired, to unpair sub device
+            subDevice.unpair();
+            device.setSubDevice(null);
+        } else if (mainDevice != null) {
+            // Sub device unpaired, to unpair main device
+            mainDevice.unpair();
+            mainDevice.setSubDevice(null);
+        }
+    }
+
     private void log(String msg) {
         if (DEBUG) {
             Log.d(TAG, msg);

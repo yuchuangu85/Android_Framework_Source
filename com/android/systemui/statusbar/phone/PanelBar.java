@@ -16,17 +16,25 @@
 
 package com.android.systemui.statusbar.phone;
 
+import static java.lang.Float.isNaN;
+
 import android.content.Context;
+import android.os.Bundle;
+import android.os.Parcelable;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.MotionEvent;
-import android.view.View;
 import android.widget.FrameLayout;
 
 public abstract class PanelBar extends FrameLayout {
     public static final boolean DEBUG = false;
     public static final String TAG = PanelBar.class.getSimpleName();
     private static final boolean SPEW = false;
+    private static final String PANEL_BAR_SUPER_PARCELABLE = "panel_bar_super_parcelable";
+    private static final String STATE = "state";
+    private boolean mBouncerShowing;
+    private boolean mExpanded;
+    protected float mPanelFraction;
 
     public static final void LOG(String fmt, Object... args) {
         if (!DEBUG) return;
@@ -37,13 +45,35 @@ public abstract class PanelBar extends FrameLayout {
     public static final int STATE_OPENING = 1;
     public static final int STATE_OPEN = 2;
 
-    PanelView mPanel;
+    PanelViewController mPanel;
     private int mState = STATE_CLOSED;
     private boolean mTracking;
 
     public void go(int state) {
         if (DEBUG) LOG("go state: %d -> %d", mState, state);
         mState = state;
+    }
+
+    @Override
+    protected Parcelable onSaveInstanceState() {
+        Bundle bundle = new Bundle();
+        bundle.putParcelable(PANEL_BAR_SUPER_PARCELABLE, super.onSaveInstanceState());
+        bundle.putInt(STATE, mState);
+        return bundle;
+    }
+
+    @Override
+    protected void onRestoreInstanceState(Parcelable state) {
+        if (state == null || !(state instanceof Bundle)) {
+            super.onRestoreInstanceState(state);
+            return;
+        }
+
+        Bundle bundle = (Bundle) state;
+        super.onRestoreInstanceState(bundle.getParcelable(PANEL_BAR_SUPER_PARCELABLE));
+        if (((Bundle) state).containsKey(STATE)) {
+            go(bundle.getInt(STATE, STATE_CLOSED));
+        }
     }
 
     public PanelBar(Context context, AttributeSet attrs) {
@@ -55,18 +85,37 @@ public abstract class PanelBar extends FrameLayout {
         super.onFinishInflate();
     }
 
-    public void setPanel(PanelView pv) {
+    /** Set the PanelViewController */
+    public void setPanel(PanelViewController pv) {
         mPanel = pv;
         pv.setBar(this);
     }
 
     public void setBouncerShowing(boolean showing) {
+        mBouncerShowing = showing;
         int important = showing ? IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                 : IMPORTANT_FOR_ACCESSIBILITY_AUTO;
 
         setImportantForAccessibility(important);
+        updateVisibility();
 
-        if (mPanel != null) mPanel.setImportantForAccessibility(important);
+        if (mPanel != null) mPanel.getView().setImportantForAccessibility(important);
+    }
+
+    public float getExpansionFraction() {
+        return mPanelFraction;
+    }
+
+    public boolean isExpanded() {
+        return mExpanded;
+    }
+
+    protected void updateVisibility() {
+        mPanel.getView().setVisibility(shouldPanelBeVisible() ? VISIBLE : INVISIBLE);
+    }
+
+    protected boolean shouldPanelBeVisible() {
+        return mExpanded || mBouncerShowing;
     }
 
     public boolean panelEnabled() {
@@ -85,7 +134,7 @@ public abstract class PanelBar extends FrameLayout {
         }
 
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
-            final PanelView panel = mPanel;
+            final PanelViewController panel = mPanel;
             if (panel == null) {
                 // panel is not there, so we'll eat the gesture
                 Log.v(TAG, String.format("onTouch: no panel for touch at (%d,%d)",
@@ -103,7 +152,7 @@ public abstract class PanelBar extends FrameLayout {
                 return true;
             }
         }
-        return mPanel == null || mPanel.onTouchEvent(event);
+        return mPanel == null || mPanel.getView().dispatchTouchEvent(event);
     }
 
     public abstract void panelScrimMinFractionChanged(float minFraction);
@@ -114,11 +163,16 @@ public abstract class PanelBar extends FrameLayout {
      *                 fraction as the panel also might be expanded if the fraction is 0
      */
     public void panelExpansionChanged(float frac, boolean expanded) {
+        if (isNaN(frac)) {
+            throw new IllegalArgumentException("frac cannot be NaN");
+        }
         boolean fullyClosed = true;
         boolean fullyOpened = false;
         if (SPEW) LOG("panelExpansionChanged: start state=%d", mState);
-        PanelView pv = mPanel;
-        pv.setVisibility(expanded ? View.VISIBLE : View.INVISIBLE);
+        PanelViewController pv = mPanel;
+        mExpanded = expanded;
+        mPanelFraction = frac;
+        updateVisibility();
         // adjust any other panels that may be partially visible
         if (expanded) {
             if (mState == STATE_CLOSED) {
@@ -144,12 +198,12 @@ public abstract class PanelBar extends FrameLayout {
 
     public void collapsePanel(boolean animate, boolean delayed, float speedUpFactor) {
         boolean waiting = false;
-        PanelView pv = mPanel;
+        PanelViewController pv = mPanel;
         if (animate && !pv.isFullyCollapsed()) {
             pv.collapse(delayed, speedUpFactor);
             waiting = true;
         } else {
-            pv.resetViews();
+            pv.resetViews(false /* animate */);
             pv.setExpandedFraction(0); // just in case
             pv.cancelPeek();
         }
@@ -164,6 +218,10 @@ public abstract class PanelBar extends FrameLayout {
 
     public void onPanelPeeked() {
         if (DEBUG) LOG("onPanelPeeked");
+    }
+
+    public boolean isClosed() {
+        return mState == STATE_CLOSED;
     }
 
     public void onPanelCollapsed() {

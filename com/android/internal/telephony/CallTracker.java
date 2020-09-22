@@ -16,10 +16,13 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.Context;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
-import android.os.SystemProperties;
+import android.os.PersistableBundle;
+import android.telephony.CarrierConfigManager;
 import android.text.TextUtils;
 
 import java.io.FileDescriptor;
@@ -38,13 +41,17 @@ public abstract class CallTracker extends Handler {
 
     static final int POLL_DELAY_MSEC = 250;
 
+    @UnsupportedAppUsage
     protected int mPendingOperations;
+    @UnsupportedAppUsage
     protected boolean mNeedsPoll;
     protected Message mLastRelevantPoll;
     protected ArrayList<Connection> mHandoverConnections = new ArrayList<Connection>();
 
+    @UnsupportedAppUsage
     public CommandsInterface mCi;
 
+    @UnsupportedAppUsage
     protected boolean mNumberConverted = false;
     private final int VALID_COMPARE_LENGTH   = 3;
 
@@ -66,6 +73,10 @@ public abstract class CallTracker extends Handler {
     protected static final int EVENT_CALL_WAITING_INFO_CDMA        = 15;
     protected static final int EVENT_THREE_WAY_DIAL_L2_RESULT_CDMA = 16;
     protected static final int EVENT_THREE_WAY_DIAL_BLANK_FLASH    = 20;
+
+    @UnsupportedAppUsage
+    public CallTracker() {
+    }
 
     protected void pollCallsWhenSafe() {
         mNeedsPoll = true;
@@ -92,6 +103,8 @@ public abstract class CallTracker extends Handler {
     }
 
     protected abstract void handlePollCalls(AsyncResult ar);
+
+    protected abstract Phone getPhone();
 
     protected Connection getHoConnection(DriverCall dc) {
         for (Connection hoConn : mHandoverConnections) {
@@ -153,58 +166,24 @@ public abstract class CallTracker extends Handler {
         return mPendingOperations == 0;
     }
 
-    /**
-     * Routine called from dial to check if the number is a test Emergency number
-     * and if so remap the number. This allows a short emergency number to be remapped
-     * to a regular number for testing how the frameworks handles emergency numbers
-     * without actually calling an emergency number.
-     *
-     * This is not a full test and is not a substitute for testing real emergency
-     * numbers but can be useful.
-     *
-     * To use this feature set a system property ril.test.emergencynumber to a pair of
-     * numbers separated by a colon. If the first number matches the number parameter
-     * this routine returns the second number. Example:
-     *
-     * ril.test.emergencynumber=112:1-123-123-45678
-     *
-     * To test Dial 112 take call then hang up on MO device to enter ECM
-     * see RIL#processSolicited RIL_REQUEST_HANGUP_FOREGROUND_RESUME_BACKGROUND
-     *
-     * @param dialString to test if it should be remapped
-     * @return the same number or the remapped number.
-     */
-    protected String checkForTestEmergencyNumber(String dialString) {
-        String testEn = SystemProperties.get("ril.test.emergencynumber");
-        if (DBG_POLL) {
-            log("checkForTestEmergencyNumber: dialString=" + dialString +
-                " testEn=" + testEn);
-        }
-        if (!TextUtils.isEmpty(testEn)) {
-            String values[] = testEn.split(":");
-            log("checkForTestEmergencyNumber: values.length=" + values.length);
-            if (values.length == 2) {
-                if (values[0].equals(
-                        android.telephony.PhoneNumberUtils.stripSeparators(dialString))) {
-                    // mCi will be null for ImsPhoneCallTracker.
-                    if (mCi != null) {
-                        mCi.testingEmergencyCall();
-                    }
-                    log("checkForTestEmergencyNumber: remap " +
-                            dialString + " to " + values[1]);
-                    dialString = values[1];
-                }
-            }
-        }
-        return dialString;
-    }
-
     protected String convertNumberIfNecessary(Phone phone, String dialNumber) {
         if (dialNumber == null) {
             return dialNumber;
         }
-        String[] convertMaps = phone.getContext().getResources().getStringArray(
-                com.android.internal.R.array.dial_string_replace);
+        String[] convertMaps = null;
+        CarrierConfigManager configManager = (CarrierConfigManager)
+                phone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        PersistableBundle bundle = configManager.getConfigForSubId(phone.getSubId());
+        if (bundle != null) {
+            convertMaps =
+                    bundle.getStringArray(CarrierConfigManager.KEY_DIAL_STRING_REPLACE_STRING_ARRAY);
+        }
+        if (convertMaps == null) {
+            // By default no replacement is necessary
+            log("convertNumberIfNecessary convertMaps is null");
+            return dialNumber;
+        }
+
         log("convertNumberIfNecessary Roaming"
             + " convertMaps.length " + convertMaps.length
             + " dialNumber.length() " + dialNumber.length());
@@ -214,39 +193,30 @@ public abstract class CallTracker extends Handler {
         }
 
         String[] entry;
-        String[] tmpArray;
         String outNumber = "";
-        boolean needConvert = false;
         for(String convertMap : convertMaps) {
             log("convertNumberIfNecessary: " + convertMap);
+            // entry format is  "dialStringToReplace:dialStringReplacement"
             entry = convertMap.split(":");
-            if (entry.length > 1) {
-                tmpArray = entry[1].split(",");
-                if (!TextUtils.isEmpty(entry[0]) && dialNumber.equals(entry[0])) {
-                    if (tmpArray.length >= 2 && !TextUtils.isEmpty(tmpArray[1])) {
-                        if (compareGid1(phone, tmpArray[1])) {
-                            needConvert = true;
-                        }
-                    } else if (outNumber.isEmpty()) {
-                        needConvert = true;
-                    }
-
-                    if (needConvert) {
-                        if(!TextUtils.isEmpty(tmpArray[0]) && tmpArray[0].endsWith("MDN")) {
-                            String mdn = phone.getLine1Number();
-                            if (!TextUtils.isEmpty(mdn) ) {
-                                if (mdn.startsWith("+")) {
-                                    outNumber = mdn;
-                                } else {
-                                    outNumber = tmpArray[0].substring(0, tmpArray[0].length() -3)
-                                            + mdn;
-                                }
+            if (entry != null && entry.length > 1) {
+                String dsToReplace = entry[0];
+                String dsReplacement = entry[1];
+                if (!TextUtils.isEmpty(dsToReplace) && dialNumber.equals(dsToReplace)) {
+                    // Needs to be converted
+                    if (!TextUtils.isEmpty(dsReplacement) && dsReplacement.endsWith("MDN")) {
+                        String mdn = phone.getLine1Number();
+                        if (!TextUtils.isEmpty(mdn)) {
+                            if (mdn.startsWith("+")) {
+                                outNumber = mdn;
+                            } else {
+                                outNumber = dsReplacement.substring(0, dsReplacement.length() -3)
+                                        + mdn;
                             }
-                        } else {
-                            outNumber = tmpArray[0];
                         }
-                        needConvert = false;
+                    } else {
+                        outNumber = dsReplacement;
                     }
+                    break;
                 }
             }
         }
@@ -280,15 +250,38 @@ public abstract class CallTracker extends Handler {
         return ret;
     }
 
+    /**
+     * Get the ringing connections which during SRVCC handover.
+     */
+    public Connection getRingingHandoverConnection() {
+        for (Connection hoConn : mHandoverConnections) {
+            if (hoConn.getCall().isRinging()) {
+                return hoConn;
+            }
+        }
+        return null;
+    }
+
     //***** Overridden from Handler
     @Override
     public abstract void handleMessage (Message msg);
     public abstract void registerForVoiceCallStarted(Handler h, int what, Object obj);
     public abstract void unregisterForVoiceCallStarted(Handler h);
+    @UnsupportedAppUsage
     public abstract void registerForVoiceCallEnded(Handler h, int what, Object obj);
     public abstract void unregisterForVoiceCallEnded(Handler h);
+    @UnsupportedAppUsage
     public abstract PhoneConstants.State getState();
+    @UnsupportedAppUsage
     protected abstract void log(String msg);
+
+    /**
+     * Called when the call tracker should attempt to reconcile its calls against its underlying
+     * phone implementation and cleanup any stale calls.
+     */
+    public void cleanupCalls() {
+        // no base implementation
+    }
 
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         pw.println("CallTracker:");

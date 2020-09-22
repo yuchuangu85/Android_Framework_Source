@@ -16,1338 +16,1011 @@
 
 package com.android.server.wifi;
 
+import static java.lang.Math.toIntExact;
+
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.app.AlarmManager;
 import android.content.Context;
-import android.net.IpConfiguration.IpAssignment;
-import android.net.IpConfiguration.ProxySettings;
-import android.net.wifi.WifiConfiguration;
-import android.net.wifi.WifiConfiguration.Status;
-import android.net.wifi.WifiEnterpriseConfig;
-import android.net.wifi.WifiSsid;
-import android.net.wifi.WpsInfo;
-import android.net.wifi.WpsResult;
-import android.os.FileObserver;
-import android.os.Process;
-import android.security.Credentials;
-import android.security.KeyChain;
-import android.security.KeyStore;
-import android.text.TextUtils;
-import android.util.ArraySet;
-import android.util.LocalLog;
+import android.net.wifi.WifiMigration;
+import android.os.Handler;
+import android.os.UserHandle;
+import android.util.AtomicFile;
 import android.util.Log;
 import android.util.SparseArray;
+import android.util.Xml;
 
-import com.android.server.wifi.hotspot2.Utils;
-import com.android.server.wifi.util.TelephonyUtil;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.FastXmlSerializer;
+import com.android.internal.util.Preconditions;
+import com.android.server.wifi.util.EncryptedData;
+import com.android.server.wifi.util.Environment;
+import com.android.server.wifi.util.FileUtils;
+import com.android.server.wifi.util.WifiConfigStoreEncryptionUtil;
+import com.android.server.wifi.util.XmlUtil;
 
-import org.json.JSONException;
-import org.json.JSONObject;
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+import org.xmlpull.v1.XmlSerializer;
 
-import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
-import java.io.FileReader;
+import java.io.FileOutputStream;
 import java.io.IOException;
-import java.net.URLDecoder;
+import java.io.InputStream;
+import java.io.PrintWriter;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.nio.charset.StandardCharsets;
-import java.security.PrivateKey;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.BitSet;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
- * This class provides the API's to save/load/modify network configurations from a persistent
- * config database.
- * We use wpa_supplicant as our config database currently, but will be migrating to a different
- * one sometime in the future.
- * We use keystore for certificate/key management operations.
+ * This class provides a mechanism to save data to persistent store files {@link StoreFile}.
+ * Modules can register a {@link StoreData} instance indicating the {@StoreFile} into which they
+ * want to save their data to.
  *
- * NOTE: This class should only be used from WifiConfigManager!!!
+ * NOTE:
+ * <li>Modules can register their {@StoreData} using
+ * {@link WifiConfigStore#registerStoreData(StoreData)} directly, but should
+ * use {@link WifiConfigManager#saveToStore(boolean)} for any writes.</li>
+ * <li>{@link WifiConfigManager} controls {@link WifiConfigStore} and initiates read at bootup and
+ * store file changes on user switch.</li>
+ * <li>Not thread safe!</li>
  */
 public class WifiConfigStore {
+    /**
+     * Config store file for general shared store file.
+     */
+    public static final int STORE_FILE_SHARED_GENERAL = 0;
+    /**
+     * Config store file for softap shared store file.
+     */
+    public static final int STORE_FILE_SHARED_SOFTAP = 1;
+    /**
+     * Config store file for general user store file.
+     */
+    public static final int STORE_FILE_USER_GENERAL = 2;
+    /**
+     * Config store file for network suggestions user store file.
+     */
+    public static final int STORE_FILE_USER_NETWORK_SUGGESTIONS = 3;
 
-    public static final String TAG = "WifiConfigStore";
-    // This is the only variable whose contents will not be interpreted by wpa_supplicant. We use it
-    // to store metadata that allows us to correlate a wpa_supplicant.conf entry with additional
-    // information about the same network stored in other files. The metadata is stored as a
-    // serialized JSON dictionary.
-    public static final String ID_STRING_VAR_NAME = "id_str";
-    public static final String ID_STRING_KEY_FQDN = "fqdn";
-    public static final String ID_STRING_KEY_CREATOR_UID = "creatorUid";
-    public static final String ID_STRING_KEY_CONFIG_KEY = "configKey";
-    public static final String SUPPLICANT_CONFIG_FILE = "/data/misc/wifi/wpa_supplicant.conf";
-    public static final String SUPPLICANT_CONFIG_FILE_BACKUP = SUPPLICANT_CONFIG_FILE + ".tmp";
+    @IntDef(prefix = { "STORE_FILE_" }, value = {
+            STORE_FILE_SHARED_GENERAL,
+            STORE_FILE_SHARED_SOFTAP,
+            STORE_FILE_USER_GENERAL,
+            STORE_FILE_USER_NETWORK_SUGGESTIONS
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface StoreFileId { }
 
-    // Value stored by supplicant to requirePMF
-    public static final int STORED_VALUE_FOR_REQUIRE_PMF = 2;
+    private static final String XML_TAG_DOCUMENT_HEADER = "WifiConfigStoreData";
+    private static final String XML_TAG_VERSION = "Version";
+    private static final String XML_TAG_HEADER_INTEGRITY = "Integrity";
+    /**
+     * Current config store data version. This will be incremented for any additions.
+     */
+    private static final int CURRENT_CONFIG_STORE_DATA_VERSION = 3;
+    /** This list of older versions will be used to restore data from older config store. */
+    /**
+     * First version of the config store data format.
+     */
+    public static final int INITIAL_CONFIG_STORE_DATA_VERSION = 1;
+    /**
+     * Second version of the config store data format, introduced:
+     *  - Integrity info.
+     */
+    public static final int INTEGRITY_CONFIG_STORE_DATA_VERSION = 2;
+    /**
+     * Third version of the config store data format,
+     * introduced:
+     *  - Encryption of credentials
+     * removed:
+     *  - Integrity info.
+     */
+    public static final int ENCRYPT_CREDENTIALS_CONFIG_STORE_DATA_VERSION = 3;
 
-    private static final boolean DBG = true;
-    private static boolean VDBG = false;
-
-    private final LocalLog mLocalLog;
-    private final WpaConfigFileObserver mFileObserver;
-    private final Context mContext;
-    private final WifiNative mWifiNative;
-    private final KeyStore mKeyStore;
-    private final boolean mShowNetworks;
-    private final HashSet<String> mBssidBlacklist = new HashSet<String>();
-
-    private final BackupManagerProxy mBackupManagerProxy;
-
-    WifiConfigStore(Context context, WifiNative wifiNative, KeyStore keyStore, LocalLog localLog,
-            boolean showNetworks, boolean verboseDebug) {
-        mContext = context;
-        mWifiNative = wifiNative;
-        mKeyStore = keyStore;
-        mShowNetworks = showNetworks;
-        mBackupManagerProxy = new BackupManagerProxy();
-
-        if (mShowNetworks) {
-            mLocalLog = localLog;
-            mFileObserver = new WpaConfigFileObserver();
-            mFileObserver.startWatching();
-        } else {
-            mLocalLog = null;
-            mFileObserver = null;
-        }
-        VDBG = verboseDebug;
-    }
-
-    private static String removeDoubleQuotes(String string) {
-        int length = string.length();
-        if ((length > 1) && (string.charAt(0) == '"')
-                && (string.charAt(length - 1) == '"')) {
-            return string.substring(1, length - 1);
-        }
-        return string;
-    }
+    @IntDef(suffix = { "_VERSION" }, value = {
+            INITIAL_CONFIG_STORE_DATA_VERSION,
+            INTEGRITY_CONFIG_STORE_DATA_VERSION,
+            ENCRYPT_CREDENTIALS_CONFIG_STORE_DATA_VERSION
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface Version { }
 
     /**
-     * Generate a string to be used as a key value by wpa_supplicant from
-     * 'set', within the set of strings from 'strings' for the variable concatenated.
-     * Also transform the internal string format that uses _ (for bewildering
-     * reasons) into a wpa_supplicant adjusted value, that uses - as a separator
-     * (most of the time at least...).
-     * @param set a bit set with a one for each corresponding string to be included from strings.
-     * @param strings the set of string literals to concatenate strinfs from.
-     * @return A wpa_supplicant formatted value.
+     * Alarm tag to use for starting alarms for buffering file writes.
      */
-    private static String makeString(BitSet set, String[] strings) {
-        return makeStringWithException(set, strings, null);
-    }
-
+    @VisibleForTesting
+    public static final String BUFFERED_WRITE_ALARM_TAG = "WriteBufferAlarm";
     /**
-     * Same as makeString with an exclusion parameter.
-     * @param set a bit set with a one for each corresponding string to be included from strings.
-     * @param strings the set of string literals to concatenate strinfs from.
-     * @param exception literal string to be excluded from the _ to - transformation.
-     * @return A wpa_supplicant formatted value.
+     * Log tag.
      */
-    private static String makeStringWithException(BitSet set, String[] strings, String exception) {
-        StringBuilder result = new StringBuilder();
-
-        /* Make sure all set bits are in [0, strings.length) to avoid
-         * going out of bounds on strings.  (Shouldn't happen, but...) */
-        BitSet trimmedSet = set.get(0, strings.length);
-
-        List<String> valueSet = new ArrayList<>();
-        for (int bit = trimmedSet.nextSetBit(0);
-             bit >= 0;
-             bit = trimmedSet.nextSetBit(bit+1)) {
-            String currentName = strings[bit];
-            if (exception != null && currentName.equals(exception)) {
-                valueSet.add(currentName);
-            } else {
-                // Most wpa_supplicant strings use a dash whereas (for some bizarre
-                // reason) the strings are defined with underscore in the code...
-                valueSet.add(currentName.replace('_', '-'));
-            }
-        }
-        return TextUtils.join(" ", valueSet);
-    }
-
-    /*
-     * Convert string to Hexadecimal before passing to wifi native layer
-     * In native function "doCommand()" have trouble in converting Unicode character string to UTF8
-     * conversion to hex is required because SSIDs can have space characters in them;
-     * and that can confuses the supplicant because it uses space charaters as delimiters
-     */
-    private static String encodeSSID(String str) {
-        return Utils.toHex(removeDoubleQuotes(str).getBytes(StandardCharsets.UTF_8));
-    }
-
-    // Certificate and private key management for EnterpriseConfig
-    private static boolean needsKeyStore(WifiEnterpriseConfig config) {
-        return (!(config.getClientCertificate() == null && config.getCaCertificate() == null));
-    }
-
-    private static boolean isHardwareBackedKey(PrivateKey key) {
-        return KeyChain.isBoundKeyAlgorithm(key.getAlgorithm());
-    }
-
-    private static boolean hasHardwareBackedKey(Certificate certificate) {
-        return KeyChain.isBoundKeyAlgorithm(certificate.getPublicKey().getAlgorithm());
-    }
-
-    private static boolean needsSoftwareBackedKeyStore(WifiEnterpriseConfig config) {
-        java.lang.String client = config.getClientCertificateAlias();
-        if (!TextUtils.isEmpty(client)) {
-            // a valid client certificate is configured
-
-            // BUGBUG: keyStore.get() never returns certBytes; because it is not
-            // taking WIFI_UID as a parameter. It always looks for certificate
-            // with SYSTEM_UID, and never finds any Wifi certificates. Assuming that
-            // all certificates need software keystore until we get the get() API
-            // fixed.
-            return true;
-        }
-        return false;
-    }
-
-    private int lookupString(String string, String[] strings) {
-        int size = strings.length;
-
-        string = string.replace('-', '_');
-
-        for (int i = 0; i < size; i++) {
-            if (string.equals(strings[i])) {
-                return i;
-            }
-        }
-        loge("Failed to look-up a string: " + string);
-        return -1;
-    }
-
-    private void readNetworkBitsetVariable(int netId, BitSet variable, String varName,
-            String[] strings) {
-        String value = mWifiNative.getNetworkVariable(netId, varName);
-        if (!TextUtils.isEmpty(value)) {
-            variable.clear();
-            String[] vals = value.split(" ");
-            for (String val : vals) {
-                int index = lookupString(val, strings);
-                if (0 <= index) {
-                    variable.set(index);
-                }
-            }
-        }
-    }
-
+    private static final String TAG = "WifiConfigStore";
     /**
-     * Read the variables from the supplicant daemon that are needed to
-     * fill in the WifiConfiguration object.
-     *
-     * @param config the {@link WifiConfiguration} object to be filled in.
+     * Time interval for buffering file writes for non-forced writes
      */
-    public void readNetworkVariables(WifiConfiguration config) {
-        if (config == null) {
-            return;
-        }
-        if (VDBG) localLog("readNetworkVariables: " + config.networkId);
-        int netId = config.networkId;
-        if (netId < 0) {
-            return;
-        }
-        /*
-         * TODO: maybe should have a native method that takes an array of
-         * variable names and returns an array of values. But we'd still
-         * be doing a round trip to the supplicant daemon for each variable.
-         */
-        String value;
-
-        value = mWifiNative.getNetworkVariable(netId, WifiConfiguration.ssidVarName);
-        if (!TextUtils.isEmpty(value)) {
-            if (value.charAt(0) != '"') {
-                config.SSID = "\"" + WifiSsid.createFromHex(value).toString() + "\"";
-                //TODO: convert a hex string that is not UTF-8 decodable to a P-formatted
-                //supplicant string
-            } else {
-                config.SSID = value;
-            }
-        } else {
-            config.SSID = null;
-        }
-
-        value = mWifiNative.getNetworkVariable(netId, WifiConfiguration.bssidVarName);
-        if (!TextUtils.isEmpty(value)) {
-            config.getNetworkSelectionStatus().setNetworkSelectionBSSID(value);
-        } else {
-            config.getNetworkSelectionStatus().setNetworkSelectionBSSID(null);
-        }
-
-        value = mWifiNative.getNetworkVariable(netId, WifiConfiguration.priorityVarName);
-        config.priority = -1;
-        if (!TextUtils.isEmpty(value)) {
-            try {
-                config.priority = Integer.parseInt(value);
-            } catch (NumberFormatException ignore) {
-            }
-        }
-
-        value = mWifiNative.getNetworkVariable(netId, WifiConfiguration.hiddenSSIDVarName);
-        config.hiddenSSID = false;
-        if (!TextUtils.isEmpty(value)) {
-            try {
-                config.hiddenSSID = Integer.parseInt(value) != 0;
-            } catch (NumberFormatException ignore) {
-            }
-        }
-
-        value = mWifiNative.getNetworkVariable(netId, WifiConfiguration.pmfVarName);
-        config.requirePMF = false;
-        if (!TextUtils.isEmpty(value)) {
-            try {
-                config.requirePMF = Integer.parseInt(value) == STORED_VALUE_FOR_REQUIRE_PMF;
-            } catch (NumberFormatException ignore) {
-            }
-        }
-
-        value = mWifiNative.getNetworkVariable(netId, WifiConfiguration.wepTxKeyIdxVarName);
-        config.wepTxKeyIndex = -1;
-        if (!TextUtils.isEmpty(value)) {
-            try {
-                config.wepTxKeyIndex = Integer.parseInt(value);
-            } catch (NumberFormatException ignore) {
-            }
-        }
-
-        for (int i = 0; i < 4; i++) {
-            value = mWifiNative.getNetworkVariable(netId,
-                    WifiConfiguration.wepKeyVarNames[i]);
-            if (!TextUtils.isEmpty(value)) {
-                config.wepKeys[i] = value;
-            } else {
-                config.wepKeys[i] = null;
-            }
-        }
-
-        value = mWifiNative.getNetworkVariable(netId, WifiConfiguration.pskVarName);
-        if (!TextUtils.isEmpty(value)) {
-            config.preSharedKey = value;
-        } else {
-            config.preSharedKey = null;
-        }
-
-        readNetworkBitsetVariable(config.networkId, config.allowedProtocols,
-                WifiConfiguration.Protocol.varName, WifiConfiguration.Protocol.strings);
-
-        readNetworkBitsetVariable(config.networkId, config.allowedKeyManagement,
-                WifiConfiguration.KeyMgmt.varName, WifiConfiguration.KeyMgmt.strings);
-
-        readNetworkBitsetVariable(config.networkId, config.allowedAuthAlgorithms,
-                WifiConfiguration.AuthAlgorithm.varName, WifiConfiguration.AuthAlgorithm.strings);
-
-        readNetworkBitsetVariable(config.networkId, config.allowedPairwiseCiphers,
-                WifiConfiguration.PairwiseCipher.varName, WifiConfiguration.PairwiseCipher.strings);
-
-        readNetworkBitsetVariable(config.networkId, config.allowedGroupCiphers,
-                WifiConfiguration.GroupCipher.varName, WifiConfiguration.GroupCipher.strings);
-
-        if (config.enterpriseConfig == null) {
-            config.enterpriseConfig = new WifiEnterpriseConfig();
-        }
-        config.enterpriseConfig.loadFromSupplicant(new SupplicantLoader(netId));
-    }
-
+    private static final int BUFFERED_WRITE_ALARM_INTERVAL_MS = 10 * 1000;
     /**
-     * Load all the configured networks from wpa_supplicant.
-     *
-     * @param configs       Map of configuration key to configuration objects corresponding to all
-     *                      the networks.
-     * @param networkExtras Map of extra configuration parameters stored in wpa_supplicant.conf
-     * @return Max priority of all the configs.
+     * Config store file name for general shared store file.
      */
-    public int loadNetworks(Map<String, WifiConfiguration> configs,
-            SparseArray<Map<String, String>> networkExtras) {
-        int lastPriority = 0;
-        int last_id = -1;
-        boolean done = false;
-        while (!done) {
-            String listStr = mWifiNative.listNetworks(last_id);
-            if (listStr == null) {
-                return lastPriority;
-            }
-            String[] lines = listStr.split("\n");
-            if (mShowNetworks) {
-                localLog("loadNetworks:  ");
-                for (String net : lines) {
-                    localLog(net);
-                }
-            }
-            // Skip the first line, which is a header
-            for (int i = 1; i < lines.length; i++) {
-                String[] result = lines[i].split("\t");
-                // network-id | ssid | bssid | flags
-                WifiConfiguration config = new WifiConfiguration();
-                try {
-                    config.networkId = Integer.parseInt(result[0]);
-                    last_id = config.networkId;
-                } catch (NumberFormatException e) {
-                    loge("Failed to read network-id '" + result[0] + "'");
-                    continue;
-                }
-                // Ignore the supplicant status, start all networks disabled.
-                config.status = WifiConfiguration.Status.DISABLED;
-                readNetworkVariables(config);
-                // Parse the serialized JSON dictionary in ID_STRING_VAR_NAME once and cache the
-                // result for efficiency.
-                Map<String, String> extras = mWifiNative.getNetworkExtra(config.networkId,
-                        ID_STRING_VAR_NAME);
-                if (extras == null) {
-                    extras = new HashMap<String, String>();
-                    // If ID_STRING_VAR_NAME did not contain a dictionary, assume that it contains
-                    // just a quoted FQDN. This is the legacy format that was used in Marshmallow.
-                    final String fqdn = Utils.unquote(mWifiNative.getNetworkVariable(
-                            config.networkId, ID_STRING_VAR_NAME));
-                    if (fqdn != null) {
-                        extras.put(ID_STRING_KEY_FQDN, fqdn);
-                        config.FQDN = fqdn;
-                        // Mark the configuration as a Hotspot 2.0 network.
-                        config.providerFriendlyName = "";
-                    }
-                }
-                networkExtras.put(config.networkId, extras);
-
-                if (config.priority > lastPriority) {
-                    lastPriority = config.priority;
-                }
-                config.setIpAssignment(IpAssignment.DHCP);
-                config.setProxySettings(ProxySettings.NONE);
-                if (!WifiServiceImpl.isValid(config)) {
-                    if (mShowNetworks) {
-                        localLog("Ignoring network " + config.networkId + " because configuration "
-                                + "loaded from wpa_supplicant.conf is not valid.");
-                    }
-                    continue;
-                }
-                // The configKey is explicitly stored in wpa_supplicant.conf, because config does
-                // not contain sufficient information to compute it at this point.
-                String configKey = extras.get(ID_STRING_KEY_CONFIG_KEY);
-                if (configKey == null) {
-                    // Handle the legacy case where the configKey is not stored in
-                    // wpa_supplicant.conf but can be computed straight away.
-                    // Force an update of this legacy network configuration by writing
-                    // the configKey for this network into wpa_supplicant.conf.
-                    configKey = config.configKey();
-                    saveNetworkMetadata(config);
-                }
-                final WifiConfiguration duplicateConfig = configs.put(configKey, config);
-                if (duplicateConfig != null) {
-                    // The network is already known. Overwrite the duplicate entry.
-                    if (mShowNetworks) {
-                        localLog("Replacing duplicate network " + duplicateConfig.networkId
-                                + " with " + config.networkId + ".");
-                    }
-                    // This can happen after the user manually connected to an AP and tried to use
-                    // WPS to connect the AP later. In this case, the supplicant will create a new
-                    // network for the AP although there is an existing network already.
-                    mWifiNative.removeNetwork(duplicateConfig.networkId);
-                }
-            }
-            done = (lines.length == 1);
-        }
-        return lastPriority;
-    }
-
+    private static final String STORE_FILE_NAME_SHARED_GENERAL = "WifiConfigStore.xml";
     /**
-     * Install keys for given enterprise network.
-     *
-     * @param existingConfig Existing config corresponding to the network already stored in our
-     *                       database. This maybe null if it's a new network.
-     * @param config         Config corresponding to the network.
-     * @return true if successful, false otherwise.
+     * Config store file name for SoftAp shared store file.
      */
-    private boolean installKeys(WifiEnterpriseConfig existingConfig, WifiEnterpriseConfig config,
-            String name) {
-        boolean ret = true;
-        String privKeyName = Credentials.USER_PRIVATE_KEY + name;
-        String userCertName = Credentials.USER_CERTIFICATE + name;
-        if (config.getClientCertificate() != null) {
-            byte[] privKeyData = config.getClientPrivateKey().getEncoded();
-            if (DBG) {
-                if (isHardwareBackedKey(config.getClientPrivateKey())) {
-                    Log.d(TAG, "importing keys " + name + " in hardware backed store");
-                } else {
-                    Log.d(TAG, "importing keys " + name + " in software backed store");
-                }
-            }
-            ret = mKeyStore.importKey(privKeyName, privKeyData, Process.WIFI_UID,
-                    KeyStore.FLAG_NONE);
-
-            if (!ret) {
-                return ret;
-            }
-
-            ret = putCertInKeyStore(userCertName, config.getClientCertificate());
-            if (!ret) {
-                // Remove private key installed
-                mKeyStore.delete(privKeyName, Process.WIFI_UID);
-                return ret;
-            }
-        }
-
-        X509Certificate[] caCertificates = config.getCaCertificates();
-        Set<String> oldCaCertificatesToRemove = new ArraySet<String>();
-        if (existingConfig != null && existingConfig.getCaCertificateAliases() != null) {
-            oldCaCertificatesToRemove.addAll(
-                    Arrays.asList(existingConfig.getCaCertificateAliases()));
-        }
-        List<String> caCertificateAliases = null;
-        if (caCertificates != null) {
-            caCertificateAliases = new ArrayList<String>();
-            for (int i = 0; i < caCertificates.length; i++) {
-                String alias = caCertificates.length == 1 ? name
-                        : String.format("%s_%d", name, i);
-
-                oldCaCertificatesToRemove.remove(alias);
-                ret = putCertInKeyStore(Credentials.CA_CERTIFICATE + alias, caCertificates[i]);
-                if (!ret) {
-                    // Remove client key+cert
-                    if (config.getClientCertificate() != null) {
-                        mKeyStore.delete(privKeyName, Process.WIFI_UID);
-                        mKeyStore.delete(userCertName, Process.WIFI_UID);
-                    }
-                    // Remove added CA certs.
-                    for (String addedAlias : caCertificateAliases) {
-                        mKeyStore.delete(Credentials.CA_CERTIFICATE + addedAlias, Process.WIFI_UID);
-                    }
-                    return ret;
-                } else {
-                    caCertificateAliases.add(alias);
-                }
-            }
-        }
-        // Remove old CA certs.
-        for (String oldAlias : oldCaCertificatesToRemove) {
-            mKeyStore.delete(Credentials.CA_CERTIFICATE + oldAlias, Process.WIFI_UID);
-        }
-        // Set alias names
-        if (config.getClientCertificate() != null) {
-            config.setClientCertificateAlias(name);
-            config.resetClientKeyEntry();
-        }
-
-        if (caCertificates != null) {
-            config.setCaCertificateAliases(
-                    caCertificateAliases.toArray(new String[caCertificateAliases.size()]));
-            config.resetCaCertificate();
-        }
-        return ret;
-    }
-
-    private boolean putCertInKeyStore(String name, Certificate cert) {
-        try {
-            byte[] certData = Credentials.convertToPem(cert);
-            if (DBG) Log.d(TAG, "putting certificate " + name + " in keystore");
-            return mKeyStore.put(name, certData, Process.WIFI_UID, KeyStore.FLAG_NONE);
-
-        } catch (IOException e1) {
-            return false;
-        } catch (CertificateException e2) {
-            return false;
-        }
-    }
-
+    private static final String STORE_FILE_NAME_SHARED_SOFTAP = "WifiConfigStoreSoftAp.xml";
     /**
-     * Remove enterprise keys from the network config.
-     *
-     * @param config Config corresponding to the network.
+     * Config store file name for general user store file.
      */
-    private void removeKeys(WifiEnterpriseConfig config) {
-        String client = config.getClientCertificateAlias();
-        // a valid client certificate is configured
-        if (!TextUtils.isEmpty(client)) {
-            if (DBG) Log.d(TAG, "removing client private key and user cert");
-            mKeyStore.delete(Credentials.USER_PRIVATE_KEY + client, Process.WIFI_UID);
-            mKeyStore.delete(Credentials.USER_CERTIFICATE + client, Process.WIFI_UID);
-        }
-
-        String[] aliases = config.getCaCertificateAliases();
-        // a valid ca certificate is configured
-        if (aliases != null) {
-            for (String ca : aliases) {
-                if (!TextUtils.isEmpty(ca)) {
-                    if (DBG) Log.d(TAG, "removing CA cert: " + ca);
-                    mKeyStore.delete(Credentials.CA_CERTIFICATE + ca, Process.WIFI_UID);
-                }
-            }
-        }
-    }
-
+    private static final String STORE_FILE_NAME_USER_GENERAL = "WifiConfigStore.xml";
     /**
-     * Update the network metadata info stored in wpa_supplicant network extra field.
-     * @param config Config corresponding to the network.
-     * @return true if successful, false otherwise.
+     * Config store file name for network suggestions user store file.
      */
-    public boolean saveNetworkMetadata(WifiConfiguration config) {
-        final Map<String, String> metadata = new HashMap<String, String>();
-        if (config.isPasspoint()) {
-            metadata.put(ID_STRING_KEY_FQDN, config.FQDN);
-        }
-        metadata.put(ID_STRING_KEY_CONFIG_KEY, config.configKey());
-        metadata.put(ID_STRING_KEY_CREATOR_UID, Integer.toString(config.creatorUid));
-        if (!mWifiNative.setNetworkExtra(config.networkId, ID_STRING_VAR_NAME, metadata)) {
-            loge("failed to set id_str: " + metadata.toString());
-            return false;
-        }
-        return true;
-    }
-
+    private static final String STORE_FILE_NAME_USER_NETWORK_SUGGESTIONS =
+            "WifiConfigStoreNetworkSuggestions.xml";
     /**
-     * Save an entire network configuration to wpa_supplicant.
-     *
-     * @param config Config corresponding to the network.
-     * @param netId  Net Id of the network.
-     * @return true if successful, false otherwise.
+     * Mapping of Store file Id to Store file names.
      */
-    private boolean saveNetwork(WifiConfiguration config, int netId) {
-        if (config == null) {
-            return false;
-        }
-        if (VDBG) localLog("saveNetwork: " + netId);
-        if (config.SSID != null && !mWifiNative.setNetworkVariable(
-                netId,
-                WifiConfiguration.ssidVarName,
-                encodeSSID(config.SSID))) {
-            loge("failed to set SSID: " + config.SSID);
-            return false;
-        }
-        if (!saveNetworkMetadata(config)) {
-            return false;
-        }
-        //set selected BSSID to supplicant
-        if (config.getNetworkSelectionStatus().getNetworkSelectionBSSID() != null) {
-            String bssid = config.getNetworkSelectionStatus().getNetworkSelectionBSSID();
-            if (!mWifiNative.setNetworkVariable(netId, WifiConfiguration.bssidVarName, bssid)) {
-                loge("failed to set BSSID: " + bssid);
-                return false;
-            }
-        }
-        String allowedKeyManagementString =
-                makeString(config.allowedKeyManagement, WifiConfiguration.KeyMgmt.strings);
-        if (config.allowedKeyManagement.cardinality() != 0 && !mWifiNative.setNetworkVariable(
-                netId,
-                WifiConfiguration.KeyMgmt.varName,
-                allowedKeyManagementString)) {
-            loge("failed to set key_mgmt: " + allowedKeyManagementString);
-            return false;
-        }
-        String allowedProtocolsString =
-                makeString(config.allowedProtocols, WifiConfiguration.Protocol.strings);
-        if (config.allowedProtocols.cardinality() != 0 && !mWifiNative.setNetworkVariable(
-                netId,
-                WifiConfiguration.Protocol.varName,
-                allowedProtocolsString)) {
-            loge("failed to set proto: " + allowedProtocolsString);
-            return false;
-        }
-        String allowedAuthAlgorithmsString =
-                makeString(config.allowedAuthAlgorithms,
-                        WifiConfiguration.AuthAlgorithm.strings);
-        if (config.allowedAuthAlgorithms.cardinality() != 0 && !mWifiNative.setNetworkVariable(
-                netId,
-                WifiConfiguration.AuthAlgorithm.varName,
-                allowedAuthAlgorithmsString)) {
-            loge("failed to set auth_alg: " + allowedAuthAlgorithmsString);
-            return false;
-        }
-        String allowedPairwiseCiphersString = makeString(config.allowedPairwiseCiphers,
-                WifiConfiguration.PairwiseCipher.strings);
-        if (config.allowedPairwiseCiphers.cardinality() != 0 && !mWifiNative.setNetworkVariable(
-                netId,
-                WifiConfiguration.PairwiseCipher.varName,
-                allowedPairwiseCiphersString)) {
-            loge("failed to set pairwise: " + allowedPairwiseCiphersString);
-            return false;
-        }
-        // Make sure that the string "GTK_NOT_USED" is /not/ transformed - wpa_supplicant
-        // uses this literal value and not the 'dashed' version.
-        String allowedGroupCiphersString =
-                makeStringWithException(config.allowedGroupCiphers,
-                        WifiConfiguration.GroupCipher.strings,
-                        WifiConfiguration.GroupCipher
-                                .strings[WifiConfiguration.GroupCipher.GTK_NOT_USED]);
-        if (config.allowedGroupCiphers.cardinality() != 0 && !mWifiNative.setNetworkVariable(
-                netId,
-                WifiConfiguration.GroupCipher.varName,
-                allowedGroupCiphersString)) {
-            loge("failed to set group: " + allowedGroupCiphersString);
-            return false;
-        }
-        // Prevent client screw-up by passing in a WifiConfiguration we gave it
-        // by preventing "*" as a key.
-        if (config.preSharedKey != null && !config.preSharedKey.equals("*")
-                && !mWifiNative.setNetworkVariable(
-                netId,
-                WifiConfiguration.pskVarName,
-                config.preSharedKey)) {
-            loge("failed to set psk");
-            return false;
-        }
-        boolean hasSetKey = false;
-        if (config.wepKeys != null) {
-            for (int i = 0; i < config.wepKeys.length; i++) {
-                // Prevent client screw-up by passing in a WifiConfiguration we gave it
-                // by preventing "*" as a key.
-                if (config.wepKeys[i] != null && !config.wepKeys[i].equals("*")) {
-                    if (!mWifiNative.setNetworkVariable(
-                            netId,
-                            WifiConfiguration.wepKeyVarNames[i],
-                            config.wepKeys[i])) {
-                        loge("failed to set wep_key" + i + ": " + config.wepKeys[i]);
-                        return false;
-                    }
-                    hasSetKey = true;
-                }
-            }
-        }
-        if (hasSetKey) {
-            if (!mWifiNative.setNetworkVariable(
-                    netId,
-                    WifiConfiguration.wepTxKeyIdxVarName,
-                    Integer.toString(config.wepTxKeyIndex))) {
-                loge("failed to set wep_tx_keyidx: " + config.wepTxKeyIndex);
-                return false;
-            }
-        }
-        if (!mWifiNative.setNetworkVariable(
-                netId,
-                WifiConfiguration.priorityVarName,
-                Integer.toString(config.priority))) {
-            loge(config.SSID + ": failed to set priority: " + config.priority);
-            return false;
-        }
-        if (config.hiddenSSID && !mWifiNative.setNetworkVariable(
-                netId,
-                WifiConfiguration.hiddenSSIDVarName,
-                Integer.toString(config.hiddenSSID ? 1 : 0))) {
-            loge(config.SSID + ": failed to set hiddenSSID: " + config.hiddenSSID);
-            return false;
-        }
-        if (config.requirePMF && !mWifiNative.setNetworkVariable(
-                netId,
-                WifiConfiguration.pmfVarName,
-                Integer.toString(STORED_VALUE_FOR_REQUIRE_PMF))) {
-            loge(config.SSID + ": failed to set requirePMF: " + config.requirePMF);
-            return false;
-        }
-        if (config.updateIdentifier != null && !mWifiNative.setNetworkVariable(
-                netId,
-                WifiConfiguration.updateIdentiferVarName,
-                config.updateIdentifier)) {
-            loge(config.SSID + ": failed to set updateIdentifier: " + config.updateIdentifier);
-            return false;
-        }
-        return true;
-    }
-
+    private static final SparseArray<String> STORE_ID_TO_FILE_NAME =
+            new SparseArray<String>() {{
+                put(STORE_FILE_SHARED_GENERAL, STORE_FILE_NAME_SHARED_GENERAL);
+                put(STORE_FILE_SHARED_SOFTAP, STORE_FILE_NAME_SHARED_SOFTAP);
+                put(STORE_FILE_USER_GENERAL, STORE_FILE_NAME_USER_GENERAL);
+                put(STORE_FILE_USER_NETWORK_SUGGESTIONS, STORE_FILE_NAME_USER_NETWORK_SUGGESTIONS);
+            }};
     /**
-     * Update/Install keys for given enterprise network.
-     *
-     * @param config         Config corresponding to the network.
-     * @param existingConfig Existing config corresponding to the network already stored in our
-     *                       database. This maybe null if it's a new network.
-     * @return true if successful, false otherwise.
+     * Handler instance to post alarm timeouts to
      */
-    private boolean updateNetworkKeys(WifiConfiguration config, WifiConfiguration existingConfig) {
-        WifiEnterpriseConfig enterpriseConfig = config.enterpriseConfig;
-        if (needsKeyStore(enterpriseConfig)) {
-            try {
-                /* config passed may include only fields being updated.
-                 * In order to generate the key id, fetch uninitialized
-                 * fields from the currently tracked configuration
-                 */
-                String keyId = config.getKeyIdForCredentials(existingConfig);
-
-                if (!installKeys(existingConfig != null
-                        ? existingConfig.enterpriseConfig : null, enterpriseConfig, keyId)) {
-                    loge(config.SSID + ": failed to install keys");
-                    return false;
-                }
-            } catch (IllegalStateException e) {
-                loge(config.SSID + " invalid config for key installation: " + e.getMessage());
-                return false;
-            }
-        }
-        if (!enterpriseConfig.saveToSupplicant(
-                new SupplicantSaver(config.networkId, config.SSID))) {
-            removeKeys(enterpriseConfig);
-            return false;
-        }
-        return true;
-    }
-
+    private final Handler mEventHandler;
     /**
-     * Add or update a network configuration to wpa_supplicant.
-     *
-     * @param config         Config corresponding to the network.
-     * @param existingConfig Existing config corresponding to the network saved in our database.
-     * @return true if successful, false otherwise.
+     * Alarm manager instance to start buffer timeout alarms.
      */
-    public boolean addOrUpdateNetwork(WifiConfiguration config, WifiConfiguration existingConfig) {
-        if (config == null) {
-            return false;
-        }
-        if (VDBG) localLog("addOrUpdateNetwork: " + config.networkId);
-        int netId = config.networkId;
-        boolean newNetwork = false;
-        /*
-         * If the supplied networkId is INVALID_NETWORK_ID, we create a new empty
-         * network configuration. Otherwise, the networkId should
-         * refer to an existing configuration.
-         */
-        if (netId == WifiConfiguration.INVALID_NETWORK_ID) {
-            newNetwork = true;
-            netId = mWifiNative.addNetwork();
-            if (netId < 0) {
-                loge("Failed to add a network!");
-                return false;
-            } else {
-                logi("addOrUpdateNetwork created netId=" + netId);
-            }
-            // Save the new network ID to the config
-            config.networkId = netId;
-        }
-        if (!saveNetwork(config, netId)) {
-            if (newNetwork) {
-                mWifiNative.removeNetwork(netId);
-                loge("Failed to set a network variable, removed network: " + netId);
-            }
-            return false;
-        }
-        if (config.enterpriseConfig != null
-                && config.enterpriseConfig.getEapMethod() != WifiEnterpriseConfig.Eap.NONE) {
-            return updateNetworkKeys(config, existingConfig);
-        }
-        // Stage the backup of the SettingsProvider package which backs this up
-        mBackupManagerProxy.notifyDataChanged();
-        return true;
-    }
-
+    private final AlarmManager mAlarmManager;
     /**
-     * Remove the specified network and save config
-     *
-     * @param config Config corresponding to the network.
-     * @return {@code true} if it succeeds, {@code false} otherwise
+     * Clock instance to retrieve timestamps for alarms.
      */
-    public boolean removeNetwork(WifiConfiguration config) {
-        if (config == null) {
-            return false;
-        }
-        if (VDBG) localLog("removeNetwork: " + config.networkId);
-        if (!mWifiNative.removeNetwork(config.networkId)) {
-            loge("Remove network in wpa_supplicant failed on " + config.networkId);
-            return false;
-        }
-        // Remove any associated keys
-        if (config.enterpriseConfig != null) {
-            removeKeys(config.enterpriseConfig);
-        }
-        // Stage the backup of the SettingsProvider package which backs this up
-        mBackupManagerProxy.notifyDataChanged();
-        return true;
-    }
-
+    private final Clock mClock;
+    private final WifiMetrics mWifiMetrics;
     /**
-     * Select a network in wpa_supplicant.
-     *
-     * @param config Config corresponding to the network.
-     * @return true if successful, false otherwise.
+     * Shared config store file instance. There are 2 shared store files:
+     * {@link #STORE_FILE_NAME_SHARED_GENERAL} & {@link #STORE_FILE_NAME_SHARED_SOFTAP}.
      */
-    public boolean selectNetwork(WifiConfiguration config, Collection<WifiConfiguration> configs) {
-        if (config == null) {
-            return false;
-        }
-        if (VDBG) localLog("selectNetwork: " + config.networkId);
-        if (!mWifiNative.selectNetwork(config.networkId)) {
-            loge("Select network in wpa_supplicant failed on " + config.networkId);
-            return false;
-        }
-        config.status = Status.ENABLED;
-        markAllNetworksDisabledExcept(config.networkId, configs);
-        return true;
-    }
-
+    private final List<StoreFile> mSharedStores;
     /**
-     * Disable a network in wpa_supplicant.
-     *
-     * @param config Config corresponding to the network.
-     * @return true if successful, false otherwise.
+     * User specific store file instances. There are 2 user store files:
+     * {@link #STORE_FILE_NAME_USER_GENERAL} & {@link #STORE_FILE_NAME_USER_NETWORK_SUGGESTIONS}.
      */
-    boolean disableNetwork(WifiConfiguration config) {
-        if (config == null) {
-            return false;
-        }
-        if (VDBG) localLog("disableNetwork: " + config.networkId);
-        if (!mWifiNative.disableNetwork(config.networkId)) {
-            loge("Disable network in wpa_supplicant failed on " + config.networkId);
-            return false;
-        }
-        config.status = Status.DISABLED;
-        return true;
-    }
-
+    private List<StoreFile> mUserStores;
     /**
-     * Set priority for a network in wpa_supplicant.
-     *
-     * @param config Config corresponding to the network.
-     * @return true if successful, false otherwise.
+     * Verbose logging flag.
      */
-    public boolean setNetworkPriority(WifiConfiguration config, int priority) {
-        if (config == null) {
-            return false;
-        }
-        if (VDBG) localLog("setNetworkPriority: " + config.networkId);
-        if (!mWifiNative.setNetworkVariable(config.networkId,
-                WifiConfiguration.priorityVarName, Integer.toString(priority))) {
-            loge("Set priority of network in wpa_supplicant failed on " + config.networkId);
-            return false;
-        }
-        config.priority = priority;
-        return true;
-    }
-
+    private boolean mVerboseLoggingEnabled = false;
     /**
-     * Set SSID for a network in wpa_supplicant.
-     *
-     * @param config Config corresponding to the network.
-     * @return true if successful, false otherwise.
+     * Flag to indicate if there is a buffered write pending.
      */
-    public boolean setNetworkSSID(WifiConfiguration config, String ssid) {
-        if (config == null) {
-            return false;
-        }
-        if (VDBG) localLog("setNetworkSSID: " + config.networkId);
-        if (!mWifiNative.setNetworkVariable(config.networkId, WifiConfiguration.ssidVarName,
-                encodeSSID(ssid))) {
-            loge("Set SSID of network in wpa_supplicant failed on " + config.networkId);
-            return false;
-        }
-        config.SSID = ssid;
-        return true;
-    }
-
+    private boolean mBufferedWritePending = false;
     /**
-     * Set BSSID for a network in wpa_supplicant from network selection.
-     *
-     * @param config Config corresponding to the network.
-     * @param bssid  BSSID to be set.
-     * @return true if successful, false otherwise.
+     * Alarm listener for flushing out any buffered writes.
      */
-    public boolean setNetworkBSSID(WifiConfiguration config, String bssid) {
-        // Sanity check the config is valid
-        if (config == null
-                || (config.networkId == WifiConfiguration.INVALID_NETWORK_ID
-                && config.SSID == null)) {
-            return false;
-        }
-        if (VDBG) localLog("setNetworkBSSID: " + config.networkId);
-        if (!mWifiNative.setNetworkVariable(config.networkId, WifiConfiguration.bssidVarName,
-                bssid)) {
-            loge("Set BSSID of network in wpa_supplicant failed on " + config.networkId);
-            return false;
-        }
-        config.getNetworkSelectionStatus().setNetworkSelectionBSSID(bssid);
-        return true;
-    }
-
-    /**
-     * Enable/Disable HS20 parameter in wpa_supplicant.
-     *
-     * @param enable Enable/Disable the parameter.
-     */
-    public void enableHS20(boolean enable) {
-        mWifiNative.setHs20(enable);
-    }
-
-    /**
-     * Disables all the networks in the provided list in wpa_supplicant.
-     *
-     * @param configs Collection of configs which needs to be enabled.
-     * @return true if successful, false otherwise.
-     */
-    public boolean disableAllNetworks(Collection<WifiConfiguration> configs) {
-        if (VDBG) localLog("disableAllNetworks");
-        boolean networkDisabled = false;
-        for (WifiConfiguration enabled : configs) {
-            if (disableNetwork(enabled)) {
-                networkDisabled = true;
-            }
-        }
-        saveConfig();
-        return networkDisabled;
-    }
-
-    /**
-     * Save the current configuration to wpa_supplicant.conf.
-     */
-    public boolean saveConfig() {
-        return mWifiNative.saveConfig();
-    }
-
-    /**
-     * Read network variables from wpa_supplicant.conf.
-     *
-     * @param key The parameter to be parsed.
-     * @return Map of corresponding configKey to the value of the param requested.
-     */
-    public Map<String, String> readNetworkVariablesFromSupplicantFile(String key) {
-        Map<String, String> result = new HashMap<>();
-        BufferedReader reader = null;
-        try {
-            reader = new BufferedReader(new FileReader(SUPPLICANT_CONFIG_FILE));
-            result = readNetworkVariablesFromReader(reader, key);
-        } catch (FileNotFoundException e) {
-            if (VDBG) loge("Could not open " + SUPPLICANT_CONFIG_FILE + ", " + e);
-        } catch (IOException e) {
-            if (VDBG) loge("Could not read " + SUPPLICANT_CONFIG_FILE + ", " + e);
-        } finally {
-            try {
-                if (reader != null) {
-                    reader.close();
-                }
-            } catch (IOException e) {
-                if (VDBG) {
-                    loge("Could not close reader for " + SUPPLICANT_CONFIG_FILE + ", " + e);
-                }
-            }
-        }
-        return result;
-    }
-
-    /**
-     * Read network variables from a given reader. This method is separate from
-     * readNetworkVariablesFromSupplicantFile() for testing.
-     *
-     * @param reader The reader to read the network variables from.
-     * @param key The parameter to be parsed.
-     * @return Map of corresponding configKey to the value of the param requested.
-     */
-    public Map<String, String> readNetworkVariablesFromReader(BufferedReader reader, String key)
-            throws IOException {
-        Map<String, String> result = new HashMap<>();
-        if (VDBG) localLog("readNetworkVariablesFromReader key=" + key);
-        boolean found = false;
-        String configKey = null;
-        String value = null;
-        for (String line = reader.readLine(); line != null; line = reader.readLine()) {
-            if (line.matches("[ \\t]*network=\\{")) {
-                found = true;
-                configKey = null;
-                value = null;
-            } else if (line.matches("[ \\t]*\\}")) {
-                found = false;
-                configKey = null;
-                value = null;
-            }
-            if (found) {
-                String trimmedLine = line.trim();
-                if (trimmedLine.startsWith(ID_STRING_VAR_NAME + "=")) {
+    private final AlarmManager.OnAlarmListener mBufferedWriteListener =
+            new AlarmManager.OnAlarmListener() {
+                public void onAlarm() {
                     try {
-                        // Trim the quotes wrapping the id_str value.
-                        final String encodedExtras = trimmedLine.substring(
-                                8, trimmedLine.length() -1);
-                        final JSONObject json =
-                                new JSONObject(URLDecoder.decode(encodedExtras, "UTF-8"));
-                        if (json.has(WifiConfigStore.ID_STRING_KEY_CONFIG_KEY)) {
-                            final Object configKeyFromJson =
-                                    json.get(WifiConfigStore.ID_STRING_KEY_CONFIG_KEY);
-                            if (configKeyFromJson instanceof String) {
-                                configKey = (String) configKeyFromJson;
-                            }
-                        }
-                    } catch (JSONException e) {
-                        if (VDBG) {
-                            loge("Could not get "+ WifiConfigStore.ID_STRING_KEY_CONFIG_KEY
-                                    + ", " + e);
-                        }
+                        writeBufferedData();
+                    } catch (IOException e) {
+                        Log.wtf(TAG, "Buffered write failed", e);
                     }
                 }
-                if (trimmedLine.startsWith(key + "=")) {
-                    value = trimmedLine.substring(key.length() + 1);
-                }
-                if (configKey != null && value != null) {
-                    result.put(configKey, value);
-                }
-            }
-        }
-        return result;
-    }
+            };
 
     /**
-     * Resets all sim networks from the provided network list.
+     * List of data containers.
+     */
+    private final List<StoreData> mStoreDataList;
+
+    /**
+     * Create a new instance of WifiConfigStore.
+     * Note: The store file instances have been made inputs to this class to ease unit-testing.
      *
-     * @param configs List of all the networks.
+     * @param context     context to use for retrieving the alarm manager.
+     * @param handler     handler instance to post alarm timeouts to.
+     * @param clock       clock instance to retrieve timestamps for alarms.
+     * @param wifiMetrics Metrics instance.
+     * @param sharedStores List of {@link StoreFile} instances pointing to the shared store files.
+     *                     This should be retrieved using {@link #createSharedFiles(boolean)}
+     *                     method.
      */
-    public void resetSimNetworks(Collection<WifiConfiguration> configs) {
-        if (VDBG) localLog("resetSimNetworks");
-        for (WifiConfiguration config : configs) {
-            if (TelephonyUtil.isSimConfig(config)) {
-                String currentIdentity = TelephonyUtil.getSimIdentity(mContext,
-                        config.enterpriseConfig.getEapMethod());
-                String supplicantIdentity =
-                        mWifiNative.getNetworkVariable(config.networkId, "identity");
-                if(supplicantIdentity != null) {
-                    supplicantIdentity = removeDoubleQuotes(supplicantIdentity);
-                }
-                if (currentIdentity == null || !currentIdentity.equals(supplicantIdentity)) {
-                    // Identity differs so update the identity
-                    mWifiNative.setNetworkVariable(config.networkId,
-                            WifiEnterpriseConfig.IDENTITY_KEY, WifiEnterpriseConfig.EMPTY_VALUE);
-                    // This configuration may have cached Pseudonym IDs; lets remove them
-                    mWifiNative.setNetworkVariable(config.networkId,
-                            WifiEnterpriseConfig.ANON_IDENTITY_KEY,
-                            WifiEnterpriseConfig.EMPTY_VALUE);
-                }
-                // Update the loaded config
-                config.enterpriseConfig.setIdentity(currentIdentity);
-                config.enterpriseConfig.setAnonymousIdentity("");
-            }
-        }
+    public WifiConfigStore(Context context, Handler handler, Clock clock, WifiMetrics wifiMetrics,
+            List<StoreFile> sharedStores) {
+
+        mAlarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        mEventHandler = handler;
+        mClock = clock;
+        mWifiMetrics = wifiMetrics;
+        mStoreDataList = new ArrayList<>();
+
+        // Initialize the store files.
+        mSharedStores = sharedStores;
+        // The user store is initialized to null, this will be set when the user unlocks and
+        // CE storage is accessible via |switchUserStoresAndRead|.
+        mUserStores = null;
     }
 
     /**
-     * Clear BSSID blacklist in wpa_supplicant.
+     * Set the user store files.
+     * (Useful for mocking in unit tests).
+     * @param userStores List of {@link StoreFile} created using
+     * {@link #createUserFiles(int, boolean)}.
      */
-    public void clearBssidBlacklist() {
-        if (VDBG) localLog("clearBlacklist");
-        mBssidBlacklist.clear();
-        mWifiNative.clearBlacklist();
-        mWifiNative.setBssidBlacklist(null);
+    public void setUserStores(@NonNull List<StoreFile> userStores) {
+        Preconditions.checkNotNull(userStores);
+        mUserStores = userStores;
     }
 
     /**
-     * Add a BSSID to the blacklist.
+     * Register a {@link StoreData} to read/write data from/to a store. A {@link StoreData} is
+     * responsible for a block of data in the store file, and provides serialization/deserialization
+     * functions for those data.
      *
-     * @param bssid bssid to be added.
+     * @param storeData The store data to be registered to the config store
+     * @return true if registered successfully, false if the store file name is not valid.
      */
-    public void blackListBssid(String bssid) {
-        if (bssid == null) {
-            return;
+    public boolean registerStoreData(@NonNull StoreData storeData) {
+        if (storeData == null) {
+            Log.e(TAG, "Unable to register null store data");
+            return false;
         }
-        if (VDBG) localLog("blackListBssid: " + bssid);
-        mBssidBlacklist.add(bssid);
-        // Blacklist at wpa_supplicant
-        mWifiNative.addToBlacklist(bssid);
-        // Blacklist at firmware
-        String[] list = mBssidBlacklist.toArray(new String[mBssidBlacklist.size()]);
-        mWifiNative.setBssidBlacklist(list);
+        int storeFileId = storeData.getStoreFileId();
+        if (STORE_ID_TO_FILE_NAME.get(storeFileId) == null) {
+            Log.e(TAG, "Invalid shared store file specified" + storeFileId);
+            return false;
+        }
+        mStoreDataList.add(storeData);
+        return true;
     }
 
     /**
-     * Checks if the provided bssid is blacklisted or not.
+     * Helper method to create a store file instance for either the shared store or user store.
+     * Note: The method creates the store directory if not already present. This may be needed for
+     * user store files.
      *
-     * @param bssid bssid to be checked.
-     * @return true if present, false otherwise.
+     * @param storeDir Base directory under which the store file is to be stored. The store file
+     *                 will be at <storeDir>/WifiConfigStore.xml.
+     * @param fileId Identifier for the file. See {@link StoreFileId}.
+     * @param userHandle User handle. Meaningful only for user specific store files.
+     * @param shouldEncryptCredentials Whether to encrypt credentials or not.
+     * @return new instance of the store file or null if the directory cannot be created.
      */
-    public boolean isBssidBlacklisted(String bssid) {
-        return mBssidBlacklist.contains(bssid);
-    }
-
-    /* Mark all networks except specified netId as disabled */
-    private void markAllNetworksDisabledExcept(int netId, Collection<WifiConfiguration> configs) {
-        for (WifiConfiguration config : configs) {
-            if (config != null && config.networkId != netId) {
-                if (config.status != Status.DISABLED) {
-                    config.status = Status.DISABLED;
-                }
-            }
-        }
-    }
-
-    private void markAllNetworksDisabled(Collection<WifiConfiguration> configs) {
-        markAllNetworksDisabledExcept(WifiConfiguration.INVALID_NETWORK_ID, configs);
-    }
-
-    /**
-     * Start WPS pin method configuration with pin obtained
-     * from the access point
-     *
-     * @param config WPS configuration
-     * @return Wps result containing status and pin
-     */
-    public WpsResult startWpsWithPinFromAccessPoint(WpsInfo config,
-            Collection<WifiConfiguration> configs) {
-        WpsResult result = new WpsResult();
-        if (mWifiNative.startWpsRegistrar(config.BSSID, config.pin)) {
-            /* WPS leaves all networks disabled */
-            markAllNetworksDisabled(configs);
-            result.status = WpsResult.Status.SUCCESS;
-        } else {
-            loge("Failed to start WPS pin method configuration");
-            result.status = WpsResult.Status.FAILURE;
-        }
-        return result;
-    }
-
-    /**
-     * Start WPS pin method configuration with obtained
-     * from the device
-     *
-     * @return WpsResult indicating status and pin
-     */
-    public WpsResult startWpsWithPinFromDevice(WpsInfo config,
-            Collection<WifiConfiguration> configs) {
-        WpsResult result = new WpsResult();
-        result.pin = mWifiNative.startWpsPinDisplay(config.BSSID);
-        /* WPS leaves all networks disabled */
-        if (!TextUtils.isEmpty(result.pin)) {
-            markAllNetworksDisabled(configs);
-            result.status = WpsResult.Status.SUCCESS;
-        } else {
-            loge("Failed to start WPS pin method configuration");
-            result.status = WpsResult.Status.FAILURE;
-        }
-        return result;
-    }
-
-    /**
-     * Start WPS push button configuration
-     *
-     * @param config WPS configuration
-     * @return WpsResult indicating status and pin
-     */
-    public WpsResult startWpsPbc(WpsInfo config,
-            Collection<WifiConfiguration> configs) {
-        WpsResult result = new WpsResult();
-        if (mWifiNative.startWpsPbc(config.BSSID)) {
-            /* WPS leaves all networks disabled */
-            markAllNetworksDisabled(configs);
-            result.status = WpsResult.Status.SUCCESS;
-        } else {
-            loge("Failed to start WPS push button configuration");
-            result.status = WpsResult.Status.FAILURE;
-        }
-        return result;
-    }
-
-    protected void logd(String s) {
-        Log.d(TAG, s);
-    }
-
-    protected void logi(String s) {
-        Log.i(TAG, s);
-    }
-
-    protected void loge(String s) {
-        loge(s, false);
-    }
-
-    protected void loge(String s, boolean stack) {
-        if (stack) {
-            Log.e(TAG, s + " stack:" + Thread.currentThread().getStackTrace()[2].getMethodName()
-                    + " - " + Thread.currentThread().getStackTrace()[3].getMethodName()
-                    + " - " + Thread.currentThread().getStackTrace()[4].getMethodName()
-                    + " - " + Thread.currentThread().getStackTrace()[5].getMethodName());
-        } else {
-            Log.e(TAG, s);
-        }
-    }
-
-    protected void log(String s) {
-        Log.d(TAG, s);
-    }
-
-    private void localLog(String s) {
-        if (mLocalLog != null) {
-            mLocalLog.log(TAG + ": " + s);
-        }
-    }
-
-    private void localLogAndLogcat(String s) {
-        localLog(s);
-        Log.d(TAG, s);
-    }
-
-    private class SupplicantSaver implements WifiEnterpriseConfig.SupplicantSaver {
-        private final int mNetId;
-        private final String mSetterSSID;
-
-        SupplicantSaver(int netId, String setterSSID) {
-            mNetId = netId;
-            mSetterSSID = setterSSID;
-        }
-
-        @Override
-        public boolean saveValue(String key, String value) {
-            if (key.equals(WifiEnterpriseConfig.PASSWORD_KEY)
-                    && value != null && value.equals("*")) {
-                // No need to try to set an obfuscated password, which will fail
-                return true;
-            }
-            if (key.equals(WifiEnterpriseConfig.REALM_KEY)
-                    || key.equals(WifiEnterpriseConfig.PLMN_KEY)) {
-                // No need to save realm or PLMN in supplicant
-                return true;
-            }
-            // TODO: We need a way to clear values in wpa_supplicant as opposed to
-            // mapping unset values to empty strings.
-            if (value == null) {
-                value = "\"\"";
-            }
-            if (!mWifiNative.setNetworkVariable(mNetId, key, value)) {
-                loge(mSetterSSID + ": failed to set " + key + ": " + value);
-                return false;
-            }
-            return true;
-        }
-    }
-
-    private class SupplicantLoader implements WifiEnterpriseConfig.SupplicantLoader {
-        private final int mNetId;
-
-        SupplicantLoader(int netId) {
-            mNetId = netId;
-        }
-
-        @Override
-        public String loadValue(String key) {
-            String value = mWifiNative.getNetworkVariable(mNetId, key);
-            if (!TextUtils.isEmpty(value)) {
-                if (!enterpriseConfigKeyShouldBeQuoted(key)) {
-                    value = removeDoubleQuotes(value);
-                }
-                return value;
-            } else {
+    private static @Nullable StoreFile createFile(@NonNull File storeDir,
+            @StoreFileId int fileId, UserHandle userHandle, boolean shouldEncryptCredentials) {
+        if (!storeDir.exists()) {
+            if (!storeDir.mkdir()) {
+                Log.w(TAG, "Could not create store directory " + storeDir);
                 return null;
             }
         }
+        File file = new File(storeDir, STORE_ID_TO_FILE_NAME.get(fileId));
+        WifiConfigStoreEncryptionUtil encryptionUtil = null;
+        if (shouldEncryptCredentials) {
+            encryptionUtil = new WifiConfigStoreEncryptionUtil(file.getName());
+        }
+        return new StoreFile(file, fileId, userHandle, encryptionUtil);
+    }
 
-        /**
-         * Returns true if a particular config key needs to be quoted when passed to the supplicant.
-         */
-        private boolean enterpriseConfigKeyShouldBeQuoted(String key) {
-            switch (key) {
-                case WifiEnterpriseConfig.EAP_KEY:
-                case WifiEnterpriseConfig.ENGINE_KEY:
-                    return false;
-                default:
-                    return true;
+    private static @Nullable List<StoreFile> createFiles(File storeDir, List<Integer> storeFileIds,
+            UserHandle userHandle, boolean shouldEncryptCredentials) {
+        List<StoreFile> storeFiles = new ArrayList<>();
+        for (int fileId : storeFileIds) {
+            StoreFile storeFile =
+                    createFile(storeDir, fileId, userHandle, shouldEncryptCredentials);
+            if (storeFile == null) {
+                return null;
             }
+            storeFiles.add(storeFile);
+        }
+        return storeFiles;
+    }
+
+    /**
+     * Create a new instance of the shared store file.
+     *
+     * @param shouldEncryptCredentials Whether to encrypt credentials or not.
+     * @return new instance of the store file or null if the directory cannot be created.
+     */
+    public static @NonNull List<StoreFile> createSharedFiles(boolean shouldEncryptCredentials) {
+        return createFiles(
+                Environment.getWifiSharedDirectory(),
+                Arrays.asList(STORE_FILE_SHARED_GENERAL, STORE_FILE_SHARED_SOFTAP),
+                UserHandle.ALL,
+                shouldEncryptCredentials);
+    }
+
+    /**
+     * Create new instances of the user specific store files.
+     * The user store file is inside the user's encrypted data directory.
+     *
+     * @param userId userId corresponding to the currently logged-in user.
+     * @param shouldEncryptCredentials Whether to encrypt credentials or not.
+     * @return List of new instances of the store files created or null if the directory cannot be
+     * created.
+     */
+    public static @Nullable List<StoreFile> createUserFiles(int userId,
+            boolean shouldEncryptCredentials) {
+        UserHandle userHandle = UserHandle.of(userId);
+        return createFiles(
+                Environment.getWifiUserDirectory(userId),
+                Arrays.asList(STORE_FILE_USER_GENERAL, STORE_FILE_USER_NETWORK_SUGGESTIONS),
+                userHandle,
+                shouldEncryptCredentials);
+    }
+
+    /**
+     * Enable verbose logging.
+     */
+    public void enableVerboseLogging(boolean verbose) {
+        mVerboseLoggingEnabled = verbose;
+    }
+
+    /**
+     * Retrieve the list of {@link StoreData} instances registered for the provided
+     * {@link StoreFile}.
+     */
+    private List<StoreData> retrieveStoreDataListForStoreFile(@NonNull StoreFile storeFile) {
+        return mStoreDataList
+                .stream()
+                .filter(s -> s.getStoreFileId() == storeFile.getFileId())
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Check if any of the provided list of {@link StoreData} instances registered
+     * for the provided {@link StoreFile }have indicated that they have new data to serialize.
+     */
+    private boolean hasNewDataToSerialize(@NonNull StoreFile storeFile) {
+        List<StoreData> storeDataList = retrieveStoreDataListForStoreFile(storeFile);
+        return storeDataList.stream().anyMatch(s -> s.hasNewDataToSerialize());
+    }
+
+    /**
+     * API to write the data provided by registered store data to config stores.
+     * The method writes the user specific configurations to user specific config store and the
+     * shared configurations to shared config store.
+     *
+     * @param forceSync boolean to force write the config stores now. if false, the writes are
+     *                  buffered and written after the configured interval.
+     */
+    public void write(boolean forceSync)
+            throws XmlPullParserException, IOException {
+        boolean hasAnyNewData = false;
+        // Serialize the provided data and send it to the respective stores. The actual write will
+        // be performed later depending on the |forceSync| flag .
+        for (StoreFile sharedStoreFile : mSharedStores) {
+            if (hasNewDataToSerialize(sharedStoreFile)) {
+                byte[] sharedDataBytes = serializeData(sharedStoreFile);
+                sharedStoreFile.storeRawDataToWrite(sharedDataBytes);
+                hasAnyNewData = true;
+            }
+        }
+        if (mUserStores != null) {
+            for (StoreFile userStoreFile : mUserStores) {
+                if (hasNewDataToSerialize(userStoreFile)) {
+                    byte[] userDataBytes = serializeData(userStoreFile);
+                    userStoreFile.storeRawDataToWrite(userDataBytes);
+                    hasAnyNewData = true;
+                }
+            }
+        }
+
+        if (hasAnyNewData) {
+            // Every write provides a new snapshot to be persisted, so |forceSync| flag overrides
+            // any pending buffer writes.
+            if (forceSync) {
+                writeBufferedData();
+            } else {
+                startBufferedWriteAlarm();
+            }
+        } else if (forceSync && mBufferedWritePending) {
+            // no new data to write, but there is a pending buffered write. So, |forceSync| should
+            // flush that out.
+            writeBufferedData();
         }
     }
 
-    // TODO(rpius): Remove this.
-    private class WpaConfigFileObserver extends FileObserver {
+    /**
+     * Serialize all the data from all the {@link StoreData} clients registered for the provided
+     * {@link StoreFile}.
+     *
+     * This method also computes the integrity of the data being written and serializes the computed
+     * {@link EncryptedData} to the output.
+     *
+     * @param storeFile StoreFile that we want to write to.
+     * @return byte[] of serialized bytes
+     * @throws XmlPullParserException
+     * @throws IOException
+     */
+    private byte[] serializeData(@NonNull StoreFile storeFile)
+            throws XmlPullParserException, IOException {
+        List<StoreData> storeDataList = retrieveStoreDataListForStoreFile(storeFile);
 
-        WpaConfigFileObserver() {
-            super(SUPPLICANT_CONFIG_FILE, CLOSE_WRITE);
+        final XmlSerializer out = new FastXmlSerializer();
+        final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        out.setOutput(outputStream, StandardCharsets.UTF_8.name());
+
+        // First XML header.
+        XmlUtil.writeDocumentStart(out, XML_TAG_DOCUMENT_HEADER);
+        // Next version.
+        XmlUtil.writeNextValue(out, XML_TAG_VERSION, CURRENT_CONFIG_STORE_DATA_VERSION);
+        for (StoreData storeData : storeDataList) {
+            String tag = storeData.getName();
+            XmlUtil.writeNextSectionStart(out, tag);
+            storeData.serializeData(out, storeFile.getEncryptionUtil());
+            XmlUtil.writeNextSectionEnd(out, tag);
         }
+        XmlUtil.writeDocumentEnd(out, XML_TAG_DOCUMENT_HEADER);
+        return outputStream.toByteArray();
+    }
 
-        @Override
-        public void onEvent(int event, String path) {
-            if (event == CLOSE_WRITE) {
-                File file = new File(SUPPLICANT_CONFIG_FILE);
-                if (VDBG) localLog("wpa_supplicant.conf changed; new size = " + file.length());
+    /**
+     * Helper method to start a buffered write alarm if one doesn't already exist.
+     */
+    private void startBufferedWriteAlarm() {
+        if (!mBufferedWritePending) {
+            mAlarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    mClock.getElapsedSinceBootMillis() + BUFFERED_WRITE_ALARM_INTERVAL_MS,
+                    BUFFERED_WRITE_ALARM_TAG, mBufferedWriteListener, mEventHandler);
+            mBufferedWritePending = true;
+        }
+    }
+
+    /**
+     * Helper method to stop a buffered write alarm if one exists.
+     */
+    private void stopBufferedWriteAlarm() {
+        if (mBufferedWritePending) {
+            mAlarmManager.cancel(mBufferedWriteListener);
+            mBufferedWritePending = false;
+        }
+    }
+
+    /**
+     * Helper method to actually perform the writes to the file. This flushes out any write data
+     * being buffered in the respective stores and cancels any pending buffer write alarms.
+     */
+    private void writeBufferedData() throws IOException {
+        stopBufferedWriteAlarm();
+
+        long writeStartTime = mClock.getElapsedSinceBootMillis();
+        for (StoreFile sharedStoreFile : mSharedStores) {
+            sharedStoreFile.writeBufferedRawData();
+        }
+        if (mUserStores != null) {
+            for (StoreFile userStoreFile : mUserStores) {
+                userStoreFile.writeBufferedRawData();
             }
         }
+        long writeTime = mClock.getElapsedSinceBootMillis() - writeStartTime;
+        try {
+            mWifiMetrics.noteWifiConfigStoreWriteDuration(toIntExact(writeTime));
+        } catch (ArithmeticException e) {
+            // Silently ignore on any overflow errors.
+        }
+        Log.d(TAG, "Writing to stores completed in " + writeTime + " ms.");
+    }
+
+    /**
+     * Note: This is a copy of {@link AtomicFile#readFully()} modified to use the passed in
+     * {@link InputStream} which was returned using {@link AtomicFile#openRead()}.
+     */
+    private static byte[] readAtomicFileFully(InputStream stream) throws IOException {
+        try {
+            int pos = 0;
+            int avail = stream.available();
+            byte[] data = new byte[avail];
+            while (true) {
+                int amt = stream.read(data, pos, data.length - pos);
+                if (amt <= 0) {
+                    return data;
+                }
+                pos += amt;
+                avail = stream.available();
+                if (avail > data.length - pos) {
+                    byte[] newData = new byte[pos + avail];
+                    System.arraycopy(data, 0, newData, 0, pos);
+                    data = newData;
+                }
+            }
+        } finally {
+            stream.close();
+        }
+    }
+
+    /**
+     * Conversion for file id's to use in WifiMigration API surface.
+     */
+    private static Integer getMigrationStoreFileId(@StoreFileId int fileId) {
+        switch (fileId) {
+            case STORE_FILE_SHARED_GENERAL:
+                return WifiMigration.STORE_FILE_SHARED_GENERAL;
+            case STORE_FILE_SHARED_SOFTAP:
+                return WifiMigration.STORE_FILE_SHARED_SOFTAP;
+            case STORE_FILE_USER_GENERAL:
+                return WifiMigration.STORE_FILE_USER_GENERAL;
+            case STORE_FILE_USER_NETWORK_SUGGESTIONS:
+                return WifiMigration.STORE_FILE_USER_NETWORK_SUGGESTIONS;
+            default:
+                return null;
+        }
+    }
+
+    private static byte[] readDataFromMigrationSharedStoreFile(@StoreFileId int fileId)
+            throws IOException {
+        Integer migrationStoreFileId = getMigrationStoreFileId(fileId);
+        if (migrationStoreFileId == null) return null;
+        InputStream migrationIs =
+                WifiMigration.convertAndRetrieveSharedConfigStoreFile(migrationStoreFileId);
+        if (migrationIs == null) return null;
+        return readAtomicFileFully(migrationIs);
+    }
+
+    private static byte[] readDataFromMigrationUserStoreFile(@StoreFileId int fileId,
+            UserHandle userHandle) throws IOException {
+        Integer migrationStoreFileId = getMigrationStoreFileId(fileId);
+        if (migrationStoreFileId == null) return null;
+        InputStream migrationIs =
+                WifiMigration.convertAndRetrieveUserConfigStoreFile(
+                        migrationStoreFileId, userHandle);
+        if (migrationIs == null) return null;
+        return readAtomicFileFully(migrationIs);
+    }
+
+    /**
+     * Helper method to read from the shared store files.
+     * @throws XmlPullParserException
+     * @throws IOException
+     */
+    private void readFromSharedStoreFiles() throws XmlPullParserException, IOException {
+        for (StoreFile sharedStoreFile : mSharedStores) {
+            byte[] sharedDataBytes =
+                    readDataFromMigrationSharedStoreFile(sharedStoreFile.getFileId());
+            if (sharedDataBytes == null) {
+                // nothing to migrate, do normal read.
+                sharedDataBytes = sharedStoreFile.readRawData();
+            } else {
+                Log.i(TAG, "Read data out of shared migration store file: "
+                        + sharedStoreFile.getName());
+                // Save the migrated file contents to the regular store file and delete the
+                // migrated stored file.
+                sharedStoreFile.storeRawDataToWrite(sharedDataBytes);
+                sharedStoreFile.writeBufferedRawData();
+                // Note: If the migrated store file is at the same location as the store file,
+                // then the OEM implementation should ignore this remove.
+                WifiMigration.removeSharedConfigStoreFile(
+                        getMigrationStoreFileId(sharedStoreFile.getFileId()));
+            }
+            deserializeData(sharedDataBytes, sharedStoreFile);
+        }
+    }
+
+    /**
+     * Helper method to read from the user store files.
+     * @throws XmlPullParserException
+     * @throws IOException
+     */
+    private void readFromUserStoreFiles() throws XmlPullParserException, IOException {
+        for (StoreFile userStoreFile : mUserStores) {
+            byte[] userDataBytes = readDataFromMigrationUserStoreFile(
+                    userStoreFile.getFileId(), userStoreFile.mUserHandle);
+            if (userDataBytes == null) {
+                // nothing to migrate, do normal read.
+                userDataBytes = userStoreFile.readRawData();
+            } else {
+                Log.i(TAG, "Read data out of user migration store file: "
+                        + userStoreFile.getName());
+                // Save the migrated file contents to the regular store file and delete the
+                // migrated stored file.
+                userStoreFile.storeRawDataToWrite(userDataBytes);
+                userStoreFile.writeBufferedRawData();
+                // Note: If the migrated store file is at the same location as the store file,
+                // then the OEM implementation should ignore this remove.
+                WifiMigration.removeUserConfigStoreFile(
+                        getMigrationStoreFileId(userStoreFile.getFileId()),
+                        userStoreFile.mUserHandle);
+            }
+            deserializeData(userDataBytes, userStoreFile);
+        }
+    }
+
+    /**
+     * API to read the store data from the config stores.
+     * The method reads the user specific configurations from user specific config store and the
+     * shared configurations from the shared config store.
+     */
+    public void read() throws XmlPullParserException, IOException {
+        // Reset both share and user store data.
+        for (StoreFile sharedStoreFile : mSharedStores) {
+            resetStoreData(sharedStoreFile);
+        }
+        if (mUserStores != null) {
+            for (StoreFile userStoreFile : mUserStores) {
+                resetStoreData(userStoreFile);
+            }
+        }
+        long readStartTime = mClock.getElapsedSinceBootMillis();
+        readFromSharedStoreFiles();
+        if (mUserStores != null) {
+            readFromUserStoreFiles();
+        }
+        long readTime = mClock.getElapsedSinceBootMillis() - readStartTime;
+        try {
+            mWifiMetrics.noteWifiConfigStoreReadDuration(toIntExact(readTime));
+        } catch (ArithmeticException e) {
+            // Silently ignore on any overflow errors.
+        }
+        Log.d(TAG, "Reading from all stores completed in " + readTime + " ms.");
+    }
+
+    /**
+     * Handles a user switch. This method changes the user specific store files and reads from the
+     * new user's store files.
+     *
+     * @param userStores List of {@link StoreFile} created using {@link #createUserFiles(int)}.
+     */
+    public void switchUserStoresAndRead(@NonNull List<StoreFile> userStores)
+            throws XmlPullParserException, IOException {
+        Preconditions.checkNotNull(userStores);
+        // Reset user store data.
+        if (mUserStores != null) {
+            for (StoreFile userStoreFile : mUserStores) {
+                resetStoreData(userStoreFile);
+            }
+        }
+
+        // Stop any pending buffered writes, if any.
+        stopBufferedWriteAlarm();
+        mUserStores = userStores;
+
+        // Now read from the user store files.
+        long readStartTime = mClock.getElapsedSinceBootMillis();
+        readFromUserStoreFiles();
+        long readTime = mClock.getElapsedSinceBootMillis() - readStartTime;
+        mWifiMetrics.noteWifiConfigStoreReadDuration(toIntExact(readTime));
+        Log.d(TAG, "Reading from user stores completed in " + readTime + " ms.");
+    }
+
+    /**
+     * Reset data for all {@link StoreData} instances registered for this {@link StoreFile}.
+     */
+    private void resetStoreData(@NonNull StoreFile storeFile) {
+        for (StoreData storeData: retrieveStoreDataListForStoreFile(storeFile)) {
+            storeData.resetData();
+        }
+    }
+
+    // Inform all the provided store data clients that there is nothing in the store for them.
+    private void indicateNoDataForStoreDatas(Collection<StoreData> storeDataSet,
+            @Version int version, @NonNull WifiConfigStoreEncryptionUtil encryptionUtil)
+            throws XmlPullParserException, IOException {
+        for (StoreData storeData : storeDataSet) {
+            storeData.deserializeData(null, 0, version, encryptionUtil);
+        }
+    }
+
+    /**
+     * Deserialize data from a {@link StoreFile} for all {@link StoreData} instances registered.
+     *
+     * This method also computes the integrity of the incoming |dataBytes| and compare with
+     * {@link EncryptedData} parsed from |dataBytes|. If the integrity check fails, the data
+     * is discarded.
+     *
+     * @param dataBytes The data to parse
+     * @param storeFile StoreFile that we read from. Will be used to retrieve the list of clients
+     *                  who have data to deserialize from this file.
+     *
+     * @throws XmlPullParserException
+     * @throws IOException
+     */
+    private void deserializeData(@NonNull byte[] dataBytes, @NonNull StoreFile storeFile)
+            throws XmlPullParserException, IOException {
+        List<StoreData> storeDataList = retrieveStoreDataListForStoreFile(storeFile);
+        if (dataBytes == null) {
+            indicateNoDataForStoreDatas(storeDataList, -1 /* unknown */,
+                    storeFile.getEncryptionUtil());
+            return;
+        }
+        final XmlPullParser in = Xml.newPullParser();
+        final ByteArrayInputStream inputStream = new ByteArrayInputStream(dataBytes);
+        in.setInput(inputStream, StandardCharsets.UTF_8.name());
+
+        // Start parsing the XML stream.
+        int rootTagDepth = in.getDepth() + 1;
+        XmlUtil.gotoDocumentStart(in, XML_TAG_DOCUMENT_HEADER);
+
+        @Version int version = parseVersionFromXml(in);
+        // Version 2 contains the now unused integrity data, parse & then discard the information.
+        if (version == INTEGRITY_CONFIG_STORE_DATA_VERSION) {
+            parseAndDiscardIntegrityDataFromXml(in, rootTagDepth);
+        }
+
+        String[] headerName = new String[1];
+        Set<StoreData> storeDatasInvoked = new HashSet<>();
+        while (XmlUtil.gotoNextSectionOrEnd(in, headerName, rootTagDepth)) {
+            // There can only be 1 store data matching the tag, O indicates a previous StoreData
+            // module that no longer exists (ignore this XML section).
+            StoreData storeData = storeDataList.stream()
+                    .filter(s -> s.getName().equals(headerName[0]))
+                    .findAny()
+                    .orElse(null);
+            if (storeData == null) {
+                Log.e(TAG, "Unknown store data: " + headerName[0] + ". List of store data: "
+                        + storeDataList);
+                continue;
+            }
+            storeData.deserializeData(in, rootTagDepth + 1, version,
+                    storeFile.getEncryptionUtil());
+            storeDatasInvoked.add(storeData);
+        }
+        // Inform all the other registered store data clients that there is nothing in the store
+        // for them.
+        Set<StoreData> storeDatasNotInvoked = new HashSet<>(storeDataList);
+        storeDatasNotInvoked.removeAll(storeDatasInvoked);
+        indicateNoDataForStoreDatas(storeDatasNotInvoked, version, storeFile.getEncryptionUtil());
+    }
+
+    /**
+     * Parse the version from the XML stream.
+     * This is used for both the shared and user config store data.
+     *
+     * @param in XmlPullParser instance pointing to the XML stream.
+     * @return version number retrieved from the Xml stream.
+     */
+    private static @Version int parseVersionFromXml(XmlPullParser in)
+            throws XmlPullParserException, IOException {
+        int version = (int) XmlUtil.readNextValueWithName(in, XML_TAG_VERSION);
+        if (version < INITIAL_CONFIG_STORE_DATA_VERSION
+                || version > CURRENT_CONFIG_STORE_DATA_VERSION) {
+            throw new XmlPullParserException("Invalid version of data: " + version);
+        }
+        return version;
+    }
+
+    /**
+     * Parse the integrity data structure from the XML stream and discard it.
+     *
+     * @param in XmlPullParser instance pointing to the XML stream.
+     * @param outerTagDepth Outer tag depth.
+     */
+    private static void parseAndDiscardIntegrityDataFromXml(XmlPullParser in, int outerTagDepth)
+            throws XmlPullParserException, IOException {
+        XmlUtil.gotoNextSectionWithName(in, XML_TAG_HEADER_INTEGRITY, outerTagDepth);
+        XmlUtil.EncryptedDataXmlUtil.parseFromXml(in, outerTagDepth + 1);
+    }
+
+    /**
+     * Dump the local log buffer and other internal state of WifiConfigManager.
+     */
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        pw.println("Dump of WifiConfigStore");
+        pw.println("WifiConfigStore - Store File Begin ----");
+        Stream.of(mSharedStores, mUserStores)
+                .flatMap(List::stream)
+                .forEach((storeFile) -> {
+                    pw.print("Name: " + storeFile.mFileName);
+                    pw.print(", File Id: " + storeFile.mFileId);
+                    pw.println(", Credentials encrypted: "
+                            + (storeFile.getEncryptionUtil() != null));
+                });
+        pw.println("WifiConfigStore - Store Data Begin ----");
+        for (StoreData storeData : mStoreDataList) {
+            pw.print("StoreData =>");
+            pw.print(" ");
+            pw.print("Name: " + storeData.getName());
+            pw.print(", ");
+            pw.print("File Id: " + storeData.getStoreFileId());
+            pw.print(", ");
+            pw.println("File Name: " + STORE_ID_TO_FILE_NAME.get(storeData.getStoreFileId()));
+        }
+        pw.println("WifiConfigStore - Store Data End ----");
+    }
+
+    /**
+     * Class to encapsulate all file writes. This is a wrapper over {@link AtomicFile} to write/read
+     * raw data from the persistent file with integrity. This class provides helper methods to
+     * read/write the entire file into a byte array.
+     * This helps to separate out the processing, parsing, and integrity checking from the actual
+     * file writing.
+     */
+    public static class StoreFile {
+        /**
+         * File permissions to lock down the file.
+         */
+        private static final int FILE_MODE = 0600;
+        /**
+         * The store file to be written to.
+         */
+        private final AtomicFile mAtomicFile;
+        /**
+         * This is an intermediate buffer to store the data to be written.
+         */
+        private byte[] mWriteData;
+        /**
+         * Store the file name for setting the file permissions/logging purposes.
+         */
+        private final String mFileName;
+        /**
+         * {@link StoreFileId} Type of store file.
+         */
+        private final @StoreFileId int mFileId;
+        /**
+         * User handle. Meaningful only for user specific store files.
+         */
+        private final UserHandle mUserHandle;
+        /**
+         * Integrity checking for the store file.
+         */
+        private final WifiConfigStoreEncryptionUtil mEncryptionUtil;
+
+        public StoreFile(File file, @StoreFileId int fileId,
+                @NonNull UserHandle userHandle,
+                @Nullable WifiConfigStoreEncryptionUtil encryptionUtil) {
+            mAtomicFile = new AtomicFile(file);
+            mFileName = file.getAbsolutePath();
+            mFileId = fileId;
+            mUserHandle = userHandle;
+            mEncryptionUtil = encryptionUtil;
+        }
+
+        public String getName() {
+            return mAtomicFile.getBaseFile().getName();
+        }
+
+        public @StoreFileId int getFileId() {
+            return mFileId;
+        }
+
+        /**
+         * @return Returns the encryption util used for this store file.
+         */
+        public @Nullable WifiConfigStoreEncryptionUtil getEncryptionUtil() {
+            return mEncryptionUtil;
+        }
+
+        /**
+         * Read the entire raw data from the store file and return in a byte array.
+         *
+         * @return raw data read from the file or null if the file is not found or the data has
+         *  been altered.
+         * @throws IOException if an error occurs. The input stream is always closed by the method
+         * even when an exception is encountered.
+         */
+        public byte[] readRawData() throws IOException {
+            byte[] bytes = null;
+            try {
+                bytes = mAtomicFile.readFully();
+            } catch (FileNotFoundException e) {
+                return null;
+            }
+            return bytes;
+        }
+
+        /**
+         * Store the provided byte array to be written when {@link #writeBufferedRawData()} method
+         * is invoked.
+         * This intermediate step is needed to help in buffering file writes.
+         *
+         * @param data raw data to be written to the file.
+         */
+        public void storeRawDataToWrite(byte[] data) {
+            mWriteData = data;
+        }
+
+        /**
+         * Write the stored raw data to the store file.
+         * After the write to file, the mWriteData member is reset.
+         * @throws IOException if an error occurs. The output stream is always closed by the method
+         * even when an exception is encountered.
+         */
+        public void writeBufferedRawData() throws IOException {
+            if (mWriteData == null) return; // No data to write for this file.
+            // Write the data to the atomic file.
+            FileOutputStream out = null;
+            try {
+                out = mAtomicFile.startWrite();
+                FileUtils.chmod(mFileName, FILE_MODE);
+                out.write(mWriteData);
+                mAtomicFile.finishWrite(out);
+            } catch (IOException e) {
+                if (out != null) {
+                    mAtomicFile.failWrite(out);
+                }
+                throw e;
+            }
+            // Reset the pending write data after write.
+            mWriteData = null;
+        }
+    }
+
+    /**
+     * Interface to be implemented by a module that contained data in the config store file.
+     *
+     * The module will be responsible for serializing/deserializing their own data.
+     * Whenever {@link WifiConfigStore#read()} is invoked, all registered StoreData instances will
+     * be notified that a read was performed via {@link StoreData#deserializeData(
+     * XmlPullParser, int)} regardless of whether there is any data for them or not in the
+     * store file.
+     *
+     * Note: StoreData clients that need a config store read to kick-off operations should wait
+     * for the {@link StoreData#deserializeData(XmlPullParser, int)} invocation.
+     */
+    public interface StoreData {
+        /**
+         * Serialize a XML data block to the output stream.
+         *
+         * @param out The output stream to serialize the data to
+         * @param encryptionUtil Utility to help encrypt any credential data.
+         */
+        void serializeData(XmlSerializer out,
+                @Nullable WifiConfigStoreEncryptionUtil encryptionUtil)
+                throws XmlPullParserException, IOException;
+
+        /**
+         * Deserialize a XML data block from the input stream.
+         *
+         * @param in The input stream to read the data from. This could be null if there is
+         *           nothing in the store.
+         * @param outerTagDepth The depth of the outer tag in the XML document
+         * @param version Version of config store file.
+         * @param encryptionUtil Utility to help decrypt any credential data.
+         *
+         * Note: This will be invoked every time a store file is read, even if there is nothing
+         *                      in the store for them.
+         */
+        void deserializeData(@Nullable XmlPullParser in, int outerTagDepth, @Version int version,
+                @Nullable WifiConfigStoreEncryptionUtil encryptionUtil)
+                throws XmlPullParserException, IOException;
+
+        /**
+         * Reset configuration data.
+         */
+        void resetData();
+
+        /**
+         * Check if there is any new data to persist from the last write.
+         *
+         * @return true if the module has new data to persist, false otherwise.
+         */
+        boolean hasNewDataToSerialize();
+
+        /**
+         * Return the name of this store data.  The data will be enclosed under this tag in
+         * the XML block.
+         *
+         * @return The name of the store data
+         */
+        String getName();
+
+        /**
+         * File Id where this data needs to be written to.
+         * This should be one of {@link #STORE_FILE_SHARED_GENERAL},
+         * {@link #STORE_FILE_USER_GENERAL} or
+         * {@link #STORE_FILE_USER_NETWORK_SUGGESTIONS}.
+         *
+         * Note: For most uses, the shared or user general store is sufficient. Creating and
+         * managing store files are expensive. Only use specific store files if you have a large
+         * amount of data which may not need to be persisted frequently (or at least not as
+         * frequently as the general store).
+         * @return Id of the file where this data needs to be persisted.
+         */
+        @StoreFileId int getStoreFileId();
     }
 }

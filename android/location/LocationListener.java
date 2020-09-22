@@ -16,6 +16,7 @@
 
 package android.location;
 
+import android.annotation.NonNull;
 import android.os.Bundle;
 
 /**
@@ -37,53 +38,32 @@ public interface LocationListener {
     /**
      * Called when the location has changed.
      *
-     * <p> There are no restrictions on the use of the supplied Location object.
-     *
-     * @param location The new location, as a Location object.
+     * @param location the updated location
      */
-    void onLocationChanged(Location location);
+    void onLocationChanged(@NonNull Location location);
 
     /**
-     * Called when the provider status changes. This method is called when
-     * a provider is unable to fetch a location or if the provider has recently
-     * become available after a period of unavailability.
+     * This callback will never be invoked on Android Q and above, and providers can be considered
+     * as always in the {@link LocationProvider#AVAILABLE} state.
      *
-     * @param provider the name of the location provider associated with this
-     * update.
-     * @param status {@link LocationProvider#OUT_OF_SERVICE} if the
-     * provider is out of service, and this is not expected to change in the
-     * near future; {@link LocationProvider#TEMPORARILY_UNAVAILABLE} if
-     * the provider is temporarily unavailable but is expected to be available
-     * shortly; and {@link LocationProvider#AVAILABLE} if the
-     * provider is currently available.
-     * @param extras an optional Bundle which will contain provider specific
-     * status variables.
-     *
-     * <p> A number of common key/value pairs for the extras Bundle are listed
-     * below. Providers that use any of the keys on this list must
-     * provide the corresponding value as described below.
-     *
-     * <ul>
-     * <li> satellites - the number of satellites used to derive the fix
-     * </ul>
+     * @deprecated This callback will never be invoked on Android Q and above.
      */
-    void onStatusChanged(String provider, int status, Bundle extras);
+    @Deprecated
+    default void onStatusChanged(String provider, int status, Bundle extras) {}
 
     /**
      * Called when the provider is enabled by the user.
      *
-     * @param provider the name of the location provider associated with this
-     * update.
+     * @param provider the name of the location provider that has become enabled
      */
-    void onProviderEnabled(String provider);
+    default void onProviderEnabled(@NonNull String provider) {}
 
     /**
      * Called when the provider is disabled by the user. If requestLocationUpdates
      * is called on an already disabled provider, this method is called
      * immediately.
      *
-     * @param provider the name of the location provider associated with this
-     * update.
+     * @param provider the name of the location provider that has become disabled
      */
-    void onProviderDisabled(String provider);
+    default void onProviderDisabled(@NonNull String provider) {}
 }

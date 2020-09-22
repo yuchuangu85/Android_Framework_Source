@@ -20,31 +20,31 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.Message;
-import android.os.MessageQueue;
 import android.os.SystemClock;
 import android.util.Log;
+import android.util.SparseArray;
 
 import com.android.internal.os.SomeArgs;
+
+import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.Map;
 
 public class Device {
     private static final String TAG = "HidDevice";
 
-    // Minimum amount of time to wait before sending input events to a device. Even though we're
-    // guaranteed that the device has been created and opened by the input system, there's still a
-    // window in which the system hasn't started reading events out of it. If a stream of events
-    // begins in during this window (like a button down event) and *then* we start reading, we're
-    // liable to ignore the whole stream.
-    private static final int MIN_WAIT_FOR_FIRST_EVENT = 150;
-
     private static final int MSG_OPEN_DEVICE = 1;
     private static final int MSG_SEND_REPORT = 2;
-    private static final int MSG_CLOSE_DEVICE = 3;
-
+    private static final int MSG_SEND_GET_FEATURE_REPORT_REPLY = 3;
+    private static final int MSG_CLOSE_DEVICE = 4;
 
     private final int mId;
     private final HandlerThread mThread;
     private final DeviceHandler mHandler;
-    private long mEventTime;
+    // mFeatureReports is limited to 256 entries, because the report number is 8-bit
+    private final SparseArray<byte[]> mFeatureReports;
+    private final Map<ByteBuffer, byte[]> mOutputs;
+    private long mTimeToSend;
 
     private final Object mCond = new Object();
 
@@ -52,20 +52,25 @@ public class Device {
         System.loadLibrary("hidcommand_jni");
     }
 
-    private static native long nativeOpenDevice(String name, int id, int vid, int pid,
-            byte[] descriptor, MessageQueue queue, DeviceCallback callback);
+    private static native long nativeOpenDevice(String name, int id, int vid, int pid, int bus,
+            byte[] descriptor, DeviceCallback callback);
     private static native void nativeSendReport(long ptr, byte[] data);
+    private static native void nativeSendGetFeatureReportReply(long ptr, int id, byte[] data);
     private static native void nativeCloseDevice(long ptr);
 
-    public Device(int id, String name, int vid, int pid, byte[] descriptor, byte[] report) {
+    public Device(int id, String name, int vid, int pid, int bus, byte[] descriptor,
+            byte[] report, SparseArray<byte[]> featureReports, Map<ByteBuffer, byte[]> outputs) {
         mId = id;
         mThread = new HandlerThread("HidDeviceHandler");
         mThread.start();
         mHandler = new DeviceHandler(mThread.getLooper());
+        mFeatureReports = featureReports;
+        mOutputs = outputs;
         SomeArgs args = SomeArgs.obtain();
         args.argi1 = id;
         args.argi2 = vid;
         args.argi3 = pid;
+        args.argi4 = bus;
         if (name != null) {
             args.arg1 = name;
         } else {
@@ -74,22 +79,22 @@ public class Device {
         args.arg2 = descriptor;
         args.arg3 = report;
         mHandler.obtainMessage(MSG_OPEN_DEVICE, args).sendToTarget();
-        mEventTime = SystemClock.uptimeMillis() + MIN_WAIT_FOR_FIRST_EVENT;
+        mTimeToSend = SystemClock.uptimeMillis();
     }
 
     public void sendReport(byte[] report) {
         Message msg = mHandler.obtainMessage(MSG_SEND_REPORT, report);
-        mHandler.sendMessageAtTime(msg, mEventTime);
+        // if two messages are sent at identical time, they will be processed in order received
+        mHandler.sendMessageAtTime(msg, mTimeToSend);
     }
 
     public void addDelay(int delay) {
-        mEventTime += delay;
+        mTimeToSend = Math.max(SystemClock.uptimeMillis(), mTimeToSend) + delay;
     }
 
     public void close() {
         Message msg = mHandler.obtainMessage(MSG_CLOSE_DEVICE);
-        msg.setAsynchronous(true);
-        mHandler.sendMessageAtTime(msg, mEventTime + 1);
+        mHandler.sendMessageAtTime(msg, Math.max(SystemClock.uptimeMillis(), mTimeToSend) + 1);
         try {
             synchronized (mCond) {
                 mCond.wait();
@@ -111,8 +116,7 @@ public class Device {
                 case MSG_OPEN_DEVICE:
                     SomeArgs args = (SomeArgs) msg.obj;
                     mPtr = nativeOpenDevice((String) args.arg1, args.argi1, args.argi2, args.argi3,
-                            (byte[]) args.arg2, getLooper().myQueue(), new DeviceCallback());
-                    nativeSendReport(mPtr, (byte[]) args.arg3);
+                            args.argi4, (byte[]) args.arg2, new DeviceCallback());
                     pauseEvents();
                     break;
                 case MSG_SEND_REPORT:
@@ -120,6 +124,13 @@ public class Device {
                         nativeSendReport(mPtr, (byte[]) msg.obj);
                     } else {
                         Log.e(TAG, "Tried to send report to closed device.");
+                    }
+                    break;
+                case MSG_SEND_GET_FEATURE_REPORT_REPLY:
+                    if (mPtr != 0) {
+                        nativeSendGetFeatureReportReply(mPtr, msg.arg1, (byte[]) msg.obj);
+                    } else {
+                        Log.e(TAG, "Tried to send feature report reply to closed device.");
                     }
                     break;
                 case MSG_CLOSE_DEVICE:
@@ -154,7 +165,53 @@ public class Device {
             mHandler.resumeEvents();
         }
 
+        public void onDeviceGetReport(int requestId, int reportId) {
+            if (mFeatureReports == null) {
+                Log.e(TAG, "Received GET_REPORT request for reportId=" + reportId
+                        + ", but 'feature_reports' section is not found");
+                return;
+            }
+            byte[] report = mFeatureReports.get(reportId);
+
+            if (report == null) {
+                Log.e(TAG, "Requested feature report " + reportId + " is not specified");
+            }
+
+            Message msg;
+            msg = mHandler.obtainMessage(MSG_SEND_GET_FEATURE_REPORT_REPLY, requestId, 0, report);
+
+            // Message is set to asynchronous so it won't be blocked by synchronization
+            // barrier during UHID_OPEN. This is necessary for drivers that do
+            // UHID_GET_REPORT requests during probe.
+            msg.setAsynchronous(true);
+            mHandler.sendMessageAtTime(msg, mTimeToSend);
+        }
+
+        // native callback
+        public void onDeviceOutput(byte[] data) {
+            if (mOutputs == null) {
+                Log.e(TAG, "Received OUTPUT request, but 'outputs' section is not found");
+                return;
+            }
+            byte[] response = mOutputs.get(ByteBuffer.wrap(data));
+            if (response == null) {
+                Log.i(TAG,
+                        "Requested response for output " + Arrays.toString(data) + " is not found");
+                return;
+            }
+
+            Message msg;
+            msg = mHandler.obtainMessage(MSG_SEND_REPORT, response);
+
+            // Message is set to asynchronous so it won't be blocked by synchronization
+            // barrier during UHID_OPEN. This is necessary for drivers that do
+            // UHID_OUTPUT requests during probe, and expect a response right away.
+            msg.setAsynchronous(true);
+            mHandler.sendMessageAtTime(msg, mTimeToSend);
+        }
+
         public void onDeviceError() {
+            Log.e(TAG, "Device error occurred, closing /dev/uhid");
             Message msg = mHandler.obtainMessage(MSG_CLOSE_DEVICE);
             msg.setAsynchronous(true);
             msg.sendToTarget();

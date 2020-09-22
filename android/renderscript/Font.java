@@ -16,15 +16,15 @@
 
 package android.renderscript;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.res.AssetManager;
+import android.content.res.Resources;
+import android.os.Environment;
+
 import java.io.File;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
-
-import android.os.Environment;
-
-import android.content.res.AssetManager;
-import android.content.res.Resources;
 
 /**
  * @hide
@@ -85,6 +85,7 @@ public class Font extends BaseObj {
         /**
          * @deprecated in API 16
          */
+        @UnsupportedAppUsage
         ITALIC,
         /**
          * @deprecated in API 16
@@ -236,6 +237,7 @@ public class Font extends BaseObj {
      *
      * Returns default font if no match could be found.
      */
+    @UnsupportedAppUsage
     static public Font create(RenderScript rs, Resources res, String familyName, Style fontStyle, float pointSize) {
         String fileName = getFontFileName(familyName, fontStyle);
         String fontPath = Environment.getRootDirectory().getAbsolutePath();

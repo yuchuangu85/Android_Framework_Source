@@ -16,13 +16,15 @@
 
 package com.android.internal.telephony;
 
-import com.android.internal.telephony.SmsConstants;
+import android.compat.annotation.UnsupportedAppUsage;
+
 import com.android.internal.util.HexDump;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * SMS user data header, as specified in TS 23.040 9.2.3.24.
@@ -71,22 +73,99 @@ public class SmsHeader {
     public static final int PORT_WAP_PUSH = 2948;
     public static final int PORT_WAP_WSP  = 9200;
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        SmsHeader smsHeader = (SmsHeader) o;
+        return languageTable == smsHeader.languageTable
+                && languageShiftTable == smsHeader.languageShiftTable
+                && Objects.equals(portAddrs, smsHeader.portAddrs)
+                && Objects.equals(concatRef, smsHeader.concatRef)
+                && Objects.equals(specialSmsMsgList, smsHeader.specialSmsMsgList)
+                && Objects.equals(miscEltList, smsHeader.miscEltList);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(portAddrs, concatRef, specialSmsMsgList, miscEltList, languageTable,
+                languageShiftTable);
+    }
+
     public static class PortAddrs {
+        @UnsupportedAppUsage
+        public PortAddrs() {
+        }
+
+        @UnsupportedAppUsage
         public int destPort;
+        @UnsupportedAppUsage
         public int origPort;
         public boolean areEightBits;
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            PortAddrs portAddrs = (PortAddrs) o;
+            return destPort == portAddrs.destPort
+                    && origPort == portAddrs.origPort
+                    && areEightBits == portAddrs.areEightBits;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(destPort, origPort, areEightBits);
+        }
     }
 
     public static class ConcatRef {
+        @UnsupportedAppUsage
+        public ConcatRef() {
+        }
+
+        @UnsupportedAppUsage
         public int refNumber;
+        @UnsupportedAppUsage
         public int seqNumber;
+        @UnsupportedAppUsage
         public int msgCount;
         public boolean isEightBits;
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            ConcatRef concatRef = (ConcatRef) o;
+            return refNumber == concatRef.refNumber
+                    && seqNumber == concatRef.seqNumber
+                    && msgCount == concatRef.msgCount
+                    && isEightBits == concatRef.isEightBits;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(refNumber, seqNumber, msgCount, isEightBits);
+        }
     }
 
     public static class SpecialSmsMsg {
         public int msgIndType;
         public int msgCount;
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            SpecialSmsMsg that = (SpecialSmsMsg) o;
+            return msgIndType == that.msgIndType
+                    && msgCount == that.msgCount;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(msgIndType, msgCount);
+        }
     }
 
     /**
@@ -96,19 +175,40 @@ public class SmsHeader {
     public static class MiscElt {
         public int id;
         public byte[] data;
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            MiscElt miscElt = (MiscElt) o;
+            return id == miscElt.id
+                    && Arrays.equals(data, miscElt.data);
+        }
+
+        @Override
+        public int hashCode() {
+            int result = Objects.hash(id);
+            result = 31 * result + Arrays.hashCode(data);
+            return result;
+        }
     }
 
+    @UnsupportedAppUsage
     public PortAddrs portAddrs;
+    @UnsupportedAppUsage
     public ConcatRef concatRef;
     public ArrayList<SpecialSmsMsg> specialSmsMsgList = new ArrayList<SpecialSmsMsg>();
     public ArrayList<MiscElt> miscEltList = new ArrayList<MiscElt>();
 
     /** 7 bit national language locking shift table, or 0 for GSM default 7 bit alphabet. */
+    @UnsupportedAppUsage
     public int languageTable;
 
     /** 7 bit national language single shift table, or 0 for GSM default 7 bit extension table. */
+    @UnsupportedAppUsage
     public int languageShiftTable;
 
+    @UnsupportedAppUsage
     public SmsHeader() {}
 
     /**
@@ -117,6 +217,7 @@ public class SmsHeader {
      * @param data is user data header bytes
      * @return SmsHeader object
      */
+    @UnsupportedAppUsage
     public static SmsHeader fromByteArray(byte[] data) {
         ByteArrayInputStream inStream = new ByteArrayInputStream(data);
         SmsHeader smsHeader = new SmsHeader();
@@ -198,6 +299,7 @@ public class SmsHeader {
      * (see TS 23.040 9.2.3.24)
      * @return Byte array representing the SmsHeader
      */
+    @UnsupportedAppUsage
     public static byte[] toByteArray(SmsHeader smsHeader) {
         if ((smsHeader.portAddrs == null) &&
             (smsHeader.concatRef == null) &&

@@ -16,7 +16,9 @@
 
 package android.telecom;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -25,9 +27,12 @@ import android.os.RemoteException;
 import android.telecom.InCallService.VideoCall;
 import android.view.Surface;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.telecom.IVideoCallback;
 import com.android.internal.telecom.IVideoProvider;
+
+import java.util.NoSuchElementException;
 
 /**
  * Implementation of a Video Call, which allows InCallUi to communicate commands to the underlying
@@ -43,11 +48,18 @@ public class VideoCallImpl extends VideoCall {
     private VideoCall.Callback mCallback;
     private int mVideoQuality = VideoProfile.QUALITY_UNKNOWN;
     private int mVideoState = VideoProfile.STATE_AUDIO_ONLY;
+    private final String mCallingPackageName;
+
+    private int mTargetSdkVersion;
 
     private IBinder.DeathRecipient mDeathRecipient = new IBinder.DeathRecipient() {
         @Override
         public void binderDied() {
-            mVideoProvider.asBinder().unlinkToDeath(this, 0);
+            try {
+                mVideoProvider.asBinder().unlinkToDeath(this, 0);
+            } catch (NoSuchElementException nse) {
+                // Already unlinked in destroy below.
+            }
         }
     };
 
@@ -197,16 +209,30 @@ public class VideoCallImpl extends VideoCall {
 
     private Handler mHandler;
 
-    VideoCallImpl(IVideoProvider videoProvider) throws RemoteException {
+    VideoCallImpl(IVideoProvider videoProvider, String callingPackageName, int targetSdkVersion)
+            throws RemoteException {
         mVideoProvider = videoProvider;
         mVideoProvider.asBinder().linkToDeath(mDeathRecipient, 0);
 
         mBinder = new VideoCallListenerBinder();
         mVideoProvider.addVideoCallback(mBinder);
+        mCallingPackageName = callingPackageName;
+        setTargetSdkVersion(targetSdkVersion);
     }
 
+    @VisibleForTesting
+    public void setTargetSdkVersion(int sdkVersion) {
+        mTargetSdkVersion = sdkVersion;
+    }
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 127403196)
     public void destroy() {
         unregisterCallback(mCallback);
+        try {
+            mVideoProvider.asBinder().unlinkToDeath(mDeathRecipient, 0);
+        } catch (NoSuchElementException nse) {
+            // Already unlinked in binderDied above.
+        }
     }
 
     /** {@inheritDoc} */
@@ -240,7 +266,8 @@ public class VideoCallImpl extends VideoCall {
     /** {@inheritDoc} */
     public void setCamera(String cameraId) {
         try {
-            mVideoProvider.setCamera(cameraId);
+            Log.w(this, "setCamera: cameraId=%s, calling=%s", cameraId, mCallingPackageName);
+            mVideoProvider.setCamera(cameraId, mCallingPackageName, mTargetSdkVersion);
         } catch (RemoteException e) {
         }
     }
@@ -336,5 +363,13 @@ public class VideoCallImpl extends VideoCall {
      */
     public void setVideoState(int videoState) {
         mVideoState = videoState;
+    }
+
+    /**
+     * Get the video provider binder.
+     * @return the video provider binder.
+     */
+    public IVideoProvider getVideoProvider() {
+        return mVideoProvider;
     }
 }

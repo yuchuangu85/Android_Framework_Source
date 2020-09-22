@@ -70,7 +70,7 @@ import java.util.function.Consumer;
  * should be used only to detect bugs.</i>
  *
  * <p>This class is a member of the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
+ * <a href="{@docRoot}/../technotes/guides/collections/index.html">
  * Java Collections Framework</a>.
  *
  * @author  Josh Bloch
@@ -869,7 +869,7 @@ public class LinkedList<E>
     }
 
     private class ListItr implements ListIterator<E> {
-        private Node<E> lastReturned = null;
+        private Node<E> lastReturned;
         private Node<E> next;
         private int nextIndex;
         private int expectedModCount = modCount;
@@ -950,7 +950,6 @@ public class LinkedList<E>
             expectedModCount++;
         }
 
-        @Override
         public void forEachRemaining(Consumer<? super E> action) {
             Objects.requireNonNull(action);
             while (modCount == expectedModCount && nextIndex < size) {

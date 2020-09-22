@@ -22,17 +22,19 @@ import android.provider.Settings;
 import android.util.MemoryIntArray;
 import android.util.Slog;
 import android.util.SparseIntArray;
+
 import com.android.internal.annotations.GuardedBy;
 
 import java.io.IOException;
 
 /**
- * This class tracks changes for global/secure/system tables on a
- * per user basis and updates a shared memory region which client
- * processes can read to determine if their local caches are stale,
+ * This class tracks changes for config/global/secure/system tables
+ * on a per user basis and updates a shared memory region which
+ * client processes can read to determine if their local caches are
+ * stale.
  */
 final class GenerationRegistry {
-    private static final String LOG_TAG = "GenerationTracker";
+    private static final String LOG_TAG = "GenerationRegistry";
 
     private static final boolean DEBUG = false;
 
@@ -111,15 +113,20 @@ final class GenerationRegistry {
         }
     }
 
+    @GuardedBy("mLock")
     private MemoryIntArray getBackingStoreLocked() {
         if (mBackingStore == null) {
-            // One for the global table, two for system and secure tables for a
-            // managed profile (managed profile is not included in the max user
-            // count), ten for partially deleted users if users are quickly removed,
-            // and twice max user count for system and secure.
-            final int size = 1 + 2 + 10 + 2 * UserManager.getMaxSupportedUsers();
+            // One for the config table, one for the global table, two for system
+            // and secure tables for a managed profile (managed profile is not
+            // included in the max user count), ten for partially deleted users if
+            // users are quickly removed, and twice max user count for system and
+            // secure.
+            final int size = 1 + 1 + 2 + 10 + 2 * UserManager.getMaxSupportedUsers();
             try {
-                mBackingStore = new MemoryIntArray(size, false);
+                mBackingStore = new MemoryIntArray(size);
+                if (DEBUG) {
+                    Slog.e(LOG_TAG, "Created backing store " + mBackingStore);
+                }
             } catch (IOException e) {
                 Slog.e(LOG_TAG, "Error creating generation tracker", e);
             }
@@ -131,6 +138,9 @@ final class GenerationRegistry {
         if (mBackingStore != null) {
             try {
                 mBackingStore.close();
+                if (DEBUG) {
+                    Slog.e(LOG_TAG, "Destroyed backing store " + mBackingStore);
+                }
             } catch (IOException e) {
                 Slog.e(LOG_TAG, "Cannot close generation memory array", e);
             }

@@ -16,11 +16,12 @@
 
 package com.android.internal.telephony.cat;
 
-import android.telephony.Rlog;
+import android.compat.annotation.UnsupportedAppUsage;
+
+import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
 import java.util.List;
-
 
 /**
  * Class for representing COMPREHENSION-TLV objects.
@@ -29,7 +30,7 @@ import java.util.List;
  *
  * {@hide}
  */
-class ComprehensionTlv {
+public class ComprehensionTlv {
     private static final String LOG_TAG = "ComprehensionTlv";
     private int mTag;
     private boolean mCr;
@@ -57,6 +58,7 @@ class ComprehensionTlv {
         mRawValue = data;
     }
 
+    @UnsupportedAppUsage
     public int getTag() {
         return mTag;
     }
@@ -65,14 +67,17 @@ class ComprehensionTlv {
         return mCr;
     }
 
+    @UnsupportedAppUsage
     public int getLength() {
         return mLength;
     }
 
+    @UnsupportedAppUsage
     public int getValueIndex() {
         return mValueIndex;
     }
 
+    @UnsupportedAppUsage
     public byte[] getRawValue() {
         return mRawValue;
     }

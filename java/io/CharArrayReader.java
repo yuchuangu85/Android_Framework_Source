@@ -130,9 +130,12 @@ public class CharArrayReader extends Reader {
             if (pos >= count) {
                 return -1;
             }
-            if (pos + len > count) {
-                len = count - pos;
+            // BEGIN Android-changed: Backport of OpenJDK 9b132 fix to avoid integer overflow.
+            int avail = count - pos;
+            if (len > avail) {
+                len = avail;
             }
+            // END Android-changed: Backport of OpenJDK 9b132 fix to avoid integer overflow.
             if (len <= 0) {
                 return 0;
             }
@@ -157,9 +160,12 @@ public class CharArrayReader extends Reader {
     public long skip(long n) throws IOException {
         synchronized (lock) {
             ensureOpen();
-            if (pos + n > count) {
-                n = count - pos;
+            // BEGIN Android-changed: Backport of OpenJDK 9b132 fix to avoid integer overflow.
+            long avail = count - pos;
+            if (n > avail) {
+                n = avail;
             }
+            // END Android-changed: Backport of OpenJDK 9b132 fix to avoid integer overflow.
             if (n < 0) {
                 return 0;
             }

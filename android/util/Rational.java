@@ -15,7 +15,9 @@
  */
 package android.util;
 
-import static com.android.internal.util.Preconditions.*;
+import static com.android.internal.util.Preconditions.checkNotNull;
+
+import android.compat.annotation.UnsupportedAppUsage;
 
 import java.io.IOException;
 import java.io.InvalidObjectException;
@@ -74,7 +76,9 @@ public final class Rational extends Number implements Comparable<Rational> {
      * Do not change the order of these fields or add new instance fields to maintain the
      * Serializable compatibility across API revisions.
      */
+    @UnsupportedAppUsage
     private final int mNumerator;
+    @UnsupportedAppUsage
     private final int mDenominator;
 
     /**

@@ -16,11 +16,8 @@
 
 package com.android.internal.os;
 
-import java.io.FileDescriptor;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.IInterface;
@@ -29,16 +26,26 @@ import android.os.RemoteException;
 import android.os.SystemClock;
 import android.util.Slog;
 
+import libcore.io.IoUtils;
+
+import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
+import java.io.FileDescriptor;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+
 /**
  * Helper for transferring data through a pipe from a client app.
  */
-public final class TransferPipe implements Runnable {
+public class TransferPipe implements Runnable, Closeable {
     static final String TAG = "TransferPipe";
     static final boolean DEBUG = false;
 
     static final long DEFAULT_TIMEOUT = 5000;  // 5 seconds
 
-    final Thread mThread;;
+    final Thread mThread;
     final ParcelFileDescriptor[] mFds;
 
     FileDescriptor mOutFd;
@@ -54,8 +61,17 @@ public final class TransferPipe implements Runnable {
     }
 
     public TransferPipe() throws IOException {
-        mThread = new Thread(this, "TransferPipe");
+        this(null);
+    }
+
+    public TransferPipe(String bufferPrefix) throws IOException {
+        this(bufferPrefix, "TransferPipe");
+    }
+
+    protected TransferPipe(String bufferPrefix, String threadName) throws IOException {
+        mThread = new Thread(this, threadName);
         mFds = ParcelFileDescriptor.createPipe();
+        mBufferPrefix = bufferPrefix;
     }
 
     ParcelFileDescriptor getReadFd() {
@@ -68,6 +84,50 @@ public final class TransferPipe implements Runnable {
 
     public void setBufferPrefix(String prefix) {
         mBufferPrefix = prefix;
+    }
+
+    public static void dumpAsync(IBinder binder, FileDescriptor out, String[] args)
+            throws IOException, RemoteException {
+        goDump(binder, out, args);
+    }
+
+    /**
+     * Read raw bytes from a service's dump function.
+     *
+     * <p>This can be used for dumping {@link android.util.proto.ProtoOutputStream protos}.
+     *
+     * @param binder The service providing the data
+     * @param args The arguments passed to the dump function of the service
+     */
+    public static byte[] dumpAsync(@NonNull IBinder binder, @Nullable String... args)
+            throws IOException, RemoteException {
+        ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
+        try {
+            TransferPipe.dumpAsync(binder, pipe[1].getFileDescriptor(), args);
+
+            // Data is written completely when dumpAsync is done
+            pipe[1].close();
+            pipe[1] = null;
+
+            byte[] buffer = new byte[4096];
+            try (ByteArrayOutputStream combinedBuffer = new ByteArrayOutputStream()) {
+                try (FileInputStream is = new FileInputStream(pipe[0].getFileDescriptor())) {
+                    while (true) {
+                        int numRead = is.read(buffer);
+                        if (numRead == -1) {
+                            break;
+                        }
+
+                        combinedBuffer.write(buffer, 0, numRead);
+                    }
+                }
+
+                return combinedBuffer.toByteArray();
+            }
+        } finally {
+            pipe[0].close();
+            IoUtils.closeQuietly(pipe[1]);
+        }
     }
 
     static void go(Caller caller, IInterface iface, FileDescriptor out,
@@ -86,12 +146,9 @@ public final class TransferPipe implements Runnable {
             return;
         }
 
-        TransferPipe tp = new TransferPipe();
-        try {
+        try (TransferPipe tp = new TransferPipe()) {
             caller.go(iface, tp.getWriteFd().getFileDescriptor(), prefix, args);
             tp.go(out, timeout);
-        } finally {
-            tp.kill();
         }
     }
 
@@ -111,12 +168,9 @@ public final class TransferPipe implements Runnable {
             return;
         }
 
-        TransferPipe tp = new TransferPipe();
-        try {
+        try (TransferPipe tp = new TransferPipe()) {
             binder.dumpAsync(tp.getWriteFd().getFileDescriptor(), args);
             tp.go(out, timeout);
-        } finally {
-            tp.kill();
         }
     }
 
@@ -173,6 +227,11 @@ public final class TransferPipe implements Runnable {
         }
     }
 
+    @Override
+    public void close() {
+        kill();
+    }
+
     public void kill() {
         synchronized (this) {
             closeFd(0);
@@ -180,11 +239,15 @@ public final class TransferPipe implements Runnable {
         }
     }
 
+    protected OutputStream getNewOutputStream() {
+          return new FileOutputStream(mOutFd);
+    }
+
     @Override
     public void run() {
         final byte[] buffer = new byte[1024];
         final FileInputStream fis;
-        final FileOutputStream fos;
+        final OutputStream fos;
 
         synchronized (this) {
             ParcelFileDescriptor readFd = getReadFd();
@@ -193,7 +256,7 @@ public final class TransferPipe implements Runnable {
                 return;
             }
             fis = new FileInputStream(readFd.getFileDescriptor());
-            fos = new FileOutputStream(mOutFd);
+            fos = getNewOutputStream();
         }
 
         if (DEBUG) Slog.i(TAG, "Ready to read pipe...");

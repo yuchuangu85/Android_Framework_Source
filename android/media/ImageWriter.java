@@ -16,9 +16,14 @@
 
 package android.media;
 
+import android.annotation.IntRange;
+import android.annotation.NonNull;
 import android.graphics.ImageFormat;
+import android.graphics.ImageFormat.Format;
+import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.hardware.camera2.utils.SurfaceUtils;
+import android.hardware.HardwareBuffer;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -57,12 +62,17 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * </p>
  * <p>
  * If the application already has an Image from {@link ImageReader}, the
- * application can directly queue this Image into ImageWriter (via
- * {@link #queueInputImage}), potentially with zero buffer copies. For the
- * {@link ImageFormat#PRIVATE PRIVATE} format Images produced by
- * {@link ImageReader}, this is the only way to send Image data to ImageWriter,
- * as the Image data aren't accessible by the application.
+ * application can directly queue this Image into the ImageWriter (via
+ * {@link #queueInputImage}), potentially with zero buffer copies. This
+ * even works if the image format of the ImageWriter is
+ * {@link ImageFormat#PRIVATE PRIVATE}, and prior to Android P is the only
+ * way to enqueue images into such an ImageWriter. Starting in Android P
+ * private images may also be accessed through their hardware buffers
+ * (when available) through the {@link Image#getHardwareBuffer()} method.
+ * Attempting to access the planes of a private image, will return an
+ * empty array.
  * </p>
+ * <p>
  * Once new input Images are queued into an ImageWriter, it's up to the
  * downstream components (e.g. {@link ImageReader} or
  * {@link android.hardware.camera2.CameraDevice}) to consume the Images. If the
@@ -89,7 +99,7 @@ public class ImageWriter implements AutoCloseable {
     private final int mMaxImages;
     // Keep track of the currently dequeued Image. This need to be thread safe as the images
     // could be closed by different threads (e.g., application thread and GC thread).
-    private List<Image> mDequeuedImages = new CopyOnWriteArrayList<Image>();
+    private List<Image> mDequeuedImages = new CopyOnWriteArrayList<>();
     private int mEstimatedNativeAllocBytes;
 
     /**
@@ -117,24 +127,80 @@ public class ImageWriter implements AutoCloseable {
      *            {@link #dequeueInputImage()}.
      * @return a new ImageWriter instance.
      */
-    public static ImageWriter newInstance(Surface surface, int maxImages) {
-        return new ImageWriter(surface, maxImages);
+    public static @NonNull ImageWriter newInstance(@NonNull Surface surface,
+            @IntRange(from = 1) int maxImages) {
+        return new ImageWriter(surface, maxImages, ImageFormat.UNKNOWN);
+    }
+
+    /**
+     * <p>
+     * Create a new ImageWriter with given number of max Images and format.
+     * </p>
+     * <p>
+     * The {@code maxImages} parameter determines the maximum number of
+     * {@link Image} objects that can be be dequeued from the
+     * {@code ImageWriter} simultaneously. Requesting more buffers will use up
+     * more memory, so it is important to use only the minimum number necessary.
+     * </p>
+     * <p>
+     * The format specifies the image format of this ImageWriter. The format
+     * from the {@code surface} will be overridden with this format. For example,
+     * if the surface is obtained from a {@link android.graphics.SurfaceTexture}, the default
+     * format may be {@link PixelFormat#RGBA_8888}. If the application creates an ImageWriter
+     * with this surface and {@link ImageFormat#PRIVATE}, this ImageWriter will be able to operate
+     * with {@link ImageFormat#PRIVATE} Images.
+     * </p>
+     * <p>
+     * Note that the consumer end-point may or may not be able to support Images with different
+     * format, for such case, the application should only use this method if the consumer is able
+     * to consume such images.
+     * </p>
+     * <p>
+     * The input Image size depends on the Surface that is provided by
+     * the downstream consumer end-point.
+     * </p>
+     *
+     * @param surface The destination Surface this writer produces Image data
+     *            into.
+     * @param maxImages The maximum number of Images the user will want to
+     *            access simultaneously for producing Image data. This should be
+     *            as small as possible to limit memory use. Once maxImages
+     *            Images are dequeued by the user, one of them has to be queued
+     *            back before a new Image can be dequeued for access via
+     *            {@link #dequeueInputImage()}.
+     * @param format The format of this ImageWriter. It can be any valid format specified by
+     *            {@link ImageFormat} or {@link PixelFormat}.
+     *
+     * @return a new ImageWriter instance.
+     */
+    public static @NonNull ImageWriter newInstance(@NonNull Surface surface,
+            @IntRange(from = 1) int maxImages, @Format int format) {
+        if (!ImageFormat.isPublicFormat(format) && !PixelFormat.isPublicFormat(format)) {
+            throw new IllegalArgumentException("Invalid format is specified: " + format);
+        }
+        return new ImageWriter(surface, maxImages, format);
     }
 
     /**
      * @hide
      */
-    protected ImageWriter(Surface surface, int maxImages) {
+    protected ImageWriter(Surface surface, int maxImages, int format) {
         if (surface == null || maxImages < 1) {
             throw new IllegalArgumentException("Illegal input argument: surface " + surface
                     + ", maxImages: " + maxImages);
         }
 
         mMaxImages = maxImages;
+
         // Note that the underlying BufferQueue is working in synchronous mode
         // to avoid dropping any buffers.
-        mNativeContext = nativeInit(new WeakReference<ImageWriter>(this), surface, maxImages);
+        mNativeContext = nativeInit(new WeakReference<>(this), surface, maxImages, format);
 
+        // nativeInit internally overrides UNKNOWN format. So does surface format query after
+        // nativeInit and before getEstimatedNativeAllocBytes().
+        if (format == ImageFormat.UNKNOWN) {
+            format = SurfaceUtils.getSurfaceFormat(surface);
+        }
         // Estimate the native buffer allocation size and register it so it gets accounted for
         // during GC. Note that this doesn't include the buffers required by the buffer queue
         // itself and the buffers requested by the producer.
@@ -142,7 +208,6 @@ public class ImageWriter implements AutoCloseable {
         // complex, and 1 buffer is enough for the VM to treat the ImageWriter as being of some
         // size.
         Size surfSize = SurfaceUtils.getSurfaceSize(surface);
-        int format = SurfaceUtils.getSurfaceFormat(surface);
         mEstimatedNativeAllocBytes =
                 ImageUtils.getEstimatedNativeAllocBytes(surfSize.getWidth(),surfSize.getHeight(),
                         format, /*buffer count*/ 1);
@@ -204,29 +269,26 @@ public class ImageWriter implements AutoCloseable {
      * <p>
      * If the format of ImageWriter is {@link ImageFormat#PRIVATE PRIVATE} (
      * {@link ImageWriter#getFormat()} == {@link ImageFormat#PRIVATE}), the
-     * image buffer is inaccessible to the application, and calling this method
-     * will result in an {@link IllegalStateException}. Instead, the application
-     * should acquire images from some other component (e.g. an
+     * image buffer is accessible to the application only through the hardware
+     * buffer obtained through {@link Image#getHardwareBuffer()}. (On Android
+     * versions prior to P, dequeueing private buffers will cause an
+     * {@link IllegalStateException} to be thrown). Alternatively,
+     * the application can acquire images from some other component (e.g. an
      * {@link ImageReader}), and queue them directly to this ImageWriter via the
      * {@link ImageWriter#queueInputImage queueInputImage()} method.
      * </p>
      *
      * @return The next available input Image from this ImageWriter.
      * @throws IllegalStateException if {@code maxImages} Images are currently
-     *             dequeued, or the ImageWriter format is
-     *             {@link ImageFormat#PRIVATE PRIVATE}, or the input
-     *             {@link android.view.Surface Surface} has been abandoned by the
-     *             consumer component that provided the {@link android.view.Surface Surface}.
+     *             dequeued, or the input {@link android.view.Surface Surface}
+     *             has been abandoned by the consumer component that provided
+     *             the {@link android.view.Surface Surface}. Prior to Android
+     *             P, throws if the ImageWriter format is
+     *             {@link ImageFormat#PRIVATE PRIVATE}.
      * @see #queueInputImage
      * @see Image#close
      */
     public Image dequeueInputImage() {
-        if (mWriterFormat == ImageFormat.PRIVATE) {
-            throw new IllegalStateException(
-                    "PRIVATE format ImageWriter doesn't support this operation since the images are"
-                            + " inaccessible to the application!");
-        }
-
         if (mDequeuedImages.size() >= mMaxImages) {
             throw new IllegalStateException("Already dequeued max number of Images " + mMaxImages);
         }
@@ -306,33 +368,19 @@ public class ImageWriter implements AutoCloseable {
             }
 
             ImageReader prevOwner = (ImageReader) image.getOwner();
-            // Only do the image attach for PRIVATE format images for now. Do the image
-            // copy for other formats. TODO: use attach for other formats to
-            // improve the performance, and fall back to copy when attach/detach
-            // fails. Right now, detach is guaranteed to fail as the buffer is
-            // locked when ImageReader#acquireNextImage is called. See bug 19962027.
-            if (image.getFormat() == ImageFormat.PRIVATE) {
-                prevOwner.detachImage(image);
-                attachAndQueueInputImage(image);
-                // This clears the native reference held by the original owner.
-                // When this Image is detached later by this ImageWriter, the
-                // native memory won't be leaked.
-                image.close();
-                return;
-            } else {
-                Image inputImage = dequeueInputImage();
-                inputImage.setTimestamp(image.getTimestamp());
-                inputImage.setCropRect(image.getCropRect());
-                ImageUtils.imageCopy(image, inputImage);
-                image.close();
-                image = inputImage;
-                ownedByMe = true;
-            }
+
+            prevOwner.detachImage(image);
+            attachAndQueueInputImage(image);
+            // This clears the native reference held by the original owner.
+            // When this Image is detached later by this ImageWriter, the
+            // native memory won't be leaked.
+            image.close();
+            return;
         }
 
         Rect crop = image.getCropRect();
         nativeQueueInputImage(mNativeContext, image, image.getTimestamp(), crop.left, crop.top,
-                crop.right, crop.bottom);
+                crop.right, crop.bottom, image.getTransform(), image.getScalingMode());
 
         /**
          * Only remove and cleanup the Images that are owned by this
@@ -518,7 +566,8 @@ public class ImageWriter implements AutoCloseable {
         // buffer caused leak.
         Rect crop = image.getCropRect();
         nativeAttachAndQueueImage(mNativeContext, image.getNativeContext(), image.getFormat(),
-                image.getTimestamp(), crop.left, crop.top, crop.right, crop.bottom);
+                image.getTimestamp(), crop.left, crop.top, crop.right, crop.bottom,
+                image.getTransform(), image.getScalingMode());
     }
 
     /**
@@ -635,6 +684,9 @@ public class ImageWriter implements AutoCloseable {
         private final long DEFAULT_TIMESTAMP = Long.MIN_VALUE;
         private long mTimestamp = DEFAULT_TIMESTAMP;
 
+        private int mTransform = 0; //Default no transform
+        private int mScalingMode = 0; //Default frozen scaling mode
+
         public WriterSurfaceImage(ImageWriter writer) {
             mOwner = writer;
         }
@@ -672,6 +724,20 @@ public class ImageWriter implements AutoCloseable {
         }
 
         @Override
+        public int getTransform() {
+            throwISEIfImageIsInvalid();
+
+            return mTransform;
+        }
+
+        @Override
+        public int getScalingMode() {
+            throwISEIfImageIsInvalid();
+
+            return mScalingMode;
+        }
+
+        @Override
         public long getTimestamp() {
             throwISEIfImageIsInvalid();
 
@@ -683,6 +749,13 @@ public class ImageWriter implements AutoCloseable {
             throwISEIfImageIsInvalid();
 
             mTimestamp = timestamp;
+        }
+
+        @Override
+        public HardwareBuffer getHardwareBuffer() {
+            throwISEIfImageIsInvalid();
+
+            return nativeGetHardwareBuffer();
         }
 
         @Override
@@ -806,21 +879,25 @@ public class ImageWriter implements AutoCloseable {
         private synchronized native int nativeGetHeight();
 
         private synchronized native int nativeGetFormat();
+
+        private synchronized native HardwareBuffer nativeGetHardwareBuffer();
     }
 
     // Native implemented ImageWriter methods.
-    private synchronized native long nativeInit(Object weakSelf, Surface surface, int maxImgs);
+    private synchronized native long nativeInit(Object weakSelf, Surface surface, int maxImgs,
+            int format);
 
     private synchronized native void nativeClose(long nativeCtx);
 
     private synchronized native void nativeDequeueInputImage(long nativeCtx, Image wi);
 
     private synchronized native void nativeQueueInputImage(long nativeCtx, Image image,
-            long timestampNs, int left, int top, int right, int bottom);
+            long timestampNs, int left, int top, int right, int bottom, int transform,
+            int scalingMode);
 
     private synchronized native int nativeAttachAndQueueImage(long nativeCtx,
             long imageNativeBuffer, int imageFormat, long timestampNs, int left,
-            int top, int right, int bottom);
+            int top, int right, int bottom, int transform, int scalingMode);
 
     private synchronized native void cancelImage(long nativeCtx, Image image);
 

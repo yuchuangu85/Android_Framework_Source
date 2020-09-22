@@ -16,6 +16,7 @@
 
 package android.print;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
@@ -260,6 +261,7 @@ public abstract class PrintDocumentAdapter {
         /**
          * @hide
          */
+        @UnsupportedAppUsage
         public WriteResultCallback() {
             /* do nothing - hide constructor */
         }
@@ -268,7 +270,9 @@ public abstract class PrintDocumentAdapter {
          * Notifies that all the data was written.
          *
          * @param pages The pages that were written. Cannot be <code>null</code>
-         * or empty.
+         *        or empty. <br />
+         *        Returning {@link PageRange#ALL_PAGES} indicates that all pages that were
+         *        requested as the {@code pages} parameter in {@link #onWrite} were written.
          */
         public void onWriteFinished(PageRange[] pages) {
             /* do nothing - stub */
@@ -302,6 +306,7 @@ public abstract class PrintDocumentAdapter {
         /**
          * @hide
          */
+        @UnsupportedAppUsage
         public LayoutResultCallback() {
             /* do nothing - hide constructor */
         }

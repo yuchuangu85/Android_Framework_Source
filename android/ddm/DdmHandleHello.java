@@ -16,13 +16,15 @@
 
 package android.ddm;
 
+import android.os.Debug;
+import android.os.UserHandle;
+import android.util.Log;
+
+import dalvik.system.VMRuntime;
+
 import org.apache.harmony.dalvik.ddmc.Chunk;
 import org.apache.harmony.dalvik.ddmc.ChunkHandler;
 import org.apache.harmony.dalvik.ddmc.DdmServer;
-import android.util.Log;
-import android.os.Debug;
-import android.os.UserHandle;
-import dalvik.system.VMRuntime;
 
 import java.nio.ByteBuffer;
 
@@ -34,6 +36,8 @@ public class DdmHandleHello extends ChunkHandler {
     public static final int CHUNK_HELO = type("HELO");
     public static final int CHUNK_WAIT = type("WAIT");
     public static final int CHUNK_FEAT = type("FEAT");
+
+    private static final int CLIENT_PROTOCOL_VERSION = 1;
 
     private static DdmHandleHello mInstance = new DdmHandleHello();
 
@@ -122,10 +126,9 @@ public class DdmHandleHello extends ChunkHandler {
         String vmVersion = System.getProperty("java.vm.version", "?");
         String vmIdent = vmName + " v" + vmVersion;
 
-        //String appName = android.app.ActivityThread.currentPackageName();
-        //if (appName == null)
-        //    appName = "unknown";
-        String appName = DdmHandleAppName.getAppName();
+        DdmHandleAppName.Names names = DdmHandleAppName.getNames();
+        String appName = names.getAppName();
+        String pkgName = names.getPkgName();
 
         VMRuntime vmRuntime = VMRuntime.getRuntime();
         String instructionSetDescription =
@@ -138,14 +141,15 @@ public class DdmHandleHello extends ChunkHandler {
             + (vmRuntime.isCheckJniEnabled() ? "true" : "false");
         boolean isNativeDebuggable = vmRuntime.isNativeDebuggable();
 
-        ByteBuffer out = ByteBuffer.allocate(28
+        ByteBuffer out = ByteBuffer.allocate(32
                             + vmIdent.length() * 2
                             + appName.length() * 2
                             + instructionSetDescription.length() * 2
                             + vmFlags.length() * 2
-                            + 1);
+                            + 1
+                            + pkgName.length() * 2);
         out.order(ChunkHandler.CHUNK_ORDER);
-        out.putInt(DdmServer.CLIENT_PROTOCOL_VERSION);
+        out.putInt(CLIENT_PROTOCOL_VERSION);
         out.putInt(android.os.Process.myPid());
         out.putInt(vmIdent.length());
         out.putInt(appName.length());
@@ -157,6 +161,8 @@ public class DdmHandleHello extends ChunkHandler {
         out.putInt(vmFlags.length());
         putString(out, vmFlags);
         out.put((byte)(isNativeDebuggable ? 1 : 0));
+        out.putInt(pkgName.length());
+        putString(out, pkgName);
 
         Chunk reply = new Chunk(CHUNK_HELO, out);
 

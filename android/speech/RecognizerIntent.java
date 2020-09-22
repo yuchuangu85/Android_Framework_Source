@@ -141,6 +141,10 @@ public class RecognizerIntent {
      * <ul>
      *   <li>{@link #EXTRA_SECURE}
      * </ul>
+     *
+     * <p class="note">
+     * In some cases, a matching Activity may not exist, so ensure you
+     * safeguard against this.
      */
     public static final String ACTION_VOICE_SEARCH_HANDS_FREE =
             "android.speech.action.VOICE_SEARCH_HANDS_FREE";
@@ -409,6 +413,10 @@ public class RecognizerIntent {
      * {@link #ACTION_VOICE_SEARCH_HANDS_FREE}, {@link #ACTION_WEB_SEARCH} to indicate whether to
      * only use an offline speech recognition engine. The default is false, meaning that either
      * network or offline recognition engines may be used.
+     *
+     * <p>Depending on the recognizer implementation, these values may have
+     * no effect.</p>
+     *
      */
     public static final String EXTRA_PREFER_OFFLINE = "android.speech.extra.PREFER_OFFLINE";
 }

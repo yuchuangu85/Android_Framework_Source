@@ -16,6 +16,7 @@
 
 package java.math;
 
+import dalvik.annotation.optimization.ReachabilitySensitive;
 import libcore.util.NativeAllocationRegistry;
 
 /*
@@ -25,19 +26,20 @@ import libcore.util.NativeAllocationRegistry;
  */
 final class BigInt {
 
-    private static NativeAllocationRegistry registry = new NativeAllocationRegistry(
-            BigInt.class.getClassLoader(), NativeBN.getNativeFinalizer(), NativeBN.size());
+    private static NativeAllocationRegistry registry = NativeAllocationRegistry.createMalloced(
+            BigInt.class.getClassLoader(), NativeBN.getNativeFinalizer());
 
     /* Fields used for the internal representation. */
-    transient long bignum = 0;
+    @ReachabilitySensitive
+    private transient long bignum = 0;
 
     @Override
     public String toString() {
         return this.decString();
     }
 
-    long getNativeBIGNUM() {
-        return this.bignum;
+    boolean hasNativeBignum() {
+        return this.bignum != 0;
     }
 
     private void makeValid() {
@@ -334,11 +336,11 @@ final class BigInt {
 
     static BigInt generatePrimeDefault(int bitLength) {
         BigInt r = newBigInt();
-        NativeBN.BN_generate_prime_ex(r.bignum, bitLength, false, 0, 0, 0);
+        NativeBN.BN_generate_prime_ex(r.bignum, bitLength, false, 0, 0);
         return r;
     }
 
     boolean isPrime(int certainty) {
-        return NativeBN.BN_is_prime_ex(bignum, certainty, 0);
+        return NativeBN.BN_primality_test(bignum, certainty, false);
     }
 }

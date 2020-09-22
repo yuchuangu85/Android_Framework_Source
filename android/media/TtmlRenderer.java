@@ -16,6 +16,7 @@
 
 package android.media;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.text.TextUtils;
 import android.util.AttributeSet;
@@ -25,6 +26,10 @@ import android.view.View;
 import android.view.accessibility.CaptioningManager;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+import org.xmlpull.v1.XmlPullParserFactory;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -36,10 +41,6 @@ import java.util.Vector;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-import org.xmlpull.v1.XmlPullParserFactory;
-
 /** @hide */
 public class TtmlRenderer extends SubtitleController.Renderer {
     private final Context mContext;
@@ -48,6 +49,7 @@ public class TtmlRenderer extends SubtitleController.Renderer {
 
     private TtmlRenderingWidget mRenderingWidget;
 
+    @UnsupportedAppUsage
     public TtmlRenderer(Context context) {
         mContext = context;
     }

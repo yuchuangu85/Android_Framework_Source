@@ -16,6 +16,7 @@
 
 package android.drm;
 
+import android.annotation.NonNull;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -37,6 +38,8 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -44,7 +47,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * The main programming interface for the DRM framework. An application must instantiate this class
  * to access DRM agents through the DRM framework.
  *
+ * @deprecated Please use {@link android.media.MediaDrm}
  */
+@Deprecated
 public class DrmManagerClient implements AutoCloseable {
     /**
      * Indicates that a request was successful or that no error occurred.
@@ -262,7 +267,10 @@ public class DrmManagerClient implements AutoCloseable {
     @Override
     protected void finalize() throws Throwable {
         try {
-            mCloseGuard.warnIfOpen();
+            if (mCloseGuard != null) {
+                mCloseGuard.warnIfOpen();
+            }
+
             close();
         } finally {
             super.finalize();
@@ -275,6 +283,10 @@ public class DrmManagerClient implements AutoCloseable {
      * the {@link DrmManagerClient} object is no longer needed in your
      * application. After this method is called, {@link DrmManagerClient} is no
      * longer usable since it has lost all of its required resource.
+     *
+     * This method was added in API 24. In API versions 16 through 23, release()
+     * should be called instead. There is no need to do anything for API
+     * versions prior to 16.
      */
     @Override
     public void close() {
@@ -360,6 +372,17 @@ public class DrmManagerClient implements AutoCloseable {
 
         String[] drmEngines = new String[descriptions.size()];
         return descriptions.toArray(drmEngines);
+    }
+
+    /**
+     * Retrieves information about all the DRM plug-ins (agents) that are
+     * registered with the DRM framework.
+     *
+     * @return List of all the DRM plug-ins (agents) that are registered with
+     *         the DRM framework.
+     */
+    public @NonNull Collection<DrmSupportInfo> getAvailableDrmSupportInfo() {
+        return Arrays.asList(_getAllSupportInfo(mUniqueId));
     }
 
     /**
@@ -824,6 +847,7 @@ public class DrmManagerClient implements AutoCloseable {
      *     content://media/<table_name>/<row_index> (or)
      *     file://sdcard/test.mp4
      *     http://test.com/test.mp4
+     *     https://test.com/test.mp4
      *
      * Here <table_name> shall be "video" or "audio" or "images"
      * <row_index> the index of the content in given table
@@ -836,7 +860,7 @@ public class DrmManagerClient implements AutoCloseable {
                     scheme.equals(ContentResolver.SCHEME_FILE)) {
                 path = uri.getPath();
 
-            } else if (scheme.equals("http")) {
+            } else if (scheme.equals("http") || scheme.equals("https")) {
                 path = uri.toString();
 
             } else if (scheme.equals(ContentResolver.SCHEME_CONTENT)) {

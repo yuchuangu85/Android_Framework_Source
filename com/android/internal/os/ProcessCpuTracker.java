@@ -16,22 +16,28 @@
 
 package com.android.internal.os;
 
-import static android.os.Process.*;
+import static android.os.Process.PROC_COMBINE;
+import static android.os.Process.PROC_OUT_FLOAT;
+import static android.os.Process.PROC_OUT_LONG;
+import static android.os.Process.PROC_OUT_STRING;
+import static android.os.Process.PROC_PARENS;
+import static android.os.Process.PROC_SPACE_TERM;
 
-import android.os.FileUtils;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.CpuUsageProto;
 import android.os.Process;
 import android.os.StrictMode;
 import android.os.SystemClock;
+import android.system.ErrnoException;
+import android.system.Os;
 import android.system.OsConstants;
 import android.util.Slog;
+import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.util.FastPrintWriter;
 
-import libcore.io.IoUtils;
-import libcore.io.Libcore;
-
 import java.io.File;
-import java.io.FileInputStream;
+import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.SimpleDateFormat;
@@ -40,7 +46,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
-import java.util.StringTokenizer;
 
 public class ProcessCpuTracker {
     private static final String TAG = "ProcessCpuTracker";
@@ -176,8 +181,6 @@ public class ProcessCpuTracker {
 
     private boolean mFirst = true;
 
-    private byte[] mBuffer = new byte[4096];
-
     public interface FilterStats {
         /** Which stats to pick when filtering */
         boolean needed(Stats stats);
@@ -197,6 +200,7 @@ public class ProcessCpuTracker {
         public boolean interesting;
 
         public String baseName;
+        @UnsupportedAppUsage
         public String name;
         public int nameWidth;
 
@@ -212,6 +216,7 @@ public class ProcessCpuTracker {
         /**
          * Time in milliseconds.
          */
+        @UnsupportedAppUsage
         public long rel_uptime;
 
         /**
@@ -227,11 +232,13 @@ public class ProcessCpuTracker {
         /**
          * Time in milliseconds.
          */
+        @UnsupportedAppUsage
         public int rel_utime;
 
         /**
          * Time in milliseconds.
          */
+        @UnsupportedAppUsage
         public int rel_stime;
 
         public long base_minfaults;
@@ -248,6 +255,7 @@ public class ProcessCpuTracker {
             pid = _pid;
             if (parentPid < 0) {
                 final File procDir = new File("/proc", Integer.toString(pid));
+                uid = getUid(procDir.toString());
                 statFile = new File(procDir, "stat").toString();
                 cmdlineFile = new File(procDir, "cmdline").toString();
                 threadsDir = (new File(procDir, "task")).toString();
@@ -263,13 +271,22 @@ public class ProcessCpuTracker {
                         parentPid));
                 final File taskDir = new File(
                         new File(procDir, "task"), Integer.toString(pid));
+                uid = getUid(taskDir.toString());
                 statFile = new File(taskDir, "stat").toString();
                 cmdlineFile = null;
                 threadsDir = null;
                 threadStats = null;
                 workingThreads = null;
             }
-            uid = FileUtils.getUid(statFile.toString());
+        }
+
+        private static int getUid(String path) {
+            try {
+                return Os.stat(path).st_uid;
+            } catch (ErrnoException e) {
+                Slog.w(TAG, "Failed to stat(" + path + "): " + e);
+                return -1;
+            }
         }
     }
 
@@ -292,9 +309,10 @@ public class ProcessCpuTracker {
     };
 
 
+    @UnsupportedAppUsage
     public ProcessCpuTracker(boolean includeThreads) {
         mIncludeThreads = includeThreads;
-        long jiffyHz = Libcore.os.sysconf(OsConstants._SC_CLK_TCK);
+        long jiffyHz = Os.sysconf(OsConstants._SC_CLK_TCK);
         mJiffyMillis = 1000/jiffyHz;
     }
 
@@ -311,6 +329,7 @@ public class ProcessCpuTracker {
         update();
     }
 
+    @UnsupportedAppUsage
     public void update() {
         if (DEBUG) Slog.v(TAG, "Update: " + this);
 
@@ -713,13 +732,74 @@ public class ProcessCpuTracker {
         return statses;
     }
 
+    @UnsupportedAppUsage
     final public int countWorkingStats() {
         buildWorkingProcs();
         return mWorkingProcs.size();
     }
 
+    @UnsupportedAppUsage
     final public Stats getWorkingStats(int index) {
         return mWorkingProcs.get(index);
+    }
+
+    /** Dump cpuinfo in protobuf format. */
+    public final void dumpProto(FileDescriptor fd) {
+        final long now = SystemClock.uptimeMillis();
+        final ProtoOutputStream proto = new ProtoOutputStream(fd);
+        final long currentLoadToken = proto.start(CpuUsageProto.CURRENT_LOAD);
+        proto.write(CpuUsageProto.Load.LOAD1, mLoad1);
+        proto.write(CpuUsageProto.Load.LOAD5, mLoad5);
+        proto.write(CpuUsageProto.Load.LOAD15, mLoad15);
+        proto.end(currentLoadToken);
+
+        buildWorkingProcs();
+
+        proto.write(CpuUsageProto.NOW, now);
+        proto.write(CpuUsageProto.LAST_SAMPLE_TIME, mLastSampleTime);
+        proto.write(CpuUsageProto.CURRENT_SAMPLE_TIME, mCurrentSampleTime);
+        proto.write(CpuUsageProto.LAST_SAMPLE_REAL_TIME, mLastSampleRealTime);
+        proto.write(CpuUsageProto.CURRENT_SAMPLE_REAL_TIME, mCurrentSampleRealTime);
+        proto.write(CpuUsageProto.LAST_SAMPLE_WALL_TIME, mLastSampleWallTime);
+        proto.write(CpuUsageProto.CURRENT_SAMPLE_WALL_TIME, mCurrentSampleWallTime);
+
+        proto.write(CpuUsageProto.TOTAL_USER_TIME, mRelUserTime);
+        proto.write(CpuUsageProto.TOTAL_SYSTEM_TIME, mRelSystemTime);
+        proto.write(CpuUsageProto.TOTAL_IOWAIT_TIME, mRelIoWaitTime);
+        proto.write(CpuUsageProto.TOTAL_IRQ_TIME, mRelIrqTime);
+        proto.write(CpuUsageProto.TOTAL_SOFT_IRQ_TIME, mRelSoftIrqTime);
+        proto.write(CpuUsageProto.TOTAL_IDLE_TIME, mRelIdleTime);
+        final int totalTime = mRelUserTime + mRelSystemTime + mRelIoWaitTime
+                + mRelIrqTime + mRelSoftIrqTime + mRelIdleTime;
+        proto.write(CpuUsageProto.TOTAL_TIME, totalTime);
+
+        for (Stats st : mWorkingProcs) {
+            dumpProcessCpuProto(proto, st, null);
+            if (!st.removed && st.workingThreads != null) {
+                for (Stats tst : st.workingThreads) {
+                    dumpProcessCpuProto(proto, tst, st);
+                }
+            }
+        }
+        proto.flush();
+    }
+
+    private static void dumpProcessCpuProto(ProtoOutputStream proto, Stats st, Stats proc) {
+        long statToken = proto.start(CpuUsageProto.PROCESSES);
+        proto.write(CpuUsageProto.Stat.UID, st.uid);
+        proto.write(CpuUsageProto.Stat.PID, st.pid);
+        proto.write(CpuUsageProto.Stat.NAME, st.name);
+        proto.write(CpuUsageProto.Stat.ADDED, st.added);
+        proto.write(CpuUsageProto.Stat.REMOVED, st.removed);
+        proto.write(CpuUsageProto.Stat.UPTIME, st.rel_uptime);
+        proto.write(CpuUsageProto.Stat.USER_TIME, st.rel_utime);
+        proto.write(CpuUsageProto.Stat.SYSTEM_TIME, st.rel_stime);
+        proto.write(CpuUsageProto.Stat.MINOR_FAULTS, st.rel_minfaults);
+        proto.write(CpuUsageProto.Stat.MAJOR_FAULTS, st.rel_majfaults);
+        if (proc != null) {
+            proto.write(CpuUsageProto.Stat.PARENT_PID, proc.pid);
+        }
+        proto.end(statToken);
     }
 
     final public String printCurrentLoad() {
@@ -863,40 +943,11 @@ public class ProcessCpuTracker {
         pw.println();
     }
 
-    private String readFile(String file, char endChar) {
-        // Permit disk reads here, as /proc/meminfo isn't really "on
-        // disk" and should be fast.  TODO: make BlockGuard ignore
-        // /proc/ and /sys/ files perhaps?
-        StrictMode.ThreadPolicy savedPolicy = StrictMode.allowThreadDiskReads();
-        FileInputStream is = null;
-        try {
-            is = new FileInputStream(file);
-            int len = is.read(mBuffer);
-            is.close();
-
-            if (len > 0) {
-                int i;
-                for (i=0; i<len; i++) {
-                    if (mBuffer[i] == endChar) {
-                        break;
-                    }
-                }
-                return new String(mBuffer, 0, i);
-            }
-        } catch (java.io.FileNotFoundException e) {
-        } catch (java.io.IOException e) {
-        } finally {
-            IoUtils.closeQuietly(is);
-            StrictMode.setThreadPolicy(savedPolicy);
-        }
-        return null;
-    }
-
     private void getName(Stats st, String cmdlineFile) {
         String newName = st.name;
         if (st.name == null || st.name.equals("app_process")
                 || st.name.equals("<pre-initialized>")) {
-            String cmdName = readFile(cmdlineFile, '\0');
+            String cmdName = ProcStatsUtil.readTerminatedProcFile(cmdlineFile, (byte) '\0');
             if (cmdName != null && cmdName.length() > 1) {
                 newName = cmdName;
                 int i = newName.lastIndexOf("/");

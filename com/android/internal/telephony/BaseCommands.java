@@ -17,24 +17,29 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
-import android.os.Message;
-import android.os.RegistrantList;
-import android.os.Registrant;
-import android.os.Handler;
 import android.os.AsyncResult;
-import android.telephony.RadioAccessFamily;
+import android.os.Handler;
+import android.os.Message;
+import android.os.Registrant;
+import android.os.RegistrantList;
+import android.telephony.Annotation.RadioPowerState;
 import android.telephony.TelephonyManager;
+import android.telephony.emergency.EmergencyNumber;
 
-import com.android.internal.telephony.RadioCapability;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * {@hide}
  */
 public abstract class BaseCommands implements CommandsInterface {
     //***** Instance Variables
+    @UnsupportedAppUsage
     protected Context mContext;
-    protected RadioState mState = RadioState.RADIO_UNAVAILABLE;
+    protected int mState = TelephonyManager.RADIO_POWER_UNAVAILABLE;
+    @UnsupportedAppUsage
     protected Object mStateMonitor = new Object();
 
     protected RegistrantList mRadioStateChangedRegistrants = new RegistrantList();
@@ -42,16 +47,24 @@ public abstract class BaseCommands implements CommandsInterface {
     protected RegistrantList mAvailRegistrants = new RegistrantList();
     protected RegistrantList mOffOrNotAvailRegistrants = new RegistrantList();
     protected RegistrantList mNotAvailRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mCallStateRegistrants = new RegistrantList();
-    protected RegistrantList mVoiceNetworkStateRegistrants = new RegistrantList();
-    protected RegistrantList mDataNetworkStateRegistrants = new RegistrantList();
+    protected RegistrantList mNetworkStateRegistrants = new RegistrantList();
+    protected RegistrantList mDataCallListChangedRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mVoiceRadioTechChangedRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mImsNetworkStateChangedRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mIccStatusChangedRegistrants = new RegistrantList();
+    protected RegistrantList mIccSlotStatusChangedRegistrants = new RegistrantList();
     protected RegistrantList mVoicePrivacyOnRegistrants = new RegistrantList();
     protected RegistrantList mVoicePrivacyOffRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected Registrant mUnsolOemHookRawRegistrant;
+    @UnsupportedAppUsage
     protected RegistrantList mOtaProvisionRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mCallWaitingInfoRegistrants = new RegistrantList();
     protected RegistrantList mDisplayInfoRegistrants = new RegistrantList();
     protected RegistrantList mSignalInfoRegistrants = new RegistrantList();
@@ -60,50 +73,95 @@ public abstract class BaseCommands implements CommandsInterface {
     protected RegistrantList mLineControlInfoRegistrants = new RegistrantList();
     protected RegistrantList mT53ClirInfoRegistrants = new RegistrantList();
     protected RegistrantList mT53AudCntrlInfoRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mRingbackToneRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mResendIncallMuteRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mCdmaSubscriptionChangedRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mCdmaPrlChangedRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mExitEmergencyCallbackModeRegistrants = new RegistrantList();
     protected RegistrantList mRilConnectedRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mIccRefreshRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mRilCellInfoListRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mSubscriptionStatusRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mSrvccStateRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mHardwareConfigChangeRegistrants = new RegistrantList();
+    @UnsupportedAppUsage
     protected RegistrantList mPhoneRadioCapabilityChangedRegistrants =
             new RegistrantList();
     protected RegistrantList mPcoDataRegistrants = new RegistrantList();
+    protected RegistrantList mCarrierInfoForImsiEncryptionRegistrants = new RegistrantList();
+    protected RegistrantList mRilNetworkScanResultRegistrants = new RegistrantList();
+    protected RegistrantList mModemResetRegistrants = new RegistrantList();
+    protected RegistrantList mNattKeepaliveStatusRegistrants = new RegistrantList();
+    protected RegistrantList mPhysicalChannelConfigurationRegistrants = new RegistrantList();
+    protected RegistrantList mLceInfoRegistrants = new RegistrantList();
+    protected RegistrantList mEmergencyNumberListRegistrants = new RegistrantList();
+    protected RegistrantList mUiccApplicationsEnablementRegistrants = new RegistrantList();
+    protected RegistrantList mBarringInfoChangedRegistrants = new RegistrantList();
 
-
+    @UnsupportedAppUsage
     protected Registrant mGsmSmsRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mCdmaSmsRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mNITZTimeRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mSignalStrengthRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mUSSDRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mSmsOnSimRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mSmsStatusRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mSsnRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mCatSessionEndRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mCatProCmdRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mCatEventRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mCatCallSetUpRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mIccSmsFullRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mEmergencyCallbackModeRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mRingRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mRestrictedStateRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mGsmBroadcastSmsRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mCatCcAlphaRegistrant;
+    @UnsupportedAppUsage
     protected Registrant mSsRegistrant;
-    protected Registrant mLceInfoRegistrant;
+    protected Registrant mRegistrationFailedRegistrant;
+
+    // Lock that mLastEmergencyNumberListIndication uses.
+    private Object mLastEmergencyNumberListIndicationLock = new Object();
+    // Cache last emergency number list indication from radio
+    private final List<EmergencyNumber> mLastEmergencyNumberListIndication = new ArrayList<>();
 
     // Preferred network type received from PhoneFactory.
     // This is used when establishing a connection to the
     // vendor ril so it starts up in the correct mode.
+    @UnsupportedAppUsage
     protected int mPreferredNetworkType;
     // CDMA subscription received from PhoneFactory
     protected int mCdmaSubscription;
     // Type of Phone, GSM or CDMA. Set by GsmCdmaPhone.
+    @UnsupportedAppUsage
     protected int mPhoneType;
     // RIL Version
     protected int mRilVersion = -1;
@@ -115,17 +173,15 @@ public abstract class BaseCommands implements CommandsInterface {
     //***** CommandsInterface implementation
 
     @Override
-    public RadioState getRadioState() {
+    public @RadioPowerState int getRadioState() {
         return mState;
     }
 
     @Override
     public void registerForRadioStateChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-
         synchronized (mStateMonitor) {
-            mRadioStateChangedRegistrants.add(r);
-            r.notifyRegistrant();
+            mRadioStateChangedRegistrants.addUnique(h, what, obj);
+            Message.obtain(h, what, new AsyncResult(obj, null, null)).sendToTarget();
         }
     }
 
@@ -137,8 +193,7 @@ public abstract class BaseCommands implements CommandsInterface {
     }
 
     public void registerForImsNetworkStateChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mImsNetworkStateChangedRegistrants.add(r);
+        mImsNetworkStateChangedRegistrants.addUnique(h, what, obj);
     }
 
     public void unregisterForImsNetworkStateChanged(Handler h) {
@@ -147,13 +202,11 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForOn(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-
         synchronized (mStateMonitor) {
-            mOnRegistrants.add(r);
+            mOnRegistrants.addUnique(h, what, obj);
 
-            if (mState.isOn()) {
-                r.notifyRegistrant(new AsyncResult(null, null, null));
+            if (mState == TelephonyManager.RADIO_POWER_ON) {
+                Message.obtain(h, what, new AsyncResult(obj, null, null)).sendToTarget();
             }
         }
     }
@@ -167,13 +220,11 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForAvailable(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-
         synchronized (mStateMonitor) {
-            mAvailRegistrants.add(r);
+            mAvailRegistrants.addUnique(h, what, obj);
 
-            if (mState.isAvailable()) {
-                r.notifyRegistrant(new AsyncResult(null, null, null));
+            if (mState != TelephonyManager.RADIO_POWER_UNAVAILABLE) {
+                Message.obtain(h, what, new AsyncResult(obj, null, null)).sendToTarget();
             }
         }
     }
@@ -187,13 +238,11 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForNotAvailable(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-
         synchronized (mStateMonitor) {
-            mNotAvailRegistrants.add(r);
+            mNotAvailRegistrants.addUnique(h, what, obj);
 
-            if (!mState.isAvailable()) {
-                r.notifyRegistrant(new AsyncResult(null, null, null));
+            if (mState == TelephonyManager.RADIO_POWER_UNAVAILABLE) {
+                Message.obtain(h, what, new AsyncResult(obj, null, null)).sendToTarget();
             }
         }
     }
@@ -207,13 +256,12 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForOffOrNotAvailable(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-
         synchronized (mStateMonitor) {
-            mOffOrNotAvailRegistrants.add(r);
+            mOffOrNotAvailRegistrants.addUnique(h, what, obj);
 
-            if (mState == RadioState.RADIO_OFF || !mState.isAvailable()) {
-                r.notifyRegistrant(new AsyncResult(null, null, null));
+            if (mState == TelephonyManager.RADIO_POWER_OFF
+                    || mState == TelephonyManager.RADIO_POWER_UNAVAILABLE) {
+                Message.obtain(h, what, new AsyncResult(obj, null, null)).sendToTarget();
             }
         }
     }
@@ -226,9 +274,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForCallStateChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-
-        mCallStateRegistrants.add(r);
+        mCallStateRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -237,33 +283,28 @@ public abstract class BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void registerForVoiceNetworkStateChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-
-        mVoiceNetworkStateRegistrants.add(r);
+    public void registerForNetworkStateChanged(Handler h, int what, Object obj) {
+        mNetworkStateRegistrants.addUnique(h, what, obj);
     }
 
     @Override
-    public void unregisterForVoiceNetworkStateChanged(Handler h) {
-        mVoiceNetworkStateRegistrants.remove(h);
+    public void unregisterForNetworkStateChanged(Handler h) {
+        mNetworkStateRegistrants.remove(h);
     }
 
     @Override
-    public void registerForDataNetworkStateChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-
-        mDataNetworkStateRegistrants.add(r);
+    public void registerForDataCallListChanged(Handler h, int what, Object obj) {
+        mDataCallListChangedRegistrants.addUnique(h, what, obj);
     }
 
     @Override
-    public void unregisterForDataNetworkStateChanged(Handler h) {
-        mDataNetworkStateRegistrants.remove(h);
+    public void unregisterForDataCallListChanged(Handler h) {
+        mDataCallListChangedRegistrants.remove(h);
     }
 
     @Override
     public void registerForVoiceRadioTechChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mVoiceRadioTechChangedRegistrants.add(r);
+        mVoiceRadioTechChangedRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -273,13 +314,22 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForIccStatusChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mIccStatusChangedRegistrants.add(r);
+        mIccStatusChangedRegistrants.addUnique(h, what, obj);
     }
 
     @Override
     public void unregisterForIccStatusChanged(Handler h) {
         mIccStatusChangedRegistrants.remove(h);
+    }
+
+    @Override
+    public void registerForIccSlotStatusChanged(Handler h, int what, Object obj) {
+        mIccSlotStatusChangedRegistrants.addUnique(h, what, obj);
+    }
+
+    @Override
+    public void unregisterForIccSlotStatusChanged(Handler h) {
+        mIccSlotStatusChangedRegistrants.remove(h);
     }
 
     @Override
@@ -466,8 +516,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForIccRefresh(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mIccRefreshRegistrants.add(r);
+        mIccRefreshRegistrants.addUnique(h, what, obj);
     }
     @Override
     public void setOnIccRefresh(Handler h, int what, Object obj) {
@@ -522,9 +571,18 @@ public abstract class BaseCommands implements CommandsInterface {
     }
 
     @Override
+    public void setOnRegistrationFailed(Handler h, int what, Object obj) {
+        mRegistrationFailedRegistrant = new Registrant(h, what, obj);
+    }
+
+    @Override
+    public void unSetOnRegistrationFailed(Handler h) {
+        mRegistrationFailedRegistrant.clear();
+    }
+
+    @Override
     public void registerForInCallVoicePrivacyOn(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mVoicePrivacyOnRegistrants.add(r);
+        mVoicePrivacyOnRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -534,8 +592,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForInCallVoicePrivacyOff(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mVoicePrivacyOffRegistrants.add(r);
+        mVoicePrivacyOffRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -558,8 +615,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForDisplayInfo(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mDisplayInfoRegistrants.add(r);
+        mDisplayInfoRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -569,8 +625,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForCallWaitingInfo(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mCallWaitingInfoRegistrants.add(r);
+        mCallWaitingInfoRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -580,8 +635,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForSignalInfo(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mSignalInfoRegistrants.add(r);
+        mSignalInfoRegistrants.addUnique(h, what, obj);
     }
 
     public void setOnUnsolOemHookRaw(Handler h, int what, Object obj) {
@@ -602,8 +656,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForCdmaOtaProvision(Handler h,int what, Object obj){
-        Registrant r = new Registrant (h, what, obj);
-        mOtaProvisionRegistrants.add(r);
+        mOtaProvisionRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -613,8 +666,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForNumberInfo(Handler h,int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mNumberInfoRegistrants.add(r);
+        mNumberInfoRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -624,8 +676,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
      @Override
     public void registerForRedirectedNumberInfo(Handler h,int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mRedirNumInfoRegistrants.add(r);
+        mRedirNumInfoRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -635,8 +686,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForLineControlInfo(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mLineControlInfoRegistrants.add(r);
+        mLineControlInfoRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -646,8 +696,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerFoT53ClirlInfo(Handler h,int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mT53ClirInfoRegistrants.add(r);
+        mT53ClirInfoRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -657,8 +706,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForT53AudioControlInfo(Handler h,int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mT53AudCntrlInfoRegistrants.add(r);
+        mT53AudCntrlInfoRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -668,8 +716,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForRingbackTone(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mRingbackToneRegistrants.add(r);
+        mRingbackToneRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -679,8 +726,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForResendIncallMute(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mResendIncallMuteRegistrants.add(r);
+        mResendIncallMuteRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -690,8 +736,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForCdmaSubscriptionChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mCdmaSubscriptionChangedRegistrants.add(r);
+        mCdmaSubscriptionChangedRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -701,8 +746,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForCdmaPrlChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mCdmaPrlChangedRegistrants.add(r);
+        mCdmaPrlChangedRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -712,8 +756,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForExitEmergencyCallbackMode(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mExitEmergencyCallbackModeRegistrants.add(r);
+        mExitEmergencyCallbackModeRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -723,8 +766,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForHardwareConfigChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mHardwareConfigChangeRegistrants.add(r);
+        mHardwareConfigChangeRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -732,15 +774,25 @@ public abstract class BaseCommands implements CommandsInterface {
         mHardwareConfigChangeRegistrants.remove(h);
     }
 
+    @Override
+    public void registerForNetworkScanResult(Handler h, int what, Object obj) {
+        mRilNetworkScanResultRegistrants.addUnique(h, what, obj);
+    }
+
+    @Override
+    public void unregisterForNetworkScanResult(Handler h) {
+        mRilNetworkScanResultRegistrants.remove(h);
+    }
+
     /**
      * {@inheritDoc}
      */
     @Override
     public void registerForRilConnected(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mRilConnectedRegistrants.add(r);
+        mRilConnectedRegistrants.addUnique(h, what, obj);
         if (mRilVersion != -1) {
-            r.notifyRegistrant(new AsyncResult(null, new Integer(mRilVersion), null));
+            Message.obtain(h, what, new AsyncResult(obj, new Integer(mRilVersion), null))
+                    .sendToTarget();
         }
     }
 
@@ -750,12 +802,29 @@ public abstract class BaseCommands implements CommandsInterface {
     }
 
     public void registerForSubscriptionStatusChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mSubscriptionStatusRegistrants.add(r);
+        mSubscriptionStatusRegistrants.addUnique(h, what, obj);
     }
 
     public void unregisterForSubscriptionStatusChanged(Handler h) {
         mSubscriptionStatusRegistrants.remove(h);
+    }
+
+    @Override
+    public void registerForEmergencyNumberList(Handler h, int what, Object obj) {
+        mEmergencyNumberListRegistrants.addUnique(h, what, obj);
+        // Notify the last emergency number list from radio to new registrants because they may
+        // miss the latest indication (e.g. constructed in a delay after HAL is registrated).
+        List<EmergencyNumber> lastEmergencyNumberListIndication =
+                getLastEmergencyNumberListIndication();
+        if (lastEmergencyNumberListIndication != null) {
+            mEmergencyNumberListRegistrants.notifyRegistrants(new AsyncResult(
+                    null, lastEmergencyNumberListIndication, null));
+        }
+    }
+
+    @Override
+    public void unregisterForEmergencyNumberList(Handler h) {
+        mEmergencyNumberListRegistrants.remove(h);
     }
 
     //***** Protected Methods
@@ -768,43 +837,58 @@ public abstract class BaseCommands implements CommandsInterface {
      * RadioState has 3 values : RADIO_OFF, RADIO_UNAVAILABLE, RADIO_ON.
      *
      * @param newState new RadioState decoded from RIL_UNSOL_RADIO_STATE_CHANGED
+     * @param forceNotifyRegistrants boolean indicating if registrants should be notified even if
+     * there is no change in state
      */
-    protected void setRadioState(RadioState newState) {
-        RadioState oldState;
+    protected void setRadioState(int newState, boolean forceNotifyRegistrants) {
+        int oldState;
 
         synchronized (mStateMonitor) {
             oldState = mState;
             mState = newState;
 
-            if (oldState == mState) {
+            if (oldState == mState && !forceNotifyRegistrants) {
                 // no state transition
                 return;
             }
 
             mRadioStateChangedRegistrants.notifyRegistrants();
 
-            if (mState.isAvailable() && !oldState.isAvailable()) {
+            if (mState != TelephonyManager.RADIO_POWER_UNAVAILABLE
+                    && oldState == TelephonyManager.RADIO_POWER_UNAVAILABLE) {
                 mAvailRegistrants.notifyRegistrants();
-                onRadioAvailable();
             }
 
-            if (!mState.isAvailable() && oldState.isAvailable()) {
+            if (mState == TelephonyManager.RADIO_POWER_UNAVAILABLE
+                    && oldState != TelephonyManager.RADIO_POWER_UNAVAILABLE) {
                 mNotAvailRegistrants.notifyRegistrants();
             }
 
-            if (mState.isOn() && !oldState.isOn()) {
+            if (mState == TelephonyManager.RADIO_POWER_ON
+                    && oldState != TelephonyManager.RADIO_POWER_ON) {
                 mOnRegistrants.notifyRegistrants();
             }
 
-            if ((!mState.isOn() || !mState.isAvailable())
-                && !((!oldState.isOn() || !oldState.isAvailable()))
-            ) {
+            if ((mState == TelephonyManager.RADIO_POWER_OFF
+                    || mState == TelephonyManager.RADIO_POWER_UNAVAILABLE)
+                    && (oldState == TelephonyManager.RADIO_POWER_ON)) {
                 mOffOrNotAvailRegistrants.notifyRegistrants();
             }
         }
     }
 
-    protected void onRadioAvailable() {
+    protected void cacheEmergencyNumberListIndication(
+            List<EmergencyNumber> emergencyNumberListIndication) {
+        synchronized (mLastEmergencyNumberListIndicationLock) {
+            mLastEmergencyNumberListIndication.clear();
+            mLastEmergencyNumberListIndication.addAll(emergencyNumberListIndication);
+        }
+    }
+
+    private List<EmergencyNumber> getLastEmergencyNumberListIndication() {
+        synchronized (mLastEmergencyNumberListIndicationLock) {
+            return new ArrayList<>(mLastEmergencyNumberListIndication);
+        }
     }
 
     /**
@@ -820,8 +904,7 @@ public abstract class BaseCommands implements CommandsInterface {
      */
     @Override
     public void registerForCellInfoList(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
-        mRilCellInfoListRegistrants.add(r);
+        mRilCellInfoListRegistrants.addUnique(h, what, obj);
     }
     @Override
     public void unregisterForCellInfoList(Handler h) {
@@ -829,10 +912,18 @@ public abstract class BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void registerForSrvccStateChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant (h, what, obj);
+    public void registerForPhysicalChannelConfiguration(Handler h, int what, Object obj) {
+        mPhysicalChannelConfigurationRegistrants.addUnique(h, what, obj);
+    }
 
-        mSrvccStateRegistrants.add(r);
+    @Override
+    public void unregisterForPhysicalChannelConfiguration(Handler h) {
+        mPhysicalChannelConfigurationRegistrants.remove(h);
+    }
+
+    @Override
+    public void registerForSrvccStateChanged(Handler h, int what, Object obj) {
+        mSrvccStateRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -869,8 +960,7 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForRadioCapabilityChanged(Handler h, int what, Object obj) {
-        Registrant r = new Registrant(h, what, obj);
-        mPhoneRadioCapabilityChangedRegistrants.add(r);
+        mPhoneRadioCapabilityChangedRegistrants.addUnique(h, what, obj);
     }
 
     @Override
@@ -892,24 +982,103 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForLceInfo(Handler h, int what, Object obj) {
-      mLceInfoRegistrant = new Registrant(h, what, obj);
+        synchronized (mStateMonitor) {
+            mLceInfoRegistrants.addUnique(h, what, obj);
+        }
     }
 
     @Override
     public void unregisterForLceInfo(Handler h) {
-      if (mLceInfoRegistrant != null && mLceInfoRegistrant.getHandler() == h) {
-          mLceInfoRegistrant.clear();
-          mLceInfoRegistrant = null;
-      }
+        synchronized (mStateMonitor) {
+            mLceInfoRegistrants.remove(h);
+        }
+    }
+
+    @Override
+    public void registerForModemReset(Handler h, int what, Object obj) {
+        mModemResetRegistrants.addUnique(h, what, obj);
+    }
+
+    @Override
+    public void unregisterForModemReset(Handler h) {
+        mModemResetRegistrants.remove(h);
     }
 
     @Override
     public void registerForPcoData(Handler h, int what, Object obj) {
-        mPcoDataRegistrants.add(new Registrant(h, what, obj));
+        mPcoDataRegistrants.addUnique(h, what, obj);
     }
 
     @Override
     public void unregisterForPcoData(Handler h) {
         mPcoDataRegistrants.remove(h);
+    }
+
+    @Override
+    public void registerForCarrierInfoForImsiEncryption(Handler h, int what, Object obj) {
+        mCarrierInfoForImsiEncryptionRegistrants.addUnique(h, what, obj);
+    }
+
+    @Override
+    public void unregisterForCarrierInfoForImsiEncryption(Handler h) {
+        mCarrierInfoForImsiEncryptionRegistrants.remove(h);
+    }
+
+    @Override
+    public void registerForNattKeepaliveStatus(Handler h, int what, Object obj) {
+        synchronized (mStateMonitor) {
+            mNattKeepaliveStatusRegistrants.addUnique(h, what, obj);
+        }
+    }
+
+    @Override
+    public void unregisterForNattKeepaliveStatus(Handler h) {
+        synchronized (mStateMonitor) {
+            mNattKeepaliveStatusRegistrants.remove(h);
+        }
+    }
+
+    /**
+     * Registers the handler for RIL_UNSOL_UICC_APPLICATIONS_ENABLEMENT_CHANGED events.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    @Override
+    public void registerUiccApplicationEnablementChanged(Handler h, int what, Object obj) {
+        mUiccApplicationsEnablementRegistrants.addUnique(h, what, obj);
+    }
+
+    /**
+     * Unregisters the handler for RIL_UNSOL_UICC_APPLICATIONS_ENABLEMENT_CHANGED events.
+     *
+     * @param h Handler for notification message.
+     */
+    @Override
+    public void unregisterUiccApplicationEnablementChanged(Handler h) {
+        mUiccApplicationsEnablementRegistrants.remove(h);
+    }
+
+    /**
+     * Registers the handler for RIL_UNSOL_BARRING_INFO_CHANGED events.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    @Override
+    public void registerForBarringInfoChanged(Handler h, int what, Object obj) {
+        mBarringInfoChangedRegistrants.addUnique(h, what, obj);
+    }
+
+    /**
+     * Unregisters the handler for RIL_UNSOL_BARRING_INFO_CHANGED events.
+     *
+     * @param h Handler for notification message.
+     */
+    @Override
+    public void unregisterForBarringInfoChanged(Handler h) {
+        mBarringInfoChangedRegistrants.remove(h);
     }
 }

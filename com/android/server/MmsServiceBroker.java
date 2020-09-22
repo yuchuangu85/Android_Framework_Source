@@ -16,6 +16,8 @@
 
 package com.android.server;
 
+import static android.telephony.SubscriptionManager.INVALID_SIM_SLOT_INDEX;
+
 import android.Manifest;
 import android.app.AppOpsManager;
 import android.app.PendingIntent;
@@ -37,10 +39,14 @@ import android.os.SystemClock;
 import android.os.UserHandle;
 import android.service.carrier.CarrierMessagingService;
 import android.telephony.SmsManager;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.util.Slog;
 
 import com.android.internal.telephony.IMms;
+import com.android.server.uri.NeededUriGrants;
+import com.android.server.uri.UriGrantsManagerInternal;
 
 import java.util.List;
 
@@ -92,7 +98,7 @@ public class MmsServiceBroker extends SystemService {
         public void onServiceConnected(ComponentName name, IBinder service) {
             Slog.i(TAG, "MmsService connected");
             synchronized (MmsServiceBroker.this) {
-                mService = IMms.Stub.asInterface(service);
+                mService = IMms.Stub.asInterface(Binder.allowBlocking(service));
                 MmsServiceBroker.this.notifyAll();
             }
         }
@@ -123,20 +129,17 @@ public class MmsServiceBroker extends SystemService {
 
         @Override
         public void sendMessage(int subId, String callingPkg, Uri contentUri, String locationUrl,
-                Bundle configOverrides, PendingIntent sentIntent) throws RemoteException {
+                Bundle configOverrides, PendingIntent sentIntent, long messageId)
+                throws RemoteException {
             returnPendingIntentWithError(sentIntent);
         }
 
         @Override
         public void downloadMessage(int subId, String callingPkg, String locationUrl,
-                Uri contentUri, Bundle configOverrides, PendingIntent downloadedIntent)
+                Uri contentUri, Bundle configOverrides, PendingIntent downloadedIntent,
+                long messageId)
                 throws RemoteException {
             returnPendingIntentWithError(downloadedIntent);
-        }
-
-        @Override
-        public Bundle getCarrierConfigValues(int subId) throws RemoteException {
-            return null;
         }
 
         @Override
@@ -329,44 +332,43 @@ public class MmsServiceBroker extends SystemService {
 
         @Override
         public void sendMessage(int subId, String callingPkg, Uri contentUri,
-                String locationUrl, Bundle configOverrides, PendingIntent sentIntent)
-                        throws RemoteException {
+                String locationUrl, Bundle configOverrides, PendingIntent sentIntent,
+                long messageId)
+                throws RemoteException {
             Slog.d(TAG, "sendMessage() by " + callingPkg);
             mContext.enforceCallingPermission(Manifest.permission.SEND_SMS, "Send MMS message");
             if (getAppOpsManager().noteOp(AppOpsManager.OP_SEND_SMS, Binder.getCallingUid(),
                     callingPkg) != AppOpsManager.MODE_ALLOWED) {
+                Slog.e(TAG, callingPkg + " is not allowed to call sendMessage()");
                 return;
             }
             contentUri = adjustUriForUserAndGrantPermission(contentUri,
                     CarrierMessagingService.SERVICE_INTERFACE,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    subId);
             getServiceGuarded().sendMessage(subId, callingPkg, contentUri, locationUrl,
-                    configOverrides, sentIntent);
+                    configOverrides, sentIntent, messageId);
         }
 
         @Override
         public void downloadMessage(int subId, String callingPkg, String locationUrl,
                 Uri contentUri, Bundle configOverrides,
-                PendingIntent downloadedIntent) throws RemoteException {
+                PendingIntent downloadedIntent, long messageId) throws RemoteException {
             Slog.d(TAG, "downloadMessage() by " + callingPkg);
             mContext.enforceCallingPermission(Manifest.permission.RECEIVE_MMS,
                     "Download MMS message");
             if (getAppOpsManager().noteOp(AppOpsManager.OP_RECEIVE_MMS, Binder.getCallingUid(),
                     callingPkg) != AppOpsManager.MODE_ALLOWED) {
+                Slog.e(TAG, callingPkg + " is not allowed to call downloadMessage()");
                 return;
             }
             contentUri = adjustUriForUserAndGrantPermission(contentUri,
                     CarrierMessagingService.SERVICE_INTERFACE,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    subId);
 
             getServiceGuarded().downloadMessage(subId, callingPkg, locationUrl, contentUri,
-                    configOverrides, downloadedIntent);
-        }
-
-        @Override
-        public Bundle getCarrierConfigValues(int subId) throws RemoteException {
-            Slog.d(TAG, "getCarrierConfigValues() by " + getCallingPackageName());
-            return getServiceGuarded().getCarrierConfigValues(subId);
+                    configOverrides, downloadedIntent, messageId);
         }
 
         @Override
@@ -385,7 +387,7 @@ public class MmsServiceBroker extends SystemService {
         @Override
         public Uri importMultimediaMessage(String callingPkg, Uri contentUri,
                 String messageId, long timestampSecs, boolean seen, boolean read)
-                        throws RemoteException {
+                throws RemoteException {
             if (getAppOpsManager().noteOp(AppOpsManager.OP_WRITE_SMS, Binder.getCallingUid(),
                     callingPkg) != AppOpsManager.MODE_ALLOWED) {
                 // Silently fail AppOps failure due to not being the default SMS app
@@ -493,33 +495,56 @@ public class MmsServiceBroker extends SystemService {
          * even if the caller is not in the primary user.
          *
          * @param contentUri The Uri to adjust
-         * @param action The intent action used to find the associated carrier app
+         * @param action     The intent action used to find the associated carrier app
          * @param permission The permission to add
          * @return The adjusted Uri containing the calling userId.
          */
         private Uri adjustUriForUserAndGrantPermission(Uri contentUri, String action,
-                int permission) {
+                int permission, int subId) {
+            final Intent grantIntent = new Intent();
+            grantIntent.setData(contentUri);
+            grantIntent.setFlags(permission);
+
+            final int callingUid = Binder.getCallingUid();
             final int callingUserId = UserHandle.getCallingUserId();
             if (callingUserId != UserHandle.USER_SYSTEM) {
                 contentUri = ContentProvider.maybeAddUserId(contentUri, callingUserId);
             }
+
             long token = Binder.clearCallingIdentity();
             try {
-                mContext.grantUriPermission(PHONE_PACKAGE_NAME, contentUri, permission);
+                final UriGrantsManagerInternal ugm = LocalServices
+                        .getService(UriGrantsManagerInternal.class);
+                final NeededUriGrants needed = ugm.checkGrantUriPermissionFromIntent(
+                        grantIntent, callingUid, PHONE_PACKAGE_NAME, UserHandle.USER_SYSTEM);
+                ugm.grantUriPermissionUncheckedFromIntent(needed, null);
 
                 // Grant permission for the carrier app.
                 Intent intent = new Intent(action);
-                TelephonyManager telephonyManager =
-                    (TelephonyManager) mContext.getSystemService(Context.TELEPHONY_SERVICE);
-                List<String> carrierPackages = telephonyManager.getCarrierPackageNamesForIntent(
-                        intent);
+                TelephonyManager telephonyManager = (TelephonyManager)
+                        mContext.getSystemService(Context.TELEPHONY_SERVICE);
+                List<String> carrierPackages = telephonyManager
+                        .getCarrierPackageNamesForIntentAndPhone(
+                                intent, getPhoneIdFromSubId(subId));
                 if (carrierPackages != null && carrierPackages.size() == 1) {
-                    mContext.grantUriPermission(carrierPackages.get(0), contentUri, permission);
+                    final NeededUriGrants carrierNeeded = ugm.checkGrantUriPermissionFromIntent(
+                            grantIntent, callingUid, carrierPackages.get(0),
+                            UserHandle.USER_SYSTEM);
+                    ugm.grantUriPermissionUncheckedFromIntent(carrierNeeded, null);
                 }
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
             return contentUri;
         }
+    }
+
+    private int getPhoneIdFromSubId(int subId) {
+        SubscriptionManager subManager = (SubscriptionManager)
+                mContext.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
+        if (subManager == null) return INVALID_SIM_SLOT_INDEX;
+        SubscriptionInfo info = subManager.getActiveSubscriptionInfo(subId);
+        if (info == null) return INVALID_SIM_SLOT_INDEX;
+        return info.getSimSlotIndex();
     }
 }

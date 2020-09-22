@@ -20,14 +20,18 @@ import android.annotation.IntDef;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.admin.DevicePolicyManager;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.format.DateUtils;
+import android.util.Slog;
 
 import com.android.internal.R;
+import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
+import com.android.internal.notification.SystemNotificationChannels;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -37,7 +41,8 @@ import java.lang.annotation.RetentionPolicy;
  */
 class RemoteBugreportUtils {
 
-    static final int NOTIFICATION_ID = 678432343;
+    private static final String TAG = "RemoteBugreportUtils";
+    static final int NOTIFICATION_ID = SystemMessage.NOTE_REMOTE_BUGREPORT;
 
     @Retention(RetentionPolicy.SOURCE)
     @IntDef({
@@ -50,7 +55,7 @@ class RemoteBugreportUtils {
     static final long REMOTE_BUGREPORT_TIMEOUT_MILLIS = 10 * DateUtils.MINUTE_IN_MILLIS;
 
     static final String CTL_STOP = "ctl.stop";
-    static final String REMOTE_BUGREPORT_SERVICE = "bugreportremote";
+    static final String REMOTE_BUGREPORT_SERVICE = "bugreportd";
 
     static final String BUGREPORT_MIMETYPE = "application/vnd.android.bugreport";
 
@@ -59,17 +64,28 @@ class RemoteBugreportUtils {
         Intent dialogIntent = new Intent(Settings.ACTION_SHOW_REMOTE_BUGREPORT_DIALOG);
         dialogIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         dialogIntent.putExtra(DevicePolicyManager.EXTRA_BUGREPORT_NOTIFICATION_TYPE, type);
+
+        // Fill the component explicitly to prevent the PendingIntent from being intercepted
+        // and fired with crafted target. b/155183624
+        ActivityInfo targetInfo = dialogIntent.resolveActivityInfo(
+                context.getPackageManager(), PackageManager.MATCH_SYSTEM_ONLY);
+        if (targetInfo != null) {
+            dialogIntent.setComponent(targetInfo.getComponentName());
+        } else {
+            Slog.wtf(TAG, "Failed to resolve intent for remote bugreport dialog");
+        }
+
         PendingIntent pendingDialogIntent = PendingIntent.getActivityAsUser(context, type,
                 dialogIntent, 0, null, UserHandle.CURRENT);
 
-        Notification.Builder builder = new Notification.Builder(context)
-                .setSmallIcon(com.android.internal.R.drawable.stat_sys_adb)
-                .setOngoing(true)
-                .setLocalOnly(true)
-                .setPriority(Notification.PRIORITY_HIGH)
-                .setContentIntent(pendingDialogIntent)
-                .setColor(context.getColor(
-                        com.android.internal.R.color.system_notification_accent_color));
+        Notification.Builder builder =
+                new Notification.Builder(context, SystemNotificationChannels.DEVICE_ADMIN)
+                        .setSmallIcon(com.android.internal.R.drawable.stat_sys_adb)
+                        .setOngoing(true)
+                        .setLocalOnly(true)
+                        .setContentIntent(pendingDialogIntent)
+                        .setColor(context.getColor(
+                                com.android.internal.R.color.system_notification_accent_color));
 
         if (type == DevicePolicyManager.NOTIFICATION_BUGREPORT_ACCEPTED_NOT_FINISHED) {
             builder.setContentTitle(context.getString(

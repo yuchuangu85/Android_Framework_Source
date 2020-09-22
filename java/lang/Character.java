@@ -1,5 +1,4 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
  * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -26,11 +25,13 @@
 
 package java.lang;
 
+import dalvik.annotation.optimization.FastNative;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
+// Android-changed: Remove reference to a specific unicode standard version
 /**
  * The {@code Character} class wraps a value of the primitive
  * type {@code char} in an object. An object of type
@@ -41,7 +42,7 @@ import java.util.Map;
  * a character's category (lowercase letter, digit, etc.) and for converting
  * characters from uppercase to lowercase and vice versa.
  * <p>
- * Character information is based on the Unicode Standard, version 6.0.0.
+ * Character information is based on the Unicode Standard
  * <p>
  * The methods and data of class {@code Character} are defined by
  * the information in the <i>UnicodeData</i> file that is part of the
@@ -55,7 +56,7 @@ import java.util.Map;
  * <li><a href="http://www.unicode.org">http://www.unicode.org</a>
  * </ul>
  *
- * <h4><a name="unicode">Unicode Character Representations</a></h4>
+ * <h3><a name="unicode">Unicode Character Representations</a></h3>
  *
  * <p>The {@code char} data type (and therefore the value that a
  * {@code Character} object encapsulates) are based on the
@@ -69,7 +70,7 @@ import java.util.Map;
  * definition</i></a> of the U+<i>n</i> notation in the Unicode
  * Standard.)
  *
- * <p><a name="BMP">The set of characters from U+0000 to U+FFFF is
+ * <p><a name="BMP">The set of characters from U+0000 to U+FFFF</a> is
  * sometimes referred to as the <em>Basic Multilingual Plane (BMP)</em>.
  * <a name="supplementary">Characters</a> whose code points are greater
  * than U+FFFF are called <em>supplementary character</em>s.  The Java
@@ -173,11 +174,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @since   1.1
      */
     @SuppressWarnings("unchecked")
-    /* ----- BEGIN android -----
-    public static final Class<Character> TYPE = Class.getPrimitiveClass("char");
-    */
-    public static final Class<Character> TYPE = (Class<Character>) char[].class.getComponentType();
-    // ----- END android -----
+    public static final Class<Character> TYPE = (Class<Character>) Class.getPrimitiveClass("char");
 
     /*
      * Normative general types
@@ -581,6 +578,9 @@ class Character implements java.io.Serializable, Comparable<Character> {
      */
     public static final int MAX_CODE_POINT = 0X10FFFF;
 
+    // BEGIN Android-added: Use ICU.
+    // The indices in int[] DIRECTIONALITY are based on icu4c's u_charDirection(),
+    // accessed via getDirectionalityImpl(), implemented in Character.cpp.
     private static final byte[] DIRECTIONALITY = new byte[] {
             DIRECTIONALITY_LEFT_TO_RIGHT, DIRECTIONALITY_RIGHT_TO_LEFT,
             DIRECTIONALITY_EUROPEAN_NUMBER,
@@ -598,6 +598,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
             DIRECTIONALITY_RIGHT_TO_LEFT_OVERRIDE,
             DIRECTIONALITY_POP_DIRECTIONAL_FORMAT,
             DIRECTIONALITY_NONSPACING_MARK, DIRECTIONALITY_BOUNDARY_NEUTRAL };
+    // END Android-added: Use ICU.
 
     /**
      * Instances of this class represent particular subsets of the Unicode
@@ -675,22 +676,26 @@ class Character implements java.io.Serializable, Comparable<Character> {
          * This name must be the same as the block identifier.
          */
         private UnicodeBlock(String idName) {
-            this(idName, true);
+            super(idName);
+            map.put(idName, this);
         }
 
+        // BEGIN Android-added: ICU consistency: Don't map deprecated SURROGATES_AREA. b/26140229
+        // Add a (String, boolean) constructor for use by SURROGATES_AREA.
         private UnicodeBlock(String idName, boolean isMap) {
             super(idName);
             if (isMap) {
                 map.put(idName, this);
             }
         }
+        // END Android-added: ICU consistency: Don't map deprecated SURROGATES_AREA. b/26140229
 
         /**
          * Creates a UnicodeBlock with the given identifier name and
          * alias name.
          */
         private UnicodeBlock(String idName, String alias) {
-            this(idName, true);
+            this(idName);
             map.put(alias, this);
         }
 
@@ -699,7 +704,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
          * alias names.
          */
         private UnicodeBlock(String idName, String... aliases) {
-            this(idName, true);
+            this(idName);
             for (String alias : aliases)
                 map.put(alias, this);
         }
@@ -1263,6 +1268,8 @@ class Character implements java.io.Serializable, Comparable<Character> {
          */
         @Deprecated
         public static final UnicodeBlock SURROGATES_AREA =
+            // Android-changed: ICU consistency: Don't map deprecated SURROGATES_AREA. b/26140229
+            // new UnicodeBlock("SURROGATES_AREA");
             new UnicodeBlock("SURROGATES_AREA", false);
 
         /**
@@ -2493,6 +2500,98 @@ class Character implements java.io.Serializable, Comparable<Character> {
                              "CJK UNIFIED IDEOGRAPHS EXTENSION D",
                              "CJKUNIFIEDIDEOGRAPHSEXTENSIOND");
 
+        /**
+         * Constant for the "Arabic Extended-A" Unicode character block.
+         * @since 1.8
+         */
+        public static final UnicodeBlock ARABIC_EXTENDED_A =
+            new UnicodeBlock("ARABIC_EXTENDED_A",
+                             "ARABIC EXTENDED-A",
+                             "ARABICEXTENDED-A");
+
+        /**
+         * Constant for the "Sundanese Supplement" Unicode character block.
+         * @since 1.8
+         */
+        public static final UnicodeBlock SUNDANESE_SUPPLEMENT =
+            new UnicodeBlock("SUNDANESE_SUPPLEMENT",
+                             "SUNDANESE SUPPLEMENT",
+                             "SUNDANESESUPPLEMENT");
+
+        /**
+         * Constant for the "Meetei Mayek Extensions" Unicode character block.
+         * @since 1.8
+         */
+        public static final UnicodeBlock MEETEI_MAYEK_EXTENSIONS =
+            new UnicodeBlock("MEETEI_MAYEK_EXTENSIONS",
+                             "MEETEI MAYEK EXTENSIONS",
+                             "MEETEIMAYEKEXTENSIONS");
+
+        /**
+         * Constant for the "Meroitic Hieroglyphs" Unicode character block.
+         * @since 1.8
+         */
+        public static final UnicodeBlock MEROITIC_HIEROGLYPHS =
+            new UnicodeBlock("MEROITIC_HIEROGLYPHS",
+                             "MEROITIC HIEROGLYPHS",
+                             "MEROITICHIEROGLYPHS");
+
+        /**
+         * Constant for the "Meroitic Cursive" Unicode character block.
+         * @since 1.8
+         */
+        public static final UnicodeBlock MEROITIC_CURSIVE =
+            new UnicodeBlock("MEROITIC_CURSIVE",
+                             "MEROITIC CURSIVE",
+                             "MEROITICCURSIVE");
+
+        /**
+         * Constant for the "Sora Sompeng" Unicode character block.
+         * @since 1.8
+         */
+        public static final UnicodeBlock SORA_SOMPENG =
+            new UnicodeBlock("SORA_SOMPENG",
+                             "SORA SOMPENG",
+                             "SORASOMPENG");
+
+        /**
+         * Constant for the "Chakma" Unicode character block.
+         * @since 1.8
+         */
+        public static final UnicodeBlock CHAKMA =
+            new UnicodeBlock("CHAKMA");
+
+        /**
+         * Constant for the "Sharada" Unicode character block.
+         * @since 1.8
+         */
+        public static final UnicodeBlock SHARADA =
+            new UnicodeBlock("SHARADA");
+
+        /**
+         * Constant for the "Takri" Unicode character block.
+         * @since 1.8
+         */
+        public static final UnicodeBlock TAKRI =
+            new UnicodeBlock("TAKRI");
+
+        /**
+         * Constant for the "Miao" Unicode character block.
+         * @since 1.8
+         */
+        public static final UnicodeBlock MIAO =
+            new UnicodeBlock("MIAO");
+
+        /**
+         * Constant for the "Arabic Mathematical Alphabetic Symbols" Unicode
+         * character block.
+         * @since 1.8
+         */
+        public static final UnicodeBlock ARABIC_MATHEMATICAL_ALPHABETIC_SYMBOLS =
+            new UnicodeBlock("ARABIC_MATHEMATICAL_ALPHABETIC_SYMBOLS",
+                             "ARABIC MATHEMATICAL ALPHABETIC SYMBOLS",
+                             "ARABICMATHEMATICALALPHABETICSYMBOLS");
+
         private static final int blockStarts[] = {
             0x0000,   // 0000..007F; Basic Latin
             0x0080,   // 0080..00FF; Latin-1 Supplement
@@ -2514,6 +2613,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0x0800,   // 0800..083F; Samaritan
             0x0840,   // 0840..085F; Mandaic
             0x0860,   //             unassigned
+            0x08A0,   // 08A0..08FF; Arabic Extended-A
             0x0900,   // 0900..097F; Devanagari
             0x0980,   // 0980..09FF; Bengali
             0x0A00,   // 0A00..0A7F; Gurmukhi
@@ -2556,6 +2656,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0x1C00,   // 1C00..1C4F; Lepcha
             0x1C50,   // 1C50..1C7F; Ol Chiki
             0x1C80,   //             unassigned
+            0x1CC0,   // 1CC0..1CCF; Sundanese Supplement
             0x1CD0,   // 1CD0..1CFF; Vedic Extensions
             0x1D00,   // 1D00..1D7F; Phonetic Extensions
             0x1D80,   // 1D80..1DBF; Phonetic Extensions Supplement
@@ -2633,7 +2734,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0xAA00,   // AA00..AA5F; Cham
             0xAA60,   // AA60..AA7F; Myanmar Extended-A
             0xAA80,   // AA80..AADF; Tai Viet
-            0xAAE0,   //             unassigned
+            0xAAE0,   // AAE0..AAFF; Meetei Mayek Extensions
             0xAB00,   // AB00..AB2F; Ethiopic Extended-A
             0xAB30,   //             unassigned
             0xABC0,   // ABC0..ABFF; Meetei Mayek
@@ -2680,6 +2781,8 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0x10900,  // 10900..1091F; Phoenician
             0x10920,  // 10920..1093F; Lydian
             0x10940,  //               unassigned
+            0x10980,  // 10980..1099F; Meroitic Hieroglyphs
+            0x109A0,  // 109A0..109FF; Meroitic Cursive
             0x10A00,  // 10A00..10A5F; Kharoshthi
             0x10A60,  // 10A60..10A7F; Old South Arabian
             0x10A80,  //               unassigned
@@ -2693,7 +2796,13 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0x10E80,  //               unassigned
             0x11000,  // 11000..1107F; Brahmi
             0x11080,  // 11080..110CF; Kaithi
-            0x110D0,  //               unassigned
+            0x110D0,  // 110D0..110FF; Sora Sompeng
+            0x11100,  // 11100..1114F; Chakma
+            0x11150,  //               unassigned
+            0x11180,  // 11180..111DF; Sharada
+            0x111E0,  //               unassigned
+            0x11680,  // 11680..116CF; Takri
+            0x116D0,  //               unassigned
             0x12000,  // 12000..123FF; Cuneiform
             0x12400,  // 12400..1247F; Cuneiform Numbers and Punctuation
             0x12480,  //               unassigned
@@ -2701,6 +2810,8 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0x13430,  //               unassigned
             0x16800,  // 16800..16A3F; Bamum Supplement
             0x16A40,  //               unassigned
+            0x16F00,  // 16F00..16F9F; Miao
+            0x16FA0,  //               unassigned
             0x1B000,  // 1B000..1B0FF; Kana Supplement
             0x1B100,  //               unassigned
             0x1D000,  // 1D000..1D0FF; Byzantine Musical Symbols
@@ -2712,6 +2823,8 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0x1D380,  //               unassigned
             0x1D400,  // 1D400..1D7FF; Mathematical Alphanumeric Symbols
             0x1D800,  //               unassigned
+            0x1EE00,  // 1EE00..1EEFF; Arabic Mathematical Alphabetic Symbols
+            0x1EF00,  //               unassigned
             0x1F000,  // 1F000..1F02F; Mahjong Tiles
             0x1F030,  // 1F030..1F09F; Domino Tiles
             0x1F0A0,  // 1F0A0..1F0FF; Playing Cards
@@ -2759,6 +2872,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
             SAMARITAN,
             MANDAIC,
             null,
+            ARABIC_EXTENDED_A,
             DEVANAGARI,
             BENGALI,
             GURMUKHI,
@@ -2801,6 +2915,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
             LEPCHA,
             OL_CHIKI,
             null,
+            SUNDANESE_SUPPLEMENT,
             VEDIC_EXTENSIONS,
             PHONETIC_EXTENSIONS,
             PHONETIC_EXTENSIONS_SUPPLEMENT,
@@ -2878,7 +2993,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
             CHAM,
             MYANMAR_EXTENDED_A,
             TAI_VIET,
-            null,
+            MEETEI_MAYEK_EXTENSIONS,
             ETHIOPIC_EXTENDED_A,
             null,
             MEETEI_MAYEK,
@@ -2925,6 +3040,8 @@ class Character implements java.io.Serializable, Comparable<Character> {
             PHOENICIAN,
             LYDIAN,
             null,
+            MEROITIC_HIEROGLYPHS,
+            MEROITIC_CURSIVE,
             KHAROSHTHI,
             OLD_SOUTH_ARABIAN,
             null,
@@ -2938,6 +3055,12 @@ class Character implements java.io.Serializable, Comparable<Character> {
             null,
             BRAHMI,
             KAITHI,
+            SORA_SOMPENG,
+            CHAKMA,
+            null,
+            SHARADA,
+            null,
+            TAKRI,
             null,
             CUNEIFORM,
             CUNEIFORM_NUMBERS_AND_PUNCTUATION,
@@ -2945,6 +3068,8 @@ class Character implements java.io.Serializable, Comparable<Character> {
             EGYPTIAN_HIEROGLYPHS,
             null,
             BAMUM_SUPPLEMENT,
+            null,
+            MIAO,
             null,
             KANA_SUPPLEMENT,
             null,
@@ -2956,6 +3081,8 @@ class Character implements java.io.Serializable, Comparable<Character> {
             COUNTING_ROD_NUMERALS,
             null,
             MATHEMATICAL_ALPHANUMERIC_SYMBOLS,
+            null,
+            ARABIC_MATHEMATICAL_ALPHABETIC_SYMBOLS,
             null,
             MAHJONG_TILES,
             DOMINO_TILES,
@@ -3578,6 +3705,41 @@ class Character implements java.io.Serializable, Comparable<Character> {
         KAITHI,
 
         /**
+         * Unicode script "Meroitic Hieroglyphs".
+         */
+        MEROITIC_HIEROGLYPHS,
+
+        /**
+         * Unicode script "Meroitic Cursive".
+         */
+        MEROITIC_CURSIVE,
+
+        /**
+         * Unicode script "Sora Sompeng".
+         */
+        SORA_SOMPENG,
+
+        /**
+         * Unicode script "Chakma".
+         */
+        CHAKMA,
+
+        /**
+         * Unicode script "Sharada".
+         */
+        SHARADA,
+
+        /**
+         * Unicode script "Takri".
+         */
+        TAKRI,
+
+        /**
+         * Unicode script "Miao".
+         */
+        MIAO,
+
+        /**
          * Unicode script "Unknown".
          */
         UNKNOWN;
@@ -3631,8 +3793,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0x0640,   // 0640..0640; COMMON
             0x0641,   // 0641..064A; ARABIC
             0x064B,   // 064B..0655; INHERITED
-            0x0656,   // 0656..065E; ARABIC
-            0x065F,   // 065F..065F; INHERITED
+            0x0656,   // 0656..065F; ARABIC
             0x0660,   // 0660..0669; COMMON
             0x066A,   // 066A..066F; ARABIC
             0x0670,   // 0670..0670; INHERITED
@@ -3644,14 +3805,13 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0x0780,   // 0780..07BF; THAANA
             0x07C0,   // 07C0..07FF; NKO
             0x0800,   // 0800..083F; SAMARITAN
-            0x0840,   // 0840..08FF; MANDAIC
+            0x0840,   // 0840..089F; MANDAIC
+            0x08A0,   // 08A0..08FF; ARABIC
             0x0900,   // 0900..0950; DEVANAGARI
             0x0951,   // 0951..0952; INHERITED
             0x0953,   // 0953..0963; DEVANAGARI
             0x0964,   // 0964..0965; COMMON
-            0x0966,   // 0966..096F; DEVANAGARI
-            0x0970,   // 0970..0970; COMMON
-            0x0971,   // 0971..0980; DEVANAGARI
+            0x0966,   // 0966..0980; DEVANAGARI
             0x0981,   // 0981..0A00; BENGALI
             0x0A01,   // 0A01..0A80; GURMUKHI
             0x0A81,   // 0A81..0B00; GUJARATI
@@ -3702,7 +3862,8 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0x1B80,   // 1B80..1BBF; SUNDANESE
             0x1BC0,   // 1BC0..1BFF; BATAK
             0x1C00,   // 1C00..1C4F; LEPCHA
-            0x1C50,   // 1C50..1CCF; OL_CHIKI
+            0x1C50,   // 1C50..1CBF; OL_CHIKI
+            0x1CC0,   // 1CC0..1CCF; SUNDANESE
             0x1CD0,   // 1CD0..1CD2; INHERITED
             0x1CD3,   // 1CD3..1CD3; COMMON
             0x1CD4,   // 1CD4..1CE0; INHERITED
@@ -3710,7 +3871,9 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0x1CE2,   // 1CE2..1CE8; INHERITED
             0x1CE9,   // 1CE9..1CEC; COMMON
             0x1CED,   // 1CED..1CED; INHERITED
-            0x1CEE,   // 1CEE..1CFF; COMMON
+            0x1CEE,   // 1CEE..1CF3; COMMON
+            0x1CF4,   // 1CF4..1CF4; INHERITED
+            0x1CF5,   // 1CF5..1CFF; COMMON
             0x1D00,   // 1D00..1D25; LATIN
             0x1D26,   // 1D26..1D2A; GREEK
             0x1D2B,   // 1D2B..1D2B; CYRILLIC
@@ -3811,7 +3974,8 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0xA980,   // A980..A9FF; JAVANESE
             0xAA00,   // AA00..AA5F; CHAM
             0xAA60,   // AA60..AA7F; MYANMAR
-            0xAA80,   // AA80..AB00; TAI_VIET
+            0xAA80,   // AA80..AADF; TAI_VIET
+            0xAAE0,   // AAE0..AB00; MEETEI_MAYEK
             0xAB01,   // AB01..ABBF; ETHIOPIC
             0xABC0,   // ABC0..ABFF; MEETEI_MAYEK
             0xAC00,   // AC00..D7FB; HANGUL
@@ -3857,7 +4021,9 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0x10800,  // 10800..1083F; CYPRIOT
             0x10840,  // 10840..108FF; IMPERIAL_ARAMAIC
             0x10900,  // 10900..1091F; PHOENICIAN
-            0x10920,  // 10920..109FF; LYDIAN
+            0x10920,  // 10920..1097F; LYDIAN
+            0x10980,  // 10980..1099F; MEROITIC_HIEROGLYPHS
+            0x109A0,  // 109A0..109FF; MEROITIC_CURSIVE
             0x10A00,  // 10A00..10A5F; KHAROSHTHI
             0x10A60,  // 10A60..10AFF; OLD_SOUTH_ARABIAN
             0x10B00,  // 10B00..10B3F; AVESTAN
@@ -3866,10 +4032,15 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0x10C00,  // 10C00..10E5F; OLD_TURKIC
             0x10E60,  // 10E60..10FFF; ARABIC
             0x11000,  // 11000..1107F; BRAHMI
-            0x11080,  // 11080..11FFF; KAITHI
+            0x11080,  // 11080..110CF; KAITHI
+            0x110D0,  // 110D0..110FF; SORA_SOMPENG
+            0x11100,  // 11100..1117F; CHAKMA
+            0x11180,  // 11180..1167F; SHARADA
+            0x11680,  // 11680..116CF; TAKRI
             0x12000,  // 12000..12FFF; CUNEIFORM
             0x13000,  // 13000..167FF; EGYPTIAN_HIEROGLYPHS
             0x16800,  // 16800..16A38; BAMUM
+            0x16F00,  // 16F00..16F9F; MIAO
             0x1B000,  // 1B000..1B000; KATAKANA
             0x1B001,  // 1B001..1CFFF; HIRAGANA
             0x1D000,  // 1D000..1D166; COMMON
@@ -3882,7 +4053,9 @@ class Character implements java.io.Serializable, Comparable<Character> {
             0x1D1AA,  // 1D1AA..1D1AD; INHERITED
             0x1D1AE,  // 1D1AE..1D1FF; COMMON
             0x1D200,  // 1D200..1D2FF; GREEK
-            0x1D300,  // 1D300..1F1FF; COMMON
+            0x1D300,  // 1D300..1EDFF; COMMON
+            0x1EE00,  // 1EE00..1EFFF; ARABIC
+            0x1F000,  // 1F000..1F1FF; COMMON
             0x1F200,  // 1F200..1F200; HIRAGANA
             0x1F201,  // 1F210..1FFFF; COMMON
             0x20000,  // 20000..E0000; HAN
@@ -3942,7 +4115,6 @@ class Character implements java.io.Serializable, Comparable<Character> {
             ARABIC,
             INHERITED,
             ARABIC,
-            INHERITED,
             COMMON,
             ARABIC,
             INHERITED,
@@ -3955,10 +4127,9 @@ class Character implements java.io.Serializable, Comparable<Character> {
             NKO,
             SAMARITAN,
             MANDAIC,
+            ARABIC,
             DEVANAGARI,
             INHERITED,
-            DEVANAGARI,
-            COMMON,
             DEVANAGARI,
             COMMON,
             DEVANAGARI,
@@ -4013,6 +4184,9 @@ class Character implements java.io.Serializable, Comparable<Character> {
             BATAK,
             LEPCHA,
             OL_CHIKI,
+            SUNDANESE,
+            INHERITED,
+            COMMON,
             INHERITED,
             COMMON,
             INHERITED,
@@ -4122,10 +4296,11 @@ class Character implements java.io.Serializable, Comparable<Character> {
             CHAM,
             MYANMAR,
             TAI_VIET,
+            MEETEI_MAYEK,
             ETHIOPIC,
             MEETEI_MAYEK,
             HANGUL,
-            UNKNOWN,
+            UNKNOWN     ,
             HAN,
             LATIN,
             ARMENIAN,
@@ -4168,6 +4343,8 @@ class Character implements java.io.Serializable, Comparable<Character> {
             IMPERIAL_ARAMAIC,
             PHOENICIAN,
             LYDIAN,
+            MEROITIC_HIEROGLYPHS,
+            MEROITIC_CURSIVE,
             KHAROSHTHI,
             OLD_SOUTH_ARABIAN,
             AVESTAN,
@@ -4177,9 +4354,14 @@ class Character implements java.io.Serializable, Comparable<Character> {
             ARABIC,
             BRAHMI,
             KAITHI,
+            SORA_SOMPENG,
+            CHAKMA,
+            SHARADA,
+            TAKRI,
             CUNEIFORM,
             EGYPTIAN_HIEROGLYPHS,
             BAMUM,
+            MIAO,
             KATAKANA,
             HIRAGANA,
             COMMON,
@@ -4192,6 +4374,8 @@ class Character implements java.io.Serializable, Comparable<Character> {
             INHERITED,
             COMMON,
             GREEK,
+            COMMON,
+            ARABIC,
             COMMON,
             HIRAGANA,
             COMMON,
@@ -4217,6 +4401,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
             aliases.put("BRAH", BRAHMI);
             aliases.put("BUGI", BUGINESE);
             aliases.put("BUHD", BUHID);
+            aliases.put("CAKM", CHAKMA);
             aliases.put("CANS", CANADIAN_ABORIGINAL);
             aliases.put("CARI", CARIAN);
             aliases.put("CHAM", CHAM);
@@ -4259,6 +4444,8 @@ class Character implements java.io.Serializable, Comparable<Character> {
             aliases.put("LYCI", LYCIAN);
             aliases.put("LYDI", LYDIAN);
             aliases.put("MAND", MANDAIC);
+            aliases.put("MERC", MEROITIC_CURSIVE);
+            aliases.put("MERO", MEROITIC_HIEROGLYPHS);
             aliases.put("MLYM", MALAYALAM);
             aliases.put("MONG", MONGOLIAN);
             aliases.put("MTEI", MEETEI_MAYEK);
@@ -4270,6 +4457,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
             aliases.put("ORYA", ORIYA);
             aliases.put("OSMA", OSMANYA);
             aliases.put("PHAG", PHAGS_PA);
+            aliases.put("PLRD", MIAO);
             aliases.put("PHLI", INSCRIPTIONAL_PAHLAVI);
             aliases.put("PHNX", PHOENICIAN);
             aliases.put("PRTI", INSCRIPTIONAL_PARTHIAN);
@@ -4279,12 +4467,15 @@ class Character implements java.io.Serializable, Comparable<Character> {
             aliases.put("SARB", OLD_SOUTH_ARABIAN);
             aliases.put("SAUR", SAURASHTRA);
             aliases.put("SHAW", SHAVIAN);
+            aliases.put("SHRD", SHARADA);
             aliases.put("SINH", SINHALA);
+            aliases.put("SORA", SORA_SOMPENG);
             aliases.put("SUND", SUNDANESE);
             aliases.put("SYLO", SYLOTI_NAGRI);
             aliases.put("SYRC", SYRIAC);
             aliases.put("TAGB", TAGBANWA);
             aliases.put("TALE", TAI_LE);
+            aliases.put("TAKR", TAKRI);
             aliases.put("TALU", NEW_TAI_LUE);
             aliases.put("TAML", TAMIL);
             aliases.put("TAVT", TAI_VIET);
@@ -4432,6 +4623,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
      *
      * @return a hash code value for this {@code Character}
      */
+    @Override
     public int hashCode() {
         return Character.hashCode(value);
     }
@@ -4626,9 +4818,9 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * Unicode surrogate pair</a>.
 
      * <p>This method is equivalent to the expression:
-     * <blockquote><pre>
+     * <blockquote><pre>{@code
      * isHighSurrogate(high) && isLowSurrogate(low)
-     * </pre></blockquote>
+     * }</pre></blockquote>
      *
      * @param  high the high-surrogate code value to be tested
      * @param  low the low-surrogate code value to be tested
@@ -4706,13 +4898,11 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @since  1.5
      */
     public static int codePointAt(CharSequence seq, int index) {
-        char c1 = seq.charAt(index++);
-        if (isHighSurrogate(c1)) {
-            if (index < seq.length()) {
-                char c2 = seq.charAt(index);
-                if (isLowSurrogate(c2)) {
-                    return toCodePoint(c1, c2);
-                }
+        char c1 = seq.charAt(index);
+        if (isHighSurrogate(c1) && ++index < seq.length()) {
+            char c2 = seq.charAt(index);
+            if (isLowSurrogate(c2)) {
+                return toCodePoint(c1, c2);
             }
         }
         return c1;
@@ -4775,15 +4965,13 @@ class Character implements java.io.Serializable, Comparable<Character> {
         return codePointAtImpl(a, index, limit);
     }
 
-    // throws ArrayIndexOutofBoundsException if index out of bounds
+    // throws ArrayIndexOutOfBoundsException if index out of bounds
     static int codePointAtImpl(char[] a, int index, int limit) {
-        char c1 = a[index++];
-        if (isHighSurrogate(c1)) {
-            if (index < limit) {
-                char c2 = a[index];
-                if (isLowSurrogate(c2)) {
-                    return toCodePoint(c1, c2);
-                }
+        char c1 = a[index];
+        if (isHighSurrogate(c1) && ++index < limit) {
+            char c2 = a[index];
+            if (isLowSurrogate(c2)) {
+                return toCodePoint(c1, c2);
             }
         }
         return c1;
@@ -4812,12 +5000,10 @@ class Character implements java.io.Serializable, Comparable<Character> {
      */
     public static int codePointBefore(CharSequence seq, int index) {
         char c2 = seq.charAt(--index);
-        if (isLowSurrogate(c2)) {
-            if (index > 0) {
-                char c1 = seq.charAt(--index);
-                if (isHighSurrogate(c1)) {
-                    return toCodePoint(c1, c2);
-                }
+        if (isLowSurrogate(c2) && index > 0) {
+            char c1 = seq.charAt(--index);
+            if (isHighSurrogate(c1)) {
+                return toCodePoint(c1, c2);
             }
         }
         return c2;
@@ -4882,15 +5068,13 @@ class Character implements java.io.Serializable, Comparable<Character> {
         return codePointBeforeImpl(a, index, start);
     }
 
-    // throws ArrayIndexOutofBoundsException if index-1 out of bounds
+    // throws ArrayIndexOutOfBoundsException if index-1 out of bounds
     static int codePointBeforeImpl(char[] a, int index, int start) {
         char c2 = a[--index];
-        if (isLowSurrogate(c2)) {
-            if (index > start) {
-                char c1 = a[--index];
-                if (isHighSurrogate(c1)) {
-                    return toCodePoint(c1, c2);
-                }
+        if (isLowSurrogate(c2) && index > start) {
+            char c1 = a[--index];
+            if (isHighSurrogate(c1)) {
+                return toCodePoint(c1, c2);
             }
         }
         return c2;
@@ -5245,7 +5429,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * Other_Lowercase as defined by the Unicode Standard.
      * <p>
      * The following are examples of lowercase characters:
-     * <p><blockquote><pre>
+     * <blockquote><pre>
      * a b c d e f g h i j k l m n o p q r s t u v w x y z
      * '&#92;u00DF' '&#92;u00E0' '&#92;u00E1' '&#92;u00E2' '&#92;u00E3' '&#92;u00E4' '&#92;u00E5' '&#92;u00E6'
      * '&#92;u00E7' '&#92;u00E8' '&#92;u00E9' '&#92;u00EA' '&#92;u00EB' '&#92;u00EC' '&#92;u00ED' '&#92;u00EE'
@@ -5281,7 +5465,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * Other_Lowercase as defined by the Unicode Standard.
      * <p>
      * The following are examples of lowercase characters:
-     * <p><blockquote><pre>
+     * <blockquote><pre>
      * a b c d e f g h i j k l m n o p q r s t u v w x y z
      * '&#92;u00DF' '&#92;u00E0' '&#92;u00E1' '&#92;u00E2' '&#92;u00E3' '&#92;u00E4' '&#92;u00E5' '&#92;u00E6'
      * '&#92;u00E7' '&#92;u00E8' '&#92;u00E9' '&#92;u00EA' '&#92;u00EB' '&#92;u00EC' '&#92;u00ED' '&#92;u00EE'
@@ -5299,11 +5483,20 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#getType(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isLowerCase(int codePoint) {
+        return getType(codePoint) == Character.LOWERCASE_LETTER ||
+               CharacterData.of(codePoint).isOtherLowercase(codePoint);
+    }
+    */
     public static boolean isLowerCase(int codePoint) {
         return isLowerCaseImpl(codePoint);
     }
 
+    @FastNative
     static native boolean isLowerCaseImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines if the specified character is an uppercase character.
@@ -5313,14 +5506,14 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * or it has contributory property Other_Uppercase as defined by the Unicode Standard.
      * <p>
      * The following are examples of uppercase characters:
-     * <p><blockquote><pre>
+     * <blockquote><pre>
      * A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
      * '&#92;u00C0' '&#92;u00C1' '&#92;u00C2' '&#92;u00C3' '&#92;u00C4' '&#92;u00C5' '&#92;u00C6' '&#92;u00C7'
      * '&#92;u00C8' '&#92;u00C9' '&#92;u00CA' '&#92;u00CB' '&#92;u00CC' '&#92;u00CD' '&#92;u00CE' '&#92;u00CF'
      * '&#92;u00D0' '&#92;u00D1' '&#92;u00D2' '&#92;u00D3' '&#92;u00D4' '&#92;u00D5' '&#92;u00D6' '&#92;u00D8'
      * '&#92;u00D9' '&#92;u00DA' '&#92;u00DB' '&#92;u00DC' '&#92;u00DD' '&#92;u00DE'
      * </pre></blockquote>
-     * <p> Many other Unicode characters are uppercase too.<p>
+     * <p> Many other Unicode characters are uppercase too.
      *
      * <p><b>Note:</b> This method cannot handle <a
      * href="#supplementary"> supplementary characters</a>. To support
@@ -5348,7 +5541,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * or it has contributory property Other_Uppercase as defined by the Unicode Standard.
      * <p>
      * The following are examples of uppercase characters:
-     * <p><blockquote><pre>
+     * <blockquote><pre>
      * A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
      * '&#92;u00C0' '&#92;u00C1' '&#92;u00C2' '&#92;u00C3' '&#92;u00C4' '&#92;u00C5' '&#92;u00C6' '&#92;u00C7'
      * '&#92;u00C8' '&#92;u00C9' '&#92;u00CA' '&#92;u00CB' '&#92;u00CC' '&#92;u00CD' '&#92;u00CE' '&#92;u00CF'
@@ -5366,12 +5559,20 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#getType(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isUpperCase(int codePoint) {
+        return getType(codePoint) == Character.UPPERCASE_LETTER ||
+               CharacterData.of(codePoint).isOtherUppercase(codePoint);
+    }
+    */
     public static boolean isUpperCase(int codePoint) {
         return isUpperCaseImpl(codePoint);
     }
 
+    @FastNative
     static native boolean isUpperCaseImpl(int codePoint);
-
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines if the specified character is a titlecase character.
@@ -5394,7 +5595,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * <li>{@code LATIN CAPITAL LETTER N WITH SMALL LETTER J}
      * <li>{@code LATIN CAPITAL LETTER D WITH SMALL LETTER Z}
      * </ul>
-     * <p> Many other Unicode characters are titlecase too.<p>
+     * <p> Many other Unicode characters are titlecase too.
      *
      * <p><b>Note:</b> This method cannot handle <a
      * href="#supplementary"> supplementary characters</a>. To support
@@ -5446,11 +5647,19 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#getType(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isTitleCase(int codePoint) {
+        return getType(codePoint) == Character.TITLECASE_LETTER;
+    }
+    */
     public static boolean isTitleCase(int codePoint) {
         return isTitleCaseImpl(codePoint);
     }
 
+    @FastNative
     static native boolean isTitleCaseImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines if the specified character is a digit.
@@ -5521,11 +5730,19 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#getType(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isDigit(int codePoint) {
+        return getType(codePoint) == Character.DECIMAL_DIGIT_NUMBER;
+    }
+    */
     public static boolean isDigit(int codePoint) {
         return isDigitImpl(codePoint);
     }
 
+    @FastNative
     static native boolean isDigitImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines if a character is defined in Unicode.
@@ -5576,11 +5793,19 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isUpperCase(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isDefined(int codePoint) {
+        return getType(codePoint) != Character.UNASSIGNED;
+    }
+    */
     public static boolean isDefined(int codePoint) {
         return isDefinedImpl(codePoint);
     }
 
+    @FastNative
     static native boolean isDefinedImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines if the specified character is a letter.
@@ -5650,11 +5875,24 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isUpperCase(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isLetter(int codePoint) {
+        return ((((1 << Character.UPPERCASE_LETTER) |
+            (1 << Character.LOWERCASE_LETTER) |
+            (1 << Character.TITLECASE_LETTER) |
+            (1 << Character.MODIFIER_LETTER) |
+            (1 << Character.OTHER_LETTER)) >> getType(codePoint)) & 1)
+            != 0;
+    }
+    */
     public static boolean isLetter(int codePoint) {
         return isLetterImpl(codePoint);
     }
 
+    @FastNative
     static native boolean isLetterImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines if the specified character is a letter or digit.
@@ -5701,11 +5939,25 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isUnicodeIdentifierPart(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isLetterOrDigit(int codePoint) {
+        return ((((1 << Character.UPPERCASE_LETTER) |
+            (1 << Character.LOWERCASE_LETTER) |
+            (1 << Character.TITLECASE_LETTER) |
+            (1 << Character.MODIFIER_LETTER) |
+            (1 << Character.OTHER_LETTER) |
+            (1 << Character.DECIMAL_DIGIT_NUMBER)) >> getType(codePoint)) & 1)
+            != 0;
+    }
+    */
     public static boolean isLetterOrDigit(int codePoint) {
         return isLetterOrDigitImpl(codePoint);
     }
 
+    @FastNative
     static native boolean isLetterOrDigitImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines if the specified character is permissible as the first
@@ -5795,12 +6047,25 @@ class Character implements java.io.Serializable, Comparable<Character> {
      *          character, <code>false</code> otherwise.
      * @since   1.7
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isAlphabetic(int codePoint) {
+        return (((((1 << Character.UPPERCASE_LETTER) |
+            (1 << Character.LOWERCASE_LETTER) |
+            (1 << Character.TITLECASE_LETTER) |
+            (1 << Character.MODIFIER_LETTER) |
+            (1 << Character.OTHER_LETTER) |
+            (1 << Character.LETTER_NUMBER)) >> getType(codePoint)) & 1) != 0) ||
+            CharacterData.of(codePoint).isOtherAlphabetic(codePoint);
+    }
+    */
     public static boolean isAlphabetic(int codePoint) {
         return isAlphabeticImpl(codePoint);
     }
 
+    @FastNative
     static native boolean isAlphabeticImpl(int codePoint);
-
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines if the specified character (Unicode code point) is a CJKV
@@ -5812,12 +6077,21 @@ class Character implements java.io.Serializable, Comparable<Character> {
      *          character, <code>false</code> otherwise.
      * @since   1.7
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isIdeographic(int codePoint) {
+        return CharacterData.of(codePoint).isIdeographic(codePoint);
+    }
+    */
     public static boolean isIdeographic(int codePoint) {
         return isIdeographicImpl(codePoint);
     }
-
+    @FastNative
     static native boolean isIdeographicImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
+    // Android-changed: Removed @see tag (target does not exist on Android):
+    // @see     javax.lang.model.SourceVersion#isIdentifier(CharSequence)
     /**
      * Determines if the specified character is
      * permissible as the first character in a Java identifier.
@@ -5842,13 +6116,14 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isJavaIdentifierPart(char)
      * @see     Character#isLetter(char)
      * @see     Character#isUnicodeIdentifierStart(char)
-     * @see     javax.lang.model.SourceVersion#isIdentifier(CharSequence)
      * @since   1.1
      */
     public static boolean isJavaIdentifierStart(char ch) {
         return isJavaIdentifierStart((int)ch);
     }
 
+    // Android-changed: Removed @see tag (target does not exist on Android):
+    // @see     javax.lang.model.SourceVersion#isIdentifier(CharSequence)
     /**
      * Determines if the character (Unicode code point) is
      * permissible as the first character in a Java identifier.
@@ -5871,9 +6146,14 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isJavaIdentifierPart(int)
      * @see     Character#isLetter(int)
      * @see     Character#isUnicodeIdentifierStart(int)
-     * @see     javax.lang.model.SourceVersion#isIdentifier(CharSequence)
      * @since   1.5
      */
+    // BEGIN Android-changed: Use ICU.
+    /*
+    public static boolean isJavaIdentifierStart(int codePoint) {
+        return CharacterData.of(codePoint).isJavaIdentifierStart(codePoint);
+    }
+    */
     public static boolean isJavaIdentifierStart(int codePoint) {
         // Use precomputed bitmasks to optimize the ASCII range.
         if (codePoint < 64) {
@@ -5891,7 +6171,10 @@ class Character implements java.io.Serializable, Comparable<Character> {
                    | (1  << CONNECTOR_PUNCTUATION)
                    | (1  << LETTER_NUMBER))) != 0;
     }
+    // END Android-changed: Use ICU.
 
+    // Android-changed: Removed @see tag (target does not exist on Android):
+    // @see     javax.lang.model.SourceVersion#isIdentifier(CharSequence)
     /**
      * Determines if the specified character may be part of a Java
      * identifier as other than the first character.
@@ -5922,13 +6205,14 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isJavaIdentifierStart(char)
      * @see     Character#isLetterOrDigit(char)
      * @see     Character#isUnicodeIdentifierPart(char)
-     * @see     javax.lang.model.SourceVersion#isIdentifier(CharSequence)
      * @since   1.1
      */
     public static boolean isJavaIdentifierPart(char ch) {
         return isJavaIdentifierPart((int)ch);
     }
 
+    // Android-changed: Removed @see tag (target does not exist on Android):
+    // @see     javax.lang.model.SourceVersion#isIdentifier(CharSequence)
     /**
      * Determines if the character (Unicode code point) may be part of a Java
      * identifier as other than the first character.
@@ -5955,9 +6239,14 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isJavaIdentifierStart(int)
      * @see     Character#isLetterOrDigit(int)
      * @see     Character#isUnicodeIdentifierPart(int)
-     * @see     javax.lang.model.SourceVersion#isIdentifier(CharSequence)
      * @since   1.5
      */
+    // BEGIN Android-changed: Use ICU.
+    /*
+    public static boolean isJavaIdentifierPart(int codePoint) {
+        return CharacterData.of(codePoint).isJavaIdentifierPart(codePoint);
+    }
+    */
     public static boolean isJavaIdentifierPart(int codePoint) {
         // Use precomputed bitmasks to optimize the ASCII range.
         if (codePoint < 64) {
@@ -5981,6 +6270,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
                 || (codePoint >= 0 && codePoint <= 8) || (codePoint >= 0xe && codePoint <= 0x1b)
                 || (codePoint >= 0x7f && codePoint <= 0x9f);
     }
+    // END Android-changed: Use ICU.
 
     /**
      * Determines if the specified character is permissible as the
@@ -6031,11 +6321,19 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isUnicodeIdentifierPart(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isUnicodeIdentifierStart(int codePoint) {
+        return CharacterData.of(codePoint).isUnicodeIdentifierStart(codePoint);
+    }
+    */
     public static boolean isUnicodeIdentifierStart(int codePoint) {
         return isUnicodeIdentifierStartImpl(codePoint);
     }
 
+    @FastNative
     static native boolean isUnicodeIdentifierStartImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines if the specified character may be part of a Unicode
@@ -6097,11 +6395,19 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isUnicodeIdentifierStart(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isUnicodeIdentifierPart(int codePoint) {
+        return CharacterData.of(codePoint).isUnicodeIdentifierPart(codePoint);
+    }
+    */
     public static boolean isUnicodeIdentifierPart(int codePoint) {
         return isUnicodeIdentifierPartImpl(codePoint);
     }
 
+    @FastNative
     static native boolean isUnicodeIdentifierPartImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines if the specified character should be regarded as
@@ -6164,11 +6470,19 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isUnicodeIdentifierPart(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isIdentifierIgnorable(int codePoint) {
+        return CharacterData.of(codePoint).isIdentifierIgnorable(codePoint);
+    }
+    */
     public static boolean isIdentifierIgnorable(int codePoint) {
         return isIdentifierIgnorableImpl(codePoint);
     }
 
+    @FastNative
     static native boolean isIdentifierIgnorableImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Converts the character argument to lowercase using case
@@ -6226,6 +6540,12 @@ class Character implements java.io.Serializable, Comparable<Character> {
      *
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static int toLowerCase(int codePoint) {
+        return CharacterData.of(codePoint).toLowerCase(codePoint);
+    }
+    */
     public static int toLowerCase(int codePoint) {
         if (codePoint >= 'A' && codePoint <= 'Z') {
             return codePoint + ('a' - 'A');
@@ -6239,7 +6559,9 @@ class Character implements java.io.Serializable, Comparable<Character> {
         return toLowerCaseImpl(codePoint);
     }
 
+    @FastNative
     static native int toLowerCaseImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Converts the character argument to uppercase using case mapping
@@ -6297,6 +6619,12 @@ class Character implements java.io.Serializable, Comparable<Character> {
      *
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static int toUpperCase(int codePoint) {
+        return CharacterData.of(codePoint).toUpperCase(codePoint);
+    }
+    */
     public static int toUpperCase(int codePoint) {
         if (codePoint >= 'a' && codePoint <= 'z') {
             return codePoint - ('a' - 'A');
@@ -6310,7 +6638,9 @@ class Character implements java.io.Serializable, Comparable<Character> {
         return toUpperCaseImpl(codePoint);
     }
 
+    @FastNative
     static native int toUpperCaseImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Converts the character argument to titlecase using case mapping
@@ -6367,11 +6697,19 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#toUpperCase(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static int toTitleCase(int codePoint) {
+        return CharacterData.of(codePoint).toTitleCase(codePoint);
+    }
+    */
     public static int toTitleCase(int codePoint) {
         return toTitleCaseImpl(codePoint);
     }
 
+    @FastNative
     static native int toTitleCaseImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Returns the numeric value of the character {@code ch} in the
@@ -6475,6 +6813,12 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isDigit(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static int digit(int codePoint, int radix) {
+        return CharacterData.of(codePoint).digit(codePoint, radix);
+    }
+    */
     public static int digit(int codePoint, int radix) {
         if (radix < MIN_RADIX || radix > MAX_RADIX) {
             return -1;
@@ -6494,7 +6838,9 @@ class Character implements java.io.Serializable, Comparable<Character> {
         return digitImpl(codePoint, radix);
     }
 
+    @FastNative
     native static int digitImpl(int codePoint, int radix);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Returns the {@code int} value that the specified Unicode
@@ -6563,6 +6909,12 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isDigit(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static int getNumericValue(int codePoint) {
+        return CharacterData.of(codePoint).getNumericValue(codePoint);
+    }
+    */
     public static int getNumericValue(int codePoint) {
         // This is both an optimization and papers over differences between Java and ICU.
         if (codePoint < 128) {
@@ -6588,13 +6940,15 @@ class Character implements java.io.Serializable, Comparable<Character> {
         return getNumericValueImpl(codePoint);
     }
 
+    @FastNative
     native static int getNumericValueImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines if the specified character is ISO-LATIN-1 white space.
      * This method returns {@code true} for the following five
      * characters only:
-     * <table>
+     * <table summary="truechars">
      * <tr><td>{@code '\t'}</td>            <td>{@code U+0009}</td>
      *     <td>{@code HORIZONTAL TABULATION}</td></tr>
      * <tr><td>{@code '\n'}</td>            <td>{@code U+000A}</td>
@@ -6603,7 +6957,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
      *     <td>{@code FORM FEED}</td></tr>
      * <tr><td>{@code '\r'}</td>            <td>{@code U+000D}</td>
      *     <td>{@code CARRIAGE RETURN}</td></tr>
-     * <tr><td>{@code '&nbsp;'}</td>  <td>{@code U+0020}</td>
+     * <tr><td>{@code ' '}</td>             <td>{@code U+0020}</td>
      *     <td>{@code SPACE}</td></tr>
      * </table>
      *
@@ -6671,6 +7025,15 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isWhitespace(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isSpaceChar(int codePoint) {
+        return ((((1 << Character.SPACE_SEPARATOR) |
+                  (1 << Character.LINE_SEPARATOR) |
+                  (1 << Character.PARAGRAPH_SEPARATOR)) >> getType(codePoint)) & 1)
+            != 0;
+    }
+    */
     public static boolean isSpaceChar(int codePoint) {
         // We don't just call into icu4c because of the JNI overhead. Ideally we'd fix that.
         // SPACE or NO-BREAK SPACE?
@@ -6696,7 +7059,9 @@ class Character implements java.io.Serializable, Comparable<Character> {
         return isSpaceCharImpl(codePoint);
     }
 
+    @FastNative
     static native boolean isSpaceCharImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines if the specified character is white space according to Java.
@@ -6761,6 +7126,12 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#isSpaceChar(int)
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isWhitespace(int codePoint) {
+        return CharacterData.of(codePoint).isWhitespace(codePoint);
+    }
+    */
     public static boolean isWhitespace(int codePoint) {
         // We don't just call into icu4c because of the JNI overhead. Ideally we'd fix that.
         // Any ASCII whitespace character?
@@ -6790,7 +7161,9 @@ class Character implements java.io.Serializable, Comparable<Character> {
         return isWhitespaceImpl(codePoint);
     }
 
+    @FastNative
     native static boolean isWhitespaceImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines if the specified character is an ISO control
@@ -6923,6 +7296,12 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see     Character#UPPERCASE_LETTER UPPERCASE_LETTER
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static int getType(int codePoint) {
+        return CharacterData.of(codePoint).getType(codePoint);
+    }
+    */
     public static int getType(int codePoint) {
         int type = getTypeImpl(codePoint);
         // The type values returned by ICU are not RI-compatible. The RI skips the value 17.
@@ -6932,7 +7311,9 @@ class Character implements java.io.Serializable, Comparable<Character> {
         return (type + 1);
     }
 
+    @FastNative
     static native int getTypeImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
 
     /**
      * Determines the character representation for a specific digit in
@@ -7045,6 +7426,12 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @see Character#DIRECTIONALITY_POP_DIRECTIONAL_FORMAT DIRECTIONALITY_POP_DIRECTIONAL_FORMAT
      * @since    1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static byte getDirectionality(int codePoint) {
+        return CharacterData.of(codePoint).getDirectionality(codePoint);
+    }
+    */
     public static byte getDirectionality(int codePoint) {
         if (getType(codePoint) == Character.UNASSIGNED) {
             return Character.DIRECTIONALITY_UNDEFINED;
@@ -7057,7 +7444,10 @@ class Character implements java.io.Serializable, Comparable<Character> {
         return Character.DIRECTIONALITY_UNDEFINED;
     }
 
+    @FastNative
     native static byte getDirectionalityImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
+
     /**
      * Determines whether the character is mirrored according to the
      * Unicode specification.  Mirrored characters should have their
@@ -7096,11 +7486,20 @@ class Character implements java.io.Serializable, Comparable<Character> {
      *          if the character is not mirrored or is not defined.
      * @since   1.5
      */
+    // BEGIN Android-changed: Reimplement methods natively on top of ICU4C.
+    /*
+    public static boolean isMirrored(int codePoint) {
+        return CharacterData.of(codePoint).isMirrored(codePoint);
+    }
+    */
     public static boolean isMirrored(int codePoint) {
         return isMirroredImpl(codePoint);
     }
 
+    @FastNative
     native static boolean isMirroredImpl(int codePoint);
+    // END Android-changed: Reimplement methods natively on top of ICU4C.
+
     /**
      * Compares two {@code Character} objects numerically.
      *
@@ -7138,6 +7537,46 @@ class Character implements java.io.Serializable, Comparable<Character> {
         return x - y;
     }
 
+    // BEGIN Android-removed: Use ICU.
+    /**
+     * Converts the character (Unicode code point) argument to uppercase using
+     * information from the UnicodeData file.
+     * <p>
+     *
+     * @param   codePoint   the character (Unicode code point) to be converted.
+     * @return  either the uppercase equivalent of the character, if
+     *          any, or an error flag ({@code Character.ERROR})
+     *          that indicates that a 1:M {@code char} mapping exists.
+     * @see     Character#isLowerCase(char)
+     * @see     Character#isUpperCase(char)
+     * @see     Character#toLowerCase(char)
+     * @see     Character#toTitleCase(char)
+     * @since 1.4
+     *
+    static int toUpperCaseEx(int codePoint) {
+        assert isValidCodePoint(codePoint);
+        return CharacterData.of(codePoint).toUpperCaseEx(codePoint);
+    }
+
+    /**
+     * Converts the character (Unicode code point) argument to uppercase using case
+     * mapping information from the SpecialCasing file in the Unicode
+     * specification. If a character has no explicit uppercase
+     * mapping, then the {@code char} itself is returned in the
+     * {@code char[]}.
+     *
+     * @param   codePoint   the character (Unicode code point) to be converted.
+     * @return a {@code char[]} with the uppercased character.
+     * @since 1.4
+     *
+    static char[] toUpperCaseCharArray(int codePoint) {
+        // As of Unicode 6.0, 1:M uppercasings only happen in the BMP.
+        assert isBmpCodePoint(codePoint);
+        return CharacterData.of(codePoint).toUpperCaseCharArray(codePoint);
+    }
+    */
+    // END Android-removed: Use ICU.
+
     /**
      * The number of bits used to represent a <tt>char</tt> value in unsigned
      * binary form, constant {@code 16}.
@@ -7158,6 +7597,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * Returns the value obtained by reversing the order of the bytes in the
      * specified <tt>char</tt> value.
      *
+     * @param ch The {@code char} of which to reverse the byte order.
      * @return the value obtained by reversing (or, equivalently, swapping)
      *     the bytes in the specified <tt>char</tt> value.
      * @since 1.5
@@ -7198,6 +7638,8 @@ class Character implements java.io.Serializable, Comparable<Character> {
         if (!isValidCodePoint(codePoint)) {
             throw new IllegalArgumentException();
         }
+        // Android-changed: Use ICU.
+        // String name = CharacterName.get(codePoint);
         String name = getNameImpl(codePoint);
         if (name != null)
             return name;
@@ -7211,5 +7653,7 @@ class Character implements java.io.Serializable, Comparable<Character> {
         return Integer.toHexString(codePoint).toUpperCase(Locale.ENGLISH);
     }
 
+    // Android-added: Use ICU.
+    // Implement getNameImpl() natively.
     private static native String getNameImpl(int codePoint);
 }

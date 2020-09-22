@@ -16,98 +16,78 @@
 
 package android.net.metrics;
 
-import android.annotation.SystemApi;
+import static android.net.ConnectivityManager.NETID_UNSET;
+
 import android.net.NetworkCapabilities;
-import android.os.Parcel;
-import android.os.Parcelable;
+
+import com.android.internal.util.BitUtils;
+
+import java.util.StringJoiner;
 
 /**
  * An event recorded by ConnectivityService when there is a change in the default network.
  * {@hide}
  */
-@SystemApi
-public final class DefaultNetworkEvent implements Parcelable {
-    // The ID of the network that has become the new default or NETID_UNSET if none.
-    public final int netId;
-    // The list of transport types of the new default network, for example TRANSPORT_WIFI, as
-    // defined in NetworkCapabilities.java.
-    public final int[] transportTypes;
-    // The ID of the network that was the default before or NETID_UNSET if none.
-    public final int prevNetId;
-    // Whether the previous network had IPv4/IPv6 connectivity.
-    public final boolean prevIPv4;
-    public final boolean prevIPv6;
+public class DefaultNetworkEvent {
 
-    /** {@hide} */
-    public DefaultNetworkEvent(int netId, int[] transportTypes,
-                int prevNetId, boolean prevIPv4, boolean prevIPv6) {
-        this.netId = netId;
-        this.transportTypes = transportTypes;
-        this.prevNetId = prevNetId;
-        this.prevIPv4 = prevIPv4;
-        this.prevIPv6 = prevIPv6;
+    // The creation time in milliseconds of this DefaultNetworkEvent.
+    public final long creationTimeMs;
+    // The network ID of the network or NETID_UNSET if none.
+    public int netId = NETID_UNSET;
+    // The list of transport types, as defined in NetworkCapabilities.java.
+    public int transports;
+    // The list of transport types of the last previous default network.
+    public int previousTransports;
+    // Whether the network has IPv4/IPv6 connectivity.
+    public boolean ipv4;
+    public boolean ipv6;
+    // The initial network score when this network became the default network.
+    public int initialScore;
+    // The initial network score when this network stopped being the default network.
+    public int finalScore;
+    // The total duration in milliseconds this network was the default network.
+    public long durationMs;
+    // The total duration in milliseconds this network was the default network and was validated.
+    public long validatedMs;
+
+    public DefaultNetworkEvent(long timeMs) {
+        creationTimeMs = timeMs;
     }
 
-    private DefaultNetworkEvent(Parcel in) {
-        this.netId = in.readInt();
-        this.transportTypes = in.createIntArray();
-        this.prevNetId = in.readInt();
-        this.prevIPv4 = (in.readByte() > 0);
-        this.prevIPv6 = (in.readByte() > 0);
-    }
-
-    @Override
-    public void writeToParcel(Parcel out, int flags) {
-        out.writeInt(netId);
-        out.writeIntArray(transportTypes);
-        out.writeInt(prevNetId);
-        out.writeByte(prevIPv4 ? (byte) 1 : (byte) 0);
-        out.writeByte(prevIPv6 ? (byte) 1 : (byte) 0);
-    }
-
-    @Override
-    public int describeContents() {
-        return 0;
+    /** Update the durationMs of this DefaultNetworkEvent for the given current time. */
+    public void updateDuration(long timeMs) {
+        durationMs = timeMs - creationTimeMs;
     }
 
     @Override
     public String toString() {
-      String prevNetwork = String.valueOf(prevNetId);
-      String newNetwork = String.valueOf(netId);
-      if (prevNetId != 0) {
-          prevNetwork += ":" + ipSupport();
-      }
-      if (netId != 0) {
-          newNetwork += ":" + NetworkCapabilities.transportNamesOf(transportTypes);
-      }
-      return String.format("DefaultNetworkEvent(%s -> %s)", prevNetwork, newNetwork);
+        StringJoiner j = new StringJoiner(", ", "DefaultNetworkEvent(", ")");
+        j.add("netId=" + netId);
+        for (int t : BitUtils.unpackBits(transports)) {
+            j.add(NetworkCapabilities.transportNameOf(t));
+        }
+        j.add("ip=" + ipSupport());
+        if (initialScore > 0) {
+            j.add("initial_score=" + initialScore);
+        }
+        if (finalScore > 0) {
+            j.add("final_score=" + finalScore);
+        }
+        j.add(String.format("duration=%.0fs", durationMs / 1000.0));
+        j.add(String.format("validation=%04.1f%%", (validatedMs * 100.0) / durationMs));
+        return j.toString();
     }
 
     private String ipSupport() {
-        if (prevIPv4 && prevIPv6) {
-            return "DUAL";
+        if (ipv4 && ipv6) {
+            return "IPv4v6";
         }
-        if (prevIPv6) {
+        if (ipv6) {
             return "IPv6";
         }
-        if (prevIPv4) {
+        if (ipv4) {
             return "IPv4";
         }
         return "NONE";
-    }
-
-    public static final Parcelable.Creator<DefaultNetworkEvent> CREATOR
-        = new Parcelable.Creator<DefaultNetworkEvent>() {
-        public DefaultNetworkEvent createFromParcel(Parcel in) {
-            return new DefaultNetworkEvent(in);
-        }
-
-        public DefaultNetworkEvent[] newArray(int size) {
-            return new DefaultNetworkEvent[size];
-        }
-    };
-
-    public static void logEvent(
-            int netId, int[] transports, int prevNetId, boolean hadIPv4, boolean hadIPv6) {
     }
 }

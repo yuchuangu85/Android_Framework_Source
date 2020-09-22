@@ -16,10 +16,11 @@
 
 package android.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.text.TextUtils;
-import android.util.Log;
-
 import android.util.Base64;
+import android.util.Log;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -32,9 +33,12 @@ import java.security.NoSuchAlgorithmException;
  */
 public final class Rlog {
 
+    private static final boolean USER_BUILD = Build.IS_USER;
+
     private Rlog() {
     }
 
+    @UnsupportedAppUsage
     public static int v(String tag, String msg) {
         return Log.println_native(Log.LOG_ID_RADIO, Log.VERBOSE, tag, msg);
     }
@@ -44,28 +48,34 @@ public final class Rlog {
                 msg + '\n' + Log.getStackTraceString(tr));
     }
 
+    @UnsupportedAppUsage
     public static int d(String tag, String msg) {
         return Log.println_native(Log.LOG_ID_RADIO, Log.DEBUG, tag, msg);
     }
 
+    @UnsupportedAppUsage
     public static int d(String tag, String msg, Throwable tr) {
         return Log.println_native(Log.LOG_ID_RADIO, Log.DEBUG, tag,
                 msg + '\n' + Log.getStackTraceString(tr));
     }
 
+    @UnsupportedAppUsage
     public static int i(String tag, String msg) {
         return Log.println_native(Log.LOG_ID_RADIO, Log.INFO, tag, msg);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public static int i(String tag, String msg, Throwable tr) {
         return Log.println_native(Log.LOG_ID_RADIO, Log.INFO, tag,
                 msg + '\n' + Log.getStackTraceString(tr));
     }
 
+    @UnsupportedAppUsage
     public static int w(String tag, String msg) {
         return Log.println_native(Log.LOG_ID_RADIO, Log.WARN, tag, msg);
     }
 
+    @UnsupportedAppUsage
     public static int w(String tag, String msg, Throwable tr) {
         return Log.println_native(Log.LOG_ID_RADIO, Log.WARN, tag,
                 msg + '\n' + Log.getStackTraceString(tr));
@@ -75,10 +85,12 @@ public final class Rlog {
         return Log.println_native(Log.LOG_ID_RADIO, Log.WARN, tag, Log.getStackTraceString(tr));
     }
 
+    @UnsupportedAppUsage
     public static int e(String tag, String msg) {
         return Log.println_native(Log.LOG_ID_RADIO, Log.ERROR, tag, msg);
     }
 
+    @UnsupportedAppUsage
     public static int e(String tag, String msg, Throwable tr) {
         return Log.println_native(Log.LOG_ID_RADIO, Log.ERROR, tag,
                 msg + '\n' + Log.getStackTraceString(tr));
@@ -125,10 +137,15 @@ public final class Rlog {
     /**
      * Returns a secure hash (using the SHA1 algorithm) of the provided input.
      *
-     * @return the hash
+     * @return "****" if the build type is user, otherwise the hash
      * @param input the bytes for which the secure hash should be computed.
      */
     private static String secureHash(byte[] input) {
+        // Refrain from logging user personal information in user build.
+        if (USER_BUILD) {
+            return "****";
+        }
+
         MessageDigest messageDigest;
 
         try {

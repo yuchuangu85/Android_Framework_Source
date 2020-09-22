@@ -16,6 +16,7 @@
 
 package com.android.server.notification;
 
+import android.app.NotificationManager;
 import android.content.ComponentName;
 import android.media.AudioManager;
 import android.net.Uri;
@@ -35,7 +36,8 @@ import java.util.List;
 
 public class ZenLog {
     private static final String TAG = "ZenLog";
-    private static final boolean DEBUG = Build.IS_DEBUGGABLE;
+    // the ZenLog is *very* verbose, so be careful about setting this to true
+    private static final boolean DEBUG = false;
 
     private static final int SIZE = Build.IS_DEBUGGABLE ? 100 : 20;
 
@@ -60,6 +62,8 @@ public class ZenLog {
     private static final int TYPE_DISABLE_EFFECTS = 13;
     private static final int TYPE_SUPPRESSOR_CHANGED = 14;
     private static final int TYPE_LISTENER_HINTS_CHANGED = 15;
+    private static final int TYPE_SET_NOTIFICATION_POLICY = 16;
+    private static final int TYPE_SET_CONSOLIDATED_ZEN_POLICY = 17;
 
     private static int sNext;
     private static int sSize;
@@ -100,12 +104,26 @@ public class ZenLog {
         append(TYPE_SET_ZEN_MODE, zenModeToString(zenMode) + "," + reason);
     }
 
+    /**
+     * trace setting the consolidated zen policy
+     */
+    public static void traceSetConsolidatedZenPolicy(NotificationManager.Policy policy,
+            String reason) {
+        append(TYPE_SET_CONSOLIDATED_ZEN_POLICY, policy.toString() + "," + reason);
+    }
+
     public static void traceUpdateZenMode(int fromMode, int toMode) {
         append(TYPE_UPDATE_ZEN_MODE, zenModeToString(fromMode) + " -> " + zenModeToString(toMode));
     }
 
     public static void traceExitCondition(Condition c, ComponentName component, String reason) {
         append(TYPE_EXIT_CONDITION, c + "," + componentToString(component) + "," + reason);
+    }
+
+    public static void traceSetNotificationPolicy(String pkg, int targetSdk,
+            NotificationManager.Policy policy) {
+        append(TYPE_SET_NOTIFICATION_POLICY, "pkg=" + pkg + " targetSdk=" + targetSdk
+                + " NotificationPolicy=" + policy.toString());
     }
 
     public static void traceSubscribe(Uri uri, IConditionProvider provider, RemoteException e) {
@@ -160,6 +178,8 @@ public class ZenLog {
             case TYPE_DISABLE_EFFECTS: return "disable_effects";
             case TYPE_SUPPRESSOR_CHANGED: return "suppressor_changed";
             case TYPE_LISTENER_HINTS_CHANGED: return "listener_hints_changed";
+            case TYPE_SET_NOTIFICATION_POLICY: return "set_notification_policy";
+            case TYPE_SET_CONSOLIDATED_ZEN_POLICY: return "set_consolidated_policy";
             default: return "unknown";
         }
     }
@@ -186,7 +206,12 @@ public class ZenLog {
     private static String hintsToString(int hints) {
         switch (hints) {
             case 0 : return "none";
-            case NotificationListenerService.HINT_HOST_DISABLE_EFFECTS : return "disable_effects";
+            case NotificationListenerService.HINT_HOST_DISABLE_EFFECTS:
+                    return "disable_effects";
+            case NotificationListenerService.HINT_HOST_DISABLE_CALL_EFFECTS:
+                    return "disable_call_effects";
+            case NotificationListenerService.HINT_HOST_DISABLE_NOTIFICATION_EFFECTS:
+                    return "disable_notification_effects";
             default: return Integer.toString(hints);
         }
     }

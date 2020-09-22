@@ -16,6 +16,8 @@
 
 package com.android.internal.os;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * Helper class for passing more arguments though a message
  * and avoiding allocation of a custom class for wrapping the
@@ -40,16 +42,22 @@ public final class SomeArgs {
     static final int WAIT_FINISHED = 2;
     int mWaitState = WAIT_NONE;
 
+    @UnsupportedAppUsage
     public Object arg1;
+    @UnsupportedAppUsage
     public Object arg2;
+    @UnsupportedAppUsage
     public Object arg3;
     public Object arg4;
     public Object arg5;
     public Object arg6;
     public Object arg7;
     public Object arg8;
+    public Object arg9;
     public int argi1;
+    @UnsupportedAppUsage
     public int argi2;
+    @UnsupportedAppUsage
     public int argi3;
     public int argi4;
     public int argi5;
@@ -59,6 +67,7 @@ public final class SomeArgs {
         /* do nothing - reduce visibility */
     }
 
+    @UnsupportedAppUsage
     public static SomeArgs obtain() {
         synchronized (sPoolLock) {
             if (sPoolSize > 0) {
@@ -84,6 +93,7 @@ public final class SomeArgs {
         }
     }
 
+    @UnsupportedAppUsage
     public void recycle() {
         if (mInPool) {
             throw new IllegalStateException("Already recycled.");
@@ -110,6 +120,8 @@ public final class SomeArgs {
         arg5 = null;
         arg6 = null;
         arg7 = null;
+        arg8 = null;
+        arg9 = null;
         argi1 = 0;
         argi2 = 0;
         argi3 = 0;

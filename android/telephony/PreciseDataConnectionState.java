@@ -16,10 +16,26 @@
 
 package android.telephony;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.annotation.TestApi;
+import android.compat.Compatibility;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledAfter;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.net.LinkProperties;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.telephony.TelephonyManager;
-import android.net.LinkProperties;
+import android.telephony.Annotation.ApnType;
+import android.telephony.Annotation.DataFailureCause;
+import android.telephony.Annotation.DataState;
+import android.telephony.Annotation.NetworkType;
+import android.telephony.data.ApnSetting;
+
+import java.util.Objects;
+
 
 /**
  * Contains precise data connection state.
@@ -29,40 +45,69 @@ import android.net.LinkProperties;
  * <ul>
  *   <li>Data connection state.
  *   <li>Network type of the connection.
- *   <li>APN type.
+ *   <li>APN types.
  *   <li>APN.
- *   <li>Data connection change reason.
  *   <li>The properties of the network link.
  *   <li>Data connection fail cause.
  * </ul>
  *
- * @hide
  */
-public class PreciseDataConnectionState implements Parcelable {
+public final class PreciseDataConnectionState implements Parcelable {
 
-    private int mState = TelephonyManager.DATA_UNKNOWN;
-    private int mNetworkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
-    private String mAPNType = "";
-    private String mAPN = "";
-    private String mReason = "";
+    private @DataState int mState = TelephonyManager.DATA_UNKNOWN;
+    private @NetworkType int mNetworkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
+    private @DataFailureCause int mFailCause = DataFailCause.NONE;
+    private @ApnType int mApnTypes = ApnSetting.TYPE_NONE;
+    private String mApn = "";
     private LinkProperties mLinkProperties = null;
-    private String mFailCause = "";
+    private ApnSetting mApnSetting = null;
 
     /**
      * Constructor
      *
+     * @deprecated this constructor has been superseded and should not be used.
      * @hide
      */
-    public PreciseDataConnectionState(int state, int networkType,
-            String apnType, String apn, String reason,
-            LinkProperties linkProperties, String failCause) {
+    @TestApi
+    @Deprecated
+    @UnsupportedAppUsage // (maxTargetSdk = Build.VERSION_CODES.Q)
+    // FIXME: figure out how to remove the UnsupportedAppUsage and delete this constructor
+    public PreciseDataConnectionState(@DataState int state,
+                                      @NetworkType int networkType,
+                                      @ApnType int apnTypes, @NonNull String apn,
+                                      @Nullable LinkProperties linkProperties,
+                                      @DataFailureCause int failCause) {
+        this(state, networkType, apnTypes, apn, linkProperties, failCause, null);
+    }
+
+
+    /**
+     * Constructor of PreciseDataConnectionState
+     *
+     * @param state the state of the data connection
+     * @param networkType the access network that is/would carry this data connection
+     * @param apnTypes the APN types that this data connection carries
+     * @param apn the APN of this data connection
+     * @param linkProperties if the data connection is connected, the properties of the connection
+     * @param failCause in case a procedure related to this data connection fails, a non-zero error
+     *        code indicating the cause of the failure.
+     * @param apnSetting if there is a valid APN for this Data Connection, then the APN Settings;
+     *        if there is no valid APN setting for the specific type, then this will be null
+     * @hide
+     */
+    public PreciseDataConnectionState(@DataState int state,
+                                      @NetworkType int networkType,
+                                      @ApnType int apnTypes, @NonNull String apn,
+                                      @Nullable LinkProperties linkProperties,
+                                      @DataFailureCause int failCause,
+                                      @Nullable ApnSetting apnSetting) {
         mState = state;
         mNetworkType = networkType;
-        mAPNType = apnType;
-        mAPN = apn;
-        mReason = reason;
+        mApnTypes = apnTypes;
+        mApn = apn;
         mLinkProperties = linkProperties;
         mFailCause = failCause;
+        mApnSetting = apnSetting;
     }
 
     /**
@@ -75,87 +120,155 @@ public class PreciseDataConnectionState implements Parcelable {
 
     /**
      * Construct a PreciseDataConnectionState object from the given parcel.
+     *
+     * @hide
      */
     private PreciseDataConnectionState(Parcel in) {
         mState = in.readInt();
         mNetworkType = in.readInt();
-        mAPNType = in.readString();
-        mAPN = in.readString();
-        mReason = in.readString();
-        mLinkProperties = (LinkProperties)in.readParcelable(null);
-        mFailCause = in.readString();
+        mApnTypes = in.readInt();
+        mApn = in.readString();
+        mLinkProperties = (LinkProperties) in.readParcelable(null);
+        mFailCause = in.readInt();
+        mApnSetting = (ApnSetting) in.readParcelable(null);
     }
 
     /**
-     * Get data connection state
-     *
-     * @see TelephonyManager#DATA_UNKNOWN
-     * @see TelephonyManager#DATA_DISCONNECTED
-     * @see TelephonyManager#DATA_CONNECTING
-     * @see TelephonyManager#DATA_CONNECTED
-     * @see TelephonyManager#DATA_SUSPENDED
+     * Used for checking if the SDK version for
+     * {@code PreciseDataConnectionState#getDataConnectionState} is above Q.
      */
-    public int getDataConnectionState() {
+    @ChangeId
+    @EnabledAfter(targetSdkVersion = Build.VERSION_CODES.Q)
+    private static final long GET_DATA_CONNECTION_STATE_R_VERSION = 148535736L;
+
+    /**
+     * Returns the state of data connection that supported the apn types returned by
+     * {@link #getDataConnectionApnTypeBitMask()}
+     *
+     * @deprecated use {@link #getState()}
+     * @hide
+     */
+    @Deprecated
+    @SystemApi
+    public @DataState int getDataConnectionState() {
+        if (mState == TelephonyManager.DATA_DISCONNECTING
+                && !Compatibility.isChangeEnabled(GET_DATA_CONNECTION_STATE_R_VERSION)) {
+            return TelephonyManager.DATA_CONNECTED;
+        }
+
         return mState;
     }
 
     /**
-     * Get data connection network type
-     *
-     * @see TelephonyManager#NETWORK_TYPE_UNKNOWN
-     * @see TelephonyManager#NETWORK_TYPE_GPRS
-     * @see TelephonyManager#NETWORK_TYPE_EDGE
-     * @see TelephonyManager#NETWORK_TYPE_UMTS
-     * @see TelephonyManager#NETWORK_TYPE_CDMA
-     * @see TelephonyManager#NETWORK_TYPE_EVDO_0
-     * @see TelephonyManager#NETWORK_TYPE_EVDO_A
-     * @see TelephonyManager#NETWORK_TYPE_1xRTT
-     * @see TelephonyManager#NETWORK_TYPE_HSDPA
-     * @see TelephonyManager#NETWORK_TYPE_HSUPA
-     * @see TelephonyManager#NETWORK_TYPE_HSPA
-     * @see TelephonyManager#NETWORK_TYPE_IDEN
-     * @see TelephonyManager#NETWORK_TYPE_EVDO_B
-     * @see TelephonyManager#NETWORK_TYPE_LTE
-     * @see TelephonyManager#NETWORK_TYPE_EHRPD
-     * @see TelephonyManager#NETWORK_TYPE_HSPAP
+     * Returns the high-level state of this data connection.
      */
-    public int getDataConnectionNetworkType() {
+    public @DataState int getState() {
+        return mState;
+    }
+
+    /**
+     * Returns the network type associated with this data connection.
+     *
+     * @deprecated use {@link getNetworkType()}
+     * @hide
+     * @removed Removed from the R preview SDK but was never part of the stable API surface.
+     */
+    @Deprecated
+    @SystemApi
+    public @NetworkType int getDataConnectionNetworkType() {
         return mNetworkType;
     }
 
     /**
-     * Get data connection APN type
+     * Returns the network type associated with this data connection.
+     *
+     * Return the current/latest (radio) bearer technology that carries this data connection.
+     * For a variety of reasons, the network type can change during the life of the data
+     * connection, and this information is not reliable unless the physical link is currently
+     * active; (there is currently no mechanism to know whether the physical link is active at
+     * any given moment). Thus, this value is generally correct but may not be relied-upon to
+     * represent the status of the radio bearer at any given moment.
      */
-    public String getDataConnectionAPNType() {
-        return mAPNType;
+    public @NetworkType int getNetworkType() {
+        return mNetworkType;
     }
 
     /**
-     * Get data connection APN.
+     * Returns the APN types mapped to this data connection.
+     *
+     * @deprecated use {@link #getApnSetting()}
+     * @hide
      */
-    public String getDataConnectionAPN() {
-        return mAPN;
+    @Deprecated
+    @SystemApi
+    public @ApnType int getDataConnectionApnTypeBitMask() {
+        return mApnTypes;
     }
 
     /**
-     * Get data connection change reason.
+     * Returns APN of this data connection.
+     *
+     * @deprecated use {@link #getApnSetting()}
+     * @hide
      */
-    public String getDataConnectionChangeReason() {
-        return mReason;
+    @NonNull
+    @SystemApi
+    @Deprecated
+    public String getDataConnectionApn() {
+        return mApn;
     }
 
     /**
-     * Get the properties of the network link.
+     * Get the properties of the network link {@link LinkProperties}.
+     *
+     * @deprecated use {@link #getLinkProperties()}
+     * @hide
+     * @removed Removed from the R preview SDK but was never part of the stable API surface.
      */
+    @Deprecated
+    @SystemApi
+    @Nullable
     public LinkProperties getDataConnectionLinkProperties() {
         return mLinkProperties;
     }
 
     /**
-     * Get data connection fail cause, in case there was a failure.
+     * Get the properties of the network link {@link LinkProperties}.
      */
-    public String getDataConnectionFailCause() {
+    @Nullable
+    public LinkProperties getLinkProperties() {
+        return mLinkProperties;
+    }
+
+    /**
+     * Returns the cause code generated by the most recent state change.
+     *
+     * @deprecated use {@link #getLastCauseCode()}
+     * @hide
+     */
+    @Deprecated
+    @SystemApi
+    public int getDataConnectionFailCause() {
         return mFailCause;
+    }
+
+    /**
+     * Returns the cause code generated by the most recent state change.
+     *
+     * Return the cause code for the most recent change in {@link #getState}. In the event of an
+     * error, this cause code will be non-zero.
+     */
+    public @DataFailureCause int getLastCauseCode() {
+        return mFailCause;
+    }
+
+    /**
+     * Return the APN Settings for this data connection.
+     *
+     * @return the ApnSetting that was used to configure this data connection.
+     */
+    public @Nullable ApnSetting getApnSetting() {
+        return mApnSetting;
     }
 
     @Override
@@ -164,17 +277,17 @@ public class PreciseDataConnectionState implements Parcelable {
     }
 
     @Override
-    public void writeToParcel(Parcel out, int flags) {
+    public void writeToParcel(@NonNull Parcel out, int flags) {
         out.writeInt(mState);
         out.writeInt(mNetworkType);
-        out.writeString(mAPNType);
-        out.writeString(mAPN);
-        out.writeString(mReason);
+        out.writeInt(mApnTypes);
+        out.writeString(mApn);
         out.writeParcelable(mLinkProperties, flags);
-        out.writeString(mFailCause);
+        out.writeInt(mFailCause);
+        out.writeParcelable(mApnSetting, flags);
     }
 
-    public static final Parcelable.Creator<PreciseDataConnectionState> CREATOR
+    public static final @NonNull Parcelable.Creator<PreciseDataConnectionState> CREATOR
             = new Parcelable.Creator<PreciseDataConnectionState>() {
 
         public PreciseDataConnectionState createFromParcel(Parcel in) {
@@ -188,85 +301,38 @@ public class PreciseDataConnectionState implements Parcelable {
 
     @Override
     public int hashCode() {
-        final int prime = 31;
-        int result = 1;
-        result = prime * result + mState;
-        result = prime * result + mNetworkType;
-        result = prime * result + ((mAPNType == null) ? 0 : mAPNType.hashCode());
-        result = prime * result + ((mAPN == null) ? 0 : mAPN.hashCode());
-        result = prime * result + ((mReason == null) ? 0 : mReason.hashCode());
-        result = prime * result + ((mLinkProperties == null) ? 0 : mLinkProperties.hashCode());
-        result = prime * result + ((mFailCause == null) ? 0 : mFailCause.hashCode());
-        return result;
+        return Objects.hash(mState, mNetworkType, mApnTypes, mApn, mLinkProperties,
+                mFailCause, mApnSetting);
     }
 
     @Override
-    public boolean equals(Object obj) {
-        if (this == obj) {
-            return true;
-        }
-        if (obj == null) {
+    public boolean equals(@Nullable Object obj) {
+
+        if (!(obj instanceof PreciseDataConnectionState)) {
             return false;
         }
-        if (getClass() != obj.getClass()) {
-            return false;
-        }
+
         PreciseDataConnectionState other = (PreciseDataConnectionState) obj;
-        if (mAPN == null) {
-            if (other.mAPN != null) {
-                return false;
-            }
-        } else if (!mAPN.equals(other.mAPN)) {
-            return false;
-        }
-        if (mAPNType == null) {
-            if (other.mAPNType != null) {
-                return false;
-            }
-        } else if (!mAPNType.equals(other.mAPNType)) {
-            return false;
-        }
-        if (mFailCause == null) {
-            if (other.mFailCause != null) {
-                return false;
-            }
-        } else if (!mFailCause.equals(other.mFailCause)) {
-            return false;
-        }
-        if (mLinkProperties == null) {
-            if (other.mLinkProperties != null) {
-                return false;
-            }
-        } else if (!mLinkProperties.equals(other.mLinkProperties)) {
-            return false;
-        }
-        if (mNetworkType != other.mNetworkType) {
-            return false;
-        }
-        if (mReason == null) {
-            if (other.mReason != null) {
-                return false;
-            }
-        } else if (!mReason.equals(other.mReason)) {
-            return false;
-        }
-        if (mState != other.mState) {
-            return false;
-        }
-        return true;
+        return Objects.equals(mApn, other.mApn) && mApnTypes == other.mApnTypes
+                && mFailCause == other.mFailCause
+                && Objects.equals(mLinkProperties, other.mLinkProperties)
+                && mNetworkType == other.mNetworkType
+                && mState == other.mState
+                && Objects.equals(mApnSetting, other.mApnSetting);
     }
 
+    @NonNull
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
 
         sb.append("Data Connection state: " + mState);
         sb.append(", Network type: " + mNetworkType);
-        sb.append(", APN type: " + mAPNType);
-        sb.append(", APN: " + mAPN);
-        sb.append(", Change reason: " + mReason);
+        sb.append(", APN types: " + ApnSetting.getApnTypesStringFromBitmask(mApnTypes));
+        sb.append(", APN: " + mApn);
         sb.append(", Link properties: " + mLinkProperties);
-        sb.append(", Fail cause: " + mFailCause);
+        sb.append(", Fail cause: " + DataFailCause.toString(mFailCause));
+        sb.append(", Apn Setting: " + mApnSetting);
 
         return sb.toString();
     }

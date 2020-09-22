@@ -17,24 +17,15 @@
 package com.android.internal.telephony.uicc;
 
 import android.os.AsyncResult;
-import android.os.Binder;
 import android.os.Handler;
 import android.os.Message;
-import android.telephony.Rlog;
-import android.telephony.TelephonyManager;
 
-import com.android.internal.telephony.CommandException;
-import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.UiccCarrierPrivilegeRules.TLV;
+import com.android.telephony.Rlog;
 
-import java.io.ByteArrayInputStream;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.lang.IllegalArgumentException;
-import java.lang.IndexOutOfBoundsException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
@@ -89,7 +80,7 @@ public class UiccPkcs15 extends Handler {
 
         private void selectFile() {
             if (mChannelId >= 0) {
-                mUiccCard.iccTransmitApduLogicalChannel(mChannelId, 0x00, 0xA4, 0x00, 0x04, 0x02,
+                mUiccProfile.iccTransmitApduLogicalChannel(mChannelId, 0x00, 0xA4, 0x00, 0x04, 0x02,
                         mFileId, obtainMessage(EVENT_SELECT_FILE_DONE));
             } else {
                 log("EF based");
@@ -98,7 +89,7 @@ public class UiccPkcs15 extends Handler {
 
         private void readBinary() {
             if (mChannelId >=0 ) {
-                mUiccCard.iccTransmitApduLogicalChannel(mChannelId, 0x00, 0xB0, 0x00, 0x00, 0x00,
+                mUiccProfile.iccTransmitApduLogicalChannel(mChannelId, 0x00, 0xB0, 0x00, 0x00, 0x00,
                         "", obtainMessage(EVENT_READ_BINARY_DONE));
             } else {
                 log("EF based");
@@ -144,7 +135,9 @@ public class UiccPkcs15 extends Handler {
 
         public Pkcs15Selector(Message callBack) {
             mCallback = callBack;
-            mUiccCard.iccOpenLogicalChannel(PKCS15_AID,
+            // Specified in ISO 7816-4 clause 7.1.1 0x04 means that FCP template is requested.
+            int p2 = 0x04;
+            mUiccProfile.iccOpenLogicalChannel(PKCS15_AID, p2, /* supported P2 value */
                     obtainMessage(EVENT_OPEN_LOGICAL_CHANNEL_DONE));
         }
 
@@ -174,10 +167,10 @@ public class UiccPkcs15 extends Handler {
         }
     }
 
-    private UiccCard mUiccCard;  // Parent
+    private UiccProfile mUiccProfile;  // Parent
     private Message mLoadedCallback;
     private int mChannelId = -1; // Channel Id for communicating with UICC.
-    private List<String> mRules = new ArrayList<String>();
+    private List<String> mRules = null;
     private Pkcs15Selector mPkcs15Selector;
     private FileHandler mFh;
 
@@ -189,9 +182,9 @@ public class UiccPkcs15 extends Handler {
     private static final int EVENT_LOAD_ACCF_DONE = 6;
     private static final int EVENT_CLOSE_LOGICAL_CHANNEL_DONE = 7;
 
-    public UiccPkcs15(UiccCard uiccCard, Message loadedCallback) {
+    public UiccPkcs15(UiccProfile uiccProfile, Message loadedCallback) {
         log("Creating UiccPkcs15");
-        mUiccCard = uiccCard;
+        mUiccProfile = uiccProfile;
         mLoadedCallback = loadedCallback;
         mPkcs15Selector = new Pkcs15Selector(obtainMessage(EVENT_SELECT_PKCS15_DONE));
     }
@@ -202,52 +195,53 @@ public class UiccPkcs15 extends Handler {
         AsyncResult ar = (AsyncResult) msg.obj;
 
         switch (msg.what) {
-          case EVENT_SELECT_PKCS15_DONE:
-              if (ar.exception == null) {
-                  // ar.result is null if using logical channel,
-                  // or string for pkcs15 path if using file access.
-                  mFh = new FileHandler((String)ar.result);
-                  if (!mFh.loadFile(ID_ACRF, obtainMessage(EVENT_LOAD_ACRF_DONE))) {
-                      cleanUp();
-                  }
-              } else {
-                  log("select pkcs15 failed: " + ar.exception);
-                  // select PKCS15 failed, notify uiccCarrierPrivilegeRules
-                  mLoadedCallback.sendToTarget();
-              }
-              break;
+            case EVENT_SELECT_PKCS15_DONE:
+                if (ar.exception == null) {
+                    // ar.result is null if using logical channel,
+                    // or string for pkcs15 path if using file access.
+                    mFh = new FileHandler((String) ar.result);
+                    if (!mFh.loadFile(ID_ACRF, obtainMessage(EVENT_LOAD_ACRF_DONE))) {
+                        cleanUp();
+                    }
+                } else {
+                    log("select pkcs15 failed: " + ar.exception);
+                    // select PKCS15 failed, notify uiccCarrierPrivilegeRules
+                    mLoadedCallback.sendToTarget();
+                }
+                break;
 
-          case EVENT_LOAD_ACRF_DONE:
-              if (ar.exception == null && ar.result != null) {
-                  String idAccf = parseAcrf((String)ar.result);
-                  if (!mFh.loadFile(idAccf, obtainMessage(EVENT_LOAD_ACCF_DONE))) {
-                      cleanUp();
-                  }
-              } else {
-                  cleanUp();
-              }
-              break;
+            case EVENT_LOAD_ACRF_DONE:
+                if (ar.exception == null && ar.result != null) {
+                    mRules = new ArrayList<String>();
+                    String idAccf = parseAcrf((String) ar.result);
+                    if (!mFh.loadFile(idAccf, obtainMessage(EVENT_LOAD_ACCF_DONE))) {
+                        cleanUp();
+                    }
+                } else {
+                    cleanUp();
+                }
+                break;
 
-          case EVENT_LOAD_ACCF_DONE:
-              if (ar.exception == null && ar.result != null) {
-                  parseAccf((String)ar.result);
-              }
-              // We are done here, no more file to read
-              cleanUp();
-              break;
+            case EVENT_LOAD_ACCF_DONE:
+                if (ar.exception == null && ar.result != null) {
+                    parseAccf((String) ar.result);
+                }
+                // We are done here, no more file to read
+                cleanUp();
+                break;
 
-          case EVENT_CLOSE_LOGICAL_CHANNEL_DONE:
-              break;
+            case EVENT_CLOSE_LOGICAL_CHANNEL_DONE:
+                break;
 
-          default:
-              Rlog.e(LOG_TAG, "Unknown event " + msg.what);
+            default:
+                Rlog.e(LOG_TAG, "Unknown event " + msg.what);
         }
     }
 
     private void cleanUp() {
         log("cleanUp");
         if (mChannelId >= 0) {
-            mUiccCard.iccCloseLogicalChannel(mChannelId, obtainMessage(
+            mUiccProfile.iccCloseLogicalChannel(mChannelId, obtainMessage(
                     EVENT_CLOSE_LOGICAL_CHANNEL_DONE));
             mChannelId = -1;
         }

@@ -21,6 +21,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.PermissionChecker;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.hardware.usb.IUsbManager;
@@ -62,12 +63,13 @@ public class UsbPermissionActivity extends AlertActivity
     public void onCreate(Bundle icicle) {
         super.onCreate(icicle);
 
-       Intent intent = getIntent();
+        Intent intent = getIntent();
         mDevice = (UsbDevice)intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
         mAccessory = (UsbAccessory)intent.getParcelableExtra(UsbManager.EXTRA_ACCESSORY);
         mPendingIntent = (PendingIntent)intent.getParcelableExtra(Intent.EXTRA_INTENT);
         mUid = intent.getIntExtra(Intent.EXTRA_UID, -1);
-        mPackageName = intent.getStringExtra("package");
+        mPackageName = intent.getStringExtra(UsbManager.EXTRA_PACKAGE);
+        boolean canBeDefault = intent.getBooleanExtra(UsbManager.EXTRA_CAN_BE_DEFAULT, false);
 
         PackageManager packageManager = getPackageManager();
         ApplicationInfo aInfo;
@@ -81,37 +83,58 @@ public class UsbPermissionActivity extends AlertActivity
         String appName = aInfo.loadLabel(packageManager).toString();
 
         final AlertController.AlertParams ap = mAlertParams;
-        ap.mIcon = aInfo.loadIcon(packageManager);
         ap.mTitle = appName;
+        boolean useRecordWarning = false;
         if (mDevice == null) {
-            ap.mMessage = getString(R.string.usb_accessory_permission_prompt, appName);
+            // Accessory Case
+
+            ap.mMessage = getString(R.string.usb_accessory_permission_prompt, appName,
+                    mAccessory.getDescription());
             mDisconnectedReceiver = new UsbDisconnectedReceiver(this, mAccessory);
         } else {
-            ap.mMessage = getString(R.string.usb_device_permission_prompt, appName);
+            boolean hasRecordPermission =
+                    PermissionChecker.checkPermissionForPreflight(
+                            this, android.Manifest.permission.RECORD_AUDIO, -1, aInfo.uid,
+                            mPackageName)
+                            == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            boolean isAudioCaptureDevice = mDevice.getHasAudioCapture();
+            useRecordWarning = isAudioCaptureDevice && !hasRecordPermission;
+
+            int strID = useRecordWarning
+                    ? R.string.usb_device_permission_prompt_warn
+                    : R.string.usb_device_permission_prompt;
+            ap.mMessage = getString(strID, appName, mDevice.getProductName());
             mDisconnectedReceiver = new UsbDisconnectedReceiver(this, mDevice);
+
         }
+
         ap.mPositiveButtonText = getString(android.R.string.ok);
         ap.mNegativeButtonText = getString(android.R.string.cancel);
         ap.mPositiveButtonListener = this;
         ap.mNegativeButtonListener = this;
 
-        // add "always use" checkbox
-        LayoutInflater inflater = (LayoutInflater)getSystemService(
-                Context.LAYOUT_INFLATER_SERVICE);
-        ap.mView = inflater.inflate(com.android.internal.R.layout.always_use_checkbox, null);
-        mAlwaysUse = (CheckBox)ap.mView.findViewById(com.android.internal.R.id.alwaysUse);
-        if (mDevice == null) {
-            mAlwaysUse.setText(R.string.always_use_accessory);
-        } else {
-            mAlwaysUse.setText(R.string.always_use_device);
+        // Don't show the "always use" checkbox if the USB/Record warning is in effect
+        if (!useRecordWarning && canBeDefault && (mDevice != null || mAccessory != null)) {
+            // add "open when" checkbox
+            LayoutInflater inflater = (LayoutInflater) getSystemService(
+                    Context.LAYOUT_INFLATER_SERVICE);
+            ap.mView = inflater.inflate(com.android.internal.R.layout.always_use_checkbox, null);
+            mAlwaysUse = (CheckBox) ap.mView.findViewById(com.android.internal.R.id.alwaysUse);
+            if (mDevice == null) {
+                mAlwaysUse.setText(getString(R.string.always_use_accessory, appName,
+                        mAccessory.getDescription()));
+            } else {
+                mAlwaysUse.setText(getString(R.string.always_use_device, appName,
+                        mDevice.getProductName()));
+            }
+            mAlwaysUse.setOnCheckedChangeListener(this);
+
+            mClearDefaultHint = (TextView)ap.mView.findViewById(
+                    com.android.internal.R.id.clearDefaultHint);
+            mClearDefaultHint.setVisibility(View.GONE);
         }
-        mAlwaysUse.setOnCheckedChangeListener(this);
-        mClearDefaultHint = (TextView)ap.mView.findViewById(
-                                                    com.android.internal.R.id.clearDefaultHint);
-        mClearDefaultHint.setVisibility(View.GONE);
 
         setupAlert();
-
     }
 
     @Override
@@ -126,7 +149,7 @@ public class UsbPermissionActivity extends AlertActivity
                 intent.putExtra(UsbManager.EXTRA_DEVICE, mDevice);
                 if (mPermissionGranted) {
                     service.grantDevicePermission(mDevice, mUid);
-                    if (mAlwaysUse.isChecked()) {
+                    if (mAlwaysUse != null && mAlwaysUse.isChecked()) {
                         final int userId = UserHandle.getUserId(mUid);
                         service.setDevicePackage(mDevice, mPackageName, userId);
                     }
@@ -136,7 +159,7 @@ public class UsbPermissionActivity extends AlertActivity
                 intent.putExtra(UsbManager.EXTRA_ACCESSORY, mAccessory);
                 if (mPermissionGranted) {
                     service.grantAccessoryPermission(mAccessory, mUid);
-                    if (mAlwaysUse.isChecked()) {
+                    if (mAlwaysUse != null && mAlwaysUse.isChecked()) {
                         final int userId = UserHandle.getUserId(mUid);
                         service.setAccessoryPackage(mAccessory, mPackageName, userId);
                     }

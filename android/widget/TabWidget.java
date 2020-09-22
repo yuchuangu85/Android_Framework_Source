@@ -16,10 +16,9 @@
 
 package android.widget;
 
-import com.android.internal.R;
-
 import android.annotation.DrawableRes;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
@@ -27,10 +26,14 @@ import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.util.AttributeSet;
+import android.view.MotionEvent;
+import android.view.PointerIcon;
 import android.view.View;
 import android.view.View.OnFocusChangeListener;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
+
+import com.android.internal.R;
 
 /**
  *
@@ -50,18 +53,36 @@ import android.view.accessibility.AccessibilityEvent;
  * @attr ref android.R.styleable#TabWidget_tabStripEnabled
  * @attr ref android.R.styleable#TabWidget_tabStripLeft
  * @attr ref android.R.styleable#TabWidget_tabStripRight
+ *
+ * @deprecated new applications should use fragment APIs instead of this class:
+ * Use <a href="{@docRoot}guide/navigation/navigation-swipe-view">TabLayout and ViewPager</a>
+ * instead.
  */
+@Deprecated
 public class TabWidget extends LinearLayout implements OnFocusChangeListener {
     private final Rect mBounds = new Rect();
 
     private OnTabSelectionChanged mSelectionChangedListener;
 
     // This value will be set to 0 as soon as the first tab is added to TabHost.
+    @UnsupportedAppUsage(trackingBug = 137825207, maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@code androidx.viewpager.widget.ViewPager} and "
+                    + "{@code com.google.android.material.tabs.TabLayout} instead.\n"
+                    + "See <a href=\"{@docRoot}guide/navigation/navigation-swipe-view"
+                    + "\">TabLayout and ViewPager</a>")
     private int mSelectedTab = -1;
 
+    @Nullable
     private Drawable mLeftStrip;
+
+    @Nullable
     private Drawable mRightStrip;
 
+    @UnsupportedAppUsage(trackingBug = 137825207, maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@code androidx.viewpager.widget.ViewPager} and "
+                    + "{@code com.google.android.material.tabs.TabLayout} instead.\n"
+                    + "See <a href=\"{@docRoot}guide/navigation/navigation-swipe-view"
+                    + "\">TabLayout and ViewPager</a>")
     private boolean mDrawBottomStrips = true;
     private boolean mStripMoved;
 
@@ -87,6 +108,8 @@ public class TabWidget extends LinearLayout implements OnFocusChangeListener {
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, R.styleable.TabWidget, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.TabWidget,
+                attrs, a, defStyleAttr, defStyleRes);
 
         mDrawBottomStrips = a.getBoolean(R.styleable.TabWidget_tabStripEnabled, mDrawBottomStrips);
 
@@ -372,23 +395,36 @@ public class TabWidget extends LinearLayout implements OnFocusChangeListener {
         final Drawable leftStrip = mLeftStrip;
         final Drawable rightStrip = mRightStrip;
 
-        leftStrip.setState(selectedChild.getDrawableState());
-        rightStrip.setState(selectedChild.getDrawableState());
+        if (leftStrip != null) {
+            leftStrip.setState(selectedChild.getDrawableState());
+        }
+        if (rightStrip != null) {
+            rightStrip.setState(selectedChild.getDrawableState());
+        }
 
         if (mStripMoved) {
             final Rect bounds = mBounds;
             bounds.left = selectedChild.getLeft();
             bounds.right = selectedChild.getRight();
             final int myHeight = getHeight();
-            leftStrip.setBounds(Math.min(0, bounds.left - leftStrip.getIntrinsicWidth()),
-                    myHeight - leftStrip.getIntrinsicHeight(), bounds.left, myHeight);
-            rightStrip.setBounds(bounds.right, myHeight - rightStrip.getIntrinsicHeight(),
-                    Math.max(getWidth(), bounds.right + rightStrip.getIntrinsicWidth()), myHeight);
+            if (leftStrip != null) {
+                leftStrip.setBounds(Math.min(0, bounds.left - leftStrip.getIntrinsicWidth()),
+                        myHeight - leftStrip.getIntrinsicHeight(), bounds.left, myHeight);
+            }
+            if (rightStrip != null) {
+                rightStrip.setBounds(bounds.right, myHeight - rightStrip.getIntrinsicHeight(),
+                        Math.max(getWidth(), bounds.right + rightStrip.getIntrinsicWidth()),
+                        myHeight);
+            }
             mStripMoved = false;
         }
 
-        leftStrip.draw(canvas);
-        rightStrip.draw(canvas);
+        if (leftStrip != null) {
+            leftStrip.draw(canvas);
+        }
+        if (rightStrip != null) {
+            rightStrip.draw(canvas);
+        }
     }
 
     /**
@@ -410,7 +446,7 @@ public class TabWidget extends LinearLayout implements OnFocusChangeListener {
      * to the next tabbed view, in this example).
      * <p>
      * To move both the focus AND the selected tab at once, please use
-     * {@link #setCurrentTab}. Normally, the view logic takes care of
+     * {@link #focusCurrentTab}. Normally, the view logic takes care of
      * adjusting the focus, so unless you're circumventing the UI,
      * you'll probably just focus your interest here.
      *
@@ -494,6 +530,10 @@ public class TabWidget extends LinearLayout implements OnFocusChangeListener {
         child.setFocusable(true);
         child.setClickable(true);
 
+        if (child.getPointerIcon() == null) {
+            child.setPointerIcon(PointerIcon.getSystemIcon(getContext(), PointerIcon.TYPE_HAND));
+        }
+
         super.addView(child);
 
         // TODO: detect this via geometry with a tabwidget listener rather
@@ -507,10 +547,23 @@ public class TabWidget extends LinearLayout implements OnFocusChangeListener {
         mSelectedTab = -1;
     }
 
+    @Override
+    public PointerIcon onResolvePointerIcon(MotionEvent event, int pointerIndex) {
+        if (!isEnabled()) {
+            return null;
+        }
+        return super.onResolvePointerIcon(event, pointerIndex);
+    }
+
     /**
      * Provides a way for {@link TabHost} to be notified that the user clicked
      * on a tab indicator.
      */
+    @UnsupportedAppUsage(trackingBug = 137825207, maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@code androidx.viewpager.widget.ViewPager} and "
+                    + "{@code com.google.android.material.tabs.TabLayout} instead.\n"
+                    + "See <a href=\"{@docRoot}guide/navigation/navigation-swipe-view"
+                    + "\">TabLayout and ViewPager</a>")
     void setTabSelectionListener(OnTabSelectionChanged listener) {
         mSelectionChangedListener = listener;
     }

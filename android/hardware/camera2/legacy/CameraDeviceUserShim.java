@@ -24,9 +24,12 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.ICameraDeviceCallbacks;
 import android.hardware.camera2.ICameraDeviceUser;
+import android.hardware.camera2.ICameraOfflineSession;
 import android.hardware.camera2.impl.CameraMetadataNative;
 import android.hardware.camera2.impl.CaptureResultExtras;
+import android.hardware.camera2.impl.PhysicalCaptureResultInfo;
 import android.hardware.camera2.params.OutputConfiguration;
+import android.hardware.camera2.params.SessionConfiguration;
 import android.hardware.camera2.utils.SubmitInfo;
 import android.os.ConditionVariable;
 import android.os.IBinder;
@@ -37,6 +40,7 @@ import android.os.Message;
 import android.os.RemoteException;
 import android.os.ServiceSpecificException;
 import android.util.Log;
+import android.util.Size;
 import android.util.SparseArray;
 import android.view.Surface;
 
@@ -126,7 +130,7 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         public CameraLooper(int cameraId) {
             mCameraId = cameraId;
 
-            mThread = new Thread(this);
+            mThread = new Thread(this, "LegacyCameraLooper");
             mThread.start();
         }
 
@@ -206,6 +210,7 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         private static final int RESULT_RECEIVED = 3;
         private static final int PREPARED = 4;
         private static final int REPEATING_REQUEST_ERROR = 5;
+        private static final int REQUEST_QUEUE_EMPTY = 6;
 
         private final HandlerThread mHandlerThread;
         private Handler mHandler;
@@ -248,7 +253,8 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
 
         @Override
         public void onResultReceived(final CameraMetadataNative result,
-                final CaptureResultExtras resultExtras) {
+                final CaptureResultExtras resultExtras,
+                PhysicalCaptureResultInfo physicalResults[]) {
             Object[] resultArray = new Object[] { result, resultExtras };
             Message msg = getHandler().obtainMessage(RESULT_RECEIVED,
                     /*obj*/ resultArray);
@@ -262,12 +268,18 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
             getHandler().sendMessage(msg);
         }
 
+        @Override
+        public void onRepeatingRequestError(long lastFrameNumber, int repeatingRequestId) {
+            Object[] objArray = new Object[] { lastFrameNumber, repeatingRequestId };
+            Message msg = getHandler().obtainMessage(REPEATING_REQUEST_ERROR,
+                    /*obj*/ objArray);
+            getHandler().sendMessage(msg);
+        }
 
         @Override
-        public void onRepeatingRequestError(long lastFrameNumber) {
-            Message msg = getHandler().obtainMessage(REPEATING_REQUEST_ERROR,
-                    /*arg1*/ (int) (lastFrameNumber & 0xFFFFFFFFL),
-                    /*arg2*/ (int) ( (lastFrameNumber >> 32) & 0xFFFFFFFFL));
+        public void onRequestQueueEmpty() {
+            Message msg = getHandler().obtainMessage(REQUEST_QUEUE_EMPTY,
+                    /* arg1 */ 0, /* arg2 */ 0);
             getHandler().sendMessage(msg);
         }
 
@@ -313,7 +325,8 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
                             Object[] resultArray = (Object[]) msg.obj;
                             CameraMetadataNative result = (CameraMetadataNative) resultArray[0];
                             CaptureResultExtras resultExtras = (CaptureResultExtras) resultArray[1];
-                            mCallbacks.onResultReceived(result, resultExtras);
+                            mCallbacks.onResultReceived(result, resultExtras,
+                                    new PhysicalCaptureResultInfo[0]);
                             break;
                         }
                         case PREPARED: {
@@ -322,9 +335,14 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
                             break;
                         }
                         case REPEATING_REQUEST_ERROR: {
-                            long lastFrameNumber = msg.arg2 & 0xFFFFFFFFL;
-                            lastFrameNumber = (lastFrameNumber << 32) | (msg.arg1 & 0xFFFFFFFFL);
-                            mCallbacks.onRepeatingRequestError(lastFrameNumber);
+                            Object[] objArray = (Object[]) msg.obj;
+                            long lastFrameNumber = (Long) objArray[0];
+                            int repeatingRequestId = (Integer) objArray[1];
+                            mCallbacks.onRepeatingRequestError(lastFrameNumber, repeatingRequestId);
+                            break;
+                        }
+                        case REQUEST_QUEUE_EMPTY: {
+                            mCallbacks.onRequestQueueEmpty();
                             break;
                         }
                         default:
@@ -340,7 +358,7 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
     }
 
     public static CameraDeviceUserShim connectBinderShim(ICameraDeviceCallbacks callbacks,
-                                                         int cameraId) {
+                                                         int cameraId, Size displaySize) {
         if (DEBUG) {
             Log.d(TAG, "Opening shim Camera device");
         }
@@ -377,7 +395,8 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         }
 
         CameraCharacteristics characteristics =
-                LegacyMetadataMapper.createCharacteristics(legacyParameters, info);
+                LegacyMetadataMapper.createCharacteristics(legacyParameters, info, cameraId,
+                        displaySize);
         LegacyCameraDevice device = new LegacyCameraDevice(
                 cameraId, legacyCamera, characteristics, threadCallbacks);
         return new CameraDeviceUserShim(cameraId, device, characteristics, init, threadCallbacks);
@@ -465,6 +484,42 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
     }
 
     @Override
+    public boolean isSessionConfigurationSupported(SessionConfiguration sessionConfig) {
+        if (sessionConfig.getSessionType() != SessionConfiguration.SESSION_REGULAR) {
+            Log.e(TAG, "Session type: " + sessionConfig.getSessionType() + " is different from " +
+                    " regular. Legacy devices support only regular session types!");
+            return false;
+        }
+
+        if (sessionConfig.getInputConfiguration() != null) {
+            Log.e(TAG, "Input configuration present, legacy devices do not support this feature!");
+            return false;
+        }
+
+        List<OutputConfiguration> outputConfigs = sessionConfig.getOutputConfigurations();
+        if (outputConfigs.isEmpty()) {
+            Log.e(TAG, "Empty output configuration list!");
+            return false;
+        }
+
+        SparseArray<Surface> surfaces = new SparseArray<Surface>(outputConfigs.size());
+        int idx = 0;
+        for (OutputConfiguration outputConfig : outputConfigs) {
+            List<Surface> surfaceList = outputConfig.getSurfaces();
+            if (surfaceList.isEmpty() || (surfaceList.size() > 1)) {
+                Log.e(TAG, "Legacy devices do not support deferred or shared surfaces!");
+                return false;
+            }
+
+            surfaces.put(idx++, outputConfig.getSurface());
+        }
+
+        int ret = mLegacyDevice.configureOutputs(surfaces, /*validateSurfacesOnly*/true);
+
+        return ret == LegacyExceptionUtils.NO_ERROR;
+    }
+
+    @Override
     public void beginConfigure() {
         if (DEBUG) {
             Log.d(TAG, "beginConfigure called.");
@@ -486,14 +541,26 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
     }
 
     @Override
-    public void endConfigure(boolean isConstrainedHighSpeed) {
+    public int[] endConfigure(int operatingMode, CameraMetadataNative sessionParams) {
         if (DEBUG) {
             Log.d(TAG, "endConfigure called.");
         }
         if (mLegacyDevice.isClosed()) {
             String err = "Cannot end configure, device has been closed.";
             Log.e(TAG, err);
+            synchronized(mConfigureLock) {
+                mConfiguring = false;
+            }
             throw new ServiceSpecificException(ICameraService.ERROR_DISCONNECTED, err);
+        }
+
+        if (operatingMode != ICameraDeviceUser.NORMAL_MODE) {
+            String err = "LEGACY devices do not support this operating mode";
+            Log.e(TAG, err);
+            synchronized(mConfigureLock) {
+                mConfiguring = false;
+            }
+            throw new ServiceSpecificException(ICameraService.ERROR_ILLEGAL_ARGUMENT, err);
         }
 
         SparseArray<Surface> surfaces = null;
@@ -509,6 +576,8 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
             mConfiguring = false;
         }
         mLegacyDevice.configureOutputs(surfaces);
+
+        return new int[0]; // Offline mode is not supported
     }
 
     @Override
@@ -567,8 +636,8 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
     }
 
     @Override
-    public void setDeferredConfiguration(int steamId, OutputConfiguration config) {
-        String err = "Set deferred configuration is not supported on legacy devices";
+    public void finalizeOutputConfigurations(int steamId, OutputConfiguration config) {
+        String err = "Finalizing output configuration is not supported on legacy devices";
         Log.e(TAG, err);
         throw new ServiceSpecificException(ICameraService.ERROR_INVALID_OPERATION, err);
     }
@@ -619,6 +688,11 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         // TODO: implement getCameraInfo.
         Log.e(TAG, "getCameraInfo unimplemented.");
         return null;
+    }
+
+    @Override
+    public void updateOutputConfiguration(int streamId, OutputConfiguration config) {
+        // TODO: b/63912484 implement updateOutputConfiguration.
     }
 
     @Override
@@ -693,6 +767,34 @@ public class CameraDeviceUserShim implements ICameraDeviceUser {
         }
 
         // LEGACY doesn't support actual teardown, so just a no-op
+    }
+
+    @Override
+    public void setCameraAudioRestriction(int mode) {
+        if (mLegacyDevice.isClosed()) {
+            String err = "Cannot set camera audio restriction, device has been closed.";
+            Log.e(TAG, err);
+            throw new ServiceSpecificException(ICameraService.ERROR_DISCONNECTED, err);
+        }
+
+        mLegacyDevice.setAudioRestriction(mode);
+    }
+
+    @Override
+    public int getGlobalAudioRestriction() {
+        if (mLegacyDevice.isClosed()) {
+            String err = "Cannot set camera audio restriction, device has been closed.";
+            Log.e(TAG, err);
+            throw new ServiceSpecificException(ICameraService.ERROR_DISCONNECTED, err);
+        }
+
+        return mLegacyDevice.getAudioRestriction();
+    }
+
+    @Override
+    public ICameraOfflineSession switchToOffline(ICameraDeviceCallbacks cbs,
+            int[] offlineOutputIds) {
+        throw new UnsupportedOperationException("Legacy device does not support offline mode");
     }
 
     @Override

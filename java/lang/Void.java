@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,9 +25,6 @@
 
 package java.lang;
 
-import java.lang.reflect.Method;
-import libcore.util.EmptyArray;
-
 /**
  * The {@code Void} class is an uninstantiable placeholder class to hold a
  * reference to the {@code Class} object representing the Java keyword
@@ -44,17 +40,8 @@ class Void {
      * The {@code Class} object representing the pseudo-type corresponding to
      * the keyword {@code void}.
      */
-    public static final Class<Void> TYPE = lookupType();
-
     @SuppressWarnings("unchecked")
-    private static Class<Void> lookupType() {
-        try {
-            Method method = Runnable.class.getMethod("run", EmptyArray.CLASS);
-            return (Class<Void>) method.getReturnType();
-        } catch (Exception e) {
-            throw new AssertionError(e);
-        }
-    }
+    public static final Class<Void> TYPE = (Class<Void>) Class.getPrimitiveClass("void");
 
     /*
      * The Void class cannot be instantiated.

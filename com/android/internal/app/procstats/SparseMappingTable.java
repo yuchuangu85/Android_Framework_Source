@@ -18,6 +18,7 @@ package com.android.internal.app.procstats;
 
 import android.os.Build;
 import android.os.Parcel;
+import android.util.EventLog;
 import android.util.Slog;
 import libcore.util.EmptyArray;
 
@@ -174,7 +175,6 @@ public class SparseMappingTable {
          * Get the value for the given key and offset from that key.
          *
          * @param key   A key as obtained from getKey or getOrAddKey.
-         * @param value The value to set.
          */
         public long getValue(int key) {
             return getValue(key, 0);
@@ -186,7 +186,6 @@ public class SparseMappingTable {
          * @param key   A key as obtained from getKey or getOrAddKey.
          * @param index The offset from that key.  Must be less than the count
          *              provided to getOrAddKey when the space was allocated.
-         * @param value The value to set.
          *
          * @return the value, or 0 in case of an error
          */
@@ -529,6 +528,12 @@ public class SparseMappingTable {
             readCompactedLongArray(in, array, size);
             mLongs.add(array);
         }
+        // Verify that last array's length is consistent with writeToParcel
+        if (N > 0 && mLongs.get(N - 1).length != mNextIndex) {
+            EventLog.writeEvent(0x534e4554, "73252178", -1, "");
+            throw new IllegalStateException("Expected array of length " + mNextIndex + " but was "
+                    + mLongs.get(N - 1).length);
+        }
     }
 
     /**
@@ -646,7 +651,7 @@ public class SparseMappingTable {
      */
     private static void logOrThrow(String message, Throwable th) {
         Slog.e(TAG, message, th);
-        if (Build.TYPE.equals("eng")) {
+        if (Build.IS_ENG) {
             throw new RuntimeException(message, th);
         }
     }

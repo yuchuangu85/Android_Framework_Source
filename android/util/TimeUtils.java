@@ -16,205 +16,104 @@
 
 package android.util;
 
-import android.content.res.Resources;
-import android.content.res.XmlResourceParser;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.SystemClock;
-import android.text.format.DateUtils;
 
-import com.android.internal.util.XmlUtils;
+import libcore.timezone.CountryTimeZones;
+import libcore.timezone.CountryTimeZones.TimeZoneMapping;
+import libcore.timezone.TimeZoneFinder;
+import libcore.timezone.ZoneInfoDb;
 
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.text.SimpleDateFormat;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
-import java.util.TimeZone;
-
-import libcore.util.ZoneInfoDB;
+import java.util.List;
 
 /**
  * A class containing utility methods related to time zones.
  */
 public class TimeUtils {
     /** @hide */ public TimeUtils() {}
-    private static final boolean DBG = false;
-    private static final String TAG = "TimeUtils";
-
-    /** Cached results of getTineZones */
-    private static final Object sLastLockObj = new Object();
-    private static ArrayList<TimeZone> sLastZones = null;
-    private static String sLastCountry = null;
-
-    /** Cached results of getTimeZonesWithUniqueOffsets */
-    private static final Object sLastUniqueLockObj = new Object();
-    private static ArrayList<TimeZone> sLastUniqueZoneOffsets = null;
-    private static String sLastUniqueCountry = null;
-
     /** {@hide} */
     private static SimpleDateFormat sLoggingFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
+    /** @hide */
+    public static final SimpleDateFormat sDumpDateFormat =
+            new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
     /**
      * Tries to return a time zone that would have had the specified offset
      * and DST value at the specified moment in the specified country.
      * Returns null if no suitable zone could be found.
      */
-    public static TimeZone getTimeZone(int offset, boolean dst, long when, String country) {
-        TimeZone best = null;
-        final Date d = new Date(when);
+    public static java.util.TimeZone getTimeZone(
+            int offset, boolean dst, long when, String country) {
 
-        TimeZone current = TimeZone.getDefault();
-        String currentName = current.getID();
-        int currentOffset = current.getOffset(when);
-        boolean currentDst = current.inDaylightTime(d);
-
-        for (TimeZone tz : getTimeZones(country)) {
-            // If the current time zone is from the right country
-            // and meets the other known properties, keep it
-            // instead of changing to another one.
-
-            if (tz.getID().equals(currentName)) {
-                if (currentOffset == offset && currentDst == dst) {
-                    return current;
-                }
-            }
-
-            // Otherwise, take the first zone from the right
-            // country that has the correct current offset and DST.
-            // (Keep iterating instead of returning in case we
-            // haven't encountered the current time zone yet.)
-
-            if (best == null) {
-                if (tz.getOffset(when) == offset &&
-                    tz.inDaylightTime(d) == dst) {
-                    best = tz;
-                }
-            }
-        }
-
-        return best;
+        android.icu.util.TimeZone icuTimeZone = getIcuTimeZone(offset, dst, when, country);
+        // We must expose a java.util.TimeZone here for API compatibility because this is a public
+        // API method.
+        return icuTimeZone != null ? java.util.TimeZone.getTimeZone(icuTimeZone.getID()) : null;
     }
 
     /**
-     * Return list of unique time zones for the country. Do not modify
-     *
-     * @param country to find
-     * @return list of unique time zones, maybe empty but never null. Do not modify.
-     * @hide
+     * Returns a frozen ICU time zone that has / would have had the specified offset and DST value
+     * at the specified moment in the specified country. Returns null if no suitable zone could be
+     * found.
      */
-    public static ArrayList<TimeZone> getTimeZonesWithUniqueOffsets(String country) {
-        synchronized(sLastUniqueLockObj) {
-            if ((country != null) && country.equals(sLastUniqueCountry)) {
-                if (DBG) {
-                    Log.d(TAG, "getTimeZonesWithUniqueOffsets(" +
-                            country + "): return cached version");
-                }
-                return sLastUniqueZoneOffsets;
-            }
+    private static android.icu.util.TimeZone getIcuTimeZone(
+            int offsetMillis, boolean isDst, long whenMillis, String countryIso) {
+        if (countryIso == null) {
+            return null;
         }
 
-        Collection<TimeZone> zones = getTimeZones(country);
-        ArrayList<TimeZone> uniqueTimeZones = new ArrayList<TimeZone>();
-        for (TimeZone zone : zones) {
-            // See if we already have this offset,
-            // Using slow but space efficient and these are small.
-            boolean found = false;
-            for (int i = 0; i < uniqueTimeZones.size(); i++) {
-                if (uniqueTimeZones.get(i).getRawOffset() == zone.getRawOffset()) {
-                    found = true;
-                    break;
-                }
-            }
-            if (found == false) {
-                if (DBG) {
-                    Log.d(TAG, "getTimeZonesWithUniqueOffsets: add unique offset=" +
-                            zone.getRawOffset() + " zone.getID=" + zone.getID());
-                }
-                uniqueTimeZones.add(zone);
-            }
+        android.icu.util.TimeZone bias = android.icu.util.TimeZone.getDefault();
+        CountryTimeZones countryTimeZones =
+                TimeZoneFinder.getInstance().lookupCountryTimeZones(countryIso);
+        if (countryTimeZones == null) {
+            return null;
         }
-
-        synchronized(sLastUniqueLockObj) {
-            // Cache the last result
-            sLastUniqueZoneOffsets = uniqueTimeZones;
-            sLastUniqueCountry = country;
-
-            return sLastUniqueZoneOffsets;
-        }
+        CountryTimeZones.OffsetResult offsetResult = countryTimeZones.lookupByOffsetWithBias(
+                whenMillis, bias, offsetMillis, isDst);
+        return offsetResult != null ? offsetResult.getTimeZone() : null;
     }
 
     /**
-     * Returns the time zones for the country, which is the code
-     * attribute of the timezone element in time_zones_by_country.xml. Do not modify.
+     * Returns time zone IDs for time zones known to be associated with a country.
      *
-     * @param country is a two character country code.
-     * @return TimeZone list, maybe empty but never null. Do not modify.
-     * @hide
+     * <p>The list returned may be different from other on-device sources like
+     * {@link android.icu.util.TimeZone#getRegion(String)} as it can be curated to avoid
+     * contentious or obsolete mappings.
+     *
+     * @param countryCode the ISO 3166-1 alpha-2 code for the country as can be obtained using
+     *     {@link java.util.Locale#getCountry()}
+     * @return IDs that can be passed to {@link java.util.TimeZone#getTimeZone(String)} or similar
+     *     methods, or {@code null} if the countryCode is unrecognized
      */
-    public static ArrayList<TimeZone> getTimeZones(String country) {
-        synchronized (sLastLockObj) {
-            if ((country != null) && country.equals(sLastCountry)) {
-                if (DBG) Log.d(TAG, "getTimeZones(" + country + "): return cached version");
-                return sLastZones;
+    public static @Nullable List<String> getTimeZoneIdsForCountryCode(@NonNull String countryCode) {
+        if (countryCode == null) {
+            throw new NullPointerException("countryCode == null");
+        }
+        TimeZoneFinder timeZoneFinder = TimeZoneFinder.getInstance();
+        CountryTimeZones countryTimeZones =
+                timeZoneFinder.lookupCountryTimeZones(countryCode.toLowerCase());
+        if (countryTimeZones == null) {
+            return null;
+        }
+
+        List<String> timeZoneIds = new ArrayList<>();
+        for (TimeZoneMapping timeZoneMapping : countryTimeZones.getTimeZoneMappings()) {
+            if (timeZoneMapping.isShownInPicker()) {
+                timeZoneIds.add(timeZoneMapping.getTimeZoneId());
             }
         }
-
-        ArrayList<TimeZone> tzs = new ArrayList<TimeZone>();
-
-        if (country == null) {
-            if (DBG) Log.d(TAG, "getTimeZones(null): return empty list");
-            return tzs;
-        }
-
-        Resources r = Resources.getSystem();
-        XmlResourceParser parser = r.getXml(com.android.internal.R.xml.time_zones_by_country);
-
-        try {
-            XmlUtils.beginDocument(parser, "timezones");
-
-            while (true) {
-                XmlUtils.nextElement(parser);
-
-                String element = parser.getName();
-                if (element == null || !(element.equals("timezone"))) {
-                    break;
-                }
-
-                String code = parser.getAttributeValue(null, "code");
-
-                if (country.equals(code)) {
-                    if (parser.next() == XmlPullParser.TEXT) {
-                        String zoneIdString = parser.getText();
-                        TimeZone tz = TimeZone.getTimeZone(zoneIdString);
-                        if (tz.getID().startsWith("GMT") == false) {
-                            // tz.getID doesn't start not "GMT" so its valid
-                            tzs.add(tz);
-                            if (DBG) {
-                                Log.d(TAG, "getTimeZone('" + country + "'): found tz.getID=="
-                                    + ((tz != null) ? tz.getID() : "<no tz>"));
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (XmlPullParserException e) {
-            Log.e(TAG, "Got xml parser exception getTimeZone('" + country + "'): e=", e);
-        } catch (IOException e) {
-            Log.e(TAG, "Got IO exception getTimeZone('" + country + "'): e=", e);
-        } finally {
-            parser.close();
-        }
-
-        synchronized(sLastLockObj) {
-            // Cache the last result;
-            sLastZones = tzs;
-            sLastCountry = country;
-            return sLastZones;
-        }
+        return Collections.unmodifiableList(timeZoneIds);
     }
 
     /**
@@ -235,7 +134,7 @@ public class TimeUtils {
      * during the lifetime of an activity.
      */
     public static String getTimeZoneDatabaseVersion() {
-        return ZoneInfoDB.getInstance().getVersion();
+        return ZoneInfoDb.getInstance().getVersion();
     }
 
     /** @hide Field length that can hold 999 days of time */
@@ -394,6 +293,15 @@ public class TimeUtils {
     }
 
     /** @hide Just for debugging; not internationalized. */
+    public static void formatDuration(long duration, StringBuilder builder, int fieldLen) {
+        synchronized (sFormatSync) {
+            int len = formatDurationLocked(duration, fieldLen);
+            builder.append(sFormatStr, 0, len);
+        }
+    }
+
+    /** @hide Just for debugging; not internationalized. */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public static void formatDuration(long duration, PrintWriter pw, int fieldLen) {
         synchronized (sFormatSync) {
             int len = formatDurationLocked(duration, fieldLen);
@@ -402,6 +310,16 @@ public class TimeUtils {
     }
 
     /** @hide Just for debugging; not internationalized. */
+    @TestApi
+    public static String formatDuration(long duration) {
+        synchronized (sFormatSync) {
+            int len = formatDurationLocked(duration, 0);
+            return new String(sFormatStr, 0, len);
+        }
+    }
+
+    /** @hide Just for debugging; not internationalized. */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public static void formatDuration(long duration, PrintWriter pw) {
         formatDuration(duration, pw, 0);
     }
@@ -417,7 +335,17 @@ public class TimeUtils {
 
     /** @hide Just for debugging; not internationalized. */
     public static String formatUptime(long time) {
-        final long diff = time - SystemClock.uptimeMillis();
+        return formatTime(time, SystemClock.uptimeMillis());
+    }
+
+    /** @hide Just for debugging; not internationalized. */
+    public static String formatRealtime(long time) {
+        return formatTime(time, SystemClock.elapsedRealtime());
+    }
+
+    /** @hide Just for debugging; not internationalized. */
+    public static String formatTime(long time, long referenceTime) {
+        long diff = time - referenceTime;
         if (diff > 0) {
             return time + " (in " + diff + " ms)";
         }
@@ -435,6 +363,7 @@ public class TimeUtils {
      * @return String representation of the time.
      * @hide
      */
+    @UnsupportedAppUsage
     public static String logTimeOfDay(long millis) {
         Calendar c = Calendar.getInstance();
         if (millis >= 0) {
@@ -453,4 +382,50 @@ public class TimeUtils {
             return sLoggingFormat.format(new Date(millis));
         }
     }
-}
+
+    /**
+     * Dump a currentTimeMillis style timestamp for dumpsys.
+     *
+     * @hide
+     */
+    public static void dumpTime(PrintWriter pw, long time) {
+        pw.print(sDumpDateFormat.format(new Date(time)));
+    }
+
+    /**
+     * This method is used to find if a clock time is inclusively between two other clock times
+     * @param reference The time of the day we want check if it is between start and end
+     * @param start The start time reference
+     * @param end The end time
+     * @return true if the reference time is between the two clock times, and false otherwise.
+     */
+    public static boolean isTimeBetween(@NonNull LocalTime reference,
+                                        @NonNull LocalTime start,
+                                        @NonNull LocalTime end) {
+        //    ////////E----+-----S////////
+        if ((reference.isBefore(start) && reference.isAfter(end)
+                //    -----+----S//////////E------
+                || (reference.isBefore(end) && reference.isBefore(start) && start.isBefore(end))
+                //    ---------S//////////E---+---
+                || (reference.isAfter(end) && reference.isAfter(start)) && start.isBefore(end))) {
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    /**
+     * Dump a currentTimeMillis style timestamp for dumpsys, with the delta time from now.
+     *
+     * @hide
+     */
+    public static void dumpTimeWithDelta(PrintWriter pw, long time, long now) {
+        pw.print(sDumpDateFormat.format(new Date(time)));
+        if (time == now) {
+            pw.print(" (now)");
+        } else {
+            pw.print(" (");
+            TimeUtils.formatDuration(time, now, pw);
+            pw.print(")");
+        }
+    }}

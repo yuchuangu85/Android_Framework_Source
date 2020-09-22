@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,7 +37,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import static java.io.ObjectStreamClass.processQueue;
 import java.io.SerialCallbackContext;
-
 import sun.reflect.misc.ReflectUtil;
 
 /**
@@ -158,7 +157,7 @@ import sun.reflect.misc.ReflectUtil;
  * @see java.io.ObjectInputStream
  * @see java.io.Serializable
  * @see java.io.Externalizable
- * @see <a href="{@docRoot}openjdk-redirect.html?v=8&path=/platform/serialization/spec/output.html">Object Serialization Specification, Section 2, Object Output Classes</a>
+ * @see <a href="../../../platform/serialization/spec/output.html">Object Serialization Specification, Section 2, Object Output Classes</a>
  * @since       JDK1.1
  */
 public class ObjectOutputStream
@@ -211,7 +210,15 @@ public class ObjectOutputStream
      * value of "sun.io.serialization.extendedDebugInfo" property,
      * as true or false for extended information about exception's place
      */
+    // BEGIN Android-changed: Do not support extendedDebugInfo on Android.
+    /*
+    private static final boolean extendedDebugInfo =
+        java.security.AccessController.doPrivileged(
+            new sun.security.action.GetBooleanAction(
+                "sun.io.serialization.extendedDebugInfo")).booleanValue();
+    */
     private static final boolean extendedDebugInfo = false;
+    // END Android-changed: Do not support extendedDebugInfo on Android.
 
     /**
      * Creates an ObjectOutputStream that writes to the specified OutputStream.
@@ -264,6 +271,7 @@ public class ObjectOutputStream
      * @throws  SecurityException if a security manager exists and its
      *          <code>checkPermission</code> method denies enabling
      *          subclassing.
+     * @throws  IOException if an I/O error occurs while creating this stream
      * @see SecurityManager#checkPermission
      * @see java.io.SerializablePermission
      */
@@ -346,8 +354,8 @@ public class ObjectOutputStream
             writeObject0(obj, false);
         } catch (IOException ex) {
             if (depth == 0) {
-                /* ----- BEGIN android -----
-                writeFatalException(ex);*/
+                // BEGIN Android-changed: Ignore secondary exceptions during writeObject().
+                // writeFatalException(ex);
                 try {
                     writeFatalException(ex);
 
@@ -356,7 +364,7 @@ public class ObjectOutputStream
                     // is no need to propagate the second exception or generate a third exception,
                     // both of which might obscure details of the root cause.
                 }
-                // ----- END android -----
+                // END Android-changed: Ignore secondary exceptions during writeObject().
             }
             throw ex;
         }
@@ -377,12 +385,12 @@ public class ObjectOutputStream
      * @since 1.2
      */
     protected void writeObjectOverride(Object obj) throws IOException {
-        /* ----- BEGIN android ----- */
+        // BEGIN Android-added: Let writeObjectOverride throw IOException if !enableOverride.
         if (!enableOverride) {
             // Subclasses must override.
             throw new IOException();
         }
-        /* ----- END android ----- */
+        // END Android-added: Let writeObjectOverride throw IOException if !enableOverride.
     }
 
     /**
@@ -445,11 +453,12 @@ public class ObjectOutputStream
      *          <code>OutputStream</code>
      */
     public void defaultWriteObject() throws IOException {
-        if ( curContext == null ) {
+        SerialCallbackContext ctx = curContext;
+        if (ctx == null) {
             throw new NotActiveException("not in call to writeObject");
         }
-        Object curObj = curContext.getObj();
-        ObjectStreamClass curDesc = curContext.getDesc();
+        Object curObj = ctx.getObj();
+        ObjectStreamClass curDesc = ctx.getDesc();
         bout.setBlockDataMode(false);
         defaultWriteFields(curObj, curDesc);
         bout.setBlockDataMode(true);
@@ -467,11 +476,12 @@ public class ObjectOutputStream
      */
     public ObjectOutputStream.PutField putFields() throws IOException {
         if (curPut == null) {
-            if (curContext == null) {
+            SerialCallbackContext ctx = curContext;
+            if (ctx == null) {
                 throw new NotActiveException("not in call to writeObject");
             }
-            Object curObj = curContext.getObj();
-            ObjectStreamClass curDesc = curContext.getDesc();
+            Object curObj = ctx.getObj();
+            ObjectStreamClass curDesc = ctx.getDesc();
             curPut = new PutFieldImpl(curDesc);
         }
         return curPut;
@@ -500,7 +510,7 @@ public class ObjectOutputStream
      * stream.  The state is reset to be the same as a new ObjectOutputStream.
      * The current point in the stream is marked as reset so the corresponding
      * ObjectInputStream will be reset at the same point.  Objects previously
-     * written to the stream will not be refered to as already being in the
+     * written to the stream will not be referred to as already being in the
      * stream.  They will be written to the stream again.
      *
      * @throws  IOException if reset() is invoked while serializing an object.
@@ -750,7 +760,7 @@ public class ObjectOutputStream
      */
     public void close() throws IOException {
         flush();
-        // http://b/28159133
+        // Android-removed:  Don't clear() during close(), keep the handle table. http://b/28159133
         // clear();
         bout.close();
     }
@@ -1051,7 +1061,7 @@ public class ObjectOutputStream
      * "enableSubclassImplementation" SerializablePermission is checked.
      */
     private void verifySubclass() {
-        Class cl = getClass();
+        Class<?> cl = getClass();
         if (cl == ObjectOutputStream.class) {
             return;
         }
@@ -1077,22 +1087,22 @@ public class ObjectOutputStream
      * override security-sensitive non-final methods.  Returns true if subclass
      * is "safe", false otherwise.
      */
-    private static boolean auditSubclass(final Class subcl) {
+    private static boolean auditSubclass(final Class<?> subcl) {
         Boolean result = AccessController.doPrivileged(
             new PrivilegedAction<Boolean>() {
                 public Boolean run() {
-                    for (Class cl = subcl;
+                    for (Class<?> cl = subcl;
                          cl != ObjectOutputStream.class;
                          cl = cl.getSuperclass())
                     {
                         try {
                             cl.getDeclaredMethod(
-                                "writeUnshared", new Class[] { Object.class });
+                                "writeUnshared", new Class<?>[] { Object.class });
                             return Boolean.FALSE;
                         } catch (NoSuchMethodException ex) {
                         }
                         try {
-                            cl.getDeclaredMethod("putFields", (Class[]) null);
+                            cl.getDeclaredMethod("putFields", (Class<?>[]) null);
                             return Boolean.FALSE;
                         } catch (NoSuchMethodException ex) {
                         }
@@ -1129,25 +1139,28 @@ public class ObjectOutputStream
             } else if (!unshared && (h = handles.lookup(obj)) != -1) {
                 writeHandle(h);
                 return;
-            /* ----- BEGIN android -----
+            // BEGIN Android-changed:  Make Class and ObjectStreamClass replaceable.
+            /*
             } else if (obj instanceof Class) {
                 writeClass((Class) obj, unshared);
                 return;
             } else if (obj instanceof ObjectStreamClass) {
                 writeClassDesc((ObjectStreamClass) obj, unshared);
                 return;
-              ----- END android ----- */
+            */
+            // END Android-changed:  Make Class and ObjectStreamClass replaceable.
             }
 
             // check for replacement object
             Object orig = obj;
-            Class cl = obj.getClass();
+            Class<?> cl = obj.getClass();
             ObjectStreamClass desc;
 
-            /* ----- BEGIN android -----
+            // BEGIN Android-changed: Make only one call to writeReplace.
+            /*
             for (;;) {
                 // REMIND: skip this check for strings/arrays?
-                Class repCl;
+                Class<?> repCl;
                 desc = ObjectStreamClass.lookup(cl, true);
                 if (!desc.hasWriteReplaceMethod() ||
                     (obj = desc.invokeWriteReplace(obj)) == null ||
@@ -1158,7 +1171,8 @@ public class ObjectOutputStream
                 cl = repCl;
                 desc = ObjectStreamClass.lookup(cl, true);
                 break;
-            }*/
+            }
+            */
             // Do only one replace pass
 
             Class repCl;
@@ -1170,7 +1184,7 @@ public class ObjectOutputStream
                 cl = repCl;
                 desc = ObjectStreamClass.lookup(cl, true);
             }
-            // ----- END android -----
+            // END Android-changed: Make only one call to writeReplace.
 
             if (enableReplace) {
                 Object rep = replaceObject(obj);
@@ -1190,30 +1204,32 @@ public class ObjectOutputStream
                 } else if (!unshared && (h = handles.lookup(obj)) != -1) {
                     writeHandle(h);
                     return;
-                /* ----- BEGIN android -----
+// BEGIN Android-changed:  Make Class and ObjectStreamClass replaceable.
+/*
                 } else if (obj instanceof Class) {
                     writeClass((Class) obj, unshared);
                     return;
                 } else if (obj instanceof ObjectStreamClass) {
                     writeClassDesc((ObjectStreamClass) obj, unshared);
                     return;
-                  ----- END android -----*/
+*/
+// END Android-changed:  Make Class and ObjectStreamClass replaceable.
                 }
             }
 
             // remaining cases
-            // ----- BEGIN android -----
+            // BEGIN Android-changed: Make Class and ObjectStreamClass replaceable.
             if (obj instanceof Class) {
                 writeClass((Class) obj, unshared);
             } else if (obj instanceof ObjectStreamClass) {
                 writeClassDesc((ObjectStreamClass) obj, unshared);
-            // ----- END android -----
+            // END Android-changed:  Make Class and ObjectStreamClass replaceable.
             } else if (obj instanceof String) {
                 writeString((String) obj, unshared);
             } else if (cl.isArray()) {
                 writeArray(obj, desc, unshared);
             } else if (obj instanceof Enum) {
-                writeEnum((Enum) obj, desc, unshared);
+                writeEnum((Enum<?>) obj, desc, unshared);
             } else if (obj instanceof Serializable) {
                 writeOrdinaryObject(obj, desc, unshared);
             } else {
@@ -1248,7 +1264,7 @@ public class ObjectOutputStream
     /**
      * Writes representation of given class to stream.
      */
-    private void writeClass(Class cl, boolean unshared) throws IOException {
+    private void writeClass(Class<?> cl, boolean unshared) throws IOException {
         bout.writeByte(TC_CLASS);
         writeClassDesc(ObjectStreamClass.lookup(cl, true), false);
         handles.assign(unshared ? null : cl);
@@ -1287,15 +1303,15 @@ public class ObjectOutputStream
         bout.writeByte(TC_PROXYCLASSDESC);
         handles.assign(unshared ? null : desc);
 
-        Class cl = desc.forClass();
-        Class[] ifaces = cl.getInterfaces();
+        Class<?> cl = desc.forClass();
+        Class<?>[] ifaces = cl.getInterfaces();
         bout.writeInt(ifaces.length);
         for (int i = 0; i < ifaces.length; i++) {
             bout.writeUTF(ifaces[i].getName());
         }
 
         bout.setBlockDataMode(true);
-        if (isCustomSubclass()) {
+        if (cl != null && isCustomSubclass()) {
             ReflectUtil.checkPackageAccess(cl);
         }
         annotateProxyClass(cl);
@@ -1322,9 +1338,9 @@ public class ObjectOutputStream
             writeClassDescriptor(desc);
         }
 
-        Class cl = desc.forClass();
+        Class<?> cl = desc.forClass();
         bout.setBlockDataMode(true);
-        if (isCustomSubclass()) {
+        if (cl != null && isCustomSubclass()) {
             ReflectUtil.checkPackageAccess(cl);
         }
         annotateClass(cl);
@@ -1362,7 +1378,7 @@ public class ObjectOutputStream
         writeClassDesc(desc, false);
         handles.assign(unshared ? null : array);
 
-        Class ccl = desc.forClass().getComponentType();
+        Class<?> ccl = desc.forClass().getComponentType();
         if (ccl.isPrimitive()) {
             if (ccl == Integer.TYPE) {
                 int[] ia = (int[]) array;
@@ -1433,7 +1449,7 @@ public class ObjectOutputStream
     /**
      * Writes given enum constant to stream.
      */
-    private void writeEnum(Enum en,
+    private void writeEnum(Enum<?> en,
                            ObjectStreamClass desc,
                            boolean unshared)
         throws IOException
@@ -1559,7 +1575,11 @@ public class ObjectOutputStream
     private void defaultWriteFields(Object obj, ObjectStreamClass desc)
         throws IOException
     {
-        // REMIND: perform conservative isInstance check here?
+        Class<?> cl = desc.forClass();
+        if (cl != null && obj != null && !cl.isInstance(obj)) {
+            throw new ClassCastException();
+        }
+
         desc.checkDefaultSerialize();
 
         int primDataSize = desc.getPrimDataSize();
@@ -1756,7 +1776,7 @@ public class ObjectOutputStream
          * types, and any other non-null type matches assignable types only.
          * Throws IllegalArgumentException if no matching field found.
          */
-        private int getFieldOffset(String name, Class type) {
+        private int getFieldOffset(String name, Class<?> type) {
             ObjectStreamField field = desc.getField(name, type);
             if (field == null) {
                 throw new IllegalArgumentException("no such field " + name +
@@ -1799,6 +1819,7 @@ public class ObjectOutputStream
         /** loopback stream (for data writes that span data blocks) */
         private final DataOutputStream dout;
 
+        // BEGIN Android-added: Warning if writing to a closed ObjectOutputStream.
         /**
          * Indicates that this stream was closed and that a warning must be logged once if an
          * attempt is made to write to it and the underlying stream does not throw an exception.
@@ -1809,6 +1830,7 @@ public class ObjectOutputStream
          * http://b/28159133
          */
         private boolean warnOnceWhenWriting;
+        // END Android-added: Warning if writing to a closed ObjectOutputStream.
 
         /**
          * Creates new BlockDataOutputStream on top of given underlying stream.
@@ -1843,6 +1865,7 @@ public class ObjectOutputStream
             return blkmode;
         }
 
+        // BEGIN Android-added: Warning about writing to closed ObjectOutputStream
         /**
          * Warns if the stream has been closed.
          *
@@ -1861,6 +1884,7 @@ public class ObjectOutputStream
                 warnOnceWhenWriting = false;
             }
         }
+        // END Android-added: Warning about writing to closed ObjectOutputStream
 
         /* ----------------- generic output stream methods ----------------- */
         /*
@@ -1892,6 +1916,7 @@ public class ObjectOutputStream
         public void close() throws IOException {
             flush();
             out.close();
+            // Android-added: Warning about writing to closed ObjectOutputStream
             warnOnceWhenWriting = true;
         }
 
@@ -1907,6 +1932,7 @@ public class ObjectOutputStream
             if (!(copy || blkmode)) {           // write directly
                 drain();
                 out.write(b, off, len);
+                // Android-added: Warning about writing to closed ObjectOutputStream
                 warnIfClosed();
                 return;
             }
@@ -1929,6 +1955,7 @@ public class ObjectOutputStream
                     len -= wlen;
                 }
             }
+            // Android-added: Warning about writing to closed ObjectOutputStream
             warnIfClosed();
         }
 
@@ -1945,6 +1972,7 @@ public class ObjectOutputStream
             }
             out.write(buf, 0, pos);
             pos = 0;
+            // Android-added: Warning about writing to closed ObjectOutputStream
             warnIfClosed();
         }
 
@@ -1963,6 +1991,7 @@ public class ObjectOutputStream
                 Bits.putInt(hbuf, 1, len);
                 out.write(hbuf, 0, 5);
             }
+            // Android-added: Warning about writing to closed ObjectOutputStream
             warnIfClosed();
         }
 

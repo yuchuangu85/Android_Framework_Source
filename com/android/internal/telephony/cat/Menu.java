@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Bitmap;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -29,6 +30,7 @@ import java.util.List;
  */
 public class Menu implements Parcelable {
     public List<Item> items;
+    @UnsupportedAppUsage
     public List<TextAttribute> titleAttrs;
     public PresentationType presentationType;
     public String title;
@@ -56,12 +58,12 @@ public class Menu implements Parcelable {
 
     private Menu(Parcel in) {
         title = in.readString();
-        titleIcon = in.readParcelable(null);
+        titleIcon = in.readParcelable(Bitmap.class.getClassLoader());
         // rebuild items list.
         items = new ArrayList<Item>();
         int size = in.readInt();
         for (int i=0; i<size; i++) {
-            Item item = in.readParcelable(null);
+            Item item = in.readParcelable(Item.class.getClassLoader());
             items.add(item);
         }
         defaultItem = in.readInt();

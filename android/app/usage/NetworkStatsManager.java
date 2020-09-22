@@ -16,25 +16,38 @@
 
 package android.app.usage;
 
-import static com.android.internal.util.Preconditions.checkNotNull;
-
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
+import android.annotation.SystemService;
+import android.annotation.TestApi;
 import android.app.usage.NetworkStats.Bucket;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.DataUsageRequest;
-import android.net.NetworkIdentity;
-import android.net.NetworkTemplate;
 import android.net.INetworkStatsService;
+import android.net.NetworkIdentity;
+import android.net.NetworkStack;
+import android.net.NetworkTemplate;
+import android.net.netstats.provider.INetworkStatsProviderCallback;
+import android.net.netstats.provider.NetworkStatsProvider;
 import android.os.Binder;
-import android.os.Build;
-import android.os.Message;
-import android.os.Messenger;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Message;
+import android.os.Messenger;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.os.ServiceManager.ServiceNotFoundException;
+import android.telephony.TelephonyManager;
+import android.util.DataUnit;
 import android.util.Log;
+
+import com.android.internal.annotations.VisibleForTesting;
+
+import java.util.Objects;
 
 /**
  * Provides access to network usage history and statistics. Usage data is collected in
@@ -51,17 +64,19 @@ import android.util.Log;
  * {@link #querySummaryForUser} <p />
  * {@link #querySummary} <p />
  * These queries aggregate network usage across the whole interval. Therefore there will be only one
- * bucket for a particular key and state and roaming combination. In case of the user-wide and
- * device-wide summaries a single bucket containing the totalised network usage is returned.
+ * bucket for a particular key, state, metered and roaming combination. In case of the user-wide
+ * and device-wide summaries a single bucket containing the totalised network usage is returned.
  * <h3>
  * History queries
  * </h3>
  * {@link #queryDetailsForUid} <p />
  * {@link #queryDetails} <p />
- * These queries do not aggregate over time but do aggregate over state and roaming. Therefore there
- * can be multiple buckets for a particular key but all Bucket's state is going to be
- * {@link NetworkStats.Bucket#STATE_ALL} and all Bucket's roaming is going to be
- * {@link NetworkStats.Bucket#ROAMING_ALL}.
+ * These queries do not aggregate over time but do aggregate over state, metered and roaming.
+ * Therefore there can be multiple buckets for a particular key. However, all Buckets will have
+ * {@code state} {@link NetworkStats.Bucket#STATE_ALL},
+ * {@code defaultNetwork} {@link NetworkStats.Bucket#DEFAULT_NETWORK_ALL},
+ * {@code metered } {@link NetworkStats.Bucket#METERED_ALL},
+ * {@code roaming} {@link NetworkStats.Bucket#ROAMING_ALL}.
  * <p />
  * <b>NOTE:</b> Calling {@link #querySummaryForDevice} or accessing stats for apps other than the
  * calling app requires the permission {@link android.Manifest.permission#PACKAGE_USAGE_STATS},
@@ -76,10 +91,11 @@ import android.util.Log;
  * In addition to tethering usage, usage by removed users and apps, and usage by the system
  * is also included in the results for callers with one of these higher levels of access.
  * <p />
- * <b>NOTE:</b> Prior to API level {@value Build.VERSION_CODES#N}, all calls to these APIs required
+ * <b>NOTE:</b> Prior to API level {@value android.os.Build.VERSION_CODES#N}, all calls to these APIs required
  * the above permission, even to access an app's own data usage, and carrier-privileged apps were
  * not included.
  */
+@SystemService(Context.NETWORK_STATS_SERVICE)
 public class NetworkStatsManager {
     private static final String TAG = "NetworkStatsManager";
     private static final boolean DBG = false;
@@ -89,30 +105,106 @@ public class NetworkStatsManager {
     /** @hide */
     public static final int CALLBACK_RELEASED = 1;
 
+    /**
+     * Minimum data usage threshold for registering usage callbacks.
+     *
+     * Requests registered with a threshold lower than this will only be triggered once this minimum
+     * is reached.
+     * @hide
+     */
+    public static final long MIN_THRESHOLD_BYTES = DataUnit.MEBIBYTES.toBytes(2);
+
     private final Context mContext;
     private final INetworkStatsService mService;
+
+    /** @hide */
+    public static final int FLAG_POLL_ON_OPEN = 1 << 0;
+    /** @hide */
+    public static final int FLAG_POLL_FORCE = 1 << 1;
+    /** @hide */
+    public static final int FLAG_AUGMENT_WITH_SUBSCRIPTION_PLAN = 1 << 2;
+
+    private int mFlags;
 
     /**
      * {@hide}
      */
-    public NetworkStatsManager(Context context) {
+    @UnsupportedAppUsage
+    public NetworkStatsManager(Context context) throws ServiceNotFoundException {
+        this(context, INetworkStatsService.Stub.asInterface(
+                ServiceManager.getServiceOrThrow(Context.NETWORK_STATS_SERVICE)));
+    }
+
+    /** @hide */
+    @VisibleForTesting
+    public NetworkStatsManager(Context context, INetworkStatsService service) {
         mContext = context;
-        mService = INetworkStatsService.Stub.asInterface(
-                ServiceManager.getService(Context.NETWORK_STATS_SERVICE));
+        mService = service;
+        setPollOnOpen(true);
+    }
+
+    /** @hide */
+    public void setPollOnOpen(boolean pollOnOpen) {
+        if (pollOnOpen) {
+            mFlags |= FLAG_POLL_ON_OPEN;
+        } else {
+            mFlags &= ~FLAG_POLL_ON_OPEN;
+        }
+    }
+
+    /** @hide */
+    @UnsupportedAppUsage
+    @TestApi
+    public void setPollForce(boolean pollForce) {
+        if (pollForce) {
+            mFlags |= FLAG_POLL_FORCE;
+        } else {
+            mFlags &= ~FLAG_POLL_FORCE;
+        }
+    }
+
+    /** @hide */
+    public void setAugmentWithSubscriptionPlan(boolean augmentWithSubscriptionPlan) {
+        if (augmentWithSubscriptionPlan) {
+            mFlags |= FLAG_AUGMENT_WITH_SUBSCRIPTION_PLAN;
+        } else {
+            mFlags &= ~FLAG_AUGMENT_WITH_SUBSCRIPTION_PLAN;
+        }
+    }
+
+    /** @hide */
+    public Bucket querySummaryForDevice(NetworkTemplate template,
+            long startTime, long endTime) throws SecurityException, RemoteException {
+        Bucket bucket = null;
+        NetworkStats stats = new NetworkStats(mContext, template, mFlags, startTime, endTime,
+                mService);
+        bucket = stats.getDeviceSummaryForNetwork();
+
+        stats.close();
+        return bucket;
     }
 
     /**
      * Query network usage statistics summaries. Result is summarised data usage for the whole
-     * device. Result is a single Bucket aggregated over time, state, uid, tag and roaming. This
-     * means the bucket's start and end timestamp are going to be the same as the 'startTime' and
-     * 'endTime' parameters. State is going to be {@link NetworkStats.Bucket#STATE_ALL}, uid
-     * {@link NetworkStats.Bucket#UID_ALL}, tag {@link NetworkStats.Bucket#TAG_NONE}
+     * device. Result is a single Bucket aggregated over time, state, uid, tag, metered, and
+     * roaming. This means the bucket's start and end timestamp are going to be the same as the
+     * 'startTime' and 'endTime' parameters. State is going to be
+     * {@link NetworkStats.Bucket#STATE_ALL}, uid {@link NetworkStats.Bucket#UID_ALL},
+     * tag {@link NetworkStats.Bucket#TAG_NONE},
+     * default network {@link NetworkStats.Bucket#DEFAULT_NETWORK_ALL},
+     * metered {@link NetworkStats.Bucket#METERED_ALL},
      * and roaming {@link NetworkStats.Bucket#ROAMING_ALL}.
      *
      * @param networkType As defined in {@link ConnectivityManager}, e.g.
      *            {@link ConnectivityManager#TYPE_MOBILE}, {@link ConnectivityManager#TYPE_WIFI}
      *            etc.
      * @param subscriberId If applicable, the subscriber id of the network interface.
+     *                     <p>Starting with API level 29, the {@code subscriberId} is guarded by
+     *                     additional restrictions. Calling apps that do not meet the new
+     *                     requirements to access the {@code subscriberId} can provide a {@code
+     *                     null} value when querying for the mobile network type to receive usage
+     *                     for all mobile networks. For additional details see {@link
+     *                     TelephonyManager#getSubscriberId()}.
      * @param startTime Start of period. Defined in terms of "Unix time", see
      *            {@link java.lang.System#currentTimeMillis}.
      * @param endTime End of period. Defined in terms of "Unix time", see
@@ -130,25 +222,28 @@ public class NetworkStatsManager {
             return null;
         }
 
-        Bucket bucket = null;
-        NetworkStats stats = new NetworkStats(mContext, template, startTime, endTime);
-        bucket = stats.getDeviceSummaryForNetwork();
-
-        stats.close();
-        return bucket;
+        return querySummaryForDevice(template, startTime, endTime);
     }
 
     /**
      * Query network usage statistics summaries. Result is summarised data usage for all uids
      * belonging to calling user. Result is a single Bucket aggregated over time, state and uid.
      * This means the bucket's start and end timestamp are going to be the same as the 'startTime'
-     * and 'endTime' parameters, state is going to be {@link NetworkStats.Bucket#STATE_ALL} and uid
-     * {@link NetworkStats.Bucket#UID_ALL}.
+     * and 'endTime' parameters. State is going to be {@link NetworkStats.Bucket#STATE_ALL},
+     * uid {@link NetworkStats.Bucket#UID_ALL}, tag {@link NetworkStats.Bucket#TAG_NONE},
+     * metered {@link NetworkStats.Bucket#METERED_ALL}, and roaming
+     * {@link NetworkStats.Bucket#ROAMING_ALL}.
      *
      * @param networkType As defined in {@link ConnectivityManager}, e.g.
      *            {@link ConnectivityManager#TYPE_MOBILE}, {@link ConnectivityManager#TYPE_WIFI}
      *            etc.
      * @param subscriberId If applicable, the subscriber id of the network interface.
+     *                     <p>Starting with API level 29, the {@code subscriberId} is guarded by
+     *                     additional restrictions. Calling apps that do not meet the new
+     *                     requirements to access the {@code subscriberId} can provide a {@code
+     *                     null} value when querying for the mobile network type to receive usage
+     *                     for all mobile networks. For additional details see {@link
+     *                     TelephonyManager#getSubscriberId()}.
      * @param startTime Start of period. Defined in terms of "Unix time", see
      *            {@link java.lang.System#currentTimeMillis}.
      * @param endTime End of period. Defined in terms of "Unix time", see
@@ -167,7 +262,7 @@ public class NetworkStatsManager {
         }
 
         NetworkStats stats;
-        stats = new NetworkStats(mContext, template, startTime, endTime);
+        stats = new NetworkStats(mContext, template, mFlags, startTime, endTime, mService);
         stats.startSummaryEnumeration();
 
         stats.close();
@@ -177,14 +272,21 @@ public class NetworkStatsManager {
     /**
      * Query network usage statistics summaries. Result filtered to include only uids belonging to
      * calling user. Result is aggregated over time, hence all buckets will have the same start and
-     * end timestamps. Not aggregated over state or uid. This means buckets' start and end
-     * timestamps are going to be the same as the 'startTime' and 'endTime' parameters.
-     * State and uid are going to vary, and tag is going to be the same.
+     * end timestamps. Not aggregated over state, uid, default network, metered, or roaming. This
+     * means buckets' start and end timestamps are going to be the same as the 'startTime' and
+     * 'endTime' parameters. State, uid, metered, and roaming are going to vary, and tag is going to
+     * be the same.
      *
      * @param networkType As defined in {@link ConnectivityManager}, e.g.
      *            {@link ConnectivityManager#TYPE_MOBILE}, {@link ConnectivityManager#TYPE_WIFI}
      *            etc.
      * @param subscriberId If applicable, the subscriber id of the network interface.
+     *                     <p>Starting with API level 29, the {@code subscriberId} is guarded by
+     *                     additional restrictions. Calling apps that do not meet the new
+     *                     requirements to access the {@code subscriberId} can provide a {@code
+     *                     null} value when querying for the mobile network type to receive usage
+     *                     for all mobile networks. For additional details see {@link
+     *                     TelephonyManager#getSubscriberId()}.
      * @param startTime Start of period. Defined in terms of "Unix time", see
      *            {@link java.lang.System#currentTimeMillis}.
      * @param endTime End of period. Defined in terms of "Unix time", see
@@ -202,8 +304,14 @@ public class NetworkStatsManager {
             return null;
         }
 
+        return querySummary(template, startTime, endTime);
+    }
+
+    /** @hide */
+    public NetworkStats querySummary(NetworkTemplate template, long startTime,
+            long endTime) throws SecurityException, RemoteException {
         NetworkStats result;
-        result = new NetworkStats(mContext, template, startTime, endTime);
+        result = new NetworkStats(mContext, template, mFlags, startTime, endTime, mService);
         result.startSummaryEnumeration();
 
         return result;
@@ -212,20 +320,41 @@ public class NetworkStatsManager {
     /**
      * Query network usage statistics details for a given uid.
      *
-     * #see queryDetailsForUidTag(int, String, long, long, int, int)
+     * @see #queryDetailsForUidTagState(int, String, long, long, int, int, int)
      */
     public NetworkStats queryDetailsForUid(int networkType, String subscriberId,
-            long startTime, long endTime, int uid) throws SecurityException, RemoteException {
-        return queryDetailsForUidTag(networkType, subscriberId, startTime, endTime, uid,
-            NetworkStats.Bucket.TAG_NONE);
+            long startTime, long endTime, int uid) throws SecurityException {
+        return queryDetailsForUidTagState(networkType, subscriberId, startTime, endTime, uid,
+            NetworkStats.Bucket.TAG_NONE, NetworkStats.Bucket.STATE_ALL);
+    }
+
+    /** @hide */
+    public NetworkStats queryDetailsForUid(NetworkTemplate template,
+            long startTime, long endTime, int uid) throws SecurityException {
+        return queryDetailsForUidTagState(template, startTime, endTime, uid,
+                NetworkStats.Bucket.TAG_NONE, NetworkStats.Bucket.STATE_ALL);
     }
 
     /**
-     * Query network usage statistics details for a given uid and tag. Only usable for uids
-     * belonging to calling user. Result is aggregated over state but not aggregated over time.
-     * This means buckets' start and end timestamps are going to be between 'startTime' and
-     * 'endTime' parameters. State is going to be {@link NetworkStats.Bucket#STATE_ALL}, uid the
-     * same as the 'uid' parameter and tag the same as 'tag' parameter.
+     * Query network usage statistics details for a given uid and tag.
+     *
+     * @see #queryDetailsForUidTagState(int, String, long, long, int, int, int)
+     */
+    public NetworkStats queryDetailsForUidTag(int networkType, String subscriberId,
+            long startTime, long endTime, int uid, int tag) throws SecurityException {
+        return queryDetailsForUidTagState(networkType, subscriberId, startTime, endTime, uid,
+            tag, NetworkStats.Bucket.STATE_ALL);
+    }
+
+    /**
+     * Query network usage statistics details for a given uid, tag, and state. Only usable for uids
+     * belonging to calling user. Result is not aggregated over time. This means buckets' start and
+     * end timestamps are going to be between 'startTime' and 'endTime' parameters. The uid is going
+     * to be the same as the 'uid' parameter, the tag the same as the 'tag' parameter, and the state
+     * the same as the 'state' parameter.
+     * defaultNetwork is going to be {@link NetworkStats.Bucket#DEFAULT_NETWORK_ALL},
+     * metered is going to be {@link NetworkStats.Bucket#METERED_ALL}, and
+     * roaming is going to be {@link NetworkStats.Bucket#ROAMING_ALL}.
      * <p>Only includes buckets that atomically occur in the inclusive time range. Doesn't
      * interpolate across partial buckets. Since bucket length is in the order of hours, this
      * method cannot be used to measure data usage on a fine grained time scale.
@@ -234,26 +363,42 @@ public class NetworkStatsManager {
      *            {@link ConnectivityManager#TYPE_MOBILE}, {@link ConnectivityManager#TYPE_WIFI}
      *            etc.
      * @param subscriberId If applicable, the subscriber id of the network interface.
+     *                     <p>Starting with API level 29, the {@code subscriberId} is guarded by
+     *                     additional restrictions. Calling apps that do not meet the new
+     *                     requirements to access the {@code subscriberId} can provide a {@code
+     *                     null} value when querying for the mobile network type to receive usage
+     *                     for all mobile networks. For additional details see {@link
+     *                     TelephonyManager#getSubscriberId()}.
      * @param startTime Start of period. Defined in terms of "Unix time", see
      *            {@link java.lang.System#currentTimeMillis}.
      * @param endTime End of period. Defined in terms of "Unix time", see
      *            {@link java.lang.System#currentTimeMillis}.
      * @param uid UID of app
      * @param tag TAG of interest. Use {@link NetworkStats.Bucket#TAG_NONE} for no tags.
+     * @param state state of interest. Use {@link NetworkStats.Bucket#STATE_ALL} to aggregate
+     *            traffic from all states.
      * @return Statistics object or null if an error happened during statistics collection.
      * @throws SecurityException if permissions are insufficient to read network statistics.
      */
-    public NetworkStats queryDetailsForUidTag(int networkType, String subscriberId,
-            long startTime, long endTime, int uid, int tag) throws SecurityException {
+    public NetworkStats queryDetailsForUidTagState(int networkType, String subscriberId,
+            long startTime, long endTime, int uid, int tag, int state) throws SecurityException {
         NetworkTemplate template;
         template = createTemplate(networkType, subscriberId);
 
+        return queryDetailsForUidTagState(template, startTime, endTime, uid, tag, state);
+    }
+
+    /** @hide */
+    public NetworkStats queryDetailsForUidTagState(NetworkTemplate template,
+            long startTime, long endTime, int uid, int tag, int state) throws SecurityException {
+
         NetworkStats result;
         try {
-            result = new NetworkStats(mContext, template, startTime, endTime);
-            result.startHistoryEnumeration(uid, tag);
+            result = new NetworkStats(mContext, template, mFlags, startTime, endTime, mService);
+            result.startHistoryEnumeration(uid, tag, state);
         } catch (RemoteException e) {
-            Log.e(TAG, "Error while querying stats for uid=" + uid + " tag=" + tag, e);
+            Log.e(TAG, "Error while querying stats for uid=" + uid + " tag=" + tag
+                    + " state=" + state, e);
             return null;
         }
 
@@ -262,11 +407,14 @@ public class NetworkStatsManager {
 
     /**
      * Query network usage statistics details. Result filtered to include only uids belonging to
-     * calling user. Result is aggregated over state but not aggregated over time or uid. This means
-     * buckets' start and end timestamps are going to be between 'startTime' and 'endTime'
-     * parameters. State is going to be {@link NetworkStats.Bucket#STATE_ALL}, uid will vary,
-     * tag {@link NetworkStats.Bucket#TAG_NONE} and roaming is going to be
-     * {@link NetworkStats.Bucket#ROAMING_ALL}.
+     * calling user. Result is aggregated over state but not aggregated over time, uid, tag,
+     * metered, nor roaming. This means buckets' start and end timestamps are going to be between
+     * 'startTime' and 'endTime' parameters. State is going to be
+     * {@link NetworkStats.Bucket#STATE_ALL}, uid will vary,
+     * tag {@link NetworkStats.Bucket#TAG_NONE},
+     * default network is going to be {@link NetworkStats.Bucket#DEFAULT_NETWORK_ALL},
+     * metered is going to be {@link NetworkStats.Bucket#METERED_ALL},
+     * and roaming is going to be {@link NetworkStats.Bucket#ROAMING_ALL}.
      * <p>Only includes buckets that atomically occur in the inclusive time range. Doesn't
      * interpolate across partial buckets. Since bucket length is in the order of hours, this
      * method cannot be used to measure data usage on a fine grained time scale.
@@ -275,6 +423,12 @@ public class NetworkStatsManager {
      *            {@link ConnectivityManager#TYPE_MOBILE}, {@link ConnectivityManager#TYPE_WIFI}
      *            etc.
      * @param subscriberId If applicable, the subscriber id of the network interface.
+     *                     <p>Starting with API level 29, the {@code subscriberId} is guarded by
+     *                     additional restrictions. Calling apps that do not meet the new
+     *                     requirements to access the {@code subscriberId} can provide a {@code
+     *                     null} value when querying for the mobile network type to receive usage
+     *                     for all mobile networks. For additional details see {@link
+     *                     TelephonyManager#getSubscriberId()}.
      * @param startTime Start of period. Defined in terms of "Unix time", see
      *            {@link java.lang.System#currentTimeMillis}.
      * @param endTime End of period. Defined in terms of "Unix time", see
@@ -293,15 +447,46 @@ public class NetworkStatsManager {
         }
 
         NetworkStats result;
-        result = new NetworkStats(mContext, template, startTime, endTime);
+        result = new NetworkStats(mContext, template, mFlags, startTime, endTime, mService);
         result.startUserUidEnumeration();
         return result;
+    }
+
+    /** @hide */
+    public void registerUsageCallback(NetworkTemplate template, int networkType,
+            long thresholdBytes, UsageCallback callback, @Nullable Handler handler) {
+        Objects.requireNonNull(callback, "UsageCallback cannot be null");
+
+        final Looper looper;
+        if (handler == null) {
+            looper = Looper.myLooper();
+        } else {
+            looper = handler.getLooper();
+        }
+
+        DataUsageRequest request = new DataUsageRequest(DataUsageRequest.REQUEST_ID_UNSET,
+                template, thresholdBytes);
+        try {
+            CallbackHandler callbackHandler = new CallbackHandler(looper, networkType,
+                    template.getSubscriberId(), callback);
+            callback.request = mService.registerUsageCallback(
+                    mContext.getOpPackageName(), request, new Messenger(callbackHandler),
+                    new Binder());
+            if (DBG) Log.d(TAG, "registerUsageCallback returned " + callback.request);
+
+            if (callback.request == null) {
+                Log.e(TAG, "Request from callback is null; should not happen");
+            }
+        } catch (RemoteException e) {
+            if (DBG) Log.d(TAG, "Remote exception when registering callback");
+            throw e.rethrowFromSystemServer();
+        }
     }
 
     /**
      * Registers to receive notifications about data usage on specified networks.
      *
-     * #see registerUsageCallback(int, String[], long, UsageCallback, Handler)
+     * @see #registerUsageCallback(int, String, long, UsageCallback, Handler)
      */
     public void registerUsageCallback(int networkType, String subscriberId, long thresholdBytes,
             UsageCallback callback) {
@@ -318,6 +503,12 @@ public class NetworkStatsManager {
      * @param networkType Type of network to monitor. Either
                   {@link ConnectivityManager#TYPE_MOBILE} or {@link ConnectivityManager#TYPE_WIFI}.
      * @param subscriberId If applicable, the subscriber id of the network interface.
+     *                     <p>Starting with API level 29, the {@code subscriberId} is guarded by
+     *                     additional restrictions. Calling apps that do not meet the new
+     *                     requirements to access the {@code subscriberId} can provide a {@code
+     *                     null} value when registering for the mobile network type to receive
+     *                     notifications for all mobile networks. For additional details see {@link
+     *                     TelephonyManager#getSubscriberId()}.
      * @param thresholdBytes Threshold in bytes to be notified on.
      * @param callback The {@link UsageCallback} that the system will call when data usage
      *            has exceeded the specified threshold.
@@ -326,15 +517,7 @@ public class NetworkStatsManager {
      */
     public void registerUsageCallback(int networkType, String subscriberId, long thresholdBytes,
             UsageCallback callback, @Nullable Handler handler) {
-        checkNotNull(callback, "UsageCallback cannot be null");
-
-        final Looper looper;
-        if (handler == null) {
-            looper = Looper.myLooper();
-        } else {
-            looper = handler.getLooper();
-        }
-
+        NetworkTemplate template = createTemplate(networkType, subscriberId);
         if (DBG) {
             Log.d(TAG, "registerUsageCallback called with: {"
                 + " networkType=" + networkType
@@ -342,25 +525,7 @@ public class NetworkStatsManager {
                 + " thresholdBytes=" + thresholdBytes
                 + " }");
         }
-
-        NetworkTemplate template = createTemplate(networkType, subscriberId);
-        DataUsageRequest request = new DataUsageRequest(DataUsageRequest.REQUEST_ID_UNSET,
-                template, thresholdBytes);
-        try {
-            CallbackHandler callbackHandler = new CallbackHandler(looper, networkType,
-                    subscriberId, callback);
-            callback.request = mService.registerUsageCallback(
-                    mContext.getOpPackageName(), request, new Messenger(callbackHandler),
-                    new Binder());
-            if (DBG) Log.d(TAG, "registerUsageCallback returned " + callback.request);
-
-            if (callback.request == null) {
-                Log.e(TAG, "Request from callback is null; should not happen");
-            }
-        } catch (RemoteException e) {
-            if (DBG) Log.d(TAG, "Remote exception when registering callback");
-            throw e.rethrowFromSystemServer();
-        }
+        registerUsageCallback(template, networkType, thresholdBytes, callback, handler);
     }
 
     /**
@@ -397,20 +562,72 @@ public class NetworkStatsManager {
         private DataUsageRequest request;
     }
 
+    /**
+     * Registers a custom provider of {@link android.net.NetworkStats} to provide network statistics
+     * to the system. To unregister, invoke {@link #unregisterNetworkStatsProvider}.
+     * Note that no de-duplication of statistics between providers is performed, so each provider
+     * must only report network traffic that is not being reported by any other provider. Also note
+     * that the provider cannot be re-registered after unregistering.
+     *
+     * @param tag a human readable identifier of the custom network stats provider. This is only
+     *            used for debugging.
+     * @param provider the subclass of {@link NetworkStatsProvider} that needs to be
+     *                 registered to the system.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.NETWORK_STATS_PROVIDER,
+            NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK})
+    @NonNull public void registerNetworkStatsProvider(
+            @NonNull String tag,
+            @NonNull NetworkStatsProvider provider) {
+        try {
+            if (provider.getProviderCallbackBinder() != null) {
+                throw new IllegalArgumentException("provider is already registered");
+            }
+            final INetworkStatsProviderCallback cbBinder =
+                    mService.registerNetworkStatsProvider(tag, provider.getProviderBinder());
+            provider.setProviderCallbackBinder(cbBinder);
+        } catch (RemoteException e) {
+            e.rethrowAsRuntimeException();
+        }
+    }
+
+    /**
+     * Unregisters an instance of {@link NetworkStatsProvider}.
+     *
+     * @param provider the subclass of {@link NetworkStatsProvider} that needs to be
+     *                 unregistered to the system.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.NETWORK_STATS_PROVIDER,
+            NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK})
+    @NonNull public void unregisterNetworkStatsProvider(@NonNull NetworkStatsProvider provider) {
+        try {
+            provider.getProviderCallbackBinderOrThrow().unregister();
+        } catch (RemoteException e) {
+            e.rethrowAsRuntimeException();
+        }
+    }
+
     private static NetworkTemplate createTemplate(int networkType, String subscriberId) {
-        NetworkTemplate template = null;
+        final NetworkTemplate template;
         switch (networkType) {
-            case ConnectivityManager.TYPE_MOBILE: {
-                template = NetworkTemplate.buildTemplateMobileAll(subscriberId);
-                } break;
-            case ConnectivityManager.TYPE_WIFI: {
+            case ConnectivityManager.TYPE_MOBILE:
+                template = subscriberId == null
+                        ? NetworkTemplate.buildTemplateMobileWildcard()
+                        : NetworkTemplate.buildTemplateMobileAll(subscriberId);
+                break;
+            case ConnectivityManager.TYPE_WIFI:
                 template = NetworkTemplate.buildTemplateWifiWildcard();
-                } break;
-            default: {
+                break;
+            default:
                 throw new IllegalArgumentException("Cannot create template for network type "
                         + networkType + ", subscriberId '"
                         + NetworkIdentity.scrubSubscriberId(subscriberId) + "'.");
-            }
         }
         return template;
     }

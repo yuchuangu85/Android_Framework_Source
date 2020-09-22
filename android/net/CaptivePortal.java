@@ -15,10 +15,17 @@
  */
 package android.net;
 
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
+import android.annotation.TestApi;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.RemoteException;
+
+import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 
 /**
  * A class allowing apps handling the {@link ConnectivityManager#ACTION_CAPTIVE_PORTAL_SIGN_IN}
@@ -27,17 +34,64 @@ import android.os.RemoteException;
  * {@code ACTION_CAPTIVE_PORTAL_SIGN_IN} activity.
  */
 public class CaptivePortal implements Parcelable {
-    /** @hide */
+    /**
+     * Response code from the captive portal application, indicating that the portal was dismissed
+     * and the network should be re-validated.
+     * @see ICaptivePortal#appResponse(int)
+     * @see android.net.INetworkMonitor#notifyCaptivePortalAppFinished(int)
+     * @hide
+     */
+    @SystemApi
+    @TestApi
     public static final int APP_RETURN_DISMISSED    = 0;
-    /** @hide */
+    /**
+     * Response code from the captive portal application, indicating that the user did not login and
+     * does not want to use the captive portal network.
+     * @see ICaptivePortal#appResponse(int)
+     * @see android.net.INetworkMonitor#notifyCaptivePortalAppFinished(int)
+     * @hide
+     */
+    @SystemApi
+    @TestApi
     public static final int APP_RETURN_UNWANTED     = 1;
-    /** @hide */
+    /**
+     * Response code from the captive portal application, indicating that the user does not wish to
+     * login but wants to use the captive portal network as-is.
+     * @see ICaptivePortal#appResponse(int)
+     * @see android.net.INetworkMonitor#notifyCaptivePortalAppFinished(int)
+     * @hide
+     */
+    @SystemApi
+    @TestApi
     public static final int APP_RETURN_WANTED_AS_IS = 2;
+    /** Event offset of request codes from captive portal application. */
+    private static final int APP_REQUEST_BASE = 100;
+    /**
+     * Request code from the captive portal application, indicating that the network condition may
+     * have changed and the network should be re-validated.
+     * @see ICaptivePortal#appRequest(int)
+     * @see android.net.INetworkMonitor#forceReevaluation(int)
+     * @hide
+     */
+    @SystemApi
+    @TestApi
+    public static final int APP_REQUEST_REEVALUATION_REQUIRED = APP_REQUEST_BASE + 0;
 
     private final IBinder mBinder;
 
     /** @hide */
-    public CaptivePortal(IBinder binder) {
+    @IntDef(value = {
+        MetricsEvent.ACTION_CAPTIVE_PORTAL_LOGIN_ACTIVITY,
+        MetricsEvent.ACTION_CAPTIVE_PORTAL_LOGIN_RESULT_DISMISSED,
+        MetricsEvent.ACTION_CAPTIVE_PORTAL_LOGIN_RESULT_UNWANTED,
+        MetricsEvent.ACTION_CAPTIVE_PORTAL_LOGIN_RESULT_WANTED_AS_IS,
+        MetricsEvent.CAPTIVE_PORTAL_LOGIN_ACTIVITY_SSL_ERROR,
+    })
+    public @interface EventId {
+    }
+
+    /** @hide */
+    public CaptivePortal(@NonNull IBinder binder) {
         mBinder = binder;
     }
 
@@ -51,7 +105,7 @@ public class CaptivePortal implements Parcelable {
         out.writeStrongBinder(mBinder);
     }
 
-    public static final Parcelable.Creator<CaptivePortal> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<CaptivePortal> CREATOR
             = new Parcelable.Creator<CaptivePortal>() {
         @Override
         public CaptivePortal createFromParcel(Parcel in) {
@@ -99,9 +153,40 @@ public class CaptivePortal implements Parcelable {
      * connectivity for apps because the captive portal is still in place.
      * @hide
      */
+    @SystemApi
+    @TestApi
     public void useNetwork() {
         try {
             ICaptivePortal.Stub.asInterface(mBinder).appResponse(APP_RETURN_WANTED_AS_IS);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Request that the system reevaluates the captive portal status.
+     * @hide
+     */
+    @SystemApi
+    @TestApi
+    @RequiresPermission(android.Manifest.permission.NETWORK_STACK)
+    public void reevaluateNetwork() {
+        try {
+            ICaptivePortal.Stub.asInterface(mBinder).appRequest(APP_REQUEST_REEVALUATION_REQUIRED);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Log a captive portal login event.
+     * @param eventId one of the CAPTIVE_PORTAL_LOGIN_* constants in metrics_constants.proto.
+     * @param packageName captive portal application package name.
+     * @hide
+     */
+    @SystemApi
+    @TestApi
+    public void logEvent(@EventId int eventId, @NonNull String packageName) {
+        try {
+            ICaptivePortal.Stub.asInterface(mBinder).logEvent(eventId, packageName);
         } catch (RemoteException e) {
         }
     }

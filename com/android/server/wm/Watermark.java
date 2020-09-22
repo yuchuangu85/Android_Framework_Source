@@ -20,19 +20,21 @@ import static com.android.server.wm.WindowManagerDebugConfig.TAG_WM;
 
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Paint.FontMetricsInt;
 import android.graphics.PixelFormat;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.Typeface;
-import android.graphics.Paint.FontMetricsInt;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.Display;
-import android.view.Surface.OutOfResourcesException;
+import android.view.InputWindowHandle;
 import android.view.Surface;
+import android.view.Surface.OutOfResourcesException;
 import android.view.SurfaceControl;
-import android.view.SurfaceSession;
+
+import java.util.function.Supplier;
 
 /**
  * Displays a watermark on top of the window manager's windows.
@@ -48,20 +50,21 @@ class Watermark {
     private final int mDeltaY;
 
     private final SurfaceControl mSurfaceControl;
-    private final Surface mSurface = new Surface();
+    private final Surface mSurface;
     private int mLastDW;
     private int mLastDH;
     private boolean mDrawNeeded;
 
-    Watermark(Display display, DisplayMetrics dm, SurfaceSession session, String[] tokens) {
+    Watermark(Supplier<Surface> surfaceFactory, DisplayContent dc, DisplayMetrics dm,
+            String[] tokens, SurfaceControl.Transaction t) {
         if (false) {
             Log.i(TAG_WM, "*********************** WATERMARK");
             for (int i=0; i<tokens.length; i++) {
                 Log.i(TAG_WM, "  TOKEN #" + i + ": " + tokens[i]);
             }
         }
-
-        mDisplay = display;
+        mSurface = surfaceFactory.get();
+        mDisplay = dc.getDisplay();
         mTokens = tokens;
 
         StringBuilder builder = new StringBuilder(32);
@@ -114,23 +117,28 @@ class Watermark {
 
         SurfaceControl ctrl = null;
         try {
-            ctrl = new SurfaceControl(session, "WatermarkSurface",
-                    1, 1, PixelFormat.TRANSLUCENT, SurfaceControl.HIDDEN);
-            ctrl.setLayerStack(mDisplay.getLayerStack());
-            ctrl.setLayer(WindowManagerService.TYPE_LAYER_MULTIPLIER*100);
-            ctrl.setPosition(0, 0);
-            ctrl.show();
+            ctrl = dc.makeOverlay()
+                    .setName("WatermarkSurface")
+                    .setBufferSize(1, 1)
+                    .setFormat(PixelFormat.TRANSLUCENT)
+                    .setCallsite("Watermark")
+                    .build();
+            t.setLayer(ctrl, WindowManagerService.TYPE_LAYER_MULTIPLIER * 100)
+                    .setPosition(ctrl, 0, 0)
+                    .show(ctrl);
+            // Ensure we aren't considered as obscuring for Input purposes.
+            InputMonitor.setTrustedOverlayInputInfo(ctrl, t, dc.getDisplayId(), "Watermark");
             mSurface.copyFrom(ctrl);
         } catch (OutOfResourcesException e) {
         }
         mSurfaceControl = ctrl;
     }
 
-    void positionSurface(int dw, int dh) {
+    void positionSurface(int dw, int dh, SurfaceControl.Transaction t) {
         if (mLastDW != dw || mLastDH != dh) {
             mLastDW = dw;
             mLastDH = dh;
-            mSurfaceControl.setSize(dw, dh);
+            t.setBufferSize(mSurfaceControl, dw, dh);
             mDrawNeeded = true;
         }
     }

@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Bitmap;
 
 /**
@@ -23,14 +24,17 @@ import android.graphics.Bitmap;
  *
  */
 class CommandParams {
+    @UnsupportedAppUsage
     CommandDetails mCmdDet;
     // Variable to track if an optional icon load has failed.
     boolean mLoadIconFailed = false;
 
+    @UnsupportedAppUsage
     CommandParams(CommandDetails cmdDet) {
         mCmdDet = cmdDet;
     }
 
+    @UnsupportedAppUsage
     AppInterface.CommandType getCommandType() {
         return AppInterface.CommandType.fromInt(mCmdDet.typeOfCommand);
     }
@@ -44,8 +48,10 @@ class CommandParams {
 }
 
 class DisplayTextParams extends CommandParams {
+    @UnsupportedAppUsage
     TextMessage mTextMsg;
 
+    @UnsupportedAppUsage
     DisplayTextParams(CommandDetails cmdDet, TextMessage textMsg) {
         super(cmdDet);
         mTextMsg = textMsg;
@@ -106,6 +112,7 @@ class PlayToneParams extends CommandParams {
     TextMessage mTextMsg;
     ToneSettings mSettings;
 
+    @UnsupportedAppUsage
     PlayToneParams(CommandDetails cmdDet, TextMessage textMsg,
             Tone tone, Duration duration, boolean vibrate) {
         super(cmdDet);
@@ -150,10 +157,20 @@ class CallSetupParams extends CommandParams {
     }
 }
 
+class LanguageParams extends CommandParams {
+    String mLanguage;
+
+    LanguageParams(CommandDetails cmdDet, String lang) {
+        super(cmdDet);
+        mLanguage = lang;
+    }
+}
+
 class SelectItemParams extends CommandParams {
     Menu mMenu = null;
     boolean mLoadTitleIcon = false;
 
+    @UnsupportedAppUsage
     SelectItemParams(CommandDetails cmdDet, Menu menu, boolean loadTitleIcon) {
         super(cmdDet);
         mMenu = menu;
@@ -183,6 +200,7 @@ class SelectItemParams extends CommandParams {
 class GetInputParams extends CommandParams {
     Input mInput = null;
 
+    @UnsupportedAppUsage
     GetInputParams(CommandDetails cmdDet, Input input) {
         super(cmdDet);
         mInput = input;

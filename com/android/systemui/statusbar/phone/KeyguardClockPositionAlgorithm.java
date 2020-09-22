@@ -16,11 +16,14 @@
 
 package com.android.systemui.statusbar.phone;
 
-import android.content.res.Resources;
-import android.graphics.Path;
-import android.view.animation.AccelerateInterpolator;
-import android.view.animation.PathInterpolator;
+import static com.android.systemui.doze.util.BurnInHelperKt.getBurnInOffset;
+import static com.android.systemui.statusbar.notification.NotificationUtils.interpolate;
 
+import android.content.res.Resources;
+import android.util.MathUtils;
+
+import com.android.keyguard.KeyguardStatusView;
+import com.android.systemui.Interpolators;
 import com.android.systemui.R;
 
 /**
@@ -28,177 +31,241 @@ import com.android.systemui.R;
  */
 public class KeyguardClockPositionAlgorithm {
 
-    private static final float SLOW_DOWN_FACTOR = 0.4f;
-
-    private static final float CLOCK_RUBBERBAND_FACTOR_MIN = 0.08f;
-    private static final float CLOCK_RUBBERBAND_FACTOR_MAX = 0.8f;
-    private static final float CLOCK_SCALE_FADE_START = 0.95f;
-    private static final float CLOCK_SCALE_FADE_END = 0.75f;
-    private static final float CLOCK_SCALE_FADE_END_NO_NOTIFS = 0.5f;
-
-    private static final float CLOCK_ADJ_TOP_PADDING_MULTIPLIER_MIN = 1.4f;
-    private static final float CLOCK_ADJ_TOP_PADDING_MULTIPLIER_MAX = 3.2f;
-
-    private int mClockNotificationsMarginMin;
-    private int mClockNotificationsMarginMax;
-    private float mClockYFractionMin;
-    private float mClockYFractionMax;
-    private int mMaxKeyguardNotifications;
-    private int mMaxPanelHeight;
-    private float mExpandedHeight;
-    private int mNotificationCount;
-    private int mHeight;
-    private int mKeyguardStatusHeight;
-    private float mEmptyDragAmount;
-    private float mDensity;
+    /**
+     * How much the clock height influences the shade position.
+     * 0 means nothing, 1 means move the shade up by the height of the clock
+     * 0.5f means move the shade up by half of the size of the clock.
+     */
+    private static float CLOCK_HEIGHT_WEIGHT = 0.7f;
 
     /**
-     * The number (fractional) of notifications the "more" card counts when calculating how many
-     * notifications are currently visible for the y positioning of the clock.
+     * Margin between the bottom of the clock and the notification shade.
      */
-    private float mMoreCardNotificationAmount;
+    private int mClockNotificationsMargin;
 
-    private static final PathInterpolator sSlowDownInterpolator;
+    /**
+     * Height of the parent view - display size in px.
+     */
+    private int mHeight;
 
-    static {
-        Path path = new Path();
-        path.moveTo(0, 0);
-        path.cubicTo(0.3f, 0.875f, 0.6f, 1f, 1f, 1f);
-        sSlowDownInterpolator = new PathInterpolator(path);
-    }
+    /**
+     * Height of {@link KeyguardStatusView}.
+     */
+    private int mKeyguardStatusHeight;
 
-    private AccelerateInterpolator mAccelerateInterpolator = new AccelerateInterpolator();
+    /**
+     * Preferred Y position of clock.
+     */
+    private int mClockPreferredY;
+
+    /**
+     * Whether or not there is a custom clock face on keyguard.
+     */
+    private boolean mHasCustomClock;
+
+    /**
+     * Whether or not the NSSL contains any visible notifications.
+     */
+    private boolean mHasVisibleNotifs;
+
+    /**
+     * Height of notification stack: Sum of height of each notification.
+     */
+    private int mNotificationStackHeight;
+
+    /**
+     * Minimum top margin to avoid overlap with status bar.
+     */
+    private int mMinTopMargin;
+
+    /**
+     * Maximum bottom padding to avoid overlap with {@link KeyguardBottomAreaView} or
+     * the ambient indication.
+     */
+    private int mMaxShadeBottom;
+
+    /**
+     * Minimum distance from the status bar.
+     */
+    private int mContainerTopPadding;
+
+    /**
+     * @see NotificationPanelViewController#getExpandedFraction()
+     */
+    private float mPanelExpansion;
+
+    /**
+     * Burn-in prevention x translation.
+     */
+    private int mBurnInPreventionOffsetX;
+
+    /**
+     * Burn-in prevention y translation.
+     */
+    private int mBurnInPreventionOffsetY;
+
+    /**
+     * Doze/AOD transition amount.
+     */
+    private float mDarkAmount;
+
+    private float mEmptyDragAmount;
+
+    /**
+     * Setting if bypass is enabled. If true the clock should always be positioned like it's dark
+     * and other minor adjustments.
+     */
+    private boolean mBypassEnabled;
+
+    /**
+     * The stackscroller padding when unlocked
+     */
+    private int mUnlockedStackScrollerPadding;
 
     /**
      * Refreshes the dimension values.
      */
     public void loadDimens(Resources res) {
-        mClockNotificationsMarginMin = res.getDimensionPixelSize(
-                R.dimen.keyguard_clock_notifications_margin_min);
-        mClockNotificationsMarginMax = res.getDimensionPixelSize(
-                R.dimen.keyguard_clock_notifications_margin_max);
-        mClockYFractionMin = res.getFraction(R.fraction.keyguard_clock_y_fraction_min, 1, 1);
-        mClockYFractionMax = res.getFraction(R.fraction.keyguard_clock_y_fraction_max, 1, 1);
-        mMoreCardNotificationAmount =
-                (float) res.getDimensionPixelSize(R.dimen.notification_summary_height) /
-                        res.getDimensionPixelSize(R.dimen.notification_min_height);
-        mDensity = res.getDisplayMetrics().density;
+        mClockNotificationsMargin = res.getDimensionPixelSize(
+                R.dimen.keyguard_clock_notifications_margin);
+        // Consider the lock icon when determining the minimum top padding between the status bar
+        // and top of the clock.
+        mContainerTopPadding = Math.max(res.getDimensionPixelSize(
+                R.dimen.keyguard_clock_top_margin),
+                res.getDimensionPixelSize(R.dimen.keyguard_lock_height)
+                        + res.getDimensionPixelSize(R.dimen.keyguard_lock_padding)
+                        + res.getDimensionPixelSize(R.dimen.keyguard_clock_lock_margin));
+        mBurnInPreventionOffsetX = res.getDimensionPixelSize(
+                R.dimen.burn_in_prevention_offset_x);
+        mBurnInPreventionOffsetY = res.getDimensionPixelSize(
+                R.dimen.burn_in_prevention_offset_y);
     }
 
-    public void setup(int maxKeyguardNotifications, int maxPanelHeight, float expandedHeight,
-            int notificationCount, int height, int keyguardStatusHeight, float emptyDragAmount) {
-        mMaxKeyguardNotifications = maxKeyguardNotifications;
-        mMaxPanelHeight = maxPanelHeight;
-        mExpandedHeight = expandedHeight;
-        mNotificationCount = notificationCount;
-        mHeight = height;
+    public void setup(int minTopMargin, int maxShadeBottom, int notificationStackHeight,
+            float panelExpansion, int parentHeight, int keyguardStatusHeight, int clockPreferredY,
+            boolean hasCustomClock, boolean hasVisibleNotifs, float dark, float emptyDragAmount,
+            boolean bypassEnabled, int unlockedStackScrollerPadding) {
+        mMinTopMargin = minTopMargin + mContainerTopPadding;
+        mMaxShadeBottom = maxShadeBottom;
+        mNotificationStackHeight = notificationStackHeight;
+        mPanelExpansion = panelExpansion;
+        mHeight = parentHeight;
         mKeyguardStatusHeight = keyguardStatusHeight;
+        mClockPreferredY = clockPreferredY;
+        mHasCustomClock = hasCustomClock;
+        mHasVisibleNotifs = hasVisibleNotifs;
+        mDarkAmount = dark;
         mEmptyDragAmount = emptyDragAmount;
-    }
-
-    public float getMinStackScrollerPadding(int height, int keyguardStatusHeight) {
-        return mClockYFractionMin * height + keyguardStatusHeight / 2
-                + mClockNotificationsMarginMin;
+        mBypassEnabled = bypassEnabled;
+        mUnlockedStackScrollerPadding = unlockedStackScrollerPadding;
     }
 
     public void run(Result result) {
-        int y = getClockY() - mKeyguardStatusHeight / 2;
-        float clockAdjustment = getClockYExpansionAdjustment();
-        float topPaddingAdjMultiplier = getTopPaddingAdjMultiplier();
-        result.stackScrollerPaddingAdjustment = (int) (clockAdjustment*topPaddingAdjMultiplier);
-        int clockNotificationsPadding = getClockNotificationsPadding()
-                + result.stackScrollerPaddingAdjustment;
-        int padding = y + clockNotificationsPadding;
+        final int y = getClockY(mPanelExpansion);
         result.clockY = y;
-        result.stackScrollerPadding = mKeyguardStatusHeight + padding;
-        result.clockScale = getClockScale(result.stackScrollerPadding,
-                result.clockY,
-                y + getClockNotificationsPadding() + mKeyguardStatusHeight);
-        result.clockAlpha = getClockAlpha(result.clockScale);
+        result.clockAlpha = getClockAlpha(y);
+        result.stackScrollerPadding = mBypassEnabled ? mUnlockedStackScrollerPadding
+                : y + mKeyguardStatusHeight;
+        result.stackScrollerPaddingExpanded = mBypassEnabled ? mUnlockedStackScrollerPadding
+                : getClockY(1.0f) + mKeyguardStatusHeight;
+        result.clockX = (int) interpolate(0, burnInPreventionOffsetX(), mDarkAmount);
     }
 
-    private float getClockScale(int notificationPadding, int clockY, int startPadding) {
-        float scaleMultiplier = getNotificationAmountT() == 0 ? 6.0f : 5.0f;
-        float scaleEnd = clockY - mKeyguardStatusHeight * scaleMultiplier;
-        float distanceToScaleEnd = notificationPadding - scaleEnd;
-        float progress = distanceToScaleEnd / (startPadding - scaleEnd);
-        progress = Math.max(0.0f, Math.min(progress, 1.0f));
-        progress = mAccelerateInterpolator.getInterpolation(progress);
-        progress *= Math.pow(1 + mEmptyDragAmount / mDensity / 300, 0.3f);
-        return progress;
+    public float getMinStackScrollerPadding() {
+        return mBypassEnabled ? mUnlockedStackScrollerPadding
+                : mMinTopMargin + mKeyguardStatusHeight + mClockNotificationsMargin;
     }
 
-    private int getClockNotificationsPadding() {
-        float t = getNotificationAmountT();
-        t = Math.min(t, 1.0f);
-        return (int) (t * mClockNotificationsMarginMin + (1 - t) * mClockNotificationsMarginMax);
+    private int getMaxClockY() {
+        return mHeight / 2 - mKeyguardStatusHeight - mClockNotificationsMargin;
     }
 
-    private float getClockYFraction() {
-        float t = getNotificationAmountT();
-        t = Math.min(t, 1.0f);
-        return (1 - t) * mClockYFractionMax + t * mClockYFractionMin;
+    private int getPreferredClockY() {
+        return mClockPreferredY;
     }
 
-    private int getClockY() {
-        return (int) (getClockYFraction() * mHeight);
-    }
-
-    private float getClockYExpansionAdjustment() {
-        float rubberbandFactor = getClockYExpansionRubberbandFactor();
-        float value = (rubberbandFactor * (mMaxPanelHeight - mExpandedHeight));
-        float t = value / mMaxPanelHeight;
-        float slowedDownValue = -sSlowDownInterpolator.getInterpolation(t) * SLOW_DOWN_FACTOR
-                * mMaxPanelHeight;
-        if (mNotificationCount == 0) {
-            return (-2*value + slowedDownValue)/3;
-        } else {
-            return slowedDownValue;
-        }
-    }
-
-    private float getClockYExpansionRubberbandFactor() {
-        float t = getNotificationAmountT();
-        t = Math.min(t, 1.0f);
-        t = (float) Math.pow(t, 0.3f);
-        return (1 - t) * CLOCK_RUBBERBAND_FACTOR_MAX + t * CLOCK_RUBBERBAND_FACTOR_MIN;
-    }
-
-    private float getTopPaddingAdjMultiplier() {
-        float t = getNotificationAmountT();
-        t = Math.min(t, 1.0f);
-        return (1 - t) * CLOCK_ADJ_TOP_PADDING_MULTIPLIER_MIN
-                + t * CLOCK_ADJ_TOP_PADDING_MULTIPLIER_MAX;
-    }
-
-    private float getClockAlpha(float scale) {
-        float fadeEnd = getNotificationAmountT() == 0.0f
-                ? CLOCK_SCALE_FADE_END_NO_NOTIFS
-                : CLOCK_SCALE_FADE_END;
-        float alpha = (scale - fadeEnd)
-                / (CLOCK_SCALE_FADE_START - fadeEnd);
-        return Math.max(0, Math.min(1, alpha));
+    private int getExpandedPreferredClockY() {
+        return (mHasCustomClock && (!mHasVisibleNotifs || mBypassEnabled)) ? getPreferredClockY()
+                : getExpandedClockPosition();
     }
 
     /**
-     * @return a value from 0 to 1 depending on how many notification there are
+     * Vertically align the clock and the shade in the available space considering only
+     * a percentage of the clock height defined by {@code CLOCK_HEIGHT_WEIGHT}.
+     * @return Clock Y in pixels.
      */
-    private float getNotificationAmountT() {
-        return mNotificationCount
-                / (mMaxKeyguardNotifications + mMoreCardNotificationAmount);
+    public int getExpandedClockPosition() {
+        final int availableHeight = mMaxShadeBottom - mMinTopMargin;
+        final int containerCenter = mMinTopMargin + availableHeight / 2;
+
+        float y = containerCenter - mKeyguardStatusHeight * CLOCK_HEIGHT_WEIGHT
+                - mClockNotificationsMargin - mNotificationStackHeight / 2;
+        if (y < mMinTopMargin) {
+            y = mMinTopMargin;
+        }
+
+        // Don't allow the clock base to be under half of the screen
+        final float maxClockY = getMaxClockY();
+        if (y > maxClockY) {
+            y = maxClockY;
+        }
+
+        return (int) y;
+    }
+
+    private int getClockY(float panelExpansion) {
+        // Dark: Align the bottom edge of the clock at about half of the screen:
+        float clockYDark = (mHasCustomClock ? getPreferredClockY() : getMaxClockY())
+                + burnInPreventionOffsetY();
+        clockYDark = MathUtils.max(0, clockYDark);
+
+        float clockYRegular = getExpandedPreferredClockY();
+        float clockYBouncer = -mKeyguardStatusHeight;
+
+        // Move clock up while collapsing the shade
+        float shadeExpansion = Interpolators.FAST_OUT_LINEAR_IN.getInterpolation(panelExpansion);
+        float clockY = MathUtils.lerp(clockYBouncer, clockYRegular, shadeExpansion);
+        clockYDark = MathUtils.lerp(clockYBouncer, clockYDark, shadeExpansion);
+
+        float darkAmount = mBypassEnabled && !mHasCustomClock ? 1.0f : mDarkAmount;
+        return (int) (MathUtils.lerp(clockY, clockYDark, darkAmount) + mEmptyDragAmount);
+    }
+
+    /**
+     * We might want to fade out the clock when the user is swiping up.
+     * One exception is when the bouncer will become visible, in this cause the clock
+     * should always persist.
+     *
+     * @param y Current clock Y.
+     * @return Alpha from 0 to 1.
+     */
+    private float getClockAlpha(int y) {
+        float alphaKeyguard = Math.max(0, y / Math.max(1f, getClockY(1f)));
+        alphaKeyguard = Interpolators.ACCELERATE.getInterpolation(alphaKeyguard);
+        return MathUtils.lerp(alphaKeyguard, 1f, mDarkAmount);
+    }
+
+    private float burnInPreventionOffsetY() {
+        return getBurnInOffset(mBurnInPreventionOffsetY * 2, false /* xAxis */)
+                - mBurnInPreventionOffsetY;
+    }
+
+    private float burnInPreventionOffsetX() {
+        return getBurnInOffset(mBurnInPreventionOffsetX * 2, true /* xAxis */)
+                - mBurnInPreventionOffsetX;
     }
 
     public static class Result {
 
         /**
+         * The x translation of the clock.
+         */
+        public int clockX;
+
+        /**
          * The y translation of the clock.
          */
         public int clockY;
-
-        /**
-         * The scale of the Clock
-         */
-        public float clockScale;
 
         /**
          * The alpha value of the clock.
@@ -211,9 +278,8 @@ public class KeyguardClockPositionAlgorithm {
         public int stackScrollerPadding;
 
         /**
-         * The top padding adjustment of the stack scroller, in pixels. This value is used to adjust
-         * the padding, but not the overall panel size.
+         * The top padding of the stack scroller, in pixels when fully expanded.
          */
-        public int stackScrollerPaddingAdjustment;
+        public int stackScrollerPaddingExpanded;
     }
 }

@@ -16,32 +16,29 @@
 
 package com.android.server.net;
 
-import static android.net.TrafficStats.MB_IN_BYTES;
+import static android.app.usage.NetworkStatsManager.MIN_THRESHOLD_BYTES;
+
 import static com.android.internal.util.Preconditions.checkArgument;
 
 import android.app.usage.NetworkStatsManager;
 import android.net.DataUsageRequest;
 import android.net.NetworkStats;
-import android.net.NetworkStats.NonMonotonicObserver;
 import android.net.NetworkStatsHistory;
 import android.net.NetworkTemplate;
-import android.os.Binder;
 import android.os.Bundle;
-import android.os.Looper;
-import android.os.Message;
-import android.os.Messenger;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
+import android.os.Looper;
+import android.os.Message;
+import android.os.Messenger;
 import android.os.Process;
 import android.os.RemoteException;
 import android.util.ArrayMap;
-import android.util.IntArray;
-import android.util.SparseArray;
 import android.util.Slog;
+import android.util.SparseArray;
 
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.net.VpnInfo;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -53,8 +50,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 class NetworkStatsObservers {
     private static final String TAG = "NetworkStatsObservers";
     private static final boolean LOGV = false;
-
-    private static final long MIN_THRESHOLD_BYTES = 2 * MB_IN_BYTES;
 
     private static final int MSG_REGISTER = 1;
     private static final int MSG_UNREGISTER = 2;
@@ -68,7 +63,7 @@ class NetworkStatsObservers {
     private final AtomicInteger mNextDataUsageRequestId = new AtomicInteger();
 
     // Lazily instantiated when an observer is registered.
-    private Handler mHandler;
+    private volatile Handler mHandler;
 
     /**
      * Creates a wrapper that contains the caller context and a normalized request.
@@ -108,9 +103,9 @@ class NetworkStatsObservers {
     public void updateStats(NetworkStats xtSnapshot, NetworkStats uidSnapshot,
                 ArrayMap<String, NetworkIdentitySet> activeIfaces,
                 ArrayMap<String, NetworkIdentitySet> activeUidIfaces,
-                VpnInfo[] vpnArray, long currentTime) {
+                long currentTime) {
         StatsContext statsContext = new StatsContext(xtSnapshot, uidSnapshot, activeIfaces,
-                activeUidIfaces, vpnArray, currentTime);
+                activeUidIfaces, currentTime);
         getHandler().sendMessage(mHandler.obtainMessage(MSG_UPDATE_STATS, statsContext));
     }
 
@@ -358,7 +353,7 @@ class NetworkStatsObservers {
             // thread will update it. We pass a null VPN array because usage is aggregated by uid
             // for this snapshot, so VPN traffic can't be reattributed to responsible apps.
             mRecorder.recordSnapshotLocked(statsContext.mXtSnapshot, statsContext.mActiveIfaces,
-                    null /* vpnArray */, statsContext.mCurrentTime);
+                    statsContext.mCurrentTime);
         }
 
         /**
@@ -400,7 +395,7 @@ class NetworkStatsObservers {
             // thread will update it. We pass the VPN info so VPN traffic is reattributed to
             // responsible apps.
             mRecorder.recordSnapshotLocked(statsContext.mUidSnapshot, statsContext.mActiveUidIfaces,
-                    statsContext.mVpnArray, statsContext.mCurrentTime);
+                    statsContext.mCurrentTime);
         }
 
         /**
@@ -410,7 +405,7 @@ class NetworkStatsObservers {
          */
         private long getTotalBytesForNetworkUid(NetworkTemplate template, int uid) {
             try {
-                NetworkStatsHistory history = mCollection.getHistory(template, uid,
+                NetworkStatsHistory history = mCollection.getHistory(template, null, uid,
                         NetworkStats.SET_ALL, NetworkStats.TAG_NONE,
                         NetworkStatsHistory.FIELD_ALL,
                         Long.MIN_VALUE /* start */, Long.MAX_VALUE /* end */,
@@ -431,18 +426,16 @@ class NetworkStatsObservers {
         NetworkStats mUidSnapshot;
         ArrayMap<String, NetworkIdentitySet> mActiveIfaces;
         ArrayMap<String, NetworkIdentitySet> mActiveUidIfaces;
-        VpnInfo[] mVpnArray;
         long mCurrentTime;
 
         StatsContext(NetworkStats xtSnapshot, NetworkStats uidSnapshot,
                 ArrayMap<String, NetworkIdentitySet> activeIfaces,
                 ArrayMap<String, NetworkIdentitySet> activeUidIfaces,
-                VpnInfo[] vpnArray, long currentTime) {
+                long currentTime) {
             mXtSnapshot = xtSnapshot;
             mUidSnapshot = uidSnapshot;
             mActiveIfaces = activeIfaces;
             mActiveUidIfaces = activeUidIfaces;
-            mVpnArray = vpnArray;
             mCurrentTime = currentTime;
         }
     }

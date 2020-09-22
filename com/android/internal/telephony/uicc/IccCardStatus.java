@@ -16,6 +16,9 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.telephony.SubscriptionInfo;
+
 /**
  * See also RIL_CardStatus in include/telephony/ril.h
  *
@@ -25,12 +28,16 @@ public class IccCardStatus {
     public static final int CARD_MAX_APPS = 8;
 
     public enum CardState {
+        @UnsupportedAppUsage
         CARDSTATE_ABSENT,
+        @UnsupportedAppUsage
         CARDSTATE_PRESENT,
+        @UnsupportedAppUsage
         CARDSTATE_ERROR,
         CARDSTATE_RESTRICTED;
 
-        boolean isCardPresent() {
+        @UnsupportedAppUsage
+        public boolean isCardPresent() {
             return this == CARDSTATE_PRESENT ||
                 this == CARDSTATE_RESTRICTED;
         }
@@ -40,8 +47,11 @@ public class IccCardStatus {
         PINSTATE_UNKNOWN,
         PINSTATE_ENABLED_NOT_VERIFIED,
         PINSTATE_ENABLED_VERIFIED,
+        @UnsupportedAppUsage
         PINSTATE_DISABLED,
+        @UnsupportedAppUsage
         PINSTATE_ENABLED_BLOCKED,
+        @UnsupportedAppUsage
         PINSTATE_ENABLED_PERM_BLOCKED;
 
         boolean isPermBlocked() {
@@ -57,12 +67,22 @@ public class IccCardStatus {
         }
     }
 
+    @UnsupportedAppUsage
     public CardState  mCardState;
+    @UnsupportedAppUsage
     public PinState   mUniversalPinState;
+    @UnsupportedAppUsage
     public int        mGsmUmtsSubscriptionAppIndex;
+    @UnsupportedAppUsage
     public int        mCdmaSubscriptionAppIndex;
+    @UnsupportedAppUsage
     public int        mImsSubscriptionAppIndex;
+    public int        physicalSlotIndex = UiccController.INVALID_SLOT_ID;
+    public String     atr;
+    public String     iccid;
+    public String     eid;
 
+    @UnsupportedAppUsage
     public IccCardApplicationStatus[] mApplications;
 
     public void setCardState(int state) {
@@ -115,31 +135,42 @@ public class IccCardStatus {
 
         StringBuilder sb = new StringBuilder();
         sb.append("IccCardState {").append(mCardState).append(",")
-        .append(mUniversalPinState)
-        .append(",num_apps=").append(mApplications.length)
-        .append(",gsm_id=").append(mGsmUmtsSubscriptionAppIndex);
-        if (mGsmUmtsSubscriptionAppIndex >=0
-                && mGsmUmtsSubscriptionAppIndex <CARD_MAX_APPS) {
+        .append(mUniversalPinState);
+        if (mApplications != null) {
+            sb.append(",num_apps=").append(mApplications.length);
+        } else {
+            sb.append(",mApplications=null");
+        }
+
+        sb.append(",gsm_id=").append(mGsmUmtsSubscriptionAppIndex);
+        if (mApplications != null
+                && mGsmUmtsSubscriptionAppIndex >= 0
+                && mGsmUmtsSubscriptionAppIndex < mApplications.length) {
             app = mApplications[mGsmUmtsSubscriptionAppIndex];
             sb.append(app == null ? "null" : app);
         }
 
         sb.append(",cdma_id=").append(mCdmaSubscriptionAppIndex);
-        if (mCdmaSubscriptionAppIndex >=0
-                && mCdmaSubscriptionAppIndex <CARD_MAX_APPS) {
+        if (mApplications != null
+                && mCdmaSubscriptionAppIndex >= 0
+                && mCdmaSubscriptionAppIndex < mApplications.length) {
             app = mApplications[mCdmaSubscriptionAppIndex];
             sb.append(app == null ? "null" : app);
         }
 
         sb.append(",ims_id=").append(mImsSubscriptionAppIndex);
-        if (mImsSubscriptionAppIndex >=0
-                && mImsSubscriptionAppIndex <CARD_MAX_APPS) {
+        if (mApplications != null
+                && mImsSubscriptionAppIndex >= 0
+                && mImsSubscriptionAppIndex < mApplications.length) {
             app = mApplications[mImsSubscriptionAppIndex];
             sb.append(app == null ? "null" : app);
         }
 
-        sb.append("}");
+        sb.append(",physical_slot_id=").append(physicalSlotIndex).append(",atr=").append(atr);
+        sb.append(",iccid=").append(SubscriptionInfo.givePrintableIccid(iccid));
+        sb.append(",eid=").append(eid);
 
+        sb.append("}");
         return sb.toString();
     }
 

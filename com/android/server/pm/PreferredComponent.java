@@ -16,8 +16,10 @@
 
 package com.android.server.pm;
 
+import android.content.pm.PackageManagerInternal;
 import com.android.internal.util.XmlUtils;
 
+import com.android.server.LocalServices;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlSerializer;
@@ -30,6 +32,7 @@ import android.util.Slog;
 
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.List;
 
 public class PreferredComponent {
@@ -51,6 +54,7 @@ public class PreferredComponent {
     private String mParseError;
 
     private final Callbacks mCallbacks;
+    private final String mSetupWizardPackageName;
 
     public interface Callbacks {
         public boolean onReadTag(String tagName, XmlPullParser parser)
@@ -65,6 +69,7 @@ public class PreferredComponent {
         mAlways = always;
         mShortComponent = component.flattenToShortString();
         mParseError = null;
+        mSetupWizardPackageName = null;
         if (set != null) {
             final int N = set.length;
             String[] myPackages = new String[N];
@@ -169,6 +174,8 @@ public class PreferredComponent {
         mSetPackages = myPackages;
         mSetClasses = myClasses;
         mSetComponents = myComponents;
+        final PackageManagerInternal packageManagerInternal = LocalServices.getService(PackageManagerInternal.class);
+        mSetupWizardPackageName = packageManagerInternal.getSetupWizardPackageName();
     }
 
     public String getParseError() {
@@ -192,7 +199,7 @@ public class PreferredComponent {
         }
     }
 
-    public boolean sameSet(List<ResolveInfo> query) {
+    public boolean sameSet(List<ResolveInfo> query, boolean excludeSetupWizardPackage) {
         if (mSetPackages == null) {
             return query == null;
         }
@@ -201,12 +208,18 @@ public class PreferredComponent {
         }
         final int NQ = query.size();
         final int NS = mSetPackages.length;
-
         int numMatch = 0;
         for (int i=0; i<NQ; i++) {
             ResolveInfo ri = query.get(i);
             ActivityInfo ai = ri.activityInfo;
             boolean good = false;
+
+            // ignore SetupWizard package's launcher capability because it is only existed
+            // during SetupWizard is running
+            if (excludeSetupWizardPackage && ai.packageName.equals(mSetupWizardPackageName)) {
+                continue;
+            }
+
             for (int j=0; j<NS; j++) {
                 if (mSetPackages[j].equals(ai.packageName)
                         && mSetClasses[j].equals(ai.name)) {
@@ -239,6 +252,61 @@ public class PreferredComponent {
             if (!good) return false;
         }
         return numMatch == NS;
+    }
+
+    public boolean isSuperset(List<ResolveInfo> query, boolean excludeSetupWizardPackage) {
+        if (mSetPackages == null) {
+            return query == null;
+        }
+        if (query == null) {
+            return true;
+        }
+        final int NQ = query.size();
+        final int NS = mSetPackages.length;
+        if (!excludeSetupWizardPackage && NS < NQ) {
+            return false;
+        }
+        for (int i=0; i<NQ; i++) {
+            ResolveInfo ri = query.get(i);
+            ActivityInfo ai = ri.activityInfo;
+            boolean foundMatch = false;
+
+            // ignore SetupWizard package's launcher capability because it is only existed
+            // during SetupWizard is running
+            if (excludeSetupWizardPackage && ai.packageName.equals(mSetupWizardPackageName)) {
+                continue;
+            }
+
+            for (int j=0; j<NS; j++) {
+                if (mSetPackages[j].equals(ai.packageName) && mSetClasses[j].equals(ai.name)) {
+                    foundMatch = true;
+                    break;
+                }
+            }
+            if (!foundMatch) return false;
+        }
+        return true;
+    }
+
+    /** Returns components from mSetPackages that are present in query. */
+    public ComponentName[] discardObsoleteComponents(List<ResolveInfo> query) {
+        if (mSetPackages == null || query == null) {
+            return new ComponentName[0];
+        }
+        final int NQ = query.size();
+        final int NS = mSetPackages.length;
+        ArrayList<ComponentName> aliveComponents = new ArrayList<>();
+        for (int i = 0; i < NQ; i++) {
+            ResolveInfo ri = query.get(i);
+            ActivityInfo ai = ri.activityInfo;
+            for (int j = 0; j < NS; j++) {
+                if (mSetPackages[j].equals(ai.packageName) && mSetClasses[j].equals(ai.name)) {
+                    aliveComponents.add(new ComponentName(mSetPackages[j], mSetClasses[j]));
+                    break;
+                }
+            }
+        }
+        return aliveComponents.toArray(new ComponentName[aliveComponents.size()]);
     }
 
     public void dump(PrintWriter out, String prefix, Object ident) {

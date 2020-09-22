@@ -20,6 +20,9 @@ import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
 import android.graphics.Path;
+import android.graphics.animation.HasNativeInterpolator;
+import android.graphics.animation.NativeInterpolator;
+import android.graphics.animation.NativeInterpolatorFactory;
 import android.util.AttributeSet;
 import android.util.PathParser;
 import android.view.InflateException;
@@ -42,7 +45,8 @@ import com.android.internal.R;
  *     path.lineTo(1f, 1f);
  * </pre></blockquote></p>
  */
-public class PathInterpolator extends BaseInterpolator {
+@HasNativeInterpolator
+public class PathInterpolator extends BaseInterpolator implements NativeInterpolator {
 
     // This governs how accurate the approximation of the Path is.
     private static final float PRECISION = 0.002f;
@@ -229,4 +233,11 @@ public class PathInterpolator extends BaseInterpolator {
         float endY = mY[endIndex];
         return startY + (fraction * (endY - startY));
     }
+
+    /** @hide **/
+    @Override
+    public long createNativeInterpolator() {
+        return NativeInterpolatorFactory.createPathInterpolator(mX, mY);
+    }
+
 }

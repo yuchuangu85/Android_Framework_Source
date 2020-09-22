@@ -16,13 +16,14 @@
 
 package com.android.server.notification;
 
-import static android.service.notification.NotificationListenerService.Ranking.IMPORTANCE_HIGH;
+import static android.app.NotificationManager.IMPORTANCE_HIGH;
 
 import android.app.Notification;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteFullException;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -114,6 +115,18 @@ public class NotificationUsageStats {
     }
 
     /**
+     * Called when a notification wants to alert.
+     */
+    public synchronized boolean isAlertRateLimited(String packageName) {
+        AggregatedStats stats = getOrCreateAggregatedStatsLocked(packageName);
+        if (stats != null) {
+            return stats.isAlertRateLimited();
+        } else {
+            return false;
+        }
+    }
+
+    /**
      * Called when a notification is tentatively enqueued by an app, before rate checking.
      */
     public synchronized void registerEnqueuedByApp(String packageName) {
@@ -136,6 +149,7 @@ public class NotificationUsageStats {
             stats.numPostedByApp++;
             stats.updateInterarrivalEstimate(now);
             stats.countApiUse(notification);
+            stats.numUndecoratedRemoteViews += (notification.hasUndecoratedRemoteView() ? 1 : 0);
         }
         releaseAggregatedStatsLocked(aggregatedStatsArray);
         if (ENABLE_SQLITE_LOG) {
@@ -249,9 +263,20 @@ public class NotificationUsageStats {
         }
     }
 
+    /**
+     * Call this when RemoteViews object has been removed from a notification because the images
+     * it contains are too big (even after rescaling).
+     */
+    public synchronized void registerImageRemoved(String packageName) {
+        AggregatedStats[] aggregatedStatsArray = getAggregatedStatsLocked(packageName);
+        for (AggregatedStats stats : aggregatedStatsArray) {
+            stats.numImagesRemoved++;
+        }
+    }
+
     // Locked by this.
     private AggregatedStats[] getAggregatedStatsLocked(NotificationRecord record) {
-        return getAggregatedStatsLocked(record.sbn.getPackageName());
+        return getAggregatedStatsLocked(record.getSbn().getPackageName());
     }
 
     // Locked by this.
@@ -311,6 +336,15 @@ public class NotificationUsageStats {
             }
         }
         return dump;
+    }
+
+    public PulledStats remoteViewStats(long startMs, boolean aggregate) {
+        if (ENABLE_SQLITE_LOG) {
+            if (aggregate) {
+                return mSQLiteLog.remoteViewAggStats(startMs);
+            }
+        }
+        return null;
     }
 
     public synchronized void dump(PrintWriter pw, String indent, DumpFilter filter) {
@@ -386,9 +420,13 @@ public class NotificationUsageStats {
         public ImportanceHistogram quietImportance;
         public ImportanceHistogram finalImportance;
         public RateEstimator enqueueRate;
+        public AlertRateLimiter alertRate;
         public int numRateViolations;
+        public int numAlertViolations;
         public int numQuotaViolations;
+        public int numUndecoratedRemoteViews;
         public long mLastAccessTime;
+        public int numImagesRemoved;
 
         public AggregatedStats(Context context, String key) {
             this.key = key;
@@ -398,6 +436,7 @@ public class NotificationUsageStats {
             quietImportance = new ImportanceHistogram(context, "note_imp_quiet_");
             finalImportance = new ImportanceHistogram(context, "note_importance_");
             enqueueRate = new RateEstimator();
+            alertRate = new AlertRateLimiter();
         }
 
         public AggregatedStats getPrevious() {
@@ -510,7 +549,9 @@ public class NotificationUsageStats {
             maybeCount("note_sub_text", (numWithSubText - previous.numWithSubText));
             maybeCount("note_info_text", (numWithInfoText - previous.numWithInfoText));
             maybeCount("note_over_rate", (numRateViolations - previous.numRateViolations));
+            maybeCount("note_over_alert_rate", (numAlertViolations - previous.numAlertViolations));
             maybeCount("note_over_quota", (numQuotaViolations - previous.numQuotaViolations));
+            maybeCount("note_images_removed", (numImagesRemoved - previous.numImagesRemoved));
             noisyImportance.maybeCount(previous.noisyImportance);
             quietImportance.maybeCount(previous.quietImportance);
             finalImportance.maybeCount(previous.finalImportance);
@@ -542,7 +583,9 @@ public class NotificationUsageStats {
             previous.numWithSubText = numWithSubText;
             previous.numWithInfoText = numWithInfoText;
             previous.numRateViolations = numRateViolations;
+            previous.numAlertViolations = numAlertViolations;
             previous.numQuotaViolations = numQuotaViolations;
+            previous.numImagesRemoved = numImagesRemoved;
             noisyImportance.update(previous.noisyImportance);
             quietImportance.update(previous.quietImportance);
             finalImportance.update(previous.finalImportance);
@@ -574,6 +617,14 @@ public class NotificationUsageStats {
 
         public void updateInterarrivalEstimate(long now) {
             enqueueRate.update(now);
+        }
+
+        public boolean isAlertRateLimited() {
+            boolean limited = alertRate.shouldRateLimitAlert(SystemClock.elapsedRealtime());
+            if (limited) {
+                numAlertViolations++;
+            }
+            return limited;
         }
 
         private String toStringWithIndent(String indent) {
@@ -634,11 +685,19 @@ public class NotificationUsageStats {
             output.append("numWithSubText=").append(numWithSubText).append("\n");
             output.append(indentPlusTwo);
             output.append("numWithInfoText=").append(numWithInfoText).append("\n");
+            output.append(indentPlusTwo);
             output.append("numRateViolations=").append(numRateViolations).append("\n");
+            output.append(indentPlusTwo);
+            output.append("numAlertViolations=").append(numAlertViolations).append("\n");
+            output.append(indentPlusTwo);
             output.append("numQuotaViolations=").append(numQuotaViolations).append("\n");
+            output.append(indentPlusTwo);
+            output.append("numImagesRemoved=").append(numImagesRemoved).append("\n");
             output.append(indentPlusTwo).append(noisyImportance.toString()).append("\n");
             output.append(indentPlusTwo).append(quietImportance.toString()).append("\n");
             output.append(indentPlusTwo).append(finalImportance.toString()).append("\n");
+            output.append(indentPlusTwo);
+            output.append("numUndecorateRVs=").append(numUndecoratedRemoteViews).append("\n");
             output.append(indent).append("}");
             return output.toString();
         }
@@ -677,6 +736,8 @@ public class NotificationUsageStats {
             maybePut(dump, "numRateViolations", numRateViolations);
             maybePut(dump, "numQuotaLViolations", numQuotaViolations);
             maybePut(dump, "notificationEnqueueRate", getEnqueueRate());
+            maybePut(dump, "numAlertViolations", numAlertViolations);
+            maybePut(dump, "numImagesRemoved", numImagesRemoved);
             noisyImportance.maybePut(dump, previous.noisyImportance);
             quietImportance.maybePut(dump, previous.quietImportance);
             finalImportance.maybePut(dump, previous.finalImportance);
@@ -718,8 +779,8 @@ public class NotificationUsageStats {
         }
 
         void increment(int imp) {
-            imp = imp < 0 ? 0 : imp > NUM_IMPORTANCES ? NUM_IMPORTANCES : imp;
-            mCount[imp] ++;
+            imp = Math.max(0, Math.min(imp, mCount.length - 1));
+            mCount[imp]++;
         }
 
         void maybeCount(ImportanceHistogram prev) {
@@ -885,6 +946,13 @@ public class NotificationUsageStats {
             updateVisiblyExpandedStats();
         }
 
+        /**
+         * Returns whether this notification has been visible and expanded at the same.
+         */
+        public boolean hasBeenVisiblyExpanded() {
+            return posttimeToFirstVisibleExpansionMs >= 0;
+        }
+
         private void updateVisiblyExpandedStats() {
             long elapsedNowMs = SystemClock.elapsedRealtime();
             if (isExpanded && isVisible) {
@@ -989,7 +1057,7 @@ public class NotificationUsageStats {
         private static final int MSG_DISMISS = 4;
 
         private static final String DB_NAME = "notification_log.db";
-        private static final int DB_VERSION = 5;
+        private static final int DB_VERSION = 7;
 
         /** Age in ms after which events are pruned from the DB. */
         private static final long HORIZON_MS = 7 * 24 * 60 * 60 * 1000L;  // 1 week
@@ -1022,12 +1090,16 @@ public class NotificationUsageStats {
         private static final String COL_FIRST_EXPANSIONTIME_MS = "first_expansion_time_ms";
         private static final String COL_AIRTIME_EXPANDED_MS = "expansion_airtime_ms";
         private static final String COL_EXPAND_COUNT = "expansion_count";
+        private static final String COL_UNDECORATED = "undecorated";
 
 
         private static final int EVENT_TYPE_POST = 1;
         private static final int EVENT_TYPE_CLICK = 2;
         private static final int EVENT_TYPE_REMOVE = 3;
         private static final int EVENT_TYPE_DISMISS = 4;
+
+        private static final int IDLE_CONNECTION_TIMEOUT_MS = 30000;
+
         private static long sLastPruneMs;
 
         private static long sNumWrites;
@@ -1044,12 +1116,20 @@ public class NotificationUsageStats {
                 "COUNT(*) AS cnt, " +
                 "SUM(" + COL_MUTED + ") as muted, " +
                 "SUM(" + COL_NOISY + ") as noisy, " +
-                "SUM(" + COL_DEMOTED + ") as demoted " +
+                "SUM(" + COL_DEMOTED + ") as demoted, " +
+                "SUM(" + COL_UNDECORATED + ") as undecorated " +
                 "FROM " + TAB_LOG + " " +
                 "WHERE " +
                 COL_EVENT_TYPE + "=" + EVENT_TYPE_POST +
                 " AND " + COL_EVENT_TIME + " > %d " +
                 " GROUP BY " + COL_EVENT_USER_ID + ", day, " + COL_PKG;
+        private static final String UNDECORATED_QUERY = "SELECT " +
+                COL_PKG + ", " +
+                "MAX(" + COL_EVENT_TIME + ") as max_time " +
+                "FROM " + TAB_LOG + " " +
+                "WHERE " + COL_UNDECORATED + "> 0 " +
+                " AND " + COL_EVENT_TIME + " > %d " +
+                "GROUP BY " + COL_PKG;
 
         public SQLiteLog(Context context) {
             HandlerThread backgroundThread = new HandlerThread("notification-sqlite-log",
@@ -1062,7 +1142,7 @@ public class NotificationUsageStats {
                     long nowMs = System.currentTimeMillis();
                     switch (msg.what) {
                         case MSG_POST:
-                            writeEvent(r.sbn.getPostTime(), EVENT_TYPE_POST, r);
+                            writeEvent(r.getSbn().getPostTime(), EVENT_TYPE_POST, r);
                             break;
                         case MSG_CLICK:
                             writeEvent(nowMs, EVENT_TYPE_CLICK, r);
@@ -1105,8 +1185,15 @@ public class NotificationUsageStats {
                             COL_AIRTIME_MS + " INT," +
                             COL_FIRST_EXPANSIONTIME_MS + " INT," +
                             COL_AIRTIME_EXPANDED_MS + " INT," +
-                            COL_EXPAND_COUNT + " INT" +
+                            COL_EXPAND_COUNT + " INT," +
+                            COL_UNDECORATED + " INT" +
                             ")");
+                }
+
+                @Override
+                public void onConfigure(SQLiteDatabase db) {
+                    // Memory optimization - close idle connections after 30s of inactivity
+                    setIdleConnectionTimeout(IDLE_CONNECTION_TIMEOUT_MS);
                 }
 
                 @Override
@@ -1200,7 +1287,7 @@ public class NotificationUsageStats {
 
         private void writeEvent(long eventTimeMs, int eventType, NotificationRecord r) {
             ContentValues cv = new ContentValues();
-            cv.put(COL_EVENT_USER_ID, r.sbn.getUser().getIdentifier());
+            cv.put(COL_EVENT_USER_ID, r.getSbn().getUser().getIdentifier());
             cv.put(COL_EVENT_TIME, eventTimeMs);
             cv.put(COL_EVENT_TYPE, eventType);
             putNotificationIdentifiers(r, cv);
@@ -1209,6 +1296,7 @@ public class NotificationUsageStats {
             } else {
                 putPosttimeVisibility(r, cv);
             }
+            cv.put(COL_UNDECORATED, (r.hasUndecoratedRemoteView() ? 1 : 0));
             SQLiteDatabase db = mHelper.getWritableDatabase();
             if (db.insert(TAB_LOG, null, cv) < 0) {
                 Log.wtf(TAG, "Error while trying to insert values: " + cv);
@@ -1225,23 +1313,27 @@ public class NotificationUsageStats {
                 sNumWrites = 0;
                 sLastPruneMs = nowMs;
                 long horizonStartMs = nowMs - HORIZON_MS;
-                int deletedRows = db.delete(TAB_LOG, COL_EVENT_TIME + " < ?",
-                        new String[] { String.valueOf(horizonStartMs) });
-                Log.d(TAG, "Pruned event entries: " + deletedRows);
+                try {
+                    int deletedRows = db.delete(TAB_LOG, COL_EVENT_TIME + " < ?",
+                            new String[]{String.valueOf(horizonStartMs)});
+                    Log.d(TAG, "Pruned event entries: " + deletedRows);
+                } catch (SQLiteFullException e) {
+                    Log.e(TAG, String.format("%s: %s", e.toString(), e.getMessage()));
+                }
             }
         }
 
         private static void putNotificationIdentifiers(NotificationRecord r, ContentValues outCv) {
-            outCv.put(COL_KEY, r.sbn.getKey());
-            outCv.put(COL_PKG, r.sbn.getPackageName());
+            outCv.put(COL_KEY, r.getSbn().getKey());
+            outCv.put(COL_PKG, r.getSbn().getPackageName());
         }
 
         private static void putNotificationDetails(NotificationRecord r, ContentValues outCv) {
-            outCv.put(COL_NOTIFICATION_ID, r.sbn.getId());
-            if (r.sbn.getTag() != null) {
-                outCv.put(COL_TAG, r.sbn.getTag());
+            outCv.put(COL_NOTIFICATION_ID, r.getSbn().getId());
+            if (r.getSbn().getTag() != null) {
+                outCv.put(COL_TAG, r.getSbn().getTag());
             }
-            outCv.put(COL_WHEN_MS, r.sbn.getPostTime());
+            outCv.put(COL_WHEN_MS, r.getSbn().getPostTime());
             outCv.put(COL_FLAGS, r.getNotification().flags);
             final int before = r.stats.requestedImportance;
             final int after = r.getImportance();
@@ -1284,6 +1376,23 @@ public class NotificationUsageStats {
                 // pass
             }
             return dump;
+        }
+
+        public PulledStats remoteViewAggStats(long startMs) {
+            PulledStats stats = new PulledStats(startMs);
+            SQLiteDatabase db = mHelper.getReadableDatabase();
+            String q = String.format(UNDECORATED_QUERY, startMs);
+            Cursor cursor = db.rawQuery(q, null);
+            try {
+                for (cursor.moveToFirst(); !cursor.isAfterLast(); cursor.moveToNext()) {
+                    String pkg = cursor.getString(0);
+                    long maxTimeMs = cursor.getLong(1);
+                    stats.addUndecoratedPackage(pkg, maxTimeMs);
+                }
+            } finally {
+                cursor.close();
+            }
+            return stats;
         }
     }
 }

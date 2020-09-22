@@ -16,8 +16,6 @@
 
 package android.widget;
 
-import com.android.internal.R;
-
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.database.DataSetObserver;
@@ -25,17 +23,23 @@ import android.graphics.Rect;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.util.SparseArray;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.autofill.AutofillValue;
+
+import com.android.internal.R;
 
 /**
  * An abstract base class for spinner widgets. SDK users will probably not
  * need to use this class.
- * 
+ *
  * @attr ref android.R.styleable#AbsSpinner_entries
  */
 public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
+    private static final String LOG_TAG = AbsSpinner.class.getSimpleName();
+
     SpinnerAdapter mAdapter;
 
     int mHeightMeasureSpec;
@@ -68,10 +72,18 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
 
     public AbsSpinner(Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
+
+        // Spinner is important by default, unless app developer overrode attribute.
+        if (getImportantForAutofill() == IMPORTANT_FOR_AUTOFILL_AUTO) {
+            setImportantForAutofill(IMPORTANT_FOR_AUTOFILL_YES);
+        }
+
         initAbsSpinner();
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, R.styleable.AbsSpinner, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.AbsSpinner, attrs, a, defStyleAttr,
+                defStyleRes);
 
         final CharSequence[] entries = a.getTextArray(R.styleable.AbsSpinner_entries);
         if (entries != null) {
@@ -104,12 +116,12 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
             mAdapter.unregisterDataSetObserver(mDataSetObserver);
             resetList();
         }
-        
+
         mAdapter = adapter;
-        
+
         mOldSelectedPosition = INVALID_POSITION;
         mOldSelectedRowId = INVALID_ROW_ID;
-        
+
         if (mAdapter != null) {
             mOldItemCount = mItemCount;
             mItemCount = mAdapter.getCount();
@@ -122,14 +134,14 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
 
             setSelectedPositionInt(position);
             setNextSelectedPositionInt(position);
-            
+
             if (mItemCount == 0) {
                 // Nothing selected
                 checkSelectionChanged();
             }
-            
+
         } else {
-            checkFocus();            
+            checkFocus();
             resetList();
             // Nothing selected
             checkSelectionChanged();
@@ -144,23 +156,23 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
     void resetList() {
         mDataChanged = false;
         mNeedSync = false;
-        
+
         removeAllViewsInLayout();
         mOldSelectedPosition = INVALID_POSITION;
         mOldSelectedRowId = INVALID_ROW_ID;
-        
+
         setSelectedPositionInt(INVALID_POSITION);
         setNextSelectedPositionInt(INVALID_POSITION);
         invalidate();
     }
 
-    /** 
+    /**
      * @see android.view.View#measure(int, int)
-     * 
+     *
      * Figure out the dimensions of this Spinner. The width comes from
      * the widthMeasureSpec as Spinnners can't have their width set to
      * UNSPECIFIED. The height is based on the height of the selected item
-     * plus padding. 
+     * plus padding.
      */
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
@@ -180,11 +192,11 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
         if (mDataChanged) {
             handleDataChanged();
         }
-        
+
         int preferredHeight = 0;
         int preferredWidth = 0;
         boolean needsMeasuring = true;
-        
+
         int selectedPosition = getSelectedItemPosition();
         if (selectedPosition >= 0 && mAdapter != null && selectedPosition < mAdapter.getCount()) {
             // Try looking in the recycler. (Maybe we were measured once already)
@@ -208,14 +220,14 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
                     mBlockLayoutRequests = false;
                 }
                 measureChild(view, widthMeasureSpec, heightMeasureSpec);
-                
+
                 preferredHeight = getChildHeight(view) + mSpinnerPadding.top + mSpinnerPadding.bottom;
                 preferredWidth = getChildWidth(view) + mSpinnerPadding.left + mSpinnerPadding.right;
-                
+
                 needsMeasuring = false;
             }
         }
-        
+
         if (needsMeasuring) {
             // No views -- just use padding
             preferredHeight = mSpinnerPadding.top + mSpinnerPadding.bottom;
@@ -238,18 +250,18 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
     int getChildHeight(View child) {
         return child.getMeasuredHeight();
     }
-    
+
     int getChildWidth(View child) {
         return child.getMeasuredWidth();
     }
-    
+
     @Override
     protected ViewGroup.LayoutParams generateDefaultLayoutParams() {
         return new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
     }
-    
+
     void recycleAllViews() {
         final int childCount = getChildCount();
         final AbsSpinner.RecycleBin recycleBin = mRecycler;
@@ -260,7 +272,7 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
             View v = getChildAt(i);
             int index = position + i;
             recycleBin.put(index, v);
-        }  
+        }
     }
 
     /**
@@ -279,14 +291,14 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
         requestLayout();
         invalidate();
     }
-    
+
 
     /**
      * Makes the item at the supplied position selected.
-     * 
+     *
      * @param position Position to select
      * @param animate Should the transition be animated
-     * 
+     *
      */
     void setSelectionInt(int position, boolean animate) {
         if (position != mOldSelectedPosition) {
@@ -308,11 +320,11 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
             return null;
         }
     }
-   
+
     /**
      * Override to prevent spamming ourselves with layout requests
      * as we place views
-     * 
+     *
      * @see android.view.View#requestLayout()
      */
     @Override
@@ -334,7 +346,7 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
 
     /**
      * Maps a point to a position in the list.
-     * 
+     *
      * @param x X in local coordinate
      * @param y Y in local coordinate
      * @return The position of the item which contains the specified point, or
@@ -378,7 +390,7 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
         SavedState(Parcelable superState) {
             super(superState);
         }
-        
+
         /**
          * Constructor called from {@link #CREATOR}
          */
@@ -403,7 +415,7 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
                     + " position=" + position + "}";
         }
 
-        public static final Parcelable.Creator<SavedState> CREATOR
+        public static final @android.annotation.NonNull Parcelable.Creator<SavedState> CREATOR
                 = new Parcelable.Creator<SavedState>() {
             public SavedState createFromParcel(Parcel in) {
                 return new SavedState(in);
@@ -431,7 +443,7 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
     @Override
     public void onRestoreInstanceState(Parcelable state) {
         SavedState ss = (SavedState) state;
-  
+
         super.onRestoreInstanceState(ss.getSuperState());
 
         if (ss.selectedId >= 0) {
@@ -450,7 +462,7 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
         public void put(int position, View v) {
             mScrapHeap.put(position, v);
         }
-        
+
         View get(int position) {
             // System.out.print("Looking for " + position);
             View result = mScrapHeap.get(position);
@@ -479,5 +491,27 @@ public abstract class AbsSpinner extends AdapterView<SpinnerAdapter> {
     @Override
     public CharSequence getAccessibilityClassName() {
         return AbsSpinner.class.getName();
+    }
+
+    @Override
+    public void autofill(AutofillValue value) {
+        if (!isEnabled()) return;
+
+        if (!value.isList()) {
+            Log.w(LOG_TAG, value + " could not be autofilled into " + this);
+            return;
+        }
+
+        setSelection(value.getListValue());
+    }
+
+    @Override
+    public @AutofillType int getAutofillType() {
+        return isEnabled() ? AUTOFILL_TYPE_LIST : AUTOFILL_TYPE_NONE;
+    }
+
+    @Override
+    public AutofillValue getAutofillValue() {
+        return isEnabled() ? AutofillValue.forList(getSelectedItemPosition()) : null;
     }
 }

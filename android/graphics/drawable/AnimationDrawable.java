@@ -16,19 +16,20 @@
 
 package android.graphics.drawable;
 
-import com.android.internal.R;
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.res.Resources;
+import android.content.res.Resources.Theme;
+import android.content.res.TypedArray;
+import android.os.SystemClock;
+import android.util.AttributeSet;
 
-import java.io.IOException;
+import com.android.internal.R;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
-import android.annotation.NonNull;
-import android.content.res.Resources;
-import android.content.res.TypedArray;
-import android.content.res.Resources.Theme;
-import android.os.SystemClock;
-import android.util.AttributeSet;
+import java.io.IOException;
 
 /**
  * An object used to create frame-by-frame animations, defined by a series of
@@ -88,6 +89,7 @@ public class AnimationDrawable extends DrawableContainer implements Runnable, An
     private AnimationState mAnimationState;
 
     /** The current frame, ranging from 0 to {@link #mAnimationState#getChildCount() - 1} */
+    @UnsupportedAppUsage
     private int mCurFrame = 0;
 
     /** Whether the drawable has an animation callback posted. */

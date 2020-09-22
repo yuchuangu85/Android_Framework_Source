@@ -16,6 +16,7 @@
 
 package android.security.keymaster;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -33,7 +34,8 @@ public class OperationResult implements Parcelable {
     public final byte[] output;
     public final KeymasterArguments outParams;
 
-    public static final Parcelable.Creator<OperationResult> CREATOR = new
+    @UnsupportedAppUsage
+    public static final @android.annotation.NonNull Parcelable.Creator<OperationResult> CREATOR = new
             Parcelable.Creator<OperationResult>() {
                 @Override
                 public OperationResult createFromParcel(Parcel in) {
@@ -55,6 +57,10 @@ public class OperationResult implements Parcelable {
         this.inputConsumed = inputConsumed;
         this.output = output;
         this.outParams = outParams;
+    }
+
+    public OperationResult(int resultCode) {
+        this(resultCode, null, 0, 0, null, null);
     }
 
     protected OperationResult(Parcel in) {

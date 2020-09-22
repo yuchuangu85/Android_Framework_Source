@@ -16,6 +16,9 @@
 
 package android.net.wifi;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -26,6 +29,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CoderResult;
 import java.nio.charset.CodingErrorAction;
+import java.util.Arrays;
 import java.util.Locale;
 
 /**
@@ -38,17 +42,34 @@ import java.util.Locale;
  *
  * @hide
  */
-public class WifiSsid implements Parcelable {
+public final class WifiSsid implements Parcelable {
     private static final String TAG = "WifiSsid";
 
+    @UnsupportedAppUsage
     public final ByteArrayOutputStream octets = new ByteArrayOutputStream(32);
 
     private static final int HEX_RADIX = 16;
-    public static final String NONE = "<unknown ssid>";
+
+    @UnsupportedAppUsage
+    public static final String NONE = WifiManager.UNKNOWN_SSID;
 
     private WifiSsid() {
     }
 
+    /**
+     * Create a WifiSsid from a raw byte array. If the byte array is null, return an empty WifiSsid
+     * object.
+     */
+    @NonNull
+    public static WifiSsid createFromByteArray(@Nullable byte[] ssid) {
+        WifiSsid wifiSsid = new WifiSsid();
+        if (ssid != null) {
+            wifiSsid.octets.write(ssid, 0 /* the start offset */, ssid.length);
+        }
+        return wifiSsid;
+    }
+
+    @UnsupportedAppUsage
     public static WifiSsid createFromAsciiEncoded(String asciiEncoded) {
         WifiSsid a = new WifiSsid();
         a.convertToBytes(asciiEncoded);
@@ -116,6 +137,8 @@ public class WifiSsid implements Parcelable {
                                 val = Integer.parseInt(asciiEncoded.substring(i, i + 2), HEX_RADIX);
                             } catch (NumberFormatException e) {
                                 val = -1;
+                            } catch (StringIndexOutOfBoundsException e) {
+                                val = -1;
                             }
                             if (val < 0) {
                                 val = Character.digit(asciiEncoded.charAt(i), HEX_RADIX);
@@ -159,6 +182,10 @@ public class WifiSsid implements Parcelable {
         }
     }
 
+    /**
+     * Converts this SSID to an unquoted UTF-8 String representation.
+     * @return the SSID string, or {@link WifiManager#UNKNOWN_SSID} if there was an error.
+     */
     @Override
     public String toString() {
         byte[] ssidBytes = octets.toByteArray();
@@ -176,9 +203,26 @@ public class WifiSsid implements Parcelable {
         CoderResult result = decoder.decode(ByteBuffer.wrap(ssidBytes), out, true);
         out.flip();
         if (result.isError()) {
-            return NONE;
+            return WifiManager.UNKNOWN_SSID;
         }
         return out.toString();
+    }
+
+    @Override
+    public boolean equals(Object thatObject) {
+        if (this == thatObject) {
+            return true;
+        }
+        if (!(thatObject instanceof WifiSsid)) {
+            return false;
+        }
+        WifiSsid that = (WifiSsid) thatObject;
+        return Arrays.equals(octets.toByteArray(), that.octets.toByteArray());
+    }
+
+    @Override
+    public int hashCode() {
+        return Arrays.hashCode(octets.toByteArray());
     }
 
     private boolean isArrayAllZeroes(byte[] ssidBytes) {
@@ -194,6 +238,7 @@ public class WifiSsid implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public byte[] getOctets() {
         return octets.toByteArray();
     }
@@ -208,31 +253,36 @@ public class WifiSsid implements Parcelable {
         return (octets.size() > 0) ? out : null;
     }
 
-    /** Implement the Parcelable interface {@hide} */
+    /** Implement the Parcelable interface */
+    @Override
     public int describeContents() {
         return 0;
     }
 
-    /** Implement the Parcelable interface {@hide} */
-    public void writeToParcel(Parcel dest, int flags) {
+    /** Implement the Parcelable interface */
+    @Override
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
         dest.writeInt(octets.size());
         dest.writeByteArray(octets.toByteArray());
     }
 
-    /** Implement the Parcelable interface {@hide} */
-    public static final Creator<WifiSsid> CREATOR =
-        new Creator<WifiSsid>() {
-            public WifiSsid createFromParcel(Parcel in) {
-                WifiSsid ssid = new WifiSsid();
-                int length = in.readInt();
-                byte b[] = new byte[length];
-                in.readByteArray(b);
-                ssid.octets.write(b, 0, length);
-                return ssid;
-            }
+    /** Implement the Parcelable interface */
+    @UnsupportedAppUsage
+    public static final @NonNull Creator<WifiSsid> CREATOR =
+            new Creator<WifiSsid>() {
+                @Override
+                public WifiSsid createFromParcel(Parcel in) {
+                    WifiSsid ssid = new WifiSsid();
+                    int length = in.readInt();
+                    byte[] b = new byte[length];
+                    in.readByteArray(b);
+                    ssid.octets.write(b, 0, length);
+                    return ssid;
+                }
 
-            public WifiSsid[] newArray(int size) {
-                return new WifiSsid[size];
-            }
-        };
+                @Override
+                public WifiSsid[] newArray(int size) {
+                    return new WifiSsid[size];
+                }
+            };
 }

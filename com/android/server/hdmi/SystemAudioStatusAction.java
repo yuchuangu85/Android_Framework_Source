@@ -19,9 +19,9 @@ package com.android.server.hdmi;
 import android.annotation.Nullable;
 import android.hardware.hdmi.HdmiControlManager;
 import android.hardware.hdmi.IHdmiControlCallback;
+import android.hardware.tv.cec.V1_0.SendMessageResult;
 import android.os.RemoteException;
 import android.util.Slog;
-
 import com.android.server.hdmi.HdmiControlService.SendMessageCallback;
 
 /**
@@ -56,7 +56,7 @@ final class SystemAudioStatusAction extends HdmiCecFeatureAction {
                 new SendMessageCallback() {
             @Override
             public void onSendCompleted(int error) {
-                if (error != Constants.SEND_RESULT_SUCCESS) {
+                if (error != SendMessageResult.SUCCESS) {
                     handleSendGiveAudioStatusFailure();
                 }
             }
@@ -64,12 +64,6 @@ final class SystemAudioStatusAction extends HdmiCecFeatureAction {
     }
 
     private void handleSendGiveAudioStatusFailure() {
-        // Inform to all application that the audio status (volumn, mute) of
-        // the audio amplifier is unknown.
-        tv().setAudioStatus(false, Constants.UNKNOWN_VOLUME);
-
-        sendUserControlPressedAndReleased(mAvrAddress,
-                HdmiCecKeycode.getMuteKey(!tv().isSystemAudioActivated()));
 
         // Still return SUCCESS to callback.
         finishWithCallback(HdmiControlManager.RESULT_SUCCESS);
@@ -92,8 +86,8 @@ final class SystemAudioStatusAction extends HdmiCecFeatureAction {
 
     private void handleReportAudioStatus(HdmiCecMessage cmd) {
         byte[] params = cmd.getParams();
-        boolean mute = (params[0] & 0x80) == 0x80;
-        int volume = params[0] & 0x7F;
+        boolean mute = HdmiUtils.isAudioStatusMute(cmd);
+        int volume = HdmiUtils.getAudioStatusVolume(cmd);
         tv().setAudioStatus(mute, volume);
 
         if (!(tv().isSystemAudioActivated() ^ mute)) {

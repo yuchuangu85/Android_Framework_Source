@@ -18,47 +18,24 @@ package com.android.setupwizardlib.items;
 
 import android.content.Context;
 
-/**
- * Inflate {@link Item} hierarchies from XML files.
- *
- * Modified from android.support.v7.preference.PreferenceInflater
- */
-public class ItemInflater extends GenericInflater<ItemHierarchy> {
+/** Inflate {@link Item} hierarchies from XML files. */
+public class ItemInflater extends ReflectionInflater<ItemHierarchy> {
 
-    private static final String TAG = "ItemInflater";
+  public interface ItemParent {
+    void addChild(ItemHierarchy child);
+  }
 
-    public interface ItemParent {
-        void addChild(ItemHierarchy child);
+  public ItemInflater(Context context) {
+    super(context);
+    setDefaultPackage(Item.class.getPackage().getName() + ".");
+  }
+
+  @Override
+  protected void onAddChildItem(ItemHierarchy parent, ItemHierarchy child) {
+    if (parent instanceof ItemParent) {
+      ((ItemParent) parent).addChild(child);
+    } else {
+      throw new IllegalArgumentException("Cannot add child item to " + parent);
     }
-
-    private final Context mContext;
-
-    public ItemInflater(Context context) {
-        super(context);
-        mContext = context;
-        setDefaultPackage(Item.class.getPackage().getName() + ".");
-    }
-
-    @Override
-    public ItemInflater cloneInContext(Context newContext) {
-        return new ItemInflater(newContext);
-    }
-
-    /**
-     * Return the context we are running in, for access to resources, class
-     * loader, etc.
-     */
-    @Override
-    public Context getContext() {
-        return mContext;
-    }
-
-    @Override
-    protected void onAddChildItem(ItemHierarchy parent, ItemHierarchy child) {
-        if (parent instanceof ItemParent) {
-            ((ItemParent) parent).addChild(child);
-        } else {
-            throw new IllegalArgumentException("Cannot add child item to " + parent);
-        }
-    }
+  }
 }

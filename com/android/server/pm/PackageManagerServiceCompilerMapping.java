@@ -23,17 +23,21 @@ import dalvik.system.DexFile;
 /**
  * Manage (retrieve) mappings from compilation reason to compilation filter.
  */
-class PackageManagerServiceCompilerMapping {
+public class PackageManagerServiceCompilerMapping {
     // Names for compilation reasons.
-    static final String REASON_STRINGS[] = {
-            "first-boot", "boot", "install", "bg-dexopt", "ab-ota", "nsys-library", "shared-apk",
-            "forced-dexopt", "core-app"
+    public static final String REASON_STRINGS[] = {
+            "first-boot", "boot", "install", "bg-dexopt", "ab-ota", "inactive", "shared"
     };
+
+    static final int REASON_SHARED_INDEX = 6;
 
     // Static block to ensure the strings array is of the right length.
     static {
         if (PackageManagerService.REASON_LAST + 1 != REASON_STRINGS.length) {
             throw new IllegalStateException("REASON_STRINGS not correct");
+        }
+        if (!"shared".equals(REASON_STRINGS[REASON_SHARED_INDEX])) {
+            throw new IllegalStateException("REASON_STRINGS not correct because of shared index");
         }
     }
 
@@ -53,20 +57,16 @@ class PackageManagerServiceCompilerMapping {
                 !DexFile.isValidCompilerFilter(sysPropValue)) {
             throw new IllegalStateException("Value \"" + sysPropValue +"\" not valid "
                     + "(reason " + REASON_STRINGS[reason] + ")");
-        }
-
-        // Ensure that some reasons are not mapped to profile-guided filters.
-        switch (reason) {
-            case PackageManagerService.REASON_SHARED_APK:
-            case PackageManagerService.REASON_FORCED_DEXOPT:
-                if (DexFile.isProfileGuidedCompilerFilter(sysPropValue)) {
-                    throw new IllegalStateException("\"" + sysPropValue + "\" is profile-guided, "
-                            + "but not allowed for " + REASON_STRINGS[reason]);
-                }
-                break;
+        } else if (!isFilterAllowedForReason(reason, sysPropValue)) {
+            throw new IllegalStateException("Value \"" + sysPropValue +"\" not allowed "
+                    + "(reason " + REASON_STRINGS[reason] + ")");
         }
 
         return sysPropValue;
+    }
+
+    private static boolean isFilterAllowedForReason(int reason, String filter) {
+        return reason != REASON_SHARED_INDEX || !DexFile.isProfileGuidedCompilerFilter(filter);
     }
 
     // Check that the properties are set and valid.
@@ -80,9 +80,7 @@ class PackageManagerServiceCompilerMapping {
             try {
                 // Check that the system property name is legal.
                 String sysPropName = getSystemPropertyName(reason);
-                if (sysPropName == null ||
-                        sysPropName.isEmpty() ||
-                        sysPropName.length() > SystemProperties.PROP_NAME_MAX) {
+                if (sysPropName == null || sysPropName.isEmpty()) {
                     throw new IllegalStateException("Reason system property name \"" +
                             sysPropName +"\" for reason " + REASON_STRINGS[reason]);
                 }
@@ -107,12 +105,12 @@ class PackageManagerServiceCompilerMapping {
     }
 
     /**
-     * Return the compiler filter for "full" compilation.
+     * Return the default compiler filter for compilation.
      *
      * We derive that from the traditional "dalvik.vm.dex2oat-filter" property and just make
      * sure this isn't profile-guided. Returns "speed" in case of invalid (or missing) values.
      */
-    public static String getFullCompilerFilter() {
+    public static String getDefaultCompilerFilter() {
         String value = SystemProperties.get("dalvik.vm.dex2oat-filter");
         if (value == null || value.isEmpty()) {
             return "speed";
@@ -126,10 +124,13 @@ class PackageManagerServiceCompilerMapping {
         return value;
     }
 
-    /**
-     * Return the non-profile-guided filter corresponding to the given filter.
-     */
-    public static String getNonProfileGuidedCompilerFilter(String filter) {
-        return DexFile.getNonProfileGuidedCompilerFilter(filter);
+    public static String getReasonName(int reason) {
+        if (reason == PackageManagerService.REASON_UNKNOWN) {
+            return "unknown";
+        }
+        if (reason < 0 || reason >= REASON_STRINGS.length) {
+            throw new IllegalArgumentException("reason " + reason + " invalid");
+        }
+        return REASON_STRINGS[reason];
     }
 }

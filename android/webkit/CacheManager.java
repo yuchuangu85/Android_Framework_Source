@@ -16,12 +16,14 @@
 
 package android.webkit;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Map;
-
 
 /**
  * Manages the HTTP cache used by an application's {@link WebView} instances.
@@ -48,23 +50,43 @@ public final class CacheManager {
      */
     @Deprecated
     public static class CacheResult {
+
+        @UnsupportedAppUsage
+        public CacheResult() {
+        }
+
         // these fields are saved to the database
+        @UnsupportedAppUsage
         int httpStatusCode;
+        @UnsupportedAppUsage
         long contentLength;
+        @UnsupportedAppUsage
         long expires;
+        @UnsupportedAppUsage
         String expiresString;
+        @UnsupportedAppUsage
         String localPath;
+        @UnsupportedAppUsage
         String lastModified;
+        @UnsupportedAppUsage
         String etag;
+        @UnsupportedAppUsage
         String mimeType;
+        @UnsupportedAppUsage
         String location;
+        @UnsupportedAppUsage
         String encoding;
+        @UnsupportedAppUsage
         String contentdisposition;
+        @UnsupportedAppUsage
         String crossDomain;
 
         // these fields are NOT saved to the database
+        @UnsupportedAppUsage
         InputStream inStream;
+        @UnsupportedAppUsage
         OutputStream outStream;
+        @UnsupportedAppUsage
         File outFile;
 
         /**
@@ -72,6 +94,7 @@ public final class CacheManager {
          *
          * @return the status code of this cache entry
          */
+        @UnsupportedAppUsage
         public int getHttpStatusCode() {
             return httpStatusCode;
         }
@@ -81,6 +104,7 @@ public final class CacheManager {
          *
          * @return the content length of this cache entry
          */
+        @UnsupportedAppUsage
         public long getContentLength() {
             return contentLength;
         }
@@ -92,6 +116,7 @@ public final class CacheManager {
          *
          * @return the path of the file used to store this cache entry
          */
+        @UnsupportedAppUsage
         public String getLocalPath() {
             return localPath;
         }
@@ -102,6 +127,7 @@ public final class CacheManager {
          *
          * @return the expiry date of this cache entry
          */
+        @UnsupportedAppUsage
         public long getExpires() {
             return expires;
         }
@@ -112,6 +138,7 @@ public final class CacheManager {
          * @return the expiry date of this cache entry
          *
          */
+        @UnsupportedAppUsage
         public String getExpiresString() {
             return expiresString;
         }
@@ -122,6 +149,7 @@ public final class CacheManager {
          *
          * @return the date at which this cache entry was last modified
          */
+        @UnsupportedAppUsage
         public String getLastModified() {
             return lastModified;
         }
@@ -131,6 +159,7 @@ public final class CacheManager {
          *
          * @return the entity tag of this cache entry
          */
+        @UnsupportedAppUsage
         public String getETag() {
             return etag;
         }
@@ -140,6 +169,7 @@ public final class CacheManager {
          *
          * @return the MIME type of this cache entry
          */
+        @UnsupportedAppUsage
         public String getMimeType() {
             return mimeType;
         }
@@ -150,6 +180,7 @@ public final class CacheManager {
          *
          * @return the HTTP 'Location' header for this cache entry
          */
+        @UnsupportedAppUsage
         public String getLocation() {
             return location;
         }
@@ -159,6 +190,7 @@ public final class CacheManager {
          *
          * @return the encoding of this cache entry
          */
+        @UnsupportedAppUsage
         public String getEncoding() {
             return encoding;
         }
@@ -170,6 +202,7 @@ public final class CacheManager {
          * @return the HTTP 'Content-Disposition' header for this cache entry
          *
          */
+        @UnsupportedAppUsage
         public String getContentDisposition() {
             return contentdisposition;
         }
@@ -181,6 +214,7 @@ public final class CacheManager {
          *
          * @return an input stream to the content of this cache entry
          */
+        @UnsupportedAppUsage
         public InputStream getInputStream() {
             return inStream;
         }
@@ -193,6 +227,7 @@ public final class CacheManager {
          * @return an output stream to the content of this cache entry
          */
         // Note that this is always null for objects returned by getCacheFile()!
+        @UnsupportedAppUsage
         public OutputStream getOutputStream() {
             return outStream;
         }
@@ -203,6 +238,7 @@ public final class CacheManager {
          *
          * @param stream an input stream to the content of this cache entry
          */
+        @UnsupportedAppUsage
         public void setInputStream(InputStream stream) {
             this.inStream = stream;
         }
@@ -212,6 +248,7 @@ public final class CacheManager {
          *
          * @param encoding the encoding of this cache entry
          */
+        @UnsupportedAppUsage
         public void setEncoding(String encoding) {
             this.encoding = encoding;
         }
@@ -230,9 +267,11 @@ public final class CacheManager {
      * {@link CacheManager.CacheResult#getLocalPath CacheManager.CacheResult.getLocalPath()}.
      *
      * @return the base directory of the cache
-     * @deprecated This method no longer has any effect and always returns null.
+     * @deprecated This method no longer has any effect and always returns {@code null}.
      */
     @Deprecated
+    @Nullable
+    @UnsupportedAppUsage
     public static File getCacheFileBaseDir() {
         return null;
     }
@@ -240,23 +279,25 @@ public final class CacheManager {
     /**
      * Gets whether the HTTP cache is disabled.
      *
-     * @return true if the HTTP cache is disabled
-     * @deprecated This method no longer has any effect and always returns false.
+     * @return {@code true} if the HTTP cache is disabled
+     * @deprecated This method no longer has any effect and always returns {@code false}.
      */
     @Deprecated
+    @UnsupportedAppUsage
     public static boolean cacheDisabled() {
         return false;
     }
 
     /**
-     * Starts a cache transaction. Returns true if this is the only running
+     * Starts a cache transaction. Returns {@code true} if this is the only running
      * transaction. Otherwise, this transaction is nested inside currently
-     * running transactions and false is returned.
+     * running transactions and {@code false} is returned.
      *
-     * @return true if this is the only running transaction
-     * @deprecated This method no longer has any effect and always returns false.
+     * @return {@code true} if this is the only running transaction
+     * @deprecated This method no longer has any effect and always returns {@code false}.
      */
     @Deprecated
+    @UnsupportedAppUsage
     public static boolean startCacheTransaction() {
         return false;
     }
@@ -265,16 +306,17 @@ public final class CacheManager {
      * Ends the innermost cache transaction and returns whether this was the
      * only running transaction.
      *
-     * @return true if this was the only running transaction
-     * @deprecated This method no longer has any effect and always returns false.
+     * @return {@code true} if this was the only running transaction
+     * @deprecated This method no longer has any effect and always returns {@code false}.
      */
     @Deprecated
+    @UnsupportedAppUsage
     public static boolean endCacheTransaction() {
         return false;
     }
 
     /**
-     * Gets the cache entry for the specified URL, or null if none is found.
+     * Gets the cache entry for the specified URL, or {@code null} if none is found.
      * If a non-null value is provided for the HTTP headers map, and the cache
      * entry needs validation, appropriate headers will be added to the map.
      * The input stream of the CacheEntry object should be closed by the caller
@@ -284,9 +326,11 @@ public final class CacheManager {
      * @param headers a map from HTTP header name to value, to be populated
      *                for the returned cache entry
      * @return the cache entry for the specified URL
-     * @deprecated This method no longer has any effect and always returns null.
+     * @deprecated This method no longer has any effect and always returns {@code null}.
      */
     @Deprecated
+    @Nullable
+    @UnsupportedAppUsage
     public static CacheResult getCacheFile(String url,
             Map<String, String> headers) {
         return null;
@@ -301,10 +345,12 @@ public final class CacheManager {
      * @deprecated Access to the HTTP cache will be removed in a future release.
      */
     @Deprecated
+    @UnsupportedAppUsage
     public static void saveCacheFile(String url, CacheResult cacheResult) {
         saveCacheFile(url, 0, cacheResult);
     }
 
+    @UnsupportedAppUsage
     static void saveCacheFile(String url, long postIdentifier,
             CacheResult cacheRet) {
         try {

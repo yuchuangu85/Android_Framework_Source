@@ -18,8 +18,10 @@ package android.widget;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.database.DataSetObserver;
+import android.os.Build;
 import android.os.Parcelable;
 import android.os.SystemClock;
 import android.util.AttributeSet;
@@ -31,17 +33,19 @@ import android.view.View;
 import android.view.ViewDebug;
 import android.view.ViewGroup;
 import android.view.ViewHierarchyEncoder;
+import android.view.ViewStructure;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.autofill.AutofillManager;
 
 /**
  * An AdapterView is a view whose children are determined by an {@link Adapter}.
- * 适配器视图
+ *
  * <p>
  * See {@link ListView}, {@link GridView}, {@link Spinner} and
- * {@link Gallery} for commonly used subclasses of AdapterView.
- * <p>
+ *      {@link Gallery} for commonly used subclasses of AdapterView.
+ *
  * <div class="special reference">
  * <h3>Developer Guides</h3>
  * <p>For more information about using AdapterView, read the
@@ -53,16 +57,12 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     /**
      * The item view type returned by {@link Adapter#getItemViewType(int)} when
      * the adapter does not want the item's view recycled.
-     * <p>
-     * 当适配器中View不想被重复利用时返回的View类型
      */
     public static final int ITEM_VIEW_TYPE_IGNORE = -1;
 
     /**
      * The item view type returned by {@link Adapter#getItemViewType(int)} when
      * the item is a header or footer.
-     * <p>
-     * 当ItemView时header或者footer是返回的View类型
      */
     public static final int ITEM_VIEW_TYPE_HEADER_OR_FOOTER = -2;
 
@@ -70,6 +70,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
      * The position of the first child displayed
      */
     @ViewDebug.ExportedProperty(category = "scrolling")
+    @UnsupportedAppUsage
     int mFirstPosition = 0;
 
     /**
@@ -81,6 +82,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     /**
      * Position from which to start looking for mSyncRowId
      */
+    @UnsupportedAppUsage
     int mSyncPosition;
 
     /**
@@ -96,6 +98,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     /**
      * True if we need to sync to mSyncRowId
      */
+    @UnsupportedAppUsage
     boolean mNeedSync = false;
 
     /**
@@ -133,11 +136,13 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     /**
      * The listener that receives notifications when an item is selected.
      */
+    @UnsupportedAppUsage
     OnItemSelectedListener mOnItemSelectedListener;
 
     /**
      * The listener that receives notifications when an item is clicked.
      */
+    @UnsupportedAppUsage
     OnItemClickListener mOnItemClickListener;
 
     /**
@@ -148,6 +153,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     /**
      * True if the data has changed since the last layout
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 123768524)
     boolean mDataChanged;
 
     /**
@@ -155,17 +161,20 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
      * during the next layout.
      */
     @ViewDebug.ExportedProperty(category = "list")
+    @UnsupportedAppUsage
     int mNextSelectedPosition = INVALID_POSITION;
 
     /**
      * The item id of the item to select during the next layout.
      */
+    @UnsupportedAppUsage
     long mNextSelectedRowId = INVALID_ROW_ID;
 
     /**
      * The position within the adapter's data set of the currently selected item.
      */
     @ViewDebug.ExportedProperty(category = "list")
+    @UnsupportedAppUsage
     int mSelectedPosition = INVALID_POSITION;
 
     /**
@@ -203,6 +212,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     /**
      * The last selected position we used when notifying
      */
+    @UnsupportedAppUsage
     int mOldSelectedPosition = INVALID_POSITION;
 
     /**
@@ -219,17 +229,13 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
      * @see #setFocusable(boolean)
      * @see #checkFocus()
      */
-    private boolean mDesiredFocusableState;
+    private int mDesiredFocusableState = FOCUSABLE_AUTO;
     private boolean mDesiredFocusableInTouchModeState;
 
-    /**
-     * Lazily-constructed runnable for dispatching selection events.
-     */
+    /** Lazily-constructed runnable for dispatching selection events. */
     private SelectionNotifier mSelectionNotifier;
 
-    /**
-     * Selection notifier that's waiting for the next layout pass.
-     */
+    /** Selection notifier that's waiting for the next layout pass. */
     private SelectionNotifier mPendingSelectionNotifier;
 
     /**
@@ -257,6 +263,12 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
         if (getImportantForAccessibility() == IMPORTANT_FOR_ACCESSIBILITY_AUTO) {
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
         }
+
+        mDesiredFocusableState = getFocusable();
+        if (mDesiredFocusableState == FOCUSABLE_AUTO) {
+            // Starts off without an adapter, so NOT_FOCUSABLE by default.
+            super.setFocusable(NOT_FOCUSABLE);
+        }
     }
 
     /**
@@ -272,11 +284,11 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
          * Implementers can call getItemAtPosition(position) if they need
          * to access the data associated with the selected item.
          *
-         * @param parent   The AdapterView where the click happened.
-         * @param view     The view within the AdapterView that was clicked (this
-         *                 will be a view provided by the adapter)
+         * @param parent The AdapterView where the click happened.
+         * @param view The view within the AdapterView that was clicked (this
+         *            will be a view provided by the adapter)
          * @param position The position of the view in the adapter.
-         * @param id       The row id of the item that was clicked.
+         * @param id The row id of the item that was clicked.
          */
         void onItemClick(AdapterView<?> parent, View view, int position, long id);
     }
@@ -293,7 +305,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
 
     /**
      * @return The callback to be invoked with an item in this AdapterView has
-     * been clicked, or null id no callback has been set.
+     *         been clicked, or null if no callback has been set.
      */
     @Nullable
     public final OnItemClickListener getOnItemClickListener() {
@@ -305,12 +317,11 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
      * actions associated with clicking: reporting accessibility event, playing
      * a sound, etc.
      *
-     * @param view     The view within the AdapterView that was clicked.
+     * @param view The view within the AdapterView that was clicked.
      * @param position The position of the view in the adapter.
-     * @param id       The row id of the item that was clicked.
-     *
+     * @param id The row id of the item that was clicked.
      * @return True if there was an assigned OnItemClickListener that was
-     * called, false otherwise is returned.
+     *         called, false otherwise is returned.
      */
     public boolean performItemClick(View view, int position, long id) {
         final boolean result;
@@ -336,14 +347,14 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
         /**
          * Callback method to be invoked when an item in this view has been
          * clicked and held.
-         * <p>
+         *
          * Implementers can call getItemAtPosition(position) if they need to access
          * the data associated with the selected item.
          *
-         * @param parent   The AbsListView where the click happened
-         * @param view     The view within the AbsListView that was clicked
+         * @param parent The AbsListView where the click happened
+         * @param view The view within the AbsListView that was clicked
          * @param position The position of the view in the list
-         * @param id       The row id of the item that was clicked
+         * @param id The row id of the item that was clicked
          *
          * @return true if the callback consumed the long click, false otherwise
          */
@@ -366,7 +377,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
 
     /**
      * @return The callback to be invoked with an item in this AdapterView has
-     * been clicked and held, or null id no callback as been set.
+     *         been clicked and held, or null if no callback has been set.
      */
     public final OnItemLongClickListener getOnItemLongClickListener() {
         return mOnItemLongClickListener;
@@ -382,14 +393,14 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
          * selected. This callback is invoked only when the newly selected
          * position is different from the previously selected position or if
          * there was no selected item.</p>
-         * <p>
-         * Impelmenters can call getItemAtPosition(position) if they need to access the
+         *
+         * Implementers can call getItemAtPosition(position) if they need to access the
          * data associated with the selected item.
          *
-         * @param parent   The AdapterView where the selection happened
-         * @param view     The view within the AdapterView that was clicked
+         * @param parent The AdapterView where the selection happened
+         * @param view The view within the AdapterView that was clicked
          * @param position The position of the view in the adapter
-         * @param id       The row id of the item that is selected
+         * @param id The row id of the item that is selected
          */
         void onItemSelected(AdapterView<?> parent, View view, int position, long id);
 
@@ -423,6 +434,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
      * Extra menu information provided to the
      * {@link android.view.View.OnCreateContextMenuListener#onCreateContextMenu(ContextMenu, View, ContextMenuInfo) }
      * callback when a context menu is brought up for this AdapterView.
+     *
      */
     public static class AdapterContextMenuInfo implements ContextMenu.ContextMenuInfo {
 
@@ -493,7 +505,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     /**
      * This method is not supported and throws an UnsupportedOperationException when called.
      *
-     * @param child  Ignored.
+     * @param child Ignored.
      * @param params Ignored.
      *
      * @throws UnsupportedOperationException Every time this method is invoked.
@@ -507,8 +519,8 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     /**
      * This method is not supported and throws an UnsupportedOperationException when called.
      *
-     * @param child  Ignored.
-     * @param index  Ignored.
+     * @param child Ignored.
+     * @param index Ignored.
      * @param params Ignored.
      *
      * @throws UnsupportedOperationException Every time this method is invoked.
@@ -599,8 +611,8 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
 
     /**
      * @return The number of items owned by the Adapter associated with this
-     * AdapterView. (This is the number of data items, which may be
-     * larger than the number of visible views.)
+     *         AdapterView. (This is the number of data items, which may be
+     *         larger than the number of visible views.)
      */
     @ViewDebug.CapturedViewProperty
     public int getCount() {
@@ -619,10 +631,9 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
      *
      * @param view an adapter item, or a descendant of an adapter item. This
      *             must be visible in this AdapterView at the time of the call.
-     *
      * @return the position within the adapter's data set of the view, or
-     * {@link #INVALID_POSITION} if the view does not correspond to a
-     * list item (or it is not currently visible)
+     *         {@link #INVALID_POSITION} if the view does not correspond to a
+     *         list item (or it is not currently visible)
      */
     public int getPositionForView(View view) {
         View listItem = view;
@@ -672,7 +683,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
 
     /**
      * Sets the currently selected item. To support accessibility subclasses that
-     * override this method must invoke the overriden super method first.
+     * override this method must invoke the overridden super method first.
      *
      * @param position Index (starting at 0) of the data item to be selected.
      */
@@ -718,16 +729,16 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     }
 
     @Override
-    public void setFocusable(boolean focusable) {
+    public void setFocusable(@Focusable int focusable) {
         final T adapter = getAdapter();
         final boolean empty = adapter == null || adapter.getCount() == 0;
 
         mDesiredFocusableState = focusable;
-        if (!focusable) {
+        if ((focusable & (FOCUSABLE_AUTO | FOCUSABLE)) == 0) {
             mDesiredFocusableInTouchModeState = false;
         }
 
-        super.setFocusable(focusable && (!empty || isInFilterMode()));
+        super.setFocusable((!empty || isInFilterMode()) ? focusable : NOT_FOCUSABLE);
     }
 
     @Override
@@ -737,7 +748,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
 
         mDesiredFocusableInTouchModeState = focusable;
         if (focusable) {
-            mDesiredFocusableState = true;
+            mDesiredFocusableState = FOCUSABLE;
         }
 
         super.setFocusableInTouchMode(focusable && (!empty || isInFilterMode()));
@@ -751,7 +762,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
         // for the client, see View.setFocusableInTouchMode() comments for more
         // details
         super.setFocusableInTouchMode(focusable && mDesiredFocusableInTouchModeState);
-        super.setFocusable(focusable && mDesiredFocusableState);
+        super.setFocusable(focusable ? mDesiredFocusableState : NOT_FOCUSABLE);
         if (mEmptyView != null) {
             updateEmptyStatus((adapter == null) || adapter.isEmpty());
         }
@@ -792,7 +803,6 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
      * Gets the data associated with the specified position in the list.
      *
      * @param position Which data to get
-     *
      * @return The data associated with the specified position in the list
      */
     public Object getItemAtPosition(int position) {
@@ -902,6 +912,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
         }
     }
 
+    @UnsupportedAppUsage
     void selectionChanged() {
         // We're about to post or run the selection notifier, so we don't need
         // a pending notifier.
@@ -923,6 +934,11 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
             } else {
                 dispatchOnItemSelected();
             }
+        }
+        // Always notify AutoFillManager - it will return right away if autofill is disabled.
+        final AutofillManager afm = mContext.getSystemService(AutofillManager.class);
+        if (afm != null) {
+            afm.notifyValueChanged(this);
         }
     }
 
@@ -1018,7 +1034,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
         if (adapter != null) {
             final int itemCount = adapter.getCount();
             return itemCount > 0
-                    && (getFirstVisiblePosition() > 0 || getLastVisiblePosition() < itemCount - 1);
+                && (getFirstVisiblePosition() > 0 || getLastVisiblePosition() < itemCount - 1);
         }
         return false;
     }
@@ -1117,7 +1133,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
      * 2) we run out of time, or 3) we have looked at every position
      *
      * @return Position of the row that matches mSyncRowId, or {@link #INVALID_POSITION} if it can't
-     * be found
+     *         be found
      */
     int findSyncPosition() {
         int count = mItemCount;
@@ -1203,31 +1219,29 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
      *
      * @param position The starting position to look at.
      * @param lookDown Whether to look down for other positions.
-     *
      * @return The next selectable position starting at position and then searching either up or
-     * down. Returns {@link #INVALID_POSITION} if nothing can be found.
+     *         down. Returns {@link #INVALID_POSITION} if nothing can be found.
      */
     int lookForSelectablePosition(int position, boolean lookDown) {
         return position;
     }
 
     /**
-     * Utility to keep mSelectedPosition and mSelectedRowId in sync(同步)
-     *
+     * Utility to keep mSelectedPosition and mSelectedRowId in sync
      * @param position Our current position
      */
+    @UnsupportedAppUsage
     void setSelectedPositionInt(int position) {
         mSelectedPosition = position;
-        // 根据position获取对应的ItemId
         mSelectedRowId = getItemIdAtPosition(position);
     }
 
     /**
      * Utility to keep mNextSelectedPosition and mNextSelectedRowId in sync
-     *
      * @param position Intended value for mSelectedPosition the next time we go
-     *                 through layout
+     * through layout
      */
+    @UnsupportedAppUsage
     void setNextSelectedPositionInt(int position) {
         mNextSelectedPosition = position;
         mNextSelectedRowId = getItemIdAtPosition(position);
@@ -1241,6 +1255,7 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
     /**
      * Remember enough information to restore the screen state when the data has
      * changed.
+     *
      */
     void rememberSyncState() {
         if (getChildCount() > 0) {
@@ -1283,5 +1298,35 @@ public abstract class AdapterView<T extends Adapter> extends ViewGroup {
         encoder.addProperty("list:nextSelectedRowId", mNextSelectedRowId);
         encoder.addProperty("list:selectedPosition", mSelectedPosition);
         encoder.addProperty("list:itemCount", mItemCount);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>It also sets the autofill options in the structure; when overridden, it should set it as
+     * well, either explicitly by calling {@link ViewStructure#setAutofillOptions(CharSequence[])}
+     * or implicitly by calling {@code super.onProvideAutofillStructure(structure, flags)}.
+     */
+    @Override
+    public void onProvideAutofillStructure(ViewStructure structure, int flags) {
+        super.onProvideAutofillStructure(structure, flags);
+    }
+
+    /** @hide */
+    @Override
+    protected void onProvideStructure(@NonNull ViewStructure structure,
+            @ViewStructureType int viewFor, int flags) {
+        super.onProvideStructure(structure, viewFor, flags);
+
+        if (viewFor == VIEW_STRUCTURE_FOR_AUTOFILL
+                || viewFor == VIEW_STRUCTURE_FOR_CONTENT_CAPTURE) {
+            final Adapter adapter = getAdapter();
+            if (adapter == null) return;
+
+            final CharSequence[] options = adapter.getAutofillOptions();
+            if (options != null) {
+                structure.setAutofillOptions(options);
+            }
+        }
     }
 }

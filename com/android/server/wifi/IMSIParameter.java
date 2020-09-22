@@ -1,73 +1,134 @@
+/*
+ * Copyright (C) 2016 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.android.server.wifi;
 
-import java.io.IOException;
+import android.text.TextUtils;
 
+import com.android.internal.annotations.VisibleForTesting;
+
+/**
+ * Class for storing an IMSI (International Mobile Subscriber Identity) parameter.  The IMSI
+ * contains number (up to 15) of numerical digits.  When an IMSI ends with a '*', the specified
+ * IMSI is a prefix.
+ */
 public class IMSIParameter {
+    /**
+     * Per 2.2 of 3GPP TS 23.003
+     * MCC (Mobile Country Code) is a 3 digit number and MNC (Mobile Network Code) is a 2
+     * or 3 digit number;
+     * The max length of IMSI is 15;
+     */
+    public static final int MCC_MNC_LENGTH_5 = 5;
+    public static final int MCC_MNC_LENGTH_6 = 6;
+    private static final int MAX_IMSI_LENGTH = 15;
+
     private final String mImsi;
     private final boolean mPrefix;
 
+    @VisibleForTesting
     public IMSIParameter(String imsi, boolean prefix) {
         mImsi = imsi;
         mPrefix = prefix;
     }
 
-    public IMSIParameter(String imsi) throws IOException {
-        if (imsi == null || imsi.length() == 0) {
-            throw new IOException("Bad IMSI: '" + imsi + "'");
+    /**
+     * Build an IMSIParameter object from the given string.  A null will be returned for a
+     * malformed string.
+     *
+     * @param imsi The IMSI string
+     * @return {@link IMSIParameter}
+     */
+    public static IMSIParameter build(String imsi) {
+        if (TextUtils.isEmpty(imsi)) {
+            return null;
+        }
+        if (imsi.length() > MAX_IMSI_LENGTH) {
+            return null;
         }
 
-        int nonDigit;
+        // Detect the first non-digit character.
+        int nonDigitIndex;
         char stopChar = '\0';
-        for (nonDigit = 0; nonDigit < imsi.length(); nonDigit++) {
-            stopChar = imsi.charAt(nonDigit);
+        for (nonDigitIndex = 0; nonDigitIndex < imsi.length(); nonDigitIndex++) {
+            stopChar = imsi.charAt(nonDigitIndex);
             if (stopChar < '0' || stopChar > '9') {
                 break;
             }
         }
 
-        if (nonDigit == imsi.length()) {
-            mImsi = imsi;
-            mPrefix = false;
+        if (nonDigitIndex == imsi.length()) {
+            // Full IMSI.
+            return new IMSIParameter(imsi, false);
+        } else if (nonDigitIndex == imsi.length() - 1 && stopChar == '*'
+                && (nonDigitIndex == MCC_MNC_LENGTH_5 || nonDigitIndex == MCC_MNC_LENGTH_6)) {
+            // IMSI prefix.
+            return new IMSIParameter(imsi.substring(0, nonDigitIndex), true);
         }
-        else if (nonDigit == imsi.length()-1 && stopChar == '*') {
-            mImsi = imsi.substring(0, nonDigit);
-            mPrefix = true;
-        }
-        else {
-            throw new IOException("Bad IMSI: '" + imsi + "'");
-        }
+        return null;
     }
 
-    public boolean matches(String fullIMSI) {
-        if (mPrefix) {
-            return mImsi.regionMatches(false, 0, fullIMSI, 0, mImsi.length());
+    /**
+     * Perform matching against the given full IMSI.
+     *
+     * @param fullIMSI The full IMSI to match against
+     * @return true if matched
+     */
+    public boolean matchesImsi(String fullIMSI) {
+        if (fullIMSI == null) {
+            return false;
         }
-        else {
+
+        if (mPrefix) {
+            // Prefix matching.
+            return mImsi.regionMatches(false, 0, fullIMSI, 0, mImsi.length());
+        } else {
+            // Exact matching.
             return mImsi.equals(fullIMSI);
         }
     }
 
+    /**
+     * Perform matching against the given MCC-MNC (Mobile Country Code and Mobile Network
+     * Code) combination.
+     *
+     * @param mccMnc The MCC-MNC to match against
+     * @return true if matched
+     */
     public boolean matchesMccMnc(String mccMnc) {
-        if (mPrefix) {
-            // For a prefix match, the entire prefix must match the mcc+mnc
-            return mImsi.regionMatches(false, 0, mccMnc, 0, mImsi.length());
+        if (mccMnc == null) {
+            return false;
         }
-        else {
-            // For regular match, the entire length of mcc+mnc must match this IMSI
-            return mImsi.regionMatches(false, 0, mccMnc, 0, mccMnc.length());
+        if (mccMnc.length() != MCC_MNC_LENGTH_5 && mccMnc.length() != MCC_MNC_LENGTH_6) {
+            return false;
         }
+        if (mPrefix && mccMnc.length() != mImsi.length()) {
+            return false;
+        }
+
+        return mImsi.startsWith(mccMnc);
     }
 
-    public boolean isPrefix() {
-        return mPrefix;
-    }
-
-    public String getImsi() {
-        return mImsi;
-    }
-
-    public int prefixLength() {
-        return mImsi.length();
+    /**
+     * If the IMSI is full length.
+     *
+     * @return true If the length of IMSI is full, false otherwise.
+     */
+    public boolean isFullImsi() {
+        return !mPrefix;
     }
 
     @Override
@@ -75,12 +136,12 @@ public class IMSIParameter {
         if (this == thatObject) {
             return true;
         }
-        else if (thatObject == null || getClass() != thatObject.getClass()) {
+        if (!(thatObject instanceof IMSIParameter)) {
             return false;
         }
 
         IMSIParameter that = (IMSIParameter) thatObject;
-        return mPrefix == that.mPrefix && mImsi.equals(that.mImsi);
+        return mPrefix == that.mPrefix && TextUtils.equals(mImsi, that.mImsi);
     }
 
     @Override

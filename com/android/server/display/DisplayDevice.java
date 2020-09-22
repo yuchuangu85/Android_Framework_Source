@@ -20,6 +20,7 @@ import android.graphics.Rect;
 import android.hardware.display.DisplayViewport;
 import android.os.IBinder;
 import android.view.Display;
+import android.view.DisplayAddress;
 import android.view.Surface;
 import android.view.SurfaceControl;
 
@@ -36,6 +37,7 @@ abstract class DisplayDevice {
     private final DisplayAdapter mDisplayAdapter;
     private final IBinder mDisplayToken;
     private final String mUniqueId;
+    private DisplayDeviceConfig mDisplayDeviceConfig;
 
     // The display device does not manage these properties itself, they are set by
     // the display manager service.  The display device shouldn't really be looking at these.
@@ -45,7 +47,7 @@ abstract class DisplayDevice {
     private Rect mCurrentDisplayRect;
 
     // The display device owns its surface, but it should only set it
-    // within a transaction from performTraversalInTransactionLocked.
+    // within a transaction from performTraversalLocked.
     private Surface mCurrentSurface;
 
     // DEBUG STATE: Last device info which was written to the log, or null if none.
@@ -67,6 +69,16 @@ abstract class DisplayDevice {
         return mDisplayAdapter;
     }
 
+    /*
+     * Gets the DisplayDeviceConfig for this DisplayDevice.
+     * Returns null for this device but is overridden in LocalDisplayDevice.
+     *
+     * @return The DisplayDeviceConfig.
+     */
+    public DisplayDeviceConfig getDisplayDeviceConfig() {
+        return mDisplayDeviceConfig;
+    }
+
     /**
      * Gets the Surface Flinger display token for this display.
      *
@@ -75,6 +87,13 @@ abstract class DisplayDevice {
      */
     public final IBinder getDisplayTokenLocked() {
         return mDisplayToken;
+    }
+
+    /**
+     * Gets the id of the display to mirror.
+     */
+    public int getDisplayIdToMirrorLocked() {
+        return Display.DEFAULT_DISPLAY;
     }
 
     /**
@@ -122,34 +141,64 @@ abstract class DisplayDevice {
     /**
      * Gives the display device a chance to update its properties while in a transaction.
      */
-    public void performTraversalInTransactionLocked() {
+    public void performTraversalLocked(SurfaceControl.Transaction t) {
     }
 
     /**
      * Sets the display state, if supported.
      *
      * @param state The new display state.
-     * @param brightness The new display brightness.
+     * @param brightnessState The new display brightnessState.
      * @return A runnable containing work to be deferred until after we have
      * exited the critical section, or null if none.
      */
-    public Runnable requestDisplayStateLocked(int state, int brightness) {
+    public Runnable requestDisplayStateLocked(int state, float brightnessState) {
         return null;
     }
 
     /**
-     * Sets the mode, if supported.
+     * Sets the display mode specs.
+     *
+     * Not all display devices will automatically switch between modes, so it's important that the
+     * default modeId is set correctly.
      */
-    public void requestDisplayModesInTransactionLocked(int colorMode, int modeId) {
+    public void setDesiredDisplayModeSpecsLocked(
+            DisplayModeDirector.DesiredDisplayModeSpecs displayModeSpecs) {}
+
+    /**
+     * Sets the requested color mode.
+     */
+    public void setRequestedColorModeLocked(int colorMode) {
+    }
+
+    /**
+     * Sends the Auto Low Latency Mode (ALLM) signal over HDMI, or requests an internal display to
+     * switch to a low-latency mode.
+     *
+     * @param on Whether to set ALLM on or off.
+     */
+    public void setAutoLowLatencyModeLocked(boolean on) {
+    }
+
+    /**
+     * Sends a ContentType=Game signal over HDMI, or requests an internal display to switch to a
+     * game mode (generally lower latency).
+     *
+     * @param on Whether to send a ContentType=Game signal or not
+     */
+    public void setGameContentTypeLocked(boolean on) {
+    }
+
+    public void onOverlayChangedLocked() {
     }
 
     /**
      * Sets the display layer stack while in a transaction.
      */
-    public final void setLayerStackInTransactionLocked(int layerStack) {
+    public final void setLayerStackLocked(SurfaceControl.Transaction t, int layerStack) {
         if (mCurrentLayerStack != layerStack) {
             mCurrentLayerStack = layerStack;
-            SurfaceControl.setDisplayLayerStack(mDisplayToken, layerStack);
+            t.setDisplayLayerStack(mDisplayToken, layerStack);
         }
     }
 
@@ -163,7 +212,7 @@ abstract class DisplayDevice {
      *            mapped to. displayRect is specified post-orientation, that is
      *            it uses the orientation seen by the end-user
      */
-    public final void setProjectionInTransactionLocked(int orientation,
+    public final void setProjectionLocked(SurfaceControl.Transaction t, int orientation,
             Rect layerStackRect, Rect displayRect) {
         if (mCurrentOrientation != orientation
                 || mCurrentLayerStackRect == null
@@ -182,7 +231,7 @@ abstract class DisplayDevice {
             }
             mCurrentDisplayRect.set(displayRect);
 
-            SurfaceControl.setDisplayProjection(mDisplayToken,
+            t.setDisplayProjection(mDisplayToken,
                     orientation, layerStackRect, displayRect);
         }
     }
@@ -190,10 +239,10 @@ abstract class DisplayDevice {
     /**
      * Sets the display surface while in a transaction.
      */
-    public final void setSurfaceInTransactionLocked(Surface surface) {
+    public final void setSurfaceLocked(SurfaceControl.Transaction t, Surface surface) {
         if (mCurrentSurface != surface) {
             mCurrentSurface = surface;
-            SurfaceControl.setDisplaySurface(mDisplayToken, surface);
+            t.setDisplaySurface(mDisplayToken, surface);
         }
     }
 
@@ -221,6 +270,14 @@ abstract class DisplayDevice {
         DisplayDeviceInfo info = getDisplayDeviceInfoLocked();
         viewport.deviceWidth = isRotated ? info.height : info.width;
         viewport.deviceHeight = isRotated ? info.width : info.height;
+
+        viewport.uniqueId = info.uniqueId;
+
+        if (info.address instanceof DisplayAddress.Physical) {
+            viewport.physicalPort = ((DisplayAddress.Physical) info.address).getPort();
+        } else {
+            viewport.physicalPort = null;
+        }
     }
 
     /**

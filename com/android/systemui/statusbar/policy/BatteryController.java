@@ -16,12 +16,17 @@
 
 package com.android.systemui.statusbar.policy;
 
+import android.annotation.Nullable;
+
 import com.android.systemui.DemoMode;
+import com.android.systemui.Dumpable;
+import com.android.systemui.statusbar.policy.BatteryController.BatteryStateChangeCallback;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 
-public interface BatteryController extends DemoMode {
+public interface BatteryController extends DemoMode, Dumpable,
+        CallbackController<BatteryStateChangeCallback> {
     /**
      * Prints the current state of the {@link BatteryController} to the given {@link PrintWriter}.
      */
@@ -33,19 +38,75 @@ public interface BatteryController extends DemoMode {
     void setPowerSaveMode(boolean powerSave);
 
     /**
+     * Returns {@code true} if the device is currently plugged in.
+     */
+    boolean isPluggedIn();
+
+    /**
      * Returns {@code true} if the device is currently in power save mode.
      */
     boolean isPowerSave();
 
-    void addStateChangedCallback(BatteryStateChangeCallback cb);
-    void removeStateChangedCallback(BatteryStateChangeCallback cb);
+    /**
+     * Returns {@code true} if AOD was disabled by power saving policies.
+     */
+    boolean isAodPowerSave();
 
     /**
-     * A listener that will be notified whenever a change in battery level or power save mode
-     * has occurred.
+     * Initializes the class.
+     */
+    default void init() { }
+
+    /**
+     * Returns {@code true} if reverse is supported.
+     */
+    default boolean isReverseSupported() { return false; }
+
+    /**
+     * Returns {@code true} if reverse is on.
+     */
+    default boolean isReverseOn() { return false; }
+
+    /**
+     * Set reverse state.
+     * @param isReverse true if turn on reverse, false otherwise
+     */
+    default void setReverseState(boolean isReverse) {}
+
+    /**
+     * A listener that will be notified whenever a change in battery level or power save mode has
+     * occurred.
      */
     interface BatteryStateChangeCallback {
-        void onBatteryLevelChanged(int level, boolean pluggedIn, boolean charging);
-        void onPowerSaveChanged(boolean isPowerSave);
+
+        default void onBatteryLevelChanged(int level, boolean pluggedIn, boolean charging) {
+        }
+
+        default void onPowerSaveChanged(boolean isPowerSave) {
+        }
+
+        default void onReverseChanged(boolean isReverse, int level, String name) {
+        }
+    }
+
+    /**
+     * If available, get the estimated battery time remaining as a string.
+     *
+     * @param completion A lambda that will be called with the result of fetching the estimate. The
+     * first time this method is called may need to be dispatched to a background thread. The
+     * completion is called on the main thread
+     */
+    default void getEstimatedTimeRemainingString(EstimateFetchCompletion completion) {}
+
+    /**
+     * Callback called when the estimated time remaining text is fetched.
+     */
+    public interface EstimateFetchCompletion {
+
+        /**
+         * The callback
+         * @param estimate the estimate
+         */
+        void onBatteryRemainingEstimateRetrieved(@Nullable String estimate);
     }
 }

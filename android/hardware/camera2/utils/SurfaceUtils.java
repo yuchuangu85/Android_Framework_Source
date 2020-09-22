@@ -16,6 +16,7 @@
 
 package android.hardware.camera2.utils;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.ImageFormat;
 import android.hardware.camera2.legacy.LegacyCameraDevice;
 import android.hardware.camera2.legacy.LegacyExceptionUtils.BufferQueueAbandonedException;
@@ -56,6 +57,20 @@ public class SurfaceUtils {
     }
 
     /**
+     * Get the native object id of a surface.
+     *
+     * @param surface The surface to be checked.
+     * @return the native object id of the surface, 0 if surface is not backed by a native object.
+     */
+    public static long getSurfaceId(Surface surface) {
+        try {
+            return LegacyCameraDevice.getSurfaceId(surface);
+        } catch (BufferQueueAbandonedException e) {
+            return 0;
+        }
+    }
+
+    /**
      * Get the Surface size.
      *
      * @param surface The surface to be queried for size.
@@ -63,6 +78,7 @@ public class SurfaceUtils {
      *
      * @throws IllegalArgumentException if the surface is already abandoned.
      */
+    @UnsupportedAppUsage
     public static Size getSurfaceSize(Surface surface) {
         try {
             return LegacyCameraDevice.getSurfaceSize(surface);
@@ -118,15 +134,7 @@ public class SurfaceUtils {
      * @param surface The high speed output surface to be checked.
      */
     private static void checkHighSpeedSurfaceFormat(Surface surface) {
-        // TODO: remove this override since the default format should be
-        // ImageFormat.PRIVATE. b/9487482
-        final int HAL_FORMAT_RGB_START = 1; // HAL_PIXEL_FORMAT_RGBA_8888 from graphics.h
-        final int HAL_FORMAT_RGB_END = 5; // HAL_PIXEL_FORMAT_BGRA_8888 from graphics.h
         int surfaceFormat = SurfaceUtils.getSurfaceFormat(surface);
-        if (surfaceFormat >= HAL_FORMAT_RGB_START &&
-                surfaceFormat <= HAL_FORMAT_RGB_END) {
-            surfaceFormat = ImageFormat.PRIVATE;
-        }
 
         if (surfaceFormat != ImageFormat.PRIVATE) {
             throw new IllegalArgumentException("Surface format(" + surfaceFormat + ") is not"

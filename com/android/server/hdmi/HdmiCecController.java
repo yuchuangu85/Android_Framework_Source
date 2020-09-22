@@ -17,23 +17,38 @@
 package com.android.server.hdmi;
 
 import android.hardware.hdmi.HdmiPortInfo;
+import android.hardware.tv.cec.V1_0.CecMessage;
+import android.hardware.tv.cec.V1_0.HotplugEvent;
+import android.hardware.tv.cec.V1_0.IHdmiCec;
+import android.hardware.tv.cec.V1_0.IHdmiCec.getPhysicalAddressCallback;
+import android.hardware.tv.cec.V1_0.IHdmiCecCallback;
+import android.hardware.tv.cec.V1_0.Result;
+import android.hardware.tv.cec.V1_0.SendMessageResult;
 import android.os.Handler;
+import android.os.IHwBinder;
 import android.os.Looper;
 import android.os.MessageQueue;
+import android.os.RemoteException;
+import android.os.SystemProperties;
 import android.util.Slog;
 import android.util.SparseArray;
 
 import com.android.internal.util.IndentingPrintWriter;
-import com.android.internal.util.Predicate;
 import com.android.server.hdmi.HdmiAnnotations.IoThreadOnly;
 import com.android.server.hdmi.HdmiAnnotations.ServiceThreadOnly;
 import com.android.server.hdmi.HdmiControlService.DevicePollingCallback;
 
 import libcore.util.EmptyArray;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.function.Predicate;
+
+import sun.util.locale.LanguageTag;
 
 /**
  * Manages HDMI-CEC command and behaviors. It converts user's command into CEC command
@@ -69,10 +84,17 @@ final class HdmiCecController {
 
     private static final int NUM_LOGICAL_ADDRESS = 16;
 
+    private static final int MAX_HDMI_MESSAGE_HISTORY = 250;
+
+    private static final int INVALID_PHYSICAL_ADDRESS = 0xFFFF;
+
+    /** Cookie for matching the right end point. */
+    protected static final int HDMI_CEC_HAL_DEATH_COOKIE = 353;
+
     // Predicate for whether the given logical address is remote device's one or not.
     private final Predicate<Integer> mRemoteDeviceAddressPredicate = new Predicate<Integer>() {
         @Override
-        public boolean apply(Integer address) {
+        public boolean test(Integer address) {
             return !isAllocatedLocalDeviceAddress(address);
         }
     };
@@ -80,7 +102,7 @@ final class HdmiCecController {
     // Predicate whether the given logical address is system audio's one or not
     private final Predicate<Integer> mSystemAudioAddressPredicate = new Predicate<Integer>() {
         @Override
-        public boolean apply(Integer address) {
+        public boolean test(Integer address) {
             return HdmiUtils.getTypeFromAddress(address) == Constants.ADDR_AUDIO_SYSTEM;
         }
     };
@@ -92,18 +114,29 @@ final class HdmiCecController {
     // device or issued by internal state change.
     private Handler mControlHandler;
 
-    // Stores the pointer to the native implementation of the service that
-    // interacts with HAL.
-    private volatile long mNativePtr;
-
     private final HdmiControlService mService;
 
     // Stores the local CEC devices in the system. Device type is used for key.
     private final SparseArray<HdmiCecLocalDevice> mLocalDevices = new SparseArray<>();
 
+    // Stores recent CEC messages and HDMI Hotplug event history for debugging purpose.
+    private final ArrayBlockingQueue<Dumpable> mMessageHistory =
+            new ArrayBlockingQueue<>(MAX_HDMI_MESSAGE_HISTORY);
+
+    private final NativeWrapper mNativeWrapperImpl;
+
+    /** List of logical addresses that should not be assigned to the current device.
+     *
+     * <p>Parsed from {@link Constants#PROPERTY_HDMI_CEC_NEVER_ASSIGN_LOGICAL_ADDRESSES}
+     */
+    private final List<Integer> mNeverAssignLogicalAddresses;
+
     // Private constructor.  Use HdmiCecController.create().
-    private HdmiCecController(HdmiControlService service) {
+    private HdmiCecController(HdmiControlService service, NativeWrapper nativeWrapper) {
         mService = service;
+        mNativeWrapperImpl = nativeWrapper;
+        mNeverAssignLogicalAddresses = mService.getIntList(SystemProperties.get(
+            Constants.PROPERTY_HDMI_CEC_NEVER_ASSIGN_LOGICAL_ADDRESSES));
     }
 
     /**
@@ -117,21 +150,28 @@ final class HdmiCecController {
      *         returns {@code null}.
      */
     static HdmiCecController create(HdmiControlService service) {
-        HdmiCecController controller = new HdmiCecController(service);
-        long nativePtr = nativeInit(controller, service.getServiceLooper().getQueue());
-        if (nativePtr == 0L) {
-            controller = null;
+        return createWithNativeWrapper(service, new NativeWrapperImpl());
+    }
+
+    /**
+     * A factory method with injection of native methods for testing.
+     */
+    static HdmiCecController createWithNativeWrapper(
+            HdmiControlService service, NativeWrapper nativeWrapper) {
+        HdmiCecController controller = new HdmiCecController(service, nativeWrapper);
+        String nativePtr = nativeWrapper.nativeInit();
+        if (nativePtr == null) {
+            HdmiLogger.warning("Couldn't get tv.cec service.");
             return null;
         }
-
-        controller.init(nativePtr);
+        controller.init(nativeWrapper);
         return controller;
     }
 
-    private void init(long nativePtr) {
+    private void init(NativeWrapper nativeWrapper) {
         mIoHandler = new Handler(mService.getIoLooper());
         mControlHandler = new Handler(mService.getServiceLooper());
-        mNativePtr = nativePtr;
+        nativeWrapper.setCallback(new HdmiCecCallback());
     }
 
     @ServiceThreadOnly
@@ -187,16 +227,18 @@ final class HdmiCecController {
         for (int i = 0; i < NUM_LOGICAL_ADDRESS; ++i) {
             int curAddress = (startAddress + i) % NUM_LOGICAL_ADDRESS;
             if (curAddress != Constants.ADDR_UNREGISTERED
-                    && deviceType == HdmiUtils.getTypeFromAddress(curAddress)) {
-                int failedPollingCount = 0;
+                    && deviceType == HdmiUtils.getTypeFromAddress(curAddress)
+                    && !mNeverAssignLogicalAddresses.contains(curAddress)) {
+                boolean acked = false;
                 for (int j = 0; j < HdmiConfig.ADDRESS_ALLOCATION_RETRY; ++j) {
-                    if (!sendPollMessage(curAddress, curAddress, 1)) {
-                        failedPollingCount++;
+                    if (sendPollMessage(curAddress, curAddress, 1)) {
+                        acked = true;
+                        break;
                     }
                 }
-
-                // Pick logical address if failed ratio is more than a half of all retries.
-                if (failedPollingCount * 2 >  HdmiConfig.ADDRESS_ALLOCATION_RETRY) {
+                // If sending <Polling Message> failed, it becomes new logical address for the
+                // device because no device uses it as logical address of the device.
+                if (!acked) {
                     logicalAddress = curAddress;
                     break;
                 }
@@ -225,7 +267,7 @@ final class HdmiCecController {
 
 
     HdmiPortInfo[] getPortInfos() {
-        return nativeGetPortInfos(mNativePtr);
+        return mNativeWrapperImpl.nativeGetPortInfos();
     }
 
     /**
@@ -253,9 +295,9 @@ final class HdmiCecController {
     int addLogicalAddress(int newLogicalAddress) {
         assertRunOnServiceThread();
         if (HdmiUtils.isValidAddress(newLogicalAddress)) {
-            return nativeAddLogicalAddress(mNativePtr, newLogicalAddress);
+            return mNativeWrapperImpl.nativeAddLogicalAddress(newLogicalAddress);
         } else {
-            return -1;
+            return Result.FAILURE_INVALID_ARGS;
         }
     }
 
@@ -270,7 +312,7 @@ final class HdmiCecController {
         for (int i = 0; i < mLocalDevices.size(); ++i) {
             mLocalDevices.valueAt(i).clearAddress();
         }
-        nativeClearLogicalAddress(mNativePtr);
+        mNativeWrapperImpl.nativeClearLogicalAddress();
     }
 
     @ServiceThreadOnly
@@ -290,7 +332,7 @@ final class HdmiCecController {
     @ServiceThreadOnly
     int getPhysicalAddress() {
         assertRunOnServiceThread();
-        return nativeGetPhysicalAddress(mNativePtr);
+        return mNativeWrapperImpl.nativeGetPhysicalAddress();
     }
 
     /**
@@ -301,7 +343,7 @@ final class HdmiCecController {
     @ServiceThreadOnly
     int getVersion() {
         assertRunOnServiceThread();
-        return nativeGetVersion(mNativePtr);
+        return mNativeWrapperImpl.nativeGetVersion();
     }
 
     /**
@@ -312,20 +354,34 @@ final class HdmiCecController {
     @ServiceThreadOnly
     int getVendorId() {
         assertRunOnServiceThread();
-        return nativeGetVendorId(mNativePtr);
+        return mNativeWrapperImpl.nativeGetVendorId();
     }
 
     /**
      * Set an option to CEC HAL.
      *
      * @param flag key of option
-     * @param value value of option
+     * @param enabled whether to enable/disable the given option.
      */
     @ServiceThreadOnly
-    void setOption(int flag, int value) {
+    void setOption(int flag, boolean enabled) {
         assertRunOnServiceThread();
-        HdmiLogger.debug("setOption: [flag:%d, value:%d]", flag, value);
-        nativeSetOption(mNativePtr, flag, value);
+        HdmiLogger.debug("setOption: [flag:%d, enabled:%b]", flag, enabled);
+        mNativeWrapperImpl.nativeSetOption(flag, enabled);
+    }
+
+    /**
+     * Informs CEC HAL about the current system language.
+     *
+     * @param language Three-letter code defined in ISO/FDIS 639-2. Must be lowercase letters.
+     */
+    @ServiceThreadOnly
+    void setLanguage(String language) {
+        assertRunOnServiceThread();
+        if (!LanguageTag.isLanguage(language)) {
+            return;
+        }
+        mNativeWrapperImpl.nativeSetLanguage(language);
     }
 
     /**
@@ -335,9 +391,9 @@ final class HdmiCecController {
      * @param enabled whether to enable/disable ARC
      */
     @ServiceThreadOnly
-    void setAudioReturnChannel(int port, boolean enabled) {
+    void enableAudioReturnChannel(int port, boolean enabled) {
         assertRunOnServiceThread();
-        nativeSetAudioReturnChannel(mNativePtr, port, enabled);
+        mNativeWrapperImpl.nativeEnableAudioReturnChannel(port, enabled);
     }
 
     /**
@@ -349,7 +405,7 @@ final class HdmiCecController {
     @ServiceThreadOnly
     boolean isConnected(int port) {
         assertRunOnServiceThread();
-        return nativeIsConnected(mNativePtr, port);
+        return mNativeWrapperImpl.nativeIsConnected(port);
     }
 
     /**
@@ -403,7 +459,7 @@ final class HdmiCecController {
         switch (iterationStrategy) {
             case Constants.POLL_ITERATION_IN_ORDER:
                 for (int i = Constants.ADDR_TV; i <= Constants.ADDR_SPECIFIC_USE; ++i) {
-                    if (pickPredicate.apply(i)) {
+                    if (pickPredicate.test(i)) {
                         pollingCandidates.add(i);
                     }
                 }
@@ -411,7 +467,7 @@ final class HdmiCecController {
             case Constants.POLL_ITERATION_REVERSE_ORDER:
             default:  // The default is reverse order.
                 for (int i = Constants.ADDR_SPECIFIC_USE; i >= Constants.ADDR_TV; --i) {
-                    if (pickPredicate.apply(i)) {
+                    if (pickPredicate.test(i)) {
                         pollingCandidates.add(i);
                     }
                 }
@@ -469,12 +525,15 @@ final class HdmiCecController {
         assertRunOnIoThread();
         for (int i = 0; i < retryCount; ++i) {
             // <Polling Message> is a message which has empty body.
-            // If sending <Polling Message> failed (NAK), it becomes
-            // new logical address for the device because no device uses
-            // it as logical address of the device.
-            if (nativeSendCecCommand(mNativePtr, sourceAddress, destinationAddress, EMPTY_BODY)
-                    == Constants.SEND_RESULT_SUCCESS) {
+            int ret =
+                    mNativeWrapperImpl.nativeSendCecCommand(
+                        sourceAddress, destinationAddress, EMPTY_BODY);
+            if (ret == SendMessageResult.SUCCESS) {
                 return true;
+            } else if (ret != SendMessageResult.NACK) {
+                // Unusual failure
+                HdmiLogger.warning("Failed to send a polling message(%d->%d) with return code %d",
+                        sourceAddress, destinationAddress, ret);
             }
         }
         return false;
@@ -527,7 +586,9 @@ final class HdmiCecController {
     @ServiceThreadOnly
     private void onReceiveCommand(HdmiCecMessage message) {
         assertRunOnServiceThread();
-        if (isAcceptableAddress(message.getDestination()) && mService.handleCecCommand(message)) {
+        if ((isAcceptableAddress(message.getDestination())
+            || !mService.isAddressAllocated())
+            && mService.handleCecCommand(message)) {
             return;
         }
         // Not handled message, so we will reply it with <Feature Abort>.
@@ -563,24 +624,25 @@ final class HdmiCecController {
     void sendCommand(final HdmiCecMessage cecMessage,
             final HdmiControlService.SendMessageCallback callback) {
         assertRunOnServiceThread();
+        addCecMessageToHistory(false /* isReceived */, cecMessage);
         runOnIoThread(new Runnable() {
             @Override
             public void run() {
                 HdmiLogger.debug("[S]:" + cecMessage);
                 byte[] body = buildBody(cecMessage.getOpcode(), cecMessage.getParams());
                 int i = 0;
-                int errorCode = Constants.SEND_RESULT_SUCCESS;
+                int errorCode = SendMessageResult.SUCCESS;
                 do {
-                    errorCode = nativeSendCecCommand(mNativePtr, cecMessage.getSource(),
-                            cecMessage.getDestination(), body);
-                    if (errorCode == Constants.SEND_RESULT_SUCCESS) {
+                    errorCode = mNativeWrapperImpl.nativeSendCecCommand(
+                        cecMessage.getSource(), cecMessage.getDestination(), body);
+                    if (errorCode == SendMessageResult.SUCCESS) {
                         break;
                     }
                 } while (i++ < HdmiConfig.RETRANSMISSION_COUNT);
 
                 final int finalError = errorCode;
-                if (finalError != Constants.SEND_RESULT_SUCCESS) {
-                    Slog.w(TAG, "Failed to send " + cecMessage);
+                if (finalError != SendMessageResult.SUCCESS) {
+                    Slog.w(TAG, "Failed to send " + cecMessage + " with errorCode=" + finalError);
                 }
                 if (callback != null) {
                     runOnServiceThread(new Runnable() {
@@ -595,45 +657,341 @@ final class HdmiCecController {
     }
 
     /**
-     * Called by native when incoming CEC message arrived.
+     * Called when incoming CEC message arrived.
      */
     @ServiceThreadOnly
     private void handleIncomingCecCommand(int srcAddress, int dstAddress, byte[] body) {
         assertRunOnServiceThread();
         HdmiCecMessage command = HdmiCecMessageBuilder.of(srcAddress, dstAddress, body);
         HdmiLogger.debug("[R]:" + command);
+        addCecMessageToHistory(true /* isReceived */, command);
         onReceiveCommand(command);
     }
 
     /**
-     * Called by native when a hotplug event issues.
+     * Called when a hotplug event issues.
      */
     @ServiceThreadOnly
     private void handleHotplug(int port, boolean connected) {
         assertRunOnServiceThread();
         HdmiLogger.debug("Hotplug event:[port:%d, connected:%b]", port, connected);
+        addHotplugEventToHistory(port, connected);
         mService.onHotplug(port, connected);
+    }
+
+    @ServiceThreadOnly
+    private void addHotplugEventToHistory(int port, boolean connected) {
+        assertRunOnServiceThread();
+        addEventToHistory(new HotplugHistoryRecord(port, connected));
+    }
+
+    @ServiceThreadOnly
+    private void addCecMessageToHistory(boolean isReceived, HdmiCecMessage message) {
+        assertRunOnServiceThread();
+        addEventToHistory(new MessageHistoryRecord(isReceived, message));
+    }
+
+    private void addEventToHistory(Dumpable event) {
+        if (!mMessageHistory.offer(event)) {
+            mMessageHistory.poll();
+            mMessageHistory.offer(event);
+        }
     }
 
     void dump(final IndentingPrintWriter pw) {
         for (int i = 0; i < mLocalDevices.size(); ++i) {
-            pw.println("HdmiCecLocalDevice #" + i + ":");
+            pw.println("HdmiCecLocalDevice #" + mLocalDevices.keyAt(i) + ":");
             pw.increaseIndent();
             mLocalDevices.valueAt(i).dump(pw);
             pw.decreaseIndent();
         }
+
+        pw.println("CEC message history:");
+        pw.increaseIndent();
+        final SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        for (Dumpable record : mMessageHistory) {
+            record.dump(pw, sdf);
+        }
+        pw.decreaseIndent();
+    }
+
+    protected interface NativeWrapper {
+        String nativeInit();
+        void setCallback(HdmiCecCallback callback);
+        int nativeSendCecCommand(int srcAddress, int dstAddress, byte[] body);
+        int nativeAddLogicalAddress(int logicalAddress);
+        void nativeClearLogicalAddress();
+        int nativeGetPhysicalAddress();
+        int nativeGetVersion();
+        int nativeGetVendorId();
+        HdmiPortInfo[] nativeGetPortInfos();
+        void nativeSetOption(int flag, boolean enabled);
+        void nativeSetLanguage(String language);
+        void nativeEnableAudioReturnChannel(int port, boolean flag);
+        boolean nativeIsConnected(int port);
     }
 
     private static native long nativeInit(HdmiCecController handler, MessageQueue messageQueue);
     private static native int nativeSendCecCommand(long controllerPtr, int srcAddress,
-            int dstAddress, byte[] body);
+        int dstAddress, byte[] body);
     private static native int nativeAddLogicalAddress(long controllerPtr, int logicalAddress);
     private static native void nativeClearLogicalAddress(long controllerPtr);
     private static native int nativeGetPhysicalAddress(long controllerPtr);
     private static native int nativeGetVersion(long controllerPtr);
     private static native int nativeGetVendorId(long controllerPtr);
     private static native HdmiPortInfo[] nativeGetPortInfos(long controllerPtr);
-    private static native void nativeSetOption(long controllerPtr, int flag, int value);
-    private static native void nativeSetAudioReturnChannel(long controllerPtr, int port, boolean flag);
+    private static native void nativeSetOption(long controllerPtr, int flag, boolean enabled);
+    private static native void nativeSetLanguage(long controllerPtr, String language);
+    private static native void nativeEnableAudioReturnChannel(long controllerPtr,
+        int port, boolean flag);
     private static native boolean nativeIsConnected(long controllerPtr, int port);
+
+    private static final class NativeWrapperImpl implements NativeWrapper,
+            IHwBinder.DeathRecipient, getPhysicalAddressCallback {
+        private IHdmiCec mHdmiCec;
+        private final Object mLock = new Object();
+        private int mPhysicalAddress = INVALID_PHYSICAL_ADDRESS;
+
+        @Override
+        public String nativeInit() {
+            return (connectToHal() ? mHdmiCec.toString() : null);
+        }
+
+        boolean connectToHal() {
+            try {
+                mHdmiCec = IHdmiCec.getService();
+                try {
+                    mHdmiCec.linkToDeath(this, HDMI_CEC_HAL_DEATH_COOKIE);
+                } catch (RemoteException e) {
+                    HdmiLogger.error("Couldn't link to death : ", e);
+                }
+            } catch (RemoteException e) {
+                HdmiLogger.error("Couldn't get tv.cec service : ", e);
+                return false;
+            }
+            return true;
+        }
+
+        @Override
+        public void setCallback(HdmiCecCallback callback) {
+            try {
+                mHdmiCec.setCallback(callback);
+            } catch (RemoteException e) {
+                HdmiLogger.error("Couldn't initialise tv.cec callback : ", e);
+            }
+        }
+
+        @Override
+        public int nativeSendCecCommand(int srcAddress, int dstAddress, byte[] body) {
+            CecMessage message = new CecMessage();
+            message.initiator = srcAddress;
+            message.destination = dstAddress;
+            message.body = new ArrayList<>(body.length);
+            for (byte b : body) {
+                message.body.add(b);
+            }
+            try {
+                return mHdmiCec.sendMessage(message);
+            } catch (RemoteException e) {
+                HdmiLogger.error("Failed to send CEC message : ", e);
+                return SendMessageResult.FAIL;
+            }
+        }
+
+        @Override
+        public int nativeAddLogicalAddress(int logicalAddress) {
+            try {
+                return mHdmiCec.addLogicalAddress(logicalAddress);
+            } catch (RemoteException e) {
+                HdmiLogger.error("Failed to add a logical address : ", e);
+                return Result.FAILURE_INVALID_ARGS;
+            }
+        }
+
+        @Override
+        public void nativeClearLogicalAddress() {
+            try {
+                mHdmiCec.clearLogicalAddress();
+            } catch (RemoteException e) {
+                HdmiLogger.error("Failed to clear logical address : ", e);
+            }
+        }
+
+        @Override
+        public int nativeGetPhysicalAddress() {
+            try {
+                mHdmiCec.getPhysicalAddress(this);
+                return mPhysicalAddress;
+            } catch (RemoteException e) {
+                HdmiLogger.error("Failed to get physical address : ", e);
+                return INVALID_PHYSICAL_ADDRESS;
+            }
+        }
+
+        @Override
+        public int nativeGetVersion() {
+            try {
+                return mHdmiCec.getCecVersion();
+            } catch (RemoteException e) {
+                HdmiLogger.error("Failed to get cec version : ", e);
+                return Result.FAILURE_UNKNOWN;
+            }
+        }
+
+        @Override
+        public int nativeGetVendorId() {
+            try {
+                return mHdmiCec.getVendorId();
+            } catch (RemoteException e) {
+                HdmiLogger.error("Failed to get vendor id : ", e);
+                return Result.FAILURE_UNKNOWN;
+            }
+        }
+
+        @Override
+        public HdmiPortInfo[] nativeGetPortInfos() {
+            try {
+                ArrayList<android.hardware.tv.cec.V1_0.HdmiPortInfo> hdmiPortInfos =
+                        mHdmiCec.getPortInfo();
+                HdmiPortInfo[] hdmiPortInfo = new HdmiPortInfo[hdmiPortInfos.size()];
+                int i = 0;
+                for (android.hardware.tv.cec.V1_0.HdmiPortInfo portInfo : hdmiPortInfos) {
+                    hdmiPortInfo[i] = new HdmiPortInfo(portInfo.portId,
+                            portInfo.type,
+                            portInfo.physicalAddress,
+                            portInfo.cecSupported,
+                            false,
+                            portInfo.arcSupported);
+                    i++;
+                }
+                return hdmiPortInfo;
+            } catch (RemoteException e) {
+                HdmiLogger.error("Failed to get port information : ", e);
+                return null;
+            }
+        }
+
+        @Override
+        public void nativeSetOption(int flag, boolean enabled) {
+            try {
+                mHdmiCec.setOption(flag, enabled);
+            } catch (RemoteException e) {
+                HdmiLogger.error("Failed to set option : ", e);
+            }
+        }
+
+        @Override
+        public void nativeSetLanguage(String language) {
+            try {
+                mHdmiCec.setLanguage(language);
+            } catch (RemoteException e) {
+                HdmiLogger.error("Failed to set language : ", e);
+            }
+        }
+
+        @Override
+        public void nativeEnableAudioReturnChannel(int port, boolean flag) {
+            try {
+                mHdmiCec.enableAudioReturnChannel(port, flag);
+            } catch (RemoteException e) {
+                HdmiLogger.error("Failed to enable/disable ARC : ", e);
+            }
+        }
+
+        @Override
+        public boolean nativeIsConnected(int port) {
+            try {
+                return mHdmiCec.isConnected(port);
+            } catch (RemoteException e) {
+                HdmiLogger.error("Failed to get connection info : ", e);
+                return false;
+            }
+        }
+
+        @Override
+        public void serviceDied(long cookie) {
+            if (cookie == HDMI_CEC_HAL_DEATH_COOKIE) {
+                HdmiLogger.error(TAG, "Service died cokkie : " + cookie + "; reconnecting");
+                connectToHal();
+            }
+        }
+
+        @Override
+        public void onValues(int result, short addr) {
+            if (result == Result.SUCCESS) {
+                synchronized (mLock) {
+                    mPhysicalAddress = new Short(addr).intValue();
+                }
+            }
+        }
+    }
+
+    final class HdmiCecCallback extends IHdmiCecCallback.Stub {
+        @Override
+        public void onCecMessage(CecMessage message) throws RemoteException {
+            byte[] body = new byte[message.body.size()];
+            for (int i = 0; i < message.body.size(); i++) {
+                body[i] = message.body.get(i);
+            }
+            runOnServiceThread(
+                    () -> handleIncomingCecCommand(message.initiator, message.destination, body));
+        }
+
+        @Override
+        public void onHotplugEvent(HotplugEvent event) throws RemoteException {
+            runOnServiceThread(() -> handleHotplug(event.portId, event.connected));
+        }
+    }
+
+    private abstract static class Dumpable {
+        protected final long mTime;
+
+        Dumpable() {
+            mTime = System.currentTimeMillis();
+        }
+
+        abstract void dump(IndentingPrintWriter pw, SimpleDateFormat sdf);
+    }
+
+    private static final class MessageHistoryRecord extends Dumpable {
+        private final boolean mIsReceived; // true if received message and false if sent message
+        private final HdmiCecMessage mMessage;
+
+        MessageHistoryRecord(boolean isReceived, HdmiCecMessage message) {
+            super();
+            mIsReceived = isReceived;
+            mMessage = message;
+        }
+
+        @Override
+        void dump(final IndentingPrintWriter pw, SimpleDateFormat sdf) {
+            pw.print(mIsReceived ? "[R]" : "[S]");
+            pw.print(" time=");
+            pw.print(sdf.format(new Date(mTime)));
+            pw.print(" message=");
+            pw.println(mMessage);
+        }
+    }
+
+    private static final class HotplugHistoryRecord extends Dumpable {
+        private final int mPort;
+        private final boolean mConnected;
+
+        HotplugHistoryRecord(int port, boolean connected) {
+            super();
+            mPort = port;
+            mConnected = connected;
+        }
+
+        @Override
+        void dump(final IndentingPrintWriter pw, SimpleDateFormat sdf) {
+            pw.print("[H]");
+            pw.print(" time=");
+            pw.print(sdf.format(new Date(mTime)));
+            pw.print(" hotplug port=");
+            pw.print(mPort);
+            pw.print(" connected=");
+            pw.println(mConnected);
+        }
+    }
 }

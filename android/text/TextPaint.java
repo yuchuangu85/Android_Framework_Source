@@ -17,6 +17,8 @@
 package android.text;
 
 import android.annotation.ColorInt;
+import android.annotation.Px;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Paint;
 
 /**
@@ -35,15 +37,14 @@ public class TextPaint extends Paint {
     public float density = 1.0f;
     /**
      * Special value 0 means no custom underline
-     * @hide
      */
     @ColorInt
     public int underlineColor = 0;
+
     /**
-     * Defined as a multiplier of the default underline thickness. Use 1.0f for default thickness.
-     * @hide
+     * Thickness of the underline, in pixels.
      */
-    public float underlineThickness;
+    public @Px float underlineThickness;
 
     public TextPaint() {
         super();
@@ -79,8 +80,21 @@ public class TextPaint extends Paint {
      * @param thickness underline thickness
      * @hide
      */
+    @UnsupportedAppUsage
     public void setUnderlineText(int color, float thickness) {
         underlineColor = color;
         underlineThickness = thickness;
+    }
+
+    /**
+     * @hide
+     */
+    @Override
+    public float getUnderlineThickness() {
+        if (underlineColor != 0) { // Return custom thickness only if underline color is set.
+            return underlineThickness;
+        } else {
+            return super.getUnderlineThickness();
+        }
     }
 }

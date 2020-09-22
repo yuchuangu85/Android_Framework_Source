@@ -27,7 +27,7 @@ public class Clock {
      *
      * @return Current time in milliseconds.
      */
-    public long currentTimeMillis() {
+    public long getWallClockMillis() {
         return System.currentTimeMillis();
     }
 
@@ -36,26 +36,32 @@ public class Clock {
      *
      * @return Current time since boot in milliseconds.
      */
-    public long elapsedRealtime() {
+    public long getElapsedSinceBootMillis() {
         return SystemClock.elapsedRealtime();
     }
 
-    /**
-     * Returns the current timestamp of the most precise timer available on the local system, in
-     * nanoseconds.
-     *
-     * @return Current time in nanoseconds.
-     */
-    public long nanoTime() {
-        return System.nanoTime();
-    }
-
-    /**
+   /**
      * Returns nanoseconds since boot, including time spent in sleep.
      *
      * @return Current time since boot in nanoseconds.
      */
-    public long elapsedRealtimeNanos() {
+    public long getElapsedSinceBootNanos() {
         return SystemClock.elapsedRealtimeNanos();
+    }
+
+    /**
+     * Returns milliseconds since boot, not counting time spent in deep sleep.
+     *
+     * @return Milliseconds of non-sleep uptime since boot.
+     */
+    public long getUptimeSinceBootMillis() {
+        return SystemClock.uptimeMillis();
+    }
+
+    /**
+     * Waits a given number of milliseconds (of uptimeMillis) before returning.
+     */
+    public void sleep(long ms) {
+        SystemClock.sleep(ms);
     }
 }

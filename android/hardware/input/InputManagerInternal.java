@@ -16,11 +16,12 @@
 
 package android.hardware.input;
 
-import android.annotation.Nullable;
+import android.annotation.NonNull;
 import android.hardware.display.DisplayViewport;
+import android.os.IBinder;
 import android.view.InputEvent;
-import android.view.inputmethod.InputMethodInfo;
-import android.view.inputmethod.InputMethodSubtype;
+
+import java.util.List;
 
 /**
  * Input manager local system service interface.
@@ -28,30 +29,26 @@ import android.view.inputmethod.InputMethodSubtype;
  * @hide Only for use within the system server.
  */
 public abstract class InputManagerInternal {
-    public abstract boolean injectInputEvent(InputEvent event, int displayId, int mode);
+    /**
+     * Inject an input event.
+     *
+     * @param event The InputEvent to inject
+     * @param mode Synchronous or asynchronous mode
+     * @return True if injection has succeeded
+     */
+    public abstract boolean injectInputEvent(InputEvent event, int mode);
 
     /**
      * Called by the display manager to set information about the displays as needed
      * by the input system.  The input system must copy this information to retain it.
      */
-    public abstract void setDisplayViewports(DisplayViewport defaultViewport,
-            DisplayViewport externalTouchViewport);
+    public abstract void setDisplayViewports(List<DisplayViewport> viewports);
 
     /**
      * Called by the power manager to tell the input manager whether it should start
      * watching for wake events.
      */
     public abstract void setInteractive(boolean interactive);
-
-    /**
-     * Notifies that InputMethodManagerService switched the current input method subtype.
-     *
-     * @param userId user id that indicates who is using the specified input method and subtype.
-     * @param inputMethodInfo {@code null} when no input method is selected.
-     * @param subtype {@code null} when {@code inputMethodInfo} does has no subtype.
-     */
-    public abstract void onInputMethodSubtypeChanged(int userId,
-            @Nullable InputMethodInfo inputMethodInfo, @Nullable InputMethodSubtype subtype);
 
     /**
      * Toggles Caps Lock state for input device with specific id.
@@ -64,4 +61,21 @@ public abstract class InputManagerInternal {
      * Set whether the input stack should deliver pulse gesture events when the device is asleep.
      */
     public abstract void setPulseGestureEnabled(boolean enabled);
+
+    /**
+     * Atomically transfers touch focus from one window to another as identified by
+     * their input channels.  It is possible for multiple windows to have
+     * touch focus if they support split touch dispatch
+     * {@link android.view.WindowManager.LayoutParams#FLAG_SPLIT_TOUCH} but this
+     * method only transfers touch focus of the specified window without affecting
+     * other windows that may also have touch focus at the same time.
+     *
+     * @param fromChannelToken The channel token of a window that currently has touch focus.
+     * @param toChannelToken The channel token of the window that should receive touch focus in
+     * place of the first.
+     * @return {@code true} if the transfer was successful. {@code false} if the window with the
+     * specified channel did not actually have touch focus at the time of the request.
+     */
+    public abstract boolean transferTouchFocus(@NonNull IBinder fromChannelToken,
+            @NonNull IBinder toChannelToken);
 }

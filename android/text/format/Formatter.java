@@ -18,13 +18,16 @@ package android.text.format;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
+import android.icu.text.MeasureFormat;
+import android.icu.util.Measure;
+import android.icu.util.MeasureUnit;
+import android.net.NetworkUtils;
 import android.text.BidiFormatter;
 import android.text.TextUtils;
 import android.view.View;
-import android.net.NetworkUtils;
-import android.net.TrafficStats;
 
 import java.util.Locale;
 
@@ -38,6 +41,10 @@ public final class Formatter {
     public static final int FLAG_SHORTER = 1 << 0;
     /** {@hide} */
     public static final int FLAG_CALCULATE_ROUNDED = 1 << 1;
+    /** {@hide} */
+    public static final int FLAG_SI_UNITS = 1 << 2;
+    /** {@hide} */
+    public static final int FLAG_IEC_UNITS = 1 << 3;
 
     /** {@hide} */
     public static class BytesResult {
@@ -52,9 +59,13 @@ public final class Formatter {
         }
     }
 
+    private static Locale localeFromContext(@NonNull Context context) {
+        return context.getResources().getConfiguration().getLocales().get(0);
+    }
+
     /* Wraps the source string in bidi formatting characters in RTL locales */
     private static String bidiWrap(@NonNull Context context, String source) {
-        final Locale locale = context.getResources().getConfiguration().locale;
+        final Locale locale = localeFromContext(context);
         if (TextUtils.getLayoutDirectionFromLocale(locale) == View.LAYOUT_DIRECTION_RTL) {
             return BidiFormatter.getInstance(true /* RTL*/).unicodeWrap(source);
         } else {
@@ -65,20 +76,31 @@ public final class Formatter {
     /**
      * Formats a content size to be in the form of bytes, kilobytes, megabytes, etc.
      *
-     * If the context has a right-to-left locale, the returned string is wrapped in bidi formatting
-     * characters to make sure it's displayed correctly if inserted inside a right-to-left string.
-     * (This is useful in cases where the unit strings, like "MB", are left-to-right, but the
-     * locale is right-to-left.)
+     * <p>As of O, the prefixes are used in their standard meanings in the SI system, so kB = 1000
+     * bytes, MB = 1,000,000 bytes, etc.</p>
+     *
+     * <p class="note">In {@link android.os.Build.VERSION_CODES#N} and earlier, powers of 1024 are
+     * used instead, with KB = 1024 bytes, MB = 1,048,576 bytes, etc.</p>
+     *
+     * <p>If the context has a right-to-left locale, the returned string is wrapped in bidi
+     * formatting characters to make sure it's displayed correctly if inserted inside a
+     * right-to-left string. (This is useful in cases where the unit strings, like "MB", are
+     * left-to-right, but the locale is right-to-left.)</p>
      *
      * @param context Context to use to load the localized units
      * @param sizeBytes size value to be formatted, in bytes
      * @return formatted string with the number
      */
     public static String formatFileSize(@Nullable Context context, long sizeBytes) {
+        return formatFileSize(context, sizeBytes, FLAG_SI_UNITS);
+    }
+
+    /** @hide */
+    public static String formatFileSize(@Nullable Context context, long sizeBytes, int flags) {
         if (context == null) {
             return "";
         }
-        final BytesResult res = formatBytes(context.getResources(), sizeBytes, 0);
+        final BytesResult res = formatBytes(context.getResources(), sizeBytes, flags);
         return bidiWrap(context, context.getString(com.android.internal.R.string.fileSizeSuffix,
                 res.value, res.units));
     }
@@ -91,41 +113,44 @@ public final class Formatter {
         if (context == null) {
             return "";
         }
-        final BytesResult res = formatBytes(context.getResources(), sizeBytes, FLAG_SHORTER);
+        final BytesResult res = formatBytes(context.getResources(), sizeBytes,
+                FLAG_SI_UNITS | FLAG_SHORTER);
         return bidiWrap(context, context.getString(com.android.internal.R.string.fileSizeSuffix,
                 res.value, res.units));
     }
 
     /** {@hide} */
+    @UnsupportedAppUsage
     public static BytesResult formatBytes(Resources res, long sizeBytes, int flags) {
+        final int unit = ((flags & FLAG_IEC_UNITS) != 0) ? 1024 : 1000;
         final boolean isNegative = (sizeBytes < 0);
         float result = isNegative ? -sizeBytes : sizeBytes;
         int suffix = com.android.internal.R.string.byteShort;
         long mult = 1;
         if (result > 900) {
             suffix = com.android.internal.R.string.kilobyteShort;
-            mult = TrafficStats.KB_IN_BYTES;
-            result = result / 1024;
+            mult = unit;
+            result = result / unit;
         }
         if (result > 900) {
             suffix = com.android.internal.R.string.megabyteShort;
-            mult = TrafficStats.MB_IN_BYTES;
-            result = result / 1024;
+            mult *= unit;
+            result = result / unit;
         }
         if (result > 900) {
             suffix = com.android.internal.R.string.gigabyteShort;
-            mult = TrafficStats.GB_IN_BYTES;
-            result = result / 1024;
+            mult *= unit;
+            result = result / unit;
         }
         if (result > 900) {
             suffix = com.android.internal.R.string.terabyteShort;
-            mult = TrafficStats.TB_IN_BYTES;
-            result = result / 1024;
+            mult *= unit;
+            result = result / unit;
         }
         if (result > 900) {
             suffix = com.android.internal.R.string.petabyteShort;
-            mult = TrafficStats.PB_IN_BYTES;
-            result = result / 1024;
+            mult *= unit;
+            result = result / unit;
         }
         // Note we calculate the rounded long by ourselves, but still let String.format()
         // compute the rounded value. String.format("%f", 0.1) might not return "0.1" due to
@@ -192,12 +217,13 @@ public final class Formatter {
 
     /**
      * Returns elapsed time for the given millis, in the following format:
-     * 1 day 5 hrs; will include at most two units, can go down to seconds precision.
+     * 1 day, 5 hr; will include at most two units, can go down to seconds precision.
      * @param context the application context
      * @param millis the elapsed time in milli seconds
      * @return the formatted elapsed time
      * @hide
      */
+    @UnsupportedAppUsage
     public static String formatShortElapsedTime(Context context, long millis) {
         long secondsLong = millis / 1000;
 
@@ -216,56 +242,52 @@ public final class Formatter {
         }
         int seconds = (int)secondsLong;
 
-        if (days >= 2) {
+        final Locale locale = localeFromContext(context);
+        final MeasureFormat measureFormat = MeasureFormat.getInstance(
+                locale, MeasureFormat.FormatWidth.SHORT);
+        if (days >= 2 || (days > 0 && hours == 0)) {
             days += (hours+12)/24;
-            return context.getString(com.android.internal.R.string.durationDays, days);
+            return measureFormat.format(new Measure(days, MeasureUnit.DAY));
         } else if (days > 0) {
-            if (hours == 1) {
-                return context.getString(com.android.internal.R.string.durationDayHour, days, hours);
-            }
-            return context.getString(com.android.internal.R.string.durationDayHours, days, hours);
-        } else if (hours >= 2) {
+            return measureFormat.formatMeasures(
+                    new Measure(days, MeasureUnit.DAY),
+                    new Measure(hours, MeasureUnit.HOUR));
+        } else if (hours >= 2 || (hours > 0 && minutes == 0)) {
             hours += (minutes+30)/60;
-            return context.getString(com.android.internal.R.string.durationHours, hours);
+            return measureFormat.format(new Measure(hours, MeasureUnit.HOUR));
         } else if (hours > 0) {
-            if (minutes == 1) {
-                return context.getString(com.android.internal.R.string.durationHourMinute, hours,
-                        minutes);
-            }
-            return context.getString(com.android.internal.R.string.durationHourMinutes, hours,
-                    minutes);
-        } else if (minutes >= 2) {
+            return measureFormat.formatMeasures(
+                    new Measure(hours, MeasureUnit.HOUR),
+                    new Measure(minutes, MeasureUnit.MINUTE));
+        } else if (minutes >= 2 || (minutes > 0 && seconds == 0)) {
             minutes += (seconds+30)/60;
-            return context.getString(com.android.internal.R.string.durationMinutes, minutes);
+            return measureFormat.format(new Measure(minutes, MeasureUnit.MINUTE));
         } else if (minutes > 0) {
-            if (seconds == 1) {
-                return context.getString(com.android.internal.R.string.durationMinuteSecond, minutes,
-                        seconds);
-            }
-            return context.getString(com.android.internal.R.string.durationMinuteSeconds, minutes,
-                    seconds);
-        } else if (seconds == 1) {
-            return context.getString(com.android.internal.R.string.durationSecond, seconds);
+            return measureFormat.formatMeasures(
+                    new Measure(minutes, MeasureUnit.MINUTE),
+                    new Measure(seconds, MeasureUnit.SECOND));
         } else {
-            return context.getString(com.android.internal.R.string.durationSeconds, seconds);
+            return measureFormat.format(new Measure(seconds, MeasureUnit.SECOND));
         }
     }
 
     /**
      * Returns elapsed time for the given millis, in the following format:
-     * 1 day 5 hrs; will include at most two units, can go down to minutes precision.
+     * 1 day, 5 hr; will include at most two units, can go down to minutes precision.
      * @param context the application context
      * @param millis the elapsed time in milli seconds
      * @return the formatted elapsed time
      * @hide
      */
+    @UnsupportedAppUsage
     public static String formatShortElapsedTimeRoundingUpToMinutes(Context context, long millis) {
         long minutesRoundedUp = (millis + MILLIS_PER_MINUTE - 1) / MILLIS_PER_MINUTE;
 
-        if (minutesRoundedUp == 0) {
-            return context.getString(com.android.internal.R.string.durationMinutes, 0);
-        } else if (minutesRoundedUp == 1) {
-            return context.getString(com.android.internal.R.string.durationMinute, 1);
+        if (minutesRoundedUp == 0 || minutesRoundedUp == 1) {
+            final Locale locale = localeFromContext(context);
+            final MeasureFormat measureFormat = MeasureFormat.getInstance(
+                    locale, MeasureFormat.FormatWidth.SHORT);
+            return measureFormat.format(new Measure(minutesRoundedUp, MeasureUnit.MINUTE));
         }
 
         return formatShortElapsedTime(context, minutesRoundedUp * MILLIS_PER_MINUTE);

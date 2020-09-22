@@ -17,7 +17,6 @@
 package android.accounts;
 
 import android.Manifest;
-import android.annotation.SystemApi;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -32,8 +31,8 @@ import java.util.Arrays;
 
 /**
  * Abstract base class for creating AccountAuthenticators.
- * In order to be an authenticator one must extend this class, provider implementations for the
- * abstract methods and write a service that returns the result of {@link #getIBinder()}
+ * In order to be an authenticator one must extend this class, provide implementations for the
+ * abstract methods, and write a service that returns the result of {@link #getIBinder()}
  * in the service's {@link android.app.Service#onBind(android.content.Intent)} when invoked
  * with an intent with action {@link AccountManager#ACTION_AUTHENTICATOR_INTENT}. This service
  * must specify the following intent filter and metadata tags in its AndroidManifest.xml file
@@ -104,8 +103,6 @@ import java.util.Arrays;
  * When writing an activity to satisfy these requests one must pass in the AccountManagerResponse
  * and return the result via that response when the activity finishes (or whenever else  the
  * activity author deems it is the correct time to respond).
- * The {@link AccountAuthenticatorActivity} handles this, so one may wish to extend that when
- * writing activities to handle these requests.
  */
 public abstract class AbstractAccountAuthenticator {
     private static final String TAG = "AccountAuthenticator";
@@ -175,6 +172,9 @@ public abstract class AbstractAccountAuthenticator {
                 }
                 if (result != null) {
                     response.onResult(result);
+                } else {
+                    response.onError(AccountManager.ERROR_CODE_INVALID_RESPONSE,
+                            "null bundle returned");
                 }
             } catch (Exception e) {
                 handleException(response, "addAccount", accountType, e);
@@ -547,7 +547,9 @@ public abstract class AbstractAccountAuthenticator {
      * @param authTokenType the type of auth token to retrieve after adding the account, may be null
      * @param requiredFeatures a String array of authenticator-specific features that the added
      * account must support, may be null
-     * @param options a Bundle of authenticator-specific options, may be null
+     * @param options a Bundle of authenticator-specific options. It always contains
+     * {@link AccountManager#KEY_CALLER_PID} and {@link AccountManager#KEY_CALLER_UID}
+     * fields which will let authenticator know the identity of the caller.
      * @return a Bundle result or null if the result is to be returned via the response. The result
      * will contain either:
      * <ul>
@@ -603,21 +605,24 @@ public abstract class AbstractAccountAuthenticator {
      * addition {@link AbstractAccountAuthenticator} implementations that declare themselves
      * {@code android:customTokens=true} may also provide a non-negative {@link
      * #KEY_CUSTOM_TOKEN_EXPIRY} long value containing the expiration timestamp of the expiration
-     * time (in millis since the unix epoch).
+     * time (in millis since the unix epoch), tokens will be cached in memory based on
+     * application's packageName/signature for however long that was specified.
      * <p>
      * Implementers should assume that tokens will be cached on the basis of account and
      * authTokenType. The system may ignore the contents of the supplied options Bundle when
      * determining to re-use a cached token. Furthermore, implementers should assume a supplied
      * expiration time will be treated as non-binding advice.
      * <p>
-     * Finally, note that for android:customTokens=false authenticators, tokens are cached
+     * Finally, note that for {@code android:customTokens=false} authenticators, tokens are cached
      * indefinitely until some client calls {@link
      * AccountManager#invalidateAuthToken(String,String)}.
      *
      * @param response to send the result back to the AccountManager, will never be null
      * @param account the account whose credentials are to be retrieved, will never be null
      * @param authTokenType the type of auth token to retrieve, will never be null
-     * @param options a Bundle of authenticator-specific options, may be null
+     * @param options a Bundle of authenticator-specific options. It always contains
+     * {@link AccountManager#KEY_CALLER_PID} and {@link AccountManager#KEY_CALLER_UID}
+     * fields which will let authenticator know the identity of the caller.
      * @return a Bundle result or null if the result is to be returned via the response.
      * @throws NetworkErrorException if the authenticator could not honor the request due to a
      * network error
@@ -707,7 +712,7 @@ public abstract class AbstractAccountAuthenticator {
      * @param account the account to clone, will never be null
      * @return a Bundle result or null if the result is to be returned via the response.
      * @throws NetworkErrorException
-     * @see {@link #addAccountFromCredentials(AccountAuthenticatorResponse, Account, Bundle)}
+     * @see #addAccountFromCredentials(AccountAuthenticatorResponse, Account, Bundle)
      */
     public Bundle getAccountCredentialsForCloning(final AccountAuthenticatorResponse response,
             final Account account) throws NetworkErrorException {
@@ -732,7 +737,7 @@ public abstract class AbstractAccountAuthenticator {
      * provided by {@link #getAccountCredentialsForCloning(AccountAuthenticatorResponse, Account)}.
      * @return a Bundle result or null if the result is to be returned via the response.
      * @throws NetworkErrorException
-     * @see {@link #getAccountCredentialsForCloning(AccountAuthenticatorResponse, Account)}
+     * @see #getAccountCredentialsForCloning(AccountAuthenticatorResponse, Account)
      */
     public Bundle addAccountFromCredentials(final AccountAuthenticatorResponse response,
             Account account,
@@ -782,9 +787,7 @@ public abstract class AbstractAccountAuthenticator {
      * @throws NetworkErrorException if the authenticator could not honor the
      *             request due to a network error
      * @see #finishSession(AccountAuthenticatorResponse, String, Bundle)
-     * @hide
      */
-    @SystemApi
     public Bundle startAddAccountSession(
             final AccountAuthenticatorResponse response,
             final String accountType,
@@ -840,9 +843,7 @@ public abstract class AbstractAccountAuthenticator {
      * @throws NetworkErrorException if the authenticator could not honor the
      *             request due to a network error
      * @see #finishSession(AccountAuthenticatorResponse, String, Bundle)
-     * @hide
      */
-    @SystemApi
     public Bundle startUpdateCredentialsSession(
             final AccountAuthenticatorResponse response,
             final Account account,
@@ -888,16 +889,16 @@ public abstract class AbstractAccountAuthenticator {
      *         <li>{@link AccountManager#KEY_INTENT}, or
      *         <li>{@link AccountManager#KEY_ACCOUNT_NAME} and
      *         {@link AccountManager#KEY_ACCOUNT_TYPE} of the account that was
-     *         added or local credentials were updated, or
+     *         added or local credentials were updated, and optional
+     *         {@link AccountManager#KEY_ACCOUNT_STATUS_TOKEN} for checking
+     *         the status of the account later, or
      *         <li>{@link AccountManager#KEY_ERROR_CODE} and
      *         {@link AccountManager#KEY_ERROR_MESSAGE} to indicate an error
      *         </ul>
      * @throws NetworkErrorException if the authenticator could not honor the request due to a
      *             network error
      * @see #startAddAccountSession and #startUpdateCredentialsSession
-     * @hide
      */
-    @SystemApi
     public Bundle finishSession(
             final AccountAuthenticatorResponse response,
             final String accountType,
@@ -970,7 +971,8 @@ public abstract class AbstractAccountAuthenticator {
      *
      * @param response to send the result back to the AccountManager, will never be null.
      * @param account the account to check, will never be null
-     * @param statusToken a String of token to check if update of credentials is suggested.
+     * @param statusToken a String of token which can be used to check the status of locally
+     *            stored credentials and if update of credentials is suggested
      * @return a Bundle result or null if the result is to be returned via the response. The result
      *         will contain either:
      *         <ul>
@@ -981,9 +983,7 @@ public abstract class AbstractAccountAuthenticator {
      *         </ul>
      * @throws NetworkErrorException if the authenticator could not honor the request due to a
      *             network error
-     * @hide
      */
-    @SystemApi
     public Bundle isCredentialsUpdateSuggested(
             final AccountAuthenticatorResponse response,
             Account account,

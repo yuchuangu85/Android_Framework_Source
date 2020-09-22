@@ -16,9 +16,9 @@
 
 package com.android.ims.internal.uce.common;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.util.Log;
 
 
 /** Class for UCE status codes.
@@ -63,6 +63,10 @@ public class StatusCode implements Parcelable {
     public static final int UCE_NO_CHANGE_IN_CAP = 13;
     /**  Service is unknown. */
     public static final int UCE_SERVICE_UNKNOWN = 14;
+     /** Service cannot support Invalid Feature Tag   */
+    public static final int UCE_INVALID_FEATURE_TAG = 15;
+    /** Service is Available   */
+    public static final int UCE_SERVICE_AVAILABLE = 16;
 
 
     private int mStatusCode = UCE_SUCCESS;
@@ -71,12 +75,14 @@ public class StatusCode implements Parcelable {
      * Constructor for the StatusCode class.
      * @hide
      */
+    @UnsupportedAppUsage
     public StatusCode() {}
 
     /**
      *  Gets the status code.
      *  @hide
      */
+    @UnsupportedAppUsage
     public int getStatusCode() {
         return mStatusCode;
     }
@@ -85,6 +91,7 @@ public class StatusCode implements Parcelable {
      *  Sets the status code.
      *  @hide
      */
+    @UnsupportedAppUsage
     public void setStatusCode(int nStatusCode) {
         this.mStatusCode = nStatusCode;
     }

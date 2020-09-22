@@ -16,18 +16,33 @@
 
 package com.android.internal.view;
 
-import android.content.res.Configuration;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.graphics.Point;
 import android.graphics.Rect;
+import android.hardware.input.InputManager;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
+import android.util.MergedConfiguration;
+import android.view.DisplayCutout;
 import android.view.DragEvent;
+import android.view.IScrollCaptureController;
 import android.view.IWindow;
 import android.view.IWindowSession;
+import android.view.InsetsSourceControl;
+import android.view.InsetsState;
+import android.view.PointerIcon;
+import android.view.WindowInsets.Type.InsetsType;
 
 import com.android.internal.os.IResultReceiver;
 
+import java.io.IOException;
+
 public class BaseIWindow extends IWindow.Stub {
+
+    @UnsupportedAppUsage(maxTargetSdk = android.os.Build.VERSION_CODES.P)
+    public BaseIWindow() {}
+
     private IWindowSession mSession;
     public int mSeq;
 
@@ -36,15 +51,38 @@ public class BaseIWindow extends IWindow.Stub {
     }
 
     @Override
-    public void resized(Rect frame, Rect overscanInsets, Rect contentInsets, Rect visibleInsets,
-            Rect stableInsets, Rect outsets, boolean reportDraw, Configuration newConfig,
-            Rect backDropFrame, boolean forceLayout, boolean alwaysConsumeNavBar) {
+    public void resized(Rect frame, Rect contentInsets, Rect visibleInsets,
+            Rect stableInsets, boolean reportDraw,
+            MergedConfiguration mergedConfiguration, Rect backDropFrame, boolean forceLayout,
+            boolean alwaysConsumeSystemBars, int displayId,
+            DisplayCutout.ParcelableWrapper displayCutout) {
         if (reportDraw) {
             try {
-                mSession.finishDrawing(this);
+                mSession.finishDrawing(this, null /* postDrawTransaction */);
             } catch (RemoteException e) {
             }
         }
+    }
+
+    @Override
+    public void locationInParentDisplayChanged(Point offset) {
+    }
+
+    @Override
+    public void insetsChanged(InsetsState insetsState) {
+    }
+
+    @Override
+    public void insetsControlChanged(InsetsState insetsState,
+            InsetsSourceControl[] activeControls) {
+    }
+
+    @Override
+    public void showInsets(@InsetsType int types, boolean fromIme) {
+    }
+
+    @Override
+    public void hideInsets(@InsetsType int types, boolean fromIme) {
     }
 
     @Override
@@ -65,6 +103,13 @@ public class BaseIWindow extends IWindow.Stub {
 
     @Override
     public void executeCommand(String command, String parameters, ParcelFileDescriptor out) {
+        if (out != null) {
+            try {
+                out.closeWithError("Unsupported command " + command);
+            } catch (IOException e) {
+                // Ignore
+            }
+        }
     }
 
     @Override
@@ -72,7 +117,8 @@ public class BaseIWindow extends IWindow.Stub {
     }
 
     @Override
-    public void dispatchWallpaperOffsets(float x, float y, float xStep, float yStep, boolean sync) {
+    public void dispatchWallpaperOffsets(float x, float y, float xStep, float yStep, float zoom,
+            boolean sync) {
         if (sync) {
             try {
                 mSession.wallpaperOffsetsComplete(asBinder());
@@ -83,10 +129,17 @@ public class BaseIWindow extends IWindow.Stub {
 
     @Override
     public void dispatchDragEvent(DragEvent event) {
+        if (event.getAction() == DragEvent.ACTION_DROP) {
+            try {
+                mSession.reportDropResult(this, false);
+            } catch (RemoteException e) {
+            }
+        }
     }
 
     @Override
     public void updatePointerIcon(float x, float y) {
+        InputManager.getInstance().setPointerIconType(PointerIcon.TYPE_NOT_SPECIFIED);
     }
 
     @Override
@@ -112,5 +165,18 @@ public class BaseIWindow extends IWindow.Stub {
 
     @Override
     public void requestAppKeyboardShortcuts(IResultReceiver receiver, int deviceId) {
+    }
+
+    @Override
+    public void dispatchPointerCaptureChanged(boolean hasCapture) {
+    }
+
+    @Override
+    public void requestScrollCapture(IScrollCaptureController controller) {
+        try {
+            controller.onClientUnavailable();
+        } catch (RemoteException ex) {
+            // ignore
+        }
     }
 }

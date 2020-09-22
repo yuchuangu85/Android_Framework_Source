@@ -16,17 +16,18 @@
 
 package android.bluetooth;
 
+import android.Manifest;
+import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.Context;
+import android.os.Binder;
+import android.os.IBinder;
+import android.os.RemoteException;
+import android.util.Log;
+
 import java.util.ArrayList;
 import java.util.List;
-
-import android.content.ComponentName;
-import android.content.Context;
-import android.content.Intent;
-import android.content.ServiceConnection;
-import android.os.RemoteException;
-import android.os.IBinder;
-import android.os.ServiceManager;
-import android.util.Log;
 
 /**
  * This class provides the APIs to control the Bluetooth SIM
@@ -37,6 +38,7 @@ import android.util.Log;
  * the BluetoothSap proxy object.
  *
  * <p>Each method is protected with its appropriate permission.
+ *
  * @hide
  */
 public final class BluetoothSap implements BluetoothProfile {
@@ -50,9 +52,9 @@ public final class BluetoothSap implements BluetoothProfile {
      *
      * <p>This intent will have 4 extras:
      * <ul>
-     *   <li> {@link #EXTRA_STATE} - The current state of the profile. </li>
-     *   <li> {@link #EXTRA_PREVIOUS_STATE}- The previous state of the profile.</li>
-     *   <li> {@link BluetoothDevice#EXTRA_DEVICE} - The remote device. </li>
+     * <li> {@link #EXTRA_STATE} - The current state of the profile. </li>
+     * <li> {@link #EXTRA_PREVIOUS_STATE}- The previous state of the profile.</li>
+     * <li> {@link BluetoothDevice#EXTRA_DEVICE} - The remote device. </li>
      * </ul>
      *
      * <p>{@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} can be any of
@@ -61,92 +63,50 @@ public final class BluetoothSap implements BluetoothProfile {
      *
      * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission to
      * receive.
+     *
      * @hide
      */
     public static final String ACTION_CONNECTION_STATE_CHANGED =
-        "android.bluetooth.sap.profile.action.CONNECTION_STATE_CHANGED";
-
-    private IBluetoothSap mService;
-    private final Context mContext;
-    private ServiceListener mServiceListener;
-    private BluetoothAdapter mAdapter;
+            "android.bluetooth.sap.profile.action.CONNECTION_STATE_CHANGED";
 
     /**
      * There was an error trying to obtain the state.
+     *
      * @hide
      */
     public static final int STATE_ERROR = -1;
 
     /**
      * Connection state change succceeded.
+     *
      * @hide
      */
     public static final int RESULT_SUCCESS = 1;
 
     /**
      * Connection canceled before completion.
+     *
      * @hide
      */
     public static final int RESULT_CANCELED = 2;
 
-    final private IBluetoothStateChangeCallback mBluetoothStateChangeCallback =
-            new IBluetoothStateChangeCallback.Stub() {
-                public void onBluetoothStateChange(boolean up) {
-                    if (DBG) Log.d(TAG, "onBluetoothStateChange: up=" + up);
-                    if (!up) {
-                        if (VDBG) Log.d(TAG,"Unbinding service...");
-                        synchronized (mConnection) {
-                            try {
-                                mService = null;
-                                mContext.unbindService(mConnection);
-                            } catch (Exception re) {
-                                Log.e(TAG,"",re);
-                            }
-                        }
-                    } else {
-                        synchronized (mConnection) {
-                            try {
-                                if (mService == null) {
-                                    if (VDBG) Log.d(TAG,"Binding service...");
-                                    doBind();
-                                }
-                            } catch (Exception re) {
-                                Log.e(TAG,"",re);
-                            }
-                        }
-                    }
+    private BluetoothAdapter mAdapter;
+    private final BluetoothProfileConnector<IBluetoothSap> mProfileConnector =
+            new BluetoothProfileConnector(this, BluetoothProfile.SAP,
+                    "BluetoothSap", IBluetoothSap.class.getName()) {
+                @Override
+                public IBluetoothSap getServiceInterface(IBinder service) {
+                    return IBluetoothSap.Stub.asInterface(Binder.allowBlocking(service));
                 }
-        };
+    };
 
     /**
      * Create a BluetoothSap proxy object.
      */
-    /*package*/ BluetoothSap(Context context, ServiceListener l) {
+    /*package*/ BluetoothSap(Context context, ServiceListener listener) {
         if (DBG) Log.d(TAG, "Create BluetoothSap proxy object");
-        mContext = context;
-        mServiceListener = l;
         mAdapter = BluetoothAdapter.getDefaultAdapter();
-        IBluetoothManager mgr = mAdapter.getBluetoothManager();
-        if (mgr != null) {
-            try {
-                mgr.registerStateChangeCallback(mBluetoothStateChangeCallback);
-            } catch (RemoteException e) {
-                Log.e(TAG,"",e);
-            }
-        }
-        doBind();
-    }
-
-    boolean doBind() {
-        Intent intent = new Intent(IBluetoothSap.class.getName());
-        ComponentName comp = intent.resolveSystemService(mContext.getPackageManager(), 0);
-        intent.setComponent(comp);
-        if (comp == null || !mContext.bindServiceAsUser(intent, mConnection, 0,
-                android.os.Process.myUserHandle())) {
-            Log.e(TAG, "Could not bind to Bluetooth SAP Service with " + intent);
-            return false;
-        }
-        return true;
+        mProfileConnector.connect(context, listener);
     }
 
     protected void finalize() throws Throwable {
@@ -162,43 +122,33 @@ public final class BluetoothSap implements BluetoothProfile {
      * Other public functions of BluetoothSap will return default error
      * results once close() has been called. Multiple invocations of close()
      * are ok.
+     *
      * @hide
      */
     public synchronized void close() {
-        IBluetoothManager mgr = mAdapter.getBluetoothManager();
-        if (mgr != null) {
-            try {
-                mgr.unregisterStateChangeCallback(mBluetoothStateChangeCallback);
-            } catch (Exception e) {
-                Log.e(TAG,"",e);
-            }
-        }
+        mProfileConnector.disconnect();
+    }
 
-        synchronized (mConnection) {
-            if (mService != null) {
-                try {
-                    mService = null;
-                    mContext.unbindService(mConnection);
-                } catch (Exception re) {
-                    Log.e(TAG,"",re);
-                }
-            }
-        }
-        mServiceListener = null;
+    private IBluetoothSap getService() {
+        return mProfileConnector.getService();
     }
 
     /**
      * Get the current state of the BluetoothSap service.
-     * @return One of the STATE_ return codes, or STATE_ERROR if this proxy
-     *         object is currently not connected to the Sap service.
+     *
+     * @return One of the STATE_ return codes, or STATE_ERROR if this proxy object is currently not
+     * connected to the Sap service.
      * @hide
      */
     public int getState() {
         if (VDBG) log("getState()");
-        if (mService != null) {
+        final IBluetoothSap service = getService();
+        if (service != null) {
             try {
-                return mService.getState();
-            } catch (RemoteException e) {Log.e(TAG, e.toString());}
+                return service.getState();
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString());
+            }
         } else {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
@@ -208,17 +158,20 @@ public final class BluetoothSap implements BluetoothProfile {
 
     /**
      * Get the currently connected remote Bluetooth device (PCE).
-     * @return The remote Bluetooth device, or null if not in connected or
-     *         connecting state, or if this proxy object is not connected to
-     *         the Sap service.
+     *
+     * @return The remote Bluetooth device, or null if not in connected or connecting state, or if
+     * this proxy object is not connected to the Sap service.
      * @hide
      */
     public BluetoothDevice getClient() {
         if (VDBG) log("getClient()");
-        if (mService != null) {
+        final IBluetoothSap service = getService();
+        if (service != null) {
             try {
-                return mService.getClient();
-            } catch (RemoteException e) {Log.e(TAG, e.toString());}
+                return service.getClient();
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString());
+            }
         } else {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
@@ -230,14 +183,18 @@ public final class BluetoothSap implements BluetoothProfile {
      * Returns true if the specified Bluetooth device is connected.
      * Returns false if not connected, or if this proxy object is not
      * currently connected to the Sap service.
+     *
      * @hide
      */
     public boolean isConnected(BluetoothDevice device) {
         if (VDBG) log("isConnected(" + device + ")");
-        if (mService != null) {
+        final IBluetoothSap service = getService();
+        if (service != null) {
             try {
-                return mService.isConnected(device);
-            } catch (RemoteException e) {Log.e(TAG, e.toString());}
+                return service.isConnected(device);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString());
+            }
         } else {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
@@ -248,6 +205,7 @@ public final class BluetoothSap implements BluetoothProfile {
     /**
      * Initiate connection. Initiation of outgoing connections is not
      * supported for SAP server.
+     *
      * @hide
      */
     public boolean connect(BluetoothDevice device) {
@@ -259,22 +217,22 @@ public final class BluetoothSap implements BluetoothProfile {
      * Initiate disconnect.
      *
      * @param device Remote Bluetooth Device
-     * @return false on error,
-     *               true otherwise
+     * @return false on error, true otherwise
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean disconnect(BluetoothDevice device) {
         if (DBG) log("disconnect(" + device + ")");
-        if (mService != null && isEnabled() &&
-            isValidDevice(device)) {
+        final IBluetoothSap service = getService();
+        if (service != null && isEnabled() && isValidDevice(device)) {
             try {
-                return mService.disconnect(device);
+                return service.disconnect(device);
             } catch (RemoteException e) {
-              Log.e(TAG, Log.getStackTraceString(new Throwable()));
-              return false;
+                Log.e(TAG, Log.getStackTraceString(new Throwable()));
+                return false;
             }
         }
-        if (mService == null) Log.w(TAG, "Proxy not attached to service");
+        if (service == null) Log.w(TAG, "Proxy not attached to service");
         return false;
     }
 
@@ -286,15 +244,16 @@ public final class BluetoothSap implements BluetoothProfile {
      */
     public List<BluetoothDevice> getConnectedDevices() {
         if (DBG) log("getConnectedDevices()");
-        if (mService != null && isEnabled()) {
+        final IBluetoothSap service = getService();
+        if (service != null && isEnabled()) {
             try {
-                return mService.getConnectedDevices();
+                return service.getConnectedDevices();
             } catch (RemoteException e) {
                 Log.e(TAG, Log.getStackTraceString(new Throwable()));
                 return new ArrayList<BluetoothDevice>();
             }
         }
-        if (mService == null) Log.w(TAG, "Proxy not attached to service");
+        if (service == null) Log.w(TAG, "Proxy not attached to service");
         return new ArrayList<BluetoothDevice>();
     }
 
@@ -306,15 +265,16 @@ public final class BluetoothSap implements BluetoothProfile {
      */
     public List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states) {
         if (DBG) log("getDevicesMatchingStates()");
-        if (mService != null && isEnabled()) {
+        final IBluetoothSap service = getService();
+        if (service != null && isEnabled()) {
             try {
-                return mService.getDevicesMatchingConnectionStates(states);
+                return service.getDevicesMatchingConnectionStates(states);
             } catch (RemoteException e) {
                 Log.e(TAG, Log.getStackTraceString(new Throwable()));
                 return new ArrayList<BluetoothDevice>();
             }
         }
-        if (mService == null) Log.w(TAG, "Proxy not attached to service");
+        if (service == null) Log.w(TAG, "Proxy not attached to service");
         return new ArrayList<BluetoothDevice>();
     }
 
@@ -326,16 +286,16 @@ public final class BluetoothSap implements BluetoothProfile {
      */
     public int getConnectionState(BluetoothDevice device) {
         if (DBG) log("getConnectionState(" + device + ")");
-        if (mService != null && isEnabled() &&
-            isValidDevice(device)) {
+        final IBluetoothSap service = getService();
+        if (service != null && isEnabled() && isValidDevice(device)) {
             try {
-                return mService.getConnectionState(device);
+                return service.getConnectionState(device);
             } catch (RemoteException e) {
                 Log.e(TAG, Log.getStackTraceString(new Throwable()));
                 return BluetoothProfile.STATE_DISCONNECTED;
             }
         }
-        if (mService == null) Log.w(TAG, "Proxy not attached to service");
+        if (service == null) Log.w(TAG, "Proxy not attached to service");
         return BluetoothProfile.STATE_DISCONNECTED;
     }
 
@@ -343,69 +303,96 @@ public final class BluetoothSap implements BluetoothProfile {
      * Set priority of the profile
      *
      * <p> The device should already be paired.
+     * Priority can be one of {@link #PRIORITY_ON} or {@link #PRIORITY_OFF},
      *
      * @param device Paired bluetooth device
      * @param priority
      * @return true if priority is set, false on error
      * @hide
      */
+    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
     public boolean setPriority(BluetoothDevice device, int priority) {
         if (DBG) log("setPriority(" + device + ", " + priority + ")");
-        if (mService != null && isEnabled() &&
-            isValidDevice(device)) {
-            if (priority != BluetoothProfile.PRIORITY_OFF &&
-                priority != BluetoothProfile.PRIORITY_ON) {
-              return false;
+        return setConnectionPolicy(device, BluetoothAdapter.priorityToConnectionPolicy(priority));
+    }
+
+    /**
+     * Set connection policy of the profile
+     *
+     * <p> The device should already be paired.
+     * Connection policy can be one of {@link #CONNECTION_POLICY_ALLOWED},
+     * {@link #CONNECTION_POLICY_FORBIDDEN}, {@link #CONNECTION_POLICY_UNKNOWN}
+     *
+     * @param device Paired bluetooth device
+     * @param connectionPolicy is the connection policy to set to for this profile
+     * @return true if connectionPolicy is set, false on error
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
+    public boolean setConnectionPolicy(BluetoothDevice device,
+            @ConnectionPolicy int connectionPolicy) {
+        if (DBG) log("setConnectionPolicy(" + device + ", " + connectionPolicy + ")");
+        final IBluetoothSap service = getService();
+        if (service != null && isEnabled() && isValidDevice(device)) {
+            if (connectionPolicy != BluetoothProfile.CONNECTION_POLICY_FORBIDDEN
+                    && connectionPolicy != BluetoothProfile.CONNECTION_POLICY_ALLOWED) {
+                return false;
             }
             try {
-                return mService.setPriority(device, priority);
+                return service.setConnectionPolicy(device, connectionPolicy);
             } catch (RemoteException e) {
                 Log.e(TAG, Log.getStackTraceString(new Throwable()));
                 return false;
             }
         }
-        if (mService == null) Log.w(TAG, "Proxy not attached to service");
+        if (service == null) Log.w(TAG, "Proxy not attached to service");
         return false;
     }
 
     /**
      * Get the priority of the profile.
      *
+     * <p> The priority can be any of:
+     * {@link #PRIORITY_OFF}, {@link #PRIORITY_ON}, {@link #PRIORITY_UNDEFINED}
+     *
      * @param device Bluetooth device
      * @return priority of the device
      * @hide
      */
+    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
     public int getPriority(BluetoothDevice device) {
         if (VDBG) log("getPriority(" + device + ")");
-        if (mService != null && isEnabled() &&
-            isValidDevice(device)) {
-            try {
-                return mService.getPriority(device);
-            } catch (RemoteException e) {
-                Log.e(TAG, Log.getStackTraceString(new Throwable()));
-                return PRIORITY_OFF;
-            }
-        }
-        if (mService == null) Log.w(TAG, "Proxy not attached to service");
-        return PRIORITY_OFF;
+        return BluetoothAdapter.connectionPolicyToPriority(getConnectionPolicy(device));
     }
 
-    private ServiceConnection mConnection = new ServiceConnection() {
-        public void onServiceConnected(ComponentName className, IBinder service) {
-            if (DBG) log("Proxy object connected");
-            mService = IBluetoothSap.Stub.asInterface(service);
-            if (mServiceListener != null) {
-                mServiceListener.onServiceConnected(BluetoothProfile.SAP, BluetoothSap.this);
+    /**
+     * Get the connection policy of the profile.
+     *
+     * <p> The connection policy can be any of:
+     * {@link #CONNECTION_POLICY_ALLOWED}, {@link #CONNECTION_POLICY_FORBIDDEN},
+     * {@link #CONNECTION_POLICY_UNKNOWN}
+     *
+     * @param device Bluetooth device
+     * @return connection policy of the device
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
+    public @ConnectionPolicy int getConnectionPolicy(BluetoothDevice device) {
+        if (VDBG) log("getConnectionPolicy(" + device + ")");
+        final IBluetoothSap service = getService();
+        if (service != null && isEnabled() && isValidDevice(device)) {
+            try {
+                return service.getConnectionPolicy(device);
+            } catch (RemoteException e) {
+                Log.e(TAG, Log.getStackTraceString(new Throwable()));
+                return BluetoothProfile.CONNECTION_POLICY_FORBIDDEN;
             }
         }
-        public void onServiceDisconnected(ComponentName className) {
-            if (DBG) log("Proxy object disconnected");
-            mService = null;
-            if (mServiceListener != null) {
-                mServiceListener.onServiceDisconnected(BluetoothProfile.SAP);
-            }
-        }
-    };
+        if (service == null) Log.w(TAG, "Proxy not attached to service");
+        return BluetoothProfile.CONNECTION_POLICY_FORBIDDEN;
+    }
 
     private static void log(String msg) {
         Log.d(TAG, msg);
@@ -414,19 +401,15 @@ public final class BluetoothSap implements BluetoothProfile {
     private boolean isEnabled() {
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
 
-        if (adapter != null && adapter.getState() == BluetoothAdapter.STATE_ON)
+        if (adapter != null && adapter.getState() == BluetoothAdapter.STATE_ON) {
             return true;
+        }
         log("Bluetooth is Not enabled");
         return false;
     }
 
-    private boolean isValidDevice(BluetoothDevice device) {
-       if (device == null)
-           return false;
-
-       if (BluetoothAdapter.checkBluetoothAddress(device.getAddress()))
-           return true;
-       return false;
+    private static boolean isValidDevice(BluetoothDevice device) {
+        return device != null && BluetoothAdapter.checkBluetoothAddress(device.getAddress());
     }
 
 }

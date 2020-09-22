@@ -15,10 +15,15 @@
  */
 package android.provider;
 
+import android.annotation.IntDef;
 import android.annotation.WorkerThread;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
+import android.telecom.Log;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * <p>
@@ -151,6 +156,8 @@ public class BlockedNumberContract {
     /** A content:// style uri to the authority for the blocked number provider */
     public static final Uri AUTHORITY_URI = Uri.parse("content://" + AUTHORITY);
 
+    private static final String LOG_TAG = BlockedNumberContract.class.getSimpleName();
+
     /**
      * Constants to interact with the blocked numbers list.
      */
@@ -219,6 +226,63 @@ public class BlockedNumberContract {
     public static final String RES_NUMBER_IS_BLOCKED = "blocked";
 
     /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(
+            prefix = { "STATUS_" },
+            value = {STATUS_NOT_BLOCKED, STATUS_BLOCKED_IN_LIST, STATUS_BLOCKED_RESTRICTED,
+                    STATUS_BLOCKED_UNKNOWN_NUMBER, STATUS_BLOCKED_PAYPHONE,
+                    STATUS_BLOCKED_NOT_IN_CONTACTS})
+    public @interface BlockStatus {}
+
+    /**
+     * Integer reason code used with {@link #RES_BLOCK_STATUS} to indicate that a call was not
+     * blocked.
+     * @hide
+     */
+    public static final int STATUS_NOT_BLOCKED = 0;
+
+    /**
+     * Integer reason code used with {@link #RES_BLOCK_STATUS} to indicate that a call was blocked
+     * because it is in the list of blocked numbers maintained by the provider.
+     * @hide
+     */
+    public static final int STATUS_BLOCKED_IN_LIST = 1;
+
+    /**
+     * Integer reason code used with {@link #RES_BLOCK_STATUS} to indicate that a call was blocked
+     * because it is from a restricted number.
+     * @hide
+     */
+    public static final int STATUS_BLOCKED_RESTRICTED = 2;
+
+    /**
+     * Integer reason code used with {@link #RES_BLOCK_STATUS} to indicate that a call was blocked
+     * because it is from an unknown number.
+     * @hide
+     */
+    public static final int STATUS_BLOCKED_UNKNOWN_NUMBER = 3;
+
+    /**
+     * Integer reason code used with {@link #RES_BLOCK_STATUS} to indicate that a call was blocked
+     * because it is from a pay phone.
+     * @hide
+     */
+    public static final int STATUS_BLOCKED_PAYPHONE = 4;
+
+    /**
+     * Integer reason code used with {@link #RES_BLOCK_STATUS} to indicate that a call was blocked
+     * because it is from a number not in the users contacts.
+     * @hide
+     */
+    public static final int STATUS_BLOCKED_NOT_IN_CONTACTS = 5;
+
+    /**
+     * Integer reason indicating whether a call was blocked, and if so why.
+     * @hide
+     */
+    public static final String RES_BLOCK_STATUS = "block_status";
+
+    /** @hide */
     public static final String RES_NUM_ROWS_DELETED = "num_deleted";
 
     /** @hide */
@@ -227,6 +291,25 @@ public class BlockedNumberContract {
 
     /** @hide */
     public static final String RES_CAN_BLOCK_NUMBERS = "can_block";
+
+    /** @hide */
+    public static final String RES_ENHANCED_SETTING_IS_ENABLED = "enhanced_setting_enabled";
+
+    /** @hide */
+    public static final String RES_SHOW_EMERGENCY_CALL_NOTIFICATION =
+            "show_emergency_call_notification";
+
+    /** @hide */
+    public static final String EXTRA_ENHANCED_SETTING_KEY = "extra_enhanced_setting_key";
+
+    /** @hide */
+    public static final String EXTRA_ENHANCED_SETTING_VALUE = "extra_enhanced_setting_value";
+
+    /** @hide */
+    public static final String EXTRA_CONTACT_EXIST = "extra_contact_exist";
+
+    /** @hide */
+    public static final String EXTRA_CALL_PRESENTATION = "extra_call_presentation";
 
     /**
      * Returns whether a given number is in the blocked list.
@@ -242,9 +325,19 @@ public class BlockedNumberContract {
      */
     @WorkerThread
     public static boolean isBlocked(Context context, String phoneNumber) {
-        final Bundle res = context.getContentResolver().call(
-                AUTHORITY_URI, METHOD_IS_BLOCKED, phoneNumber, null);
-        return res != null && res.getBoolean(RES_NUMBER_IS_BLOCKED, false);
+        try {
+            final Bundle res = context.getContentResolver().call(
+                    AUTHORITY_URI, METHOD_IS_BLOCKED, phoneNumber, null);
+            boolean isBlocked = res != null && res.getBoolean(RES_NUMBER_IS_BLOCKED, false);
+            Log.d(LOG_TAG, "isBlocked: phoneNumber=%s, isBlocked=%b", Log.piiHandle(phoneNumber),
+                    isBlocked);
+            return isBlocked;
+        } catch (NullPointerException | IllegalArgumentException ex) {
+            // The content resolver can throw an NPE or IAE; we don't want to crash Telecom if
+            // either of these happen.
+            Log.w(null, "isBlocked: provider not ready.");
+            return false;
+        }
     }
 
     /**
@@ -266,6 +359,7 @@ public class BlockedNumberContract {
      */
     @WorkerThread
     public static int unblock(Context context, String phoneNumber) {
+        Log.d(LOG_TAG, "unblock: phoneNumber=%s", Log.piiHandle(phoneNumber));
         final Bundle res = context.getContentResolver().call(
                 AUTHORITY_URI, METHOD_UNBLOCK, phoneNumber, null);
         return res.getInt(RES_NUM_ROWS_DELETED, 0);
@@ -278,9 +372,16 @@ public class BlockedNumberContract {
      * @return {@code true} if the current user can block numbers.
      */
     public static boolean canCurrentUserBlockNumbers(Context context) {
-        final Bundle res = context.getContentResolver().call(
-                AUTHORITY_URI, METHOD_CAN_CURRENT_USER_BLOCK_NUMBERS, null, null);
-        return res != null && res.getBoolean(RES_CAN_BLOCK_NUMBERS, false);
+        try {
+            final Bundle res = context.getContentResolver().call(
+                    AUTHORITY_URI, METHOD_CAN_CURRENT_USER_BLOCK_NUMBERS, null, null);
+            return res != null && res.getBoolean(RES_CAN_BLOCK_NUMBERS, false);
+        } catch (NullPointerException | IllegalArgumentException ex) {
+            // The content resolver can throw an NPE or IAE; we don't want to crash Telecom if
+            // either of these happen.
+            Log.w(null, "canCurrentUserBlockNumbers: provider not ready.");
+            return false;
+        }
     }
 
     /**
@@ -314,10 +415,32 @@ public class BlockedNumberContract {
         public static final String METHOD_GET_BLOCK_SUPPRESSION_STATUS =
                 "get_block_suppression_status";
 
+        public static final String METHOD_SHOULD_SHOW_EMERGENCY_CALL_NOTIFICATION =
+                "should_show_emergency_call_notification";
+
         public static final String RES_IS_BLOCKING_SUPPRESSED = "blocking_suppressed";
 
         public static final String RES_BLOCKING_SUPPRESSED_UNTIL_TIMESTAMP =
                 "blocking_suppressed_until_timestamp";
+
+        public static final String METHOD_GET_ENHANCED_BLOCK_SETTING = "get_enhanced_block_setting";
+        public static final String METHOD_SET_ENHANCED_BLOCK_SETTING = "set_enhanced_block_setting";
+
+        /* Preference key of block numbers not in contacts setting. */
+        public static final String ENHANCED_SETTING_KEY_BLOCK_UNREGISTERED =
+                "block_numbers_not_in_contacts_setting";
+        /* Preference key of block private number calls setting. */
+        public static final String ENHANCED_SETTING_KEY_BLOCK_PRIVATE =
+                "block_private_number_calls_setting";
+        /* Preference key of block payphone calls setting. */
+        public static final String ENHANCED_SETTING_KEY_BLOCK_PAYPHONE =
+                "block_payphone_calls_setting";
+        /* Preference key of block unknown calls setting. */
+        public static final String ENHANCED_SETTING_KEY_BLOCK_UNKNOWN =
+                "block_unknown_calls_setting";
+        /* Preference key for whether should show an emergency call notification. */
+        public static final String ENHANCED_SETTING_KEY_SHOW_EMERGENCY_CALL_NOTIFICATION =
+                "show_emergency_call_notification";
 
         /**
          * Notifies the provider that emergency services were contacted by the user.
@@ -327,8 +450,15 @@ public class BlockedNumberContract {
          * the provider unless {@link #endBlockSuppression(Context)} is called.
          */
         public static void notifyEmergencyContact(Context context) {
-            context.getContentResolver().call(
-                    AUTHORITY_URI, METHOD_NOTIFY_EMERGENCY_CONTACT, null, null);
+            try {
+                Log.i(LOG_TAG, "notifyEmergencyContact; caller=%s", context.getOpPackageName());
+                context.getContentResolver().call(
+                        AUTHORITY_URI, METHOD_NOTIFY_EMERGENCY_CONTACT, null, null);
+            } catch (NullPointerException | IllegalArgumentException ex) {
+                // The content resolver can throw an NPE or IAE; we don't want to crash Telecom if
+                // either of these happen.
+                Log.w(null, "notifyEmergencyContact: provider not ready.");
+            }
         }
 
         /**
@@ -336,20 +466,43 @@ public class BlockedNumberContract {
          * contacted recently at all, calling this method is a no-op.
          */
         public static void endBlockSuppression(Context context) {
+            String caller = context.getOpPackageName();
+            Log.i(LOG_TAG, "endBlockSuppression: caller=%s", caller);
             context.getContentResolver().call(
                     AUTHORITY_URI, METHOD_END_BLOCK_SUPPRESSION, null, null);
         }
 
         /**
          * Returns {@code true} if {@code phoneNumber} is blocked taking
-         * {@link #notifyEmergencyContact(Context)} into consideration. If emergency services have
-         * not been contacted recently, this method is equivalent to
-         * {@link #isBlocked(Context, String)}.
+         * {@link #notifyEmergencyContact(Context)} into consideration. If emergency services
+         * have not been contacted recently and enhanced call blocking not been enabled, this
+         * method is equivalent to {@link #isBlocked(Context, String)}.
+         *
+         * @param context the context of the caller.
+         * @param phoneNumber the number to check.
+         * @param extras the extra attribute of the number.
+         * @return result code indicating if the number should be blocked, and if so why.
+         *         Valid values are: {@link #STATUS_NOT_BLOCKED}, {@link #STATUS_BLOCKED_IN_LIST},
+         *         {@link #STATUS_BLOCKED_NOT_IN_CONTACTS}, {@link #STATUS_BLOCKED_PAYPHONE},
+         *         {@link #STATUS_BLOCKED_RESTRICTED}, {@link #STATUS_BLOCKED_UNKNOWN_NUMBER}.
          */
-        public static boolean shouldSystemBlockNumber(Context context, String phoneNumber) {
-            final Bundle res = context.getContentResolver().call(
-                    AUTHORITY_URI, METHOD_SHOULD_SYSTEM_BLOCK_NUMBER, phoneNumber, null);
-            return res != null && res.getBoolean(RES_NUMBER_IS_BLOCKED, false);
+        public static int shouldSystemBlockNumber(Context context, String phoneNumber,
+                Bundle extras) {
+            try {
+                String caller = context.getOpPackageName();
+                final Bundle res = context.getContentResolver().call(
+                        AUTHORITY_URI, METHOD_SHOULD_SYSTEM_BLOCK_NUMBER, phoneNumber, extras);
+                int blockResult = res != null ? res.getInt(RES_BLOCK_STATUS, STATUS_NOT_BLOCKED) :
+                        BlockedNumberContract.STATUS_NOT_BLOCKED;
+                Log.d(LOG_TAG, "shouldSystemBlockNumber: number=%s, caller=%s, result=%s",
+                        Log.piiHandle(phoneNumber), caller, blockStatusToString(blockResult));
+                return blockResult;
+            } catch (NullPointerException | IllegalArgumentException ex) {
+                // The content resolver can throw an NPE or IAE; we don't want to crash Telecom if
+                // either of these happen.
+                Log.w(null, "shouldSystemBlockNumber: provider not ready.");
+                return BlockedNumberContract.STATUS_NOT_BLOCKED;
+            }
         }
 
         /**
@@ -358,14 +511,107 @@ public class BlockedNumberContract {
         public static BlockSuppressionStatus getBlockSuppressionStatus(Context context) {
             final Bundle res = context.getContentResolver().call(
                     AUTHORITY_URI, METHOD_GET_BLOCK_SUPPRESSION_STATUS, null, null);
-            return new BlockSuppressionStatus(res.getBoolean(RES_IS_BLOCKING_SUPPRESSED, false),
+            BlockSuppressionStatus blockSuppressionStatus = new BlockSuppressionStatus(
+                    res.getBoolean(RES_IS_BLOCKING_SUPPRESSED, false),
                     res.getLong(RES_BLOCKING_SUPPRESSED_UNTIL_TIMESTAMP, 0));
+            Log.d(LOG_TAG, "getBlockSuppressionStatus: caller=%s, status=%s",
+                    context.getOpPackageName(), blockSuppressionStatus);
+            return blockSuppressionStatus;
         }
 
         /**
-         * Represents the current status of {@link #shouldSystemBlockNumber(Context, String)}. If
-         * emergency services have been contacted recently, {@link #isSuppressed} is {@code true},
-         * and blocking is disabled until the timestamp {@link #untilTimestampMillis}.
+         * Check whether should show the emergency call notification.
+         *
+         * @param context the context of the caller.
+         * @return {@code true} if should show emergency call notification. {@code false} otherwise.
+         */
+        public static boolean shouldShowEmergencyCallNotification(Context context) {
+            try {
+                final Bundle res = context.getContentResolver().call(
+                        AUTHORITY_URI, METHOD_SHOULD_SHOW_EMERGENCY_CALL_NOTIFICATION, null, null);
+                return res != null && res.getBoolean(RES_SHOW_EMERGENCY_CALL_NOTIFICATION, false);
+            } catch (NullPointerException | IllegalArgumentException ex) {
+                // The content resolver can throw an NPE or IAE; we don't want to crash Telecom if
+                // either of these happen.
+                Log.w(null, "shouldShowEmergencyCallNotification: provider not ready.");
+                return false;
+            }
+        }
+
+        /**
+         * Check whether the enhanced block setting is enabled.
+         *
+         * @param context the context of the caller.
+         * @param key the key of the setting to check, can be
+         *        {@link #ENHANCED_SETTING_KEY_BLOCK_UNREGISTERED}
+         *        {@link #ENHANCED_SETTING_KEY_BLOCK_PRIVATE}
+         *        {@link #ENHANCED_SETTING_KEY_BLOCK_PAYPHONE}
+         *        {@link #ENHANCED_SETTING_KEY_BLOCK_UNKNOWN}
+         *        {@link #ENHANCED_SETTING_KEY_EMERGENCY_CALL_NOTIFICATION_SHOWING}
+         * @return {@code true} if the setting is enabled. {@code false} otherwise.
+         */
+        public static boolean getEnhancedBlockSetting(Context context, String key) {
+            Bundle extras = new Bundle();
+            extras.putString(EXTRA_ENHANCED_SETTING_KEY, key);
+            try {
+                final Bundle res = context.getContentResolver().call(
+                        AUTHORITY_URI, METHOD_GET_ENHANCED_BLOCK_SETTING, null, extras);
+                return res != null && res.getBoolean(RES_ENHANCED_SETTING_IS_ENABLED, false);
+            } catch (NullPointerException | IllegalArgumentException ex) {
+                // The content resolver can throw an NPE or IAE; we don't want to crash Telecom if
+                // either of these happen.
+                Log.w(null, "getEnhancedBlockSetting: provider not ready.");
+                return false;
+            }
+        }
+
+        /**
+         * Set the enhanced block setting enabled status.
+         *
+         * @param context the context of the caller.
+         * @param key the key of the setting to set, can be
+         *        {@link #ENHANCED_SETTING_KEY_BLOCK_UNREGISTERED}
+         *        {@link #ENHANCED_SETTING_KEY_BLOCK_PRIVATE}
+         *        {@link #ENHANCED_SETTING_KEY_BLOCK_PAYPHONE}
+         *        {@link #ENHANCED_SETTING_KEY_BLOCK_UNKNOWN}
+         *        {@link #ENHANCED_SETTING_KEY_EMERGENCY_CALL_NOTIFICATION_SHOWING}
+         * @param value the enabled statue of the setting to set.
+         */
+        public static void setEnhancedBlockSetting(Context context, String key, boolean value) {
+            Bundle extras = new Bundle();
+            extras.putString(EXTRA_ENHANCED_SETTING_KEY, key);
+            extras.putBoolean(EXTRA_ENHANCED_SETTING_VALUE, value);
+            context.getContentResolver().call(AUTHORITY_URI, METHOD_SET_ENHANCED_BLOCK_SETTING,
+                    null, extras);
+        }
+
+        /**
+         * Converts a block status constant to a string equivalent for logging.
+         * @hide
+         */
+        public static String blockStatusToString(int blockStatus) {
+            switch (blockStatus) {
+                case STATUS_NOT_BLOCKED:
+                    return "not blocked";
+                case STATUS_BLOCKED_IN_LIST:
+                    return "blocked - in list";
+                case STATUS_BLOCKED_RESTRICTED:
+                    return "blocked - restricted";
+                case STATUS_BLOCKED_UNKNOWN_NUMBER:
+                    return "blocked - unknown";
+                case STATUS_BLOCKED_PAYPHONE:
+                    return "blocked - payphone";
+                case STATUS_BLOCKED_NOT_IN_CONTACTS:
+                    return "blocked - not in contacts";
+            }
+            return "unknown";
+        }
+
+        /**
+         * Represents the current status of
+         * {@link #shouldSystemBlockNumber(Context, String, Bundle)}. If emergency services
+         * have been contacted recently, {@link #isSuppressed} is {@code true}, and blocking
+         * is disabled until the timestamp {@link #untilTimestampMillis}.
          */
         public static class BlockSuppressionStatus {
             public final boolean isSuppressed;
@@ -377,6 +623,12 @@ public class BlockedNumberContract {
             public BlockSuppressionStatus(boolean isSuppressed, long untilTimestampMillis) {
                 this.isSuppressed = isSuppressed;
                 this.untilTimestampMillis = untilTimestampMillis;
+            }
+
+            @Override
+            public String toString() {
+                return "[BlockSuppressionStatus; isSuppressed=" + isSuppressed + ", until="
+                        + untilTimestampMillis + "]";
             }
         }
     }

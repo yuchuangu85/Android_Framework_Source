@@ -16,9 +16,14 @@
 
 package android.media;
 
+import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.annotation.SystemApi;
 import android.util.SparseIntArray;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.Objects;
 import java.util.TreeSet;
 
 /**
@@ -115,11 +120,213 @@ public final class AudioDeviceInfo {
      * A type-agnostic device used for communication with external audio systems
      */
     public static final int TYPE_BUS              = 21;
+    /**
+     * A device type describing a USB audio headset.
+     */
+    public static final int TYPE_USB_HEADSET       = 22;
+    /**
+     * A device type describing a Hearing Aid.
+     */
+    public static final int TYPE_HEARING_AID   = 23;
+    /**
+     * A device type describing the speaker system (i.e. a mono speaker or stereo speakers) built
+     * in a device, that is specifically tuned for outputting sounds like notifications and alarms
+     * (i.e. sounds the user couldn't necessarily anticipate).
+     * <p>Note that this physical audio device may be the same as {@link #TYPE_BUILTIN_SPEAKER}
+     * but is driven differently to safely accommodate the different use case.</p>
+     */
+    public static final int TYPE_BUILTIN_SPEAKER_SAFE = 24;
+    /**
+     * @hide
+     * A device type for rerouting audio within the Android framework between mixes and
+     * system applications. Typically created when using
+     * {@link android.media.audiopolicy.AudioPolicy} for mixes created with the
+     * {@link android.media.audiopolicy.AudioMix#ROUTE_FLAG_RENDER} flag.
+     */
+    @SystemApi
+    public static final int TYPE_REMOTE_SUBMIX = 25;
+
+    /** @hide */
+    @IntDef(flag = false, prefix = "TYPE", value = {
+            TYPE_BUILTIN_EARPIECE,
+            TYPE_BUILTIN_SPEAKER,
+            TYPE_WIRED_HEADSET,
+            TYPE_WIRED_HEADPHONES,
+            TYPE_BLUETOOTH_SCO,
+            TYPE_BLUETOOTH_A2DP,
+            TYPE_HDMI,
+            TYPE_DOCK,
+            TYPE_USB_ACCESSORY,
+            TYPE_USB_DEVICE,
+            TYPE_USB_HEADSET,
+            TYPE_TELEPHONY,
+            TYPE_LINE_ANALOG,
+            TYPE_HDMI_ARC,
+            TYPE_LINE_DIGITAL,
+            TYPE_FM,
+            TYPE_AUX_LINE,
+            TYPE_IP,
+            TYPE_BUS,
+            TYPE_HEARING_AID,
+            TYPE_BUILTIN_MIC,
+            TYPE_FM_TUNER,
+            TYPE_TV_TUNER }
+    )
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface AudioDeviceType {}
+
+    /** @hide */
+    @IntDef(flag = false, prefix = "TYPE", value = {
+            TYPE_BUILTIN_MIC,
+            TYPE_BLUETOOTH_SCO,
+            TYPE_BLUETOOTH_A2DP,
+            TYPE_WIRED_HEADSET,
+            TYPE_HDMI,
+            TYPE_TELEPHONY,
+            TYPE_DOCK,
+            TYPE_USB_ACCESSORY,
+            TYPE_USB_DEVICE,
+            TYPE_USB_HEADSET,
+            TYPE_FM_TUNER,
+            TYPE_TV_TUNER,
+            TYPE_LINE_ANALOG,
+            TYPE_LINE_DIGITAL,
+            TYPE_IP,
+            TYPE_BUS }
+    )
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface AudioDeviceTypeIn {}
+
+    /** @hide */
+    @IntDef(flag = false, prefix = "TYPE", value = {
+            TYPE_BUILTIN_EARPIECE,
+            TYPE_BUILTIN_SPEAKER,
+            TYPE_WIRED_HEADSET,
+            TYPE_WIRED_HEADPHONES,
+            TYPE_BLUETOOTH_SCO,
+            TYPE_BLUETOOTH_A2DP,
+            TYPE_HDMI,
+            TYPE_DOCK,
+            TYPE_USB_ACCESSORY,
+            TYPE_USB_DEVICE,
+            TYPE_USB_HEADSET,
+            TYPE_TELEPHONY,
+            TYPE_LINE_ANALOG,
+            TYPE_HDMI_ARC,
+            TYPE_LINE_DIGITAL,
+            TYPE_FM,
+            TYPE_AUX_LINE,
+            TYPE_IP,
+            TYPE_BUS,
+            TYPE_HEARING_AID }
+    )
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface AudioDeviceTypeOut {}
+
+    /** @hide */
+    /*package*/ static boolean isValidAudioDeviceTypeOut(int type) {
+        switch (type) {
+            case TYPE_BUILTIN_EARPIECE:
+            case TYPE_BUILTIN_SPEAKER:
+            case TYPE_WIRED_HEADSET:
+            case TYPE_WIRED_HEADPHONES:
+            case TYPE_BLUETOOTH_SCO:
+            case TYPE_BLUETOOTH_A2DP:
+            case TYPE_HDMI:
+            case TYPE_DOCK:
+            case TYPE_USB_ACCESSORY:
+            case TYPE_USB_DEVICE:
+            case TYPE_USB_HEADSET:
+            case TYPE_TELEPHONY:
+            case TYPE_LINE_ANALOG:
+            case TYPE_HDMI_ARC:
+            case TYPE_LINE_DIGITAL:
+            case TYPE_FM:
+            case TYPE_AUX_LINE:
+            case TYPE_IP:
+            case TYPE_BUS:
+            case TYPE_HEARING_AID:
+            case TYPE_BUILTIN_SPEAKER_SAFE:
+            case TYPE_REMOTE_SUBMIX:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /** @hide */
+    /*package*/ static boolean isValidAudioDeviceTypeIn(int type) {
+        switch (type) {
+            case TYPE_BUILTIN_MIC:
+            case TYPE_BLUETOOTH_SCO:
+            case TYPE_BLUETOOTH_A2DP:
+            case TYPE_WIRED_HEADSET:
+            case TYPE_HDMI:
+            case TYPE_TELEPHONY:
+            case TYPE_DOCK:
+            case TYPE_USB_ACCESSORY:
+            case TYPE_USB_DEVICE:
+            case TYPE_USB_HEADSET:
+            case TYPE_FM_TUNER:
+            case TYPE_TV_TUNER:
+            case TYPE_LINE_ANALOG:
+            case TYPE_LINE_DIGITAL:
+            case TYPE_IP:
+            case TYPE_BUS:
+            case TYPE_REMOTE_SUBMIX:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * @hide
+     * Throws IAE on an invalid output device type
+     * @param type
+     */
+    public static void enforceValidAudioDeviceTypeOut(int type) {
+        if (!isValidAudioDeviceTypeOut(type)) {
+            throw new IllegalArgumentException("Illegal output device type " + type);
+        }
+    }
+
+    /**
+     * @hide
+     * Throws IAE on an invalid input device type
+     * @param type
+     */
+    public static void enforceValidAudioDeviceTypeIn(int type) {
+        if (!isValidAudioDeviceTypeIn(type)) {
+            throw new IllegalArgumentException("Illegal input device type " + type);
+        }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        AudioDeviceInfo that = (AudioDeviceInfo) o;
+        return Objects.equals(getPort(), that.getPort());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(getPort());
+    }
 
     private final AudioDevicePort mPort;
 
     AudioDeviceInfo(AudioDevicePort port) {
        mPort = port;
+    }
+
+    /**
+     * @hide
+     * @return The underlying {@link AudioDevicePort} instance.
+     */
+    public AudioDevicePort getPort() {
+        return mPort;
     }
 
     /**
@@ -138,11 +345,10 @@ public final class AudioDeviceInfo {
     }
 
     /**
-     * @hide
      * @return The "address" string of the device. This generally contains device-specific
      * parameters.
      */
-    public String getAddress() {
+    public @NonNull String getAddress() {
         return mPort.address();
     }
 
@@ -238,6 +444,37 @@ public final class AudioDeviceInfo {
         return AudioFormat.filterPublicFormats(mPort.formats());
     }
 
+    /**
+     * Returns an array of supported encapsulation modes for the device.
+     *
+     * The array can include any of the {@code AudioTrack} encapsulation modes,
+     * e.g. {@link AudioTrack#ENCAPSULATION_MODE_ELEMENTARY_STREAM}.
+     *
+     * @return An array of supported encapsulation modes for the device.  This
+     *     may be an empty array if no encapsulation modes are supported.
+     */
+    public @NonNull @AudioTrack.EncapsulationMode int[] getEncapsulationModes() {
+        return mPort.encapsulationModes();
+    }
+
+    /**
+     * Returns an array of supported encapsulation metadata types for the device.
+     *
+     * The metadata type returned should be allowed for all encapsulation modes supported
+     * by the device.  Some metadata types may apply only to certain
+     * compressed stream formats, the returned list is the union of subsets.
+     *
+     * The array can include any of
+     * {@link AudioTrack#ENCAPSULATION_METADATA_TYPE_FRAMEWORK_TUNER},
+     * {@link AudioTrack#ENCAPSULATION_METADATA_TYPE_DVB_AD_DESCRIPTOR}.
+     *
+     * @return An array of supported encapsulation metadata types for the device.  This
+     *     may be an empty array if no metadata types are supported.
+     */
+    public @NonNull @AudioTrack.EncapsulationMetadataType int[] getEncapsulationMetadataTypes() {
+        return mPort.encapsulationMetadataTypes();
+    }
+
    /**
      * @return The device type identifier of the audio device (i.e. TYPE_BUILTIN_SPEAKER).
      */
@@ -276,6 +513,7 @@ public final class AudioDeviceInfo {
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_DGTL_DOCK_HEADSET, TYPE_DOCK);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_USB_ACCESSORY, TYPE_USB_ACCESSORY);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_USB_DEVICE, TYPE_USB_DEVICE);
+        INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_USB_HEADSET, TYPE_USB_HEADSET);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_TELEPHONY_TX, TYPE_TELEPHONY);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_LINE, TYPE_LINE_ANALOG);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_HDMI_ARC, TYPE_HDMI_ARC);
@@ -284,6 +522,10 @@ public final class AudioDeviceInfo {
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_AUX_LINE, TYPE_AUX_LINE);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_IP, TYPE_IP);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_BUS, TYPE_BUS);
+        INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_HEARING_AID, TYPE_HEARING_AID);
+        INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_SPEAKER_SAFE,
+                TYPE_BUILTIN_SPEAKER_SAFE);
+        INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_OUT_REMOTE_SUBMIX, TYPE_REMOTE_SUBMIX);
 
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_BUILTIN_MIC, TYPE_BUILTIN_MIC);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_BLUETOOTH_SCO_HEADSET, TYPE_BLUETOOTH_SCO);
@@ -295,6 +537,7 @@ public final class AudioDeviceInfo {
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_DGTL_DOCK_HEADSET, TYPE_DOCK);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_USB_ACCESSORY, TYPE_USB_ACCESSORY);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_USB_DEVICE, TYPE_USB_DEVICE);
+        INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_USB_HEADSET, TYPE_USB_HEADSET);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_FM_TUNER, TYPE_FM_TUNER);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_TV_TUNER, TYPE_TV_TUNER);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_LINE, TYPE_LINE_ANALOG);
@@ -302,10 +545,7 @@ public final class AudioDeviceInfo {
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_BLUETOOTH_A2DP, TYPE_BLUETOOTH_A2DP);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_IP, TYPE_IP);
         INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_BUS, TYPE_BUS);
-
-        // not covered here, legacy
-        //AudioSystem.DEVICE_OUT_REMOTE_SUBMIX
-        //AudioSystem.DEVICE_IN_REMOTE_SUBMIX
+        INT_TO_EXT_DEVICE_MAPPING.put(AudioSystem.DEVICE_IN_REMOTE_SUBMIX, TYPE_REMOTE_SUBMIX);
 
         // privileges mapping to output device
         EXT_TO_INT_DEVICE_MAPPING = new SparseIntArray();
@@ -320,6 +560,7 @@ public final class AudioDeviceInfo {
         EXT_TO_INT_DEVICE_MAPPING.put(TYPE_HDMI, AudioSystem.DEVICE_OUT_HDMI);
         EXT_TO_INT_DEVICE_MAPPING.put(TYPE_HDMI_ARC, AudioSystem.DEVICE_OUT_HDMI_ARC);
         EXT_TO_INT_DEVICE_MAPPING.put(TYPE_USB_DEVICE, AudioSystem.DEVICE_OUT_USB_DEVICE);
+        EXT_TO_INT_DEVICE_MAPPING.put(TYPE_USB_HEADSET, AudioSystem.DEVICE_OUT_USB_HEADSET);
         EXT_TO_INT_DEVICE_MAPPING.put(TYPE_USB_ACCESSORY, AudioSystem.DEVICE_OUT_USB_ACCESSORY);
         EXT_TO_INT_DEVICE_MAPPING.put(TYPE_DOCK, AudioSystem.DEVICE_OUT_ANLG_DOCK_HEADSET);
         EXT_TO_INT_DEVICE_MAPPING.put(TYPE_FM, AudioSystem.DEVICE_OUT_FM);
@@ -330,6 +571,10 @@ public final class AudioDeviceInfo {
         EXT_TO_INT_DEVICE_MAPPING.put(TYPE_AUX_LINE, AudioSystem.DEVICE_OUT_AUX_LINE);
         EXT_TO_INT_DEVICE_MAPPING.put(TYPE_IP, AudioSystem.DEVICE_OUT_IP);
         EXT_TO_INT_DEVICE_MAPPING.put(TYPE_BUS, AudioSystem.DEVICE_OUT_BUS);
+        EXT_TO_INT_DEVICE_MAPPING.put(TYPE_HEARING_AID, AudioSystem.DEVICE_OUT_HEARING_AID);
+        EXT_TO_INT_DEVICE_MAPPING.put(TYPE_BUILTIN_SPEAKER_SAFE,
+                AudioSystem.DEVICE_OUT_SPEAKER_SAFE);
+        EXT_TO_INT_DEVICE_MAPPING.put(TYPE_REMOTE_SUBMIX, AudioSystem.DEVICE_OUT_REMOTE_SUBMIX);
     }
 }
 

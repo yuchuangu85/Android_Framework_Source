@@ -1,11 +1,29 @@
+/*
+ * Copyright 2019 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package android.media;
 
 import android.annotation.Nullable;
 import android.graphics.Bitmap;
+import android.media.browse.MediaBrowser;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.text.TextUtils;
 
 /**
  * A simple set of metadata for a media item suitable for display. This can be
@@ -46,6 +64,67 @@ public class MediaDescription implements Parcelable {
      */
     private final Uri mMediaUri;
 
+    /**
+     * Used as a long extra field to indicate the bluetooth folder type of the media item as
+     * specified in the section 6.10.2.2 of the Bluetooth AVRCP 1.5. This is valid only for
+     * {@link MediaBrowser.MediaItem} with {@link MediaBrowser.MediaItem#FLAG_BROWSABLE}. The value
+     * should be one of the following:
+     * <ul>
+     * <li>{@link #BT_FOLDER_TYPE_MIXED}</li>
+     * <li>{@link #BT_FOLDER_TYPE_TITLES}</li>
+     * <li>{@link #BT_FOLDER_TYPE_ALBUMS}</li>
+     * <li>{@link #BT_FOLDER_TYPE_ARTISTS}</li>
+     * <li>{@link #BT_FOLDER_TYPE_GENRES}</li>
+     * <li>{@link #BT_FOLDER_TYPE_PLAYLISTS}</li>
+     * <li>{@link #BT_FOLDER_TYPE_YEARS}</li>
+     * </ul>
+     *
+     * @see #getExtras()
+     */
+    public static final String EXTRA_BT_FOLDER_TYPE = "android.media.extra.BT_FOLDER_TYPE";
+
+    /**
+     * The type of folder that is unknown or contains media elements of mixed types as specified in
+     * the section 6.10.2.2 of the Bluetooth AVRCP 1.5.
+     */
+    public static final long BT_FOLDER_TYPE_MIXED = 0;
+
+    /**
+     * The type of folder that contains media elements only as specified in the section 6.10.2.2 of
+     * the Bluetooth AVRCP 1.5.
+     */
+    public static final long BT_FOLDER_TYPE_TITLES = 1;
+
+    /**
+     * The type of folder that contains folders categorized by album as specified in the section
+     * 6.10.2.2 of the Bluetooth AVRCP 1.5.
+     */
+    public static final long BT_FOLDER_TYPE_ALBUMS = 2;
+
+    /**
+     * The type of folder that contains folders categorized by artist as specified in the section
+     * 6.10.2.2 of the Bluetooth AVRCP 1.5.
+     */
+    public static final long BT_FOLDER_TYPE_ARTISTS = 3;
+
+    /**
+     * The type of folder that contains folders categorized by genre as specified in the section
+     * 6.10.2.2 of the Bluetooth AVRCP 1.5.
+     */
+    public static final long BT_FOLDER_TYPE_GENRES = 4;
+
+    /**
+     * The type of folder that contains folders categorized by playlist as specified in the section
+     * 6.10.2.2 of the Bluetooth AVRCP 1.5.
+     */
+    public static final long BT_FOLDER_TYPE_PLAYLISTS = 5;
+
+    /**
+     * The type of folder that contains folders categorized by year as specified in the section
+     * 6.10.2.2 of the Bluetooth AVRCP 1.5.
+     */
+    public static final long BT_FOLDER_TYPE_YEARS = 6;
+
     private MediaDescription(String mediaId, CharSequence title, CharSequence subtitle,
             CharSequence description, Bitmap icon, Uri iconUri, Bundle extras, Uri mediaUri) {
         mMediaId = mediaId;
@@ -60,9 +139,9 @@ public class MediaDescription implements Parcelable {
 
     private MediaDescription(Parcel in) {
         mMediaId = in.readString();
-        mTitle = in.readCharSequence();
-        mSubtitle = in.readCharSequence();
-        mDescription = in.readCharSequence();
+        mTitle = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(in);
+        mSubtitle = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(in);
+        mDescription = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(in);
         mIcon = in.readParcelable(null);
         mIconUri = in.readParcelable(null);
         mExtras = in.readBundle();
@@ -148,9 +227,9 @@ public class MediaDescription implements Parcelable {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeString(mMediaId);
-        dest.writeCharSequence(mTitle);
-        dest.writeCharSequence(mSubtitle);
-        dest.writeCharSequence(mDescription);
+        TextUtils.writeToParcel(mTitle, dest, 0);
+        TextUtils.writeToParcel(mSubtitle, dest, 0);
+        TextUtils.writeToParcel(mDescription, dest, 0);
         dest.writeParcelable(mIcon, flags);
         dest.writeParcelable(mIconUri, flags);
         dest.writeBundle(mExtras);
@@ -158,11 +237,38 @@ public class MediaDescription implements Parcelable {
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (o == null) {
+            return false;
+        }
+
+        if (!(o instanceof MediaDescription)) {
+            return false;
+        }
+
+        final MediaDescription d = (MediaDescription) o;
+
+        if (!String.valueOf(mTitle).equals(String.valueOf(d.mTitle))) {
+            return false;
+        }
+
+        if (!String.valueOf(mSubtitle).equals(String.valueOf(d.mSubtitle))) {
+            return false;
+        }
+
+        if (!String.valueOf(mDescription).equals(String.valueOf(d.mDescription))) {
+            return false;
+        }
+
+        return true;
+    }
+
+    @Override
     public String toString() {
         return mTitle + ", " + mSubtitle + ", " + mDescription;
     }
 
-    public static final Parcelable.Creator<MediaDescription> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<MediaDescription> CREATOR =
             new Parcelable.Creator<MediaDescription>() {
                 @Override
                 public MediaDescription createFromParcel(Parcel in) {
@@ -285,6 +391,11 @@ public class MediaDescription implements Parcelable {
             return this;
         }
 
+        /**
+         * Build {@link MediaDescription}.
+         *
+         * @return a new media description.
+         */
         public MediaDescription build() {
             return new MediaDescription(mMediaId, mTitle, mSubtitle, mDescription, mIcon, mIconUri,
                     mExtras, mMediaUri);

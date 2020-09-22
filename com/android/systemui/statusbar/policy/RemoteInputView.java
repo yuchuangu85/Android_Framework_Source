@@ -18,16 +18,25 @@ package com.android.systemui.statusbar.policy;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
+import android.annotation.Nullable;
+import android.app.ActivityManager;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.RemoteInput;
+import android.content.ClipDescription;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.pm.ShortcutManager;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.ServiceManager;
+import android.os.SystemClock;
+import android.os.UserHandle;
 import android.text.Editable;
+import android.text.SpannedString;
 import android.text.TextWatcher;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -37,7 +46,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewAnimationUtils;
 import android.view.ViewGroup;
-import android.view.ViewParent;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.inputmethod.CompletionInfo;
 import android.view.inputmethod.EditorInfo;
@@ -49,15 +57,24 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import androidx.core.view.inputmethod.InputConnectionCompat;
+import androidx.core.view.inputmethod.InputContentInfoCompat;
+
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.MetricsProto;
+import com.android.internal.logging.nano.MetricsProto;
+import com.android.internal.statusbar.IStatusBarService;
+import com.android.systemui.Dependency;
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
-import com.android.systemui.statusbar.ExpandableView;
-import com.android.systemui.statusbar.NotificationData;
 import com.android.systemui.statusbar.RemoteInputController;
-import com.android.systemui.statusbar.stack.ScrollContainer;
-import com.android.systemui.statusbar.stack.StackStateAnimator;
+import com.android.systemui.statusbar.notification.collection.NotificationEntry;
+import com.android.systemui.statusbar.notification.collection.NotificationEntry.EditedSuggestionInfo;
+import com.android.systemui.statusbar.notification.row.wrapper.NotificationViewWrapper;
+import com.android.systemui.statusbar.notification.stack.StackStateAnimator;
+import com.android.systemui.statusbar.phone.LightBarController;
+
+import java.util.HashMap;
+import java.util.function.Consumer;
 
 /**
  * Host for the remote input.
@@ -78,11 +95,12 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
     private RemoteInput[] mRemoteInputs;
     private RemoteInput mRemoteInput;
     private RemoteInputController mController;
+    private RemoteInputQuickSettingsDisabler mRemoteInputQuickSettingsDisabler;
 
-    private NotificationData.Entry mEntry;
+    private IStatusBarService mStatusBarManagerService;
 
-    private ScrollContainer mScrollContainer;
-    private View mScrollContainerChild;
+    private NotificationEntry mEntry;
+
     private boolean mRemoved;
 
     private int mRevealCx;
@@ -90,18 +108,23 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
     private int mRevealR;
 
     private boolean mResetting;
+    private NotificationViewWrapper mWrapper;
+    private Consumer<Boolean> mOnVisibilityChangedListener;
 
     public RemoteInputView(Context context, AttributeSet attrs) {
         super(context, attrs);
+        mRemoteInputQuickSettingsDisabler = Dependency.get(RemoteInputQuickSettingsDisabler.class);
+        mStatusBarManagerService = IStatusBarService.Stub.asInterface(
+                ServiceManager.getService(Context.STATUS_BAR_SERVICE));
     }
 
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
 
-        mProgressBar = (ProgressBar) findViewById(R.id.remote_input_progress);
+        mProgressBar = findViewById(R.id.remote_input_progress);
 
-        mSendButton = (ImageButton) findViewById(R.id.remote_input_send);
+        mSendButton = findViewById(R.id.remote_input_send);
         mSendButton.setOnClickListener(this);
 
         mEditText = (RemoteEditText) getChildAt(0);
@@ -118,7 +141,7 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
 
                 if (isSoftImeEvent || isKeyboardEnterKey) {
                     if (mEditText.length() > 0) {
-                        sendRemoteInput();
+                        sendRemoteInput(prepareRemoteInputFromText());
                     }
                     // Consume action to prevent IME from closing.
                     return true;
@@ -131,21 +154,50 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
         mEditText.mRemoteInputView = this;
     }
 
-    private void sendRemoteInput() {
+    protected Intent prepareRemoteInputFromText() {
         Bundle results = new Bundle();
         results.putString(mRemoteInput.getResultKey(), mEditText.getText().toString());
         Intent fillInIntent = new Intent().addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
         RemoteInput.addResultsToIntent(mRemoteInputs, fillInIntent,
                 results);
 
+        mEntry.remoteInputText = mEditText.getText();
+        mEntry.remoteInputUri = null;
+        mEntry.remoteInputMimeType = null;
+
+        if (mEntry.editedSuggestionInfo == null) {
+            RemoteInput.setResultsSource(fillInIntent, RemoteInput.SOURCE_FREE_FORM_INPUT);
+        } else {
+            RemoteInput.setResultsSource(fillInIntent, RemoteInput.SOURCE_CHOICE);
+        }
+
+        return fillInIntent;
+    }
+
+    protected Intent prepareRemoteInputFromData(String contentType, Uri data) {
+        HashMap<String, Uri> results = new HashMap<>();
+        results.put(contentType, data);
+        mController.grantInlineReplyUriPermission(mEntry.getSbn(), data);
+        Intent fillInIntent = new Intent().addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+        RemoteInput.addDataResultToIntent(mRemoteInput, fillInIntent, results);
+
+        mEntry.remoteInputText = mContext.getString(R.string.remote_input_image_insertion_text);
+        mEntry.remoteInputMimeType = contentType;
+        mEntry.remoteInputUri = data;
+
+        return fillInIntent;
+    }
+
+    private void sendRemoteInput(Intent intent) {
         mEditText.setEnabled(false);
         mSendButton.setVisibility(INVISIBLE);
         mProgressBar.setVisibility(VISIBLE);
-        mEntry.remoteInputText = mEditText.getText();
-        mController.addSpinning(mEntry.key, mToken);
+        mEntry.lastRemoteInputSent = SystemClock.elapsedRealtime();
+        mController.addSpinning(mEntry.getKey(), mToken);
         mController.removeRemoteInput(mEntry, mToken);
         mEditText.mShowImeOnInputConnection = false;
         mController.remoteInputSent(mEntry);
+        mEntry.setHasSentReply();
 
         // Tell ShortcutManager that this package has been "activated".  ShortcutManager
         // will reset the throttling for this package.
@@ -153,27 +205,34 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
         // but that's an edge case, and also because we can't always know which package will receive
         // an intent, so we just reset for the publisher.
         getContext().getSystemService(ShortcutManager.class).onApplicationActive(
-                mEntry.notification.getPackageName(),
-                mEntry.notification.getUser().getIdentifier());
+                mEntry.getSbn().getPackageName(),
+                mEntry.getSbn().getUser().getIdentifier());
 
         MetricsLogger.action(mContext, MetricsProto.MetricsEvent.ACTION_REMOTE_INPUT_SEND,
-                mEntry.notification.getPackageName());
+                mEntry.getSbn().getPackageName());
         try {
-            mPendingIntent.send(mContext, 0, fillInIntent);
+            mPendingIntent.send(mContext, 0, intent);
         } catch (PendingIntent.CanceledException e) {
             Log.i(TAG, "Unable to send remote input result", e);
             MetricsLogger.action(mContext, MetricsProto.MetricsEvent.ACTION_REMOTE_INPUT_FAIL,
-                    mEntry.notification.getPackageName());
+                    mEntry.getSbn().getPackageName());
         }
     }
 
+    public CharSequence getText() {
+        return mEditText.getText();
+    }
+
     public static RemoteInputView inflate(Context context, ViewGroup root,
-            NotificationData.Entry entry,
+            NotificationEntry entry,
             RemoteInputController controller) {
         RemoteInputView v = (RemoteInputView)
                 LayoutInflater.from(context).inflate(R.layout.remote_input, root, false);
         v.mController = controller;
         v.mEntry = entry;
+        UserHandle user = computeTextOperationUser(entry.getSbn().getUser());
+        v.mEditText.mUser = user;
+        v.mEditText.setTextOperationUser(user);
         v.setTag(VIEW_TAG);
 
         return v;
@@ -182,7 +241,7 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
     @Override
     public void onClick(View v) {
         if (v == mSendButton) {
-            sendRemoteInput();
+            sendRemoteInput(prepareRemoteInputFromText());
         }
     }
 
@@ -210,21 +269,30 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
                     @Override
                     public void onAnimationEnd(Animator animation) {
                         setVisibility(INVISIBLE);
+                        if (mWrapper != null) {
+                            mWrapper.setRemoteInputVisible(false);
+                        }
                     }
                 });
                 reveal.start();
             } else {
                 setVisibility(INVISIBLE);
+                if (mWrapper != null) {
+                    mWrapper.setRemoteInputVisible(false);
+                }
             }
         }
+
+        mRemoteInputQuickSettingsDisabler.setRemoteInputActive(false);
+
         MetricsLogger.action(mContext, MetricsProto.MetricsEvent.ACTION_REMOTE_INPUT_CLOSE,
-                mEntry.notification.getPackageName());
+                mEntry.getSbn().getPackageName());
     }
 
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        if (mEntry.row.isChangingPosition()) {
+        if (mEntry.getRow().isChangingPosition()) {
             if (getVisibility() == VISIBLE && mEditText.isFocusable()) {
                 mEditText.requestFocus();
             }
@@ -234,21 +302,35 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        if (mEntry.row.isChangingPosition() || isTemporarilyDetached()) {
+        if (mEntry.getRow().isChangingPosition() || isTemporarilyDetached()) {
             return;
         }
         mController.removeRemoteInput(mEntry, mToken);
-        mController.removeSpinning(mEntry.key, mToken);
+        mController.removeSpinning(mEntry.getKey(), mToken);
     }
 
     public void setPendingIntent(PendingIntent pendingIntent) {
         mPendingIntent = pendingIntent;
     }
 
-    public void setRemoteInput(RemoteInput[] remoteInputs, RemoteInput remoteInput) {
+    /**
+     * Sets the remote input for this view.
+     *
+     * @param remoteInputs The remote inputs that need to be sent to the app.
+     * @param remoteInput The remote input that needs to be activated.
+     * @param editedSuggestionInfo The smart reply that should be inserted in the remote input, or
+     *         {@code null} if the user is not editing a smart reply.
+     */
+    public void setRemoteInput(RemoteInput[] remoteInputs, RemoteInput remoteInput,
+            @Nullable EditedSuggestionInfo editedSuggestionInfo) {
         mRemoteInputs = remoteInputs;
         mRemoteInput = remoteInput;
         mEditText.setHint(mRemoteInput.getLabel());
+
+        mEntry.editedSuggestionInfo = editedSuggestionInfo;
+        if (editedSuggestionInfo != null) {
+            mEntry.remoteInputText = editedSuggestionInfo.originalText;
+        }
     }
 
     public void focusAnimated() {
@@ -262,17 +344,28 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
         focus();
     }
 
+    private static UserHandle computeTextOperationUser(UserHandle notificationUser) {
+        return UserHandle.ALL.equals(notificationUser)
+                ? UserHandle.of(ActivityManager.getCurrentUser()) : notificationUser;
+    }
+
     public void focus() {
         MetricsLogger.action(mContext, MetricsProto.MetricsEvent.ACTION_REMOTE_INPUT_OPEN,
-                mEntry.notification.getPackageName());
+                mEntry.getSbn().getPackageName());
 
         setVisibility(VISIBLE);
-        mController.addRemoteInput(mEntry, mToken);
+        if (mWrapper != null) {
+            mWrapper.setRemoteInputVisible(true);
+        }
         mEditText.setInnerFocusable(true);
         mEditText.mShowImeOnInputConnection = true;
         mEditText.setText(mEntry.remoteInputText);
         mEditText.setSelection(mEditText.getText().length());
         mEditText.requestFocus();
+        mController.addRemoteInput(mEntry, mToken);
+
+        mRemoteInputQuickSettingsDisabler.setRemoteInputActive(true);
+
         updateSendButton();
     }
 
@@ -283,16 +376,21 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
             // Update came in after we sent the reply, time to reset.
             reset();
         }
+
+        if (isActive() && mWrapper != null) {
+            mWrapper.setRemoteInputVisible(true);
+        }
     }
 
     private void reset() {
         mResetting = true;
+        mEntry.remoteInputTextWhenReset = SpannedString.valueOf(mEditText.getText());
 
         mEditText.getText().clear();
         mEditText.setEnabled(true);
         mSendButton.setVisibility(VISIBLE);
         mProgressBar.setVisibility(INVISIBLE);
-        mController.removeSpinning(mEntry.key, mToken);
+        mController.removeSpinning(mEntry.getKey(), mToken);
         updateSendButton();
         onDefocus(false /* animate */);
 
@@ -332,39 +430,14 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
         if (ev.getAction() == MotionEvent.ACTION_DOWN) {
-            findScrollContainer();
-            if (mScrollContainer != null) {
-                mScrollContainer.requestDisallowLongPress();
-                mScrollContainer.requestDisallowDismiss();
-            }
+            mController.requestDisallowLongPressAndDismiss();
         }
         return super.onInterceptTouchEvent(ev);
     }
 
     public boolean requestScrollTo() {
-        findScrollContainer();
-        mScrollContainer.lockScrollTo(mScrollContainerChild);
+        mController.lockScrollTo(mEntry);
         return true;
-    }
-
-    private void findScrollContainer() {
-        if (mScrollContainer == null) {
-            mScrollContainerChild = null;
-            ViewParent p = this;
-            while (p != null) {
-                if (mScrollContainerChild == null && p instanceof ExpandableView) {
-                    mScrollContainerChild = (View) p;
-                }
-                if (p.getParent() instanceof ScrollContainer) {
-                    mScrollContainer = (ScrollContainer) p.getParent();
-                    if (mScrollContainerChild == null) {
-                        mScrollContainerChild = (View) p;
-                    }
-                    break;
-                }
-                p = p.getParent();
-            }
-        }
     }
 
     public boolean isActive() {
@@ -374,7 +447,7 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
     public void stealFocusFrom(RemoteInputView other) {
         other.close();
         setPendingIntent(other.mPendingIntent);
-        setRemoteInput(other.mRemoteInputs, other.mRemoteInput);
+        setRemoteInput(other.mRemoteInputs, other.mRemoteInput, mEntry.editedSuggestionInfo);
         setRevealParameters(other.mRevealCx, other.mRevealCy, other.mRevealR);
         focus();
     }
@@ -414,7 +487,7 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
                 continue;
             }
             setPendingIntent(a.actionIntent);
-            setRemoteInput(inputs, input);
+            setRemoteInput(inputs, input, null /* editedSuggestionInfo*/);
             return true;
         }
         return false;
@@ -452,6 +525,26 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
         super.dispatchFinishTemporaryDetach();
     }
 
+    public void setWrapper(NotificationViewWrapper wrapper) {
+        mWrapper = wrapper;
+    }
+
+    public void setOnVisibilityChangedListener(Consumer<Boolean> visibilityChangedListener) {
+        mOnVisibilityChangedListener = visibilityChangedListener;
+    }
+
+    @Override
+    protected void onVisibilityChanged(View changedView, int visibility) {
+        super.onVisibilityChanged(changedView, visibility);
+        if (changedView == this && mOnVisibilityChangedListener != null) {
+            mOnVisibilityChangedListener.accept(visibility == VISIBLE);
+        }
+    }
+
+    public boolean isSending() {
+        return getVisibility() == VISIBLE && mController.isSpinning(mEntry.getKey(), mToken);
+    }
+
     /**
      * An EditText that changes appearance based on whether it's focusable and becomes
      * un-focusable whenever the user navigates away from it or it becomes invisible.
@@ -461,14 +554,17 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
         private final Drawable mBackground;
         private RemoteInputView mRemoteInputView;
         boolean mShowImeOnInputConnection;
+        private LightBarController mLightBarController;
+        UserHandle mUser;
 
         public RemoteEditText(Context context, AttributeSet attrs) {
             super(context, attrs);
             mBackground = getBackground();
+            mLightBarController = Dependency.get(LightBarController.class);
         }
 
         private void defocusIfNeeded(boolean animate) {
-            if (mRemoteInputView != null && mRemoteInputView.mEntry.row.isChangingPosition()
+            if (mRemoteInputView != null && mRemoteInputView.mEntry.getRow().isChangingPosition()
                     || isTemporarilyDetached()) {
                 if (isTemporarilyDetached()) {
                     // We might get reattached but then the other one of HUN / expanded might steal
@@ -503,6 +599,9 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
             if (!focused) {
                 defocusIfNeeded(true /* animate */);
             }
+            if (!mRemoteInputView.mRemoved) {
+                mLightBarController.setDirectReplying(focused);
+            }
         }
 
         @Override
@@ -536,6 +635,16 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
         }
 
         @Override
+        public boolean onKeyPreIme(int keyCode, KeyEvent event) {
+            // When BACK key is pressed, this method would be invoked twice.
+            if (event.getKeyCode() == KeyEvent.KEYCODE_BACK &&
+                    event.getAction() == KeyEvent.ACTION_UP) {
+                defocusIfNeeded(true /* animate */);
+            }
+            return super.onKeyPreIme(keyCode, event);
+        }
+
+        @Override
         public boolean onCheckIsTextEditor() {
             // Stop being editable while we're being removed. During removal, we get reattached,
             // and editable views get their spellchecking state re-evaluated which is too costly
@@ -546,10 +655,48 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
 
         @Override
         public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+            // TODO: Pass RemoteInput data types to allow image insertion.
+            // String[] allowedDataTypes = mRemoteInputView.mRemoteInput.getAllowedDataTypes()
+            //     .toArray(new String[0]);
+            // EditorInfoCompat.setContentMimeTypes(outAttrs, allowedDataTypes);
             final InputConnection inputConnection = super.onCreateInputConnection(outAttrs);
 
-            if (mShowImeOnInputConnection && inputConnection != null) {
-                final InputMethodManager imm = InputMethodManager.getInstance();
+            final InputConnectionCompat.OnCommitContentListener callback =
+                    new InputConnectionCompat.OnCommitContentListener() {
+                        @Override
+                        public boolean onCommitContent(
+                                InputContentInfoCompat inputContentInfoCompat, int i,
+                                Bundle bundle) {
+                            Uri contentUri = inputContentInfoCompat.getContentUri();
+                            ClipDescription description = inputContentInfoCompat.getDescription();
+                            String mimeType = null;
+                            if (description != null && description.getMimeTypeCount() > 0) {
+                                mimeType = description.getMimeType(0);
+                            }
+                            if (mimeType != null) {
+                                Intent dataIntent = mRemoteInputView.prepareRemoteInputFromData(
+                                        mimeType, contentUri);
+                                mRemoteInputView.sendRemoteInput(dataIntent);
+                            }
+                            return true;
+                        }
+                    };
+
+            InputConnection ic = inputConnection == null ? null :
+                    InputConnectionCompat.createWrapper(inputConnection, outAttrs, callback);
+
+            Context userContext = null;
+            try {
+                userContext = mContext.createPackageContextAsUser(
+                        mContext.getPackageName(), 0, mUser);
+            } catch (PackageManager.NameNotFoundException e) {
+                Log.e(TAG, "Unable to create user context:" + e.getMessage(), e);
+            }
+
+            if (mShowImeOnInputConnection && ic != null) {
+                Context targetContext = userContext != null ? userContext : getContext();
+                final InputMethodManager imm =
+                        targetContext.getSystemService(InputMethodManager.class);
                 if (imm != null) {
                     // onCreateInputConnection is called by InputMethodManager in the middle of
                     // setting up the connection to the IME; wait with requesting the IME until that
@@ -564,7 +711,7 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
                 }
             }
 
-            return inputConnection;
+            return ic;
         }
 
         @Override

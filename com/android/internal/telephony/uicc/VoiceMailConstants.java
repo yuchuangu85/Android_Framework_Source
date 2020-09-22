@@ -16,20 +16,21 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Environment;
 import android.util.Xml;
-import android.telephony.Rlog;
 
-import java.util.HashMap;
-import java.io.FileReader;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
+import com.android.internal.telephony.util.XmlUtils;
+import com.android.telephony.Rlog;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
-import com.android.internal.util.XmlUtils;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.util.HashMap;
 
 /**
  * {@hide}
@@ -46,6 +47,7 @@ class VoiceMailConstants {
     static final int TAG = 2;
     static final int SIZE = 3;
 
+    @UnsupportedAppUsage
     VoiceMailConstants () {
         CarrierVmMap = new HashMap<String, String[]>();
         loadVoiceMail();

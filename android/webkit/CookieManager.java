@@ -16,14 +16,25 @@
 
 package android.webkit;
 
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.net.WebAddress;
 
 /**
  * Manages the cookies used by an application's {@link WebView} instances.
- * Cookies are manipulated according to RFC2109.
+ * <p>
+ * CookieManager represents cookies as strings in the same format as the
+ * HTTP {@code Cookie} and {@code Set-Cookie} header fields (defined in
+ * <a href="https://tools.ietf.org/html/draft-ietf-httpbis-rfc6265bis-03">RFC6265bis</a>).
  */
 public abstract class CookieManager {
+    /**
+     * @deprecated This class should not be constructed by applications, use {@link #getInstance}
+     * instead to fetch the singleton instance.
+     */
+    // TODO(ntfschr): mark this as @SystemApi after a year.
+    @Deprecated
+    public CookieManager() {}
 
     @Override
     protected Object clone() throws CloneNotSupportedException {
@@ -35,16 +46,16 @@ public abstract class CookieManager {
      *
      * @return the singleton CookieManager instance
      */
-    public static synchronized CookieManager getInstance() {
+    public static CookieManager getInstance() {
         return WebViewFactory.getProvider().getCookieManager();
     }
 
     /**
      * Sets whether the application's {@link WebView} instances should send and
      * accept cookies.
-     * By default this is set to true and the WebView accepts cookies.
+     * By default this is set to {@code true} and the WebView accepts cookies.
      * <p>
-     * When this is true
+     * When this is {@code true}
      * {@link CookieManager#setAcceptThirdPartyCookies setAcceptThirdPartyCookies} and
      * {@link CookieManager#setAcceptFileSchemeCookies setAcceptFileSchemeCookies}
      * can be used to control the policy for those specific types of cookie.
@@ -58,7 +69,7 @@ public abstract class CookieManager {
      * Gets whether the application's {@link WebView} instances send and accept
      * cookies.
      *
-     * @return true if {@link WebView} instances send and accept cookies
+     * @return {@code true} if {@link WebView} instances send and accept cookies
      */
     public abstract boolean acceptCookie();
 
@@ -82,7 +93,7 @@ public abstract class CookieManager {
      * Gets whether the {@link WebView} should allow third party cookies to be set.
      *
      * @param webview the {@link WebView} instance to get the cookie policy for
-     * @return true if the {@link WebView} accepts third party cookies
+     * @return {@code true} if the {@link WebView} accepts third party cookies
      */
     public abstract boolean acceptThirdPartyCookies(WebView webview);
 
@@ -90,6 +101,9 @@ public abstract class CookieManager {
      * Sets a cookie for the given URL. Any existing cookie with the same host,
      * path and name will be replaced with the new cookie. The cookie being set
      * will be ignored if it is expired.
+     *
+     * <p class="note"><b>Note:</b> if specifying a {@code value} containing the {@code "Secure"}
+     * attribute, {@code url} must use the {@code "https://"} scheme.
      *
      * @param url the URL for which the cookie is to be set
      * @param value the cookie as a string, using the format of the 'Set-Cookie'
@@ -111,12 +125,16 @@ public abstract class CookieManager {
      * completes or whether it succeeded, and in this case it is safe to call the method from a
      * thread without a Looper.
      *
+     * <p class="note"><b>Note:</b> if specifying a {@code value} containing the {@code "Secure"}
+     * attribute, {@code url} must use the {@code "https://"} scheme.
+     *
      * @param url the URL for which the cookie is to be set
      * @param value the cookie as a string, using the format of the 'Set-Cookie'
      *              HTTP response header
      * @param callback a callback to be executed when the cookie has been set
      */
-    public abstract void setCookie(String url, String value, ValueCallback<Boolean> callback);
+    public abstract void setCookie(String url, String value, @Nullable ValueCallback<Boolean>
+            callback);
 
     /**
      * Gets the cookies for the given URL.
@@ -158,6 +176,7 @@ public abstract class CookieManager {
      * date.
      * @deprecated use {@link #removeSessionCookies(ValueCallback)} instead.
      */
+    @Deprecated
     public abstract void removeSessionCookie();
 
     /**
@@ -174,7 +193,7 @@ public abstract class CookieManager {
      * method from a thread without a Looper.
      * @param callback a callback which is executed when the session cookies have been removed
      */
-    public abstract void removeSessionCookies(ValueCallback<Boolean> callback);
+    public abstract void removeSessionCookies(@Nullable ValueCallback<Boolean> callback);
 
     /**
      * Removes all cookies.
@@ -196,12 +215,12 @@ public abstract class CookieManager {
      * method from a thread without a Looper.
      * @param callback a callback which is executed when the cookies have been removed
      */
-    public abstract void removeAllCookies(ValueCallback<Boolean> callback);
+    public abstract void removeAllCookies(@Nullable ValueCallback<Boolean> callback);
 
     /**
      * Gets whether there are stored cookies.
      *
-     * @return true if there are stored cookies
+     * @return {@code true} if there are stored cookies
      */
     public abstract boolean hasCookies();
 
@@ -232,7 +251,7 @@ public abstract class CookieManager {
      * Gets whether the application's {@link WebView} instances send and accept
      * cookies for file scheme URLs.
      *
-     * @return true if {@link WebView} instances send and accept cookies for
+     * @return {@code true} if {@link WebView} instances send and accept cookies for
      *         file scheme URLs
      */
     // Static for backward compatibility.
@@ -249,17 +268,28 @@ public abstract class CookieManager {
     protected abstract boolean allowFileSchemeCookiesImpl();
 
     /**
-     * Sets whether the application's {@link WebView} instances should send and
-     * accept cookies for file scheme URLs.
-     * Use of cookies with file scheme URLs is potentially insecure and turned
-     * off by default.
-     * Do not use this feature unless you can be sure that no unintentional
-     * sharing of cookie data can take place.
+     * Sets whether the application's {@link WebView} instances should send and accept cookies for
+     * file scheme URLs.
      * <p>
-     * Note that calls to this method will have no effect if made after a
-     * {@link WebView} or CookieManager instance has been created.
+     * Use of cookies with file scheme URLs is potentially insecure and turned off by default. All
+     * {@code file://} URLs share all their cookies, which may lead to leaking private app cookies
+     * (ex. any malicious file can access cookies previously set by other (trusted) files).
+     * <p class="note">
+     * Loading content via {@code file://} URLs is generally discouraged. See the note in
+     * {@link WebSettings#setAllowFileAccess}.
+     * Using <a href="{@docRoot}reference/androidx/webkit/WebViewAssetLoader.html">
+     * androidx.webkit.WebViewAssetLoader</a> to load files over {@code http(s)://} URLs allows
+     * the standard web security model to be used for setting and sharing cookies for local files.
+     * <p>
+     * Note that calls to this method will have no effect if made after calling other
+     * {@link CookieManager} APIs.
+     *
+     * @deprecated This setting is not secure, please use
+     *             <a href="{@docRoot}reference/androidx/webkit/WebViewAssetLoader.html">
+     *             androidx.webkit.WebViewAssetLoader</a> instead.
      */
     // Static for backward compatibility.
+    @Deprecated
     public static void setAcceptFileSchemeCookies(boolean accept) {
         getInstance().setAcceptFileSchemeCookiesImpl(accept);
     }

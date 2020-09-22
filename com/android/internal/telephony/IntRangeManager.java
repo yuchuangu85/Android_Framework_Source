@@ -16,8 +16,11 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.stream.Collectors;
 
 /**
  * Clients can enable reception of SMS-CB messages for specific ranges of
@@ -139,8 +142,12 @@ public abstract class IntRangeManager {
             }
             mClients.add(range);    // append to end of list
         }
-    }
 
+        @Override
+        public String toString() {
+            return "[" + mStartId + "-" + mEndId + "]";
+        }
+    }
     /**
      * The message id range for a single client.
      */
@@ -176,9 +183,17 @@ public abstract class IntRangeManager {
     /**
      * List of integer ranges, one per client, sorted by start id.
      */
+    @UnsupportedAppUsage
     private ArrayList<IntRange> mRanges = new ArrayList<IntRange>();
 
     protected IntRangeManager() {}
+
+    /**
+     * Clear all the ranges.
+     */
+    public synchronized void clearRanges() {
+        mRanges.clear();
+    }
 
     /**
      * Enable a range for the specified client and update ranges
@@ -666,4 +681,9 @@ public abstract class IntRangeManager {
      * @return true if successful, false otherwise
      */
     protected abstract boolean finishUpdate();
+
+    @Override
+    public String toString() {
+        return mRanges.stream().map(IntRange::toString).collect(Collectors.joining(","));
+    }
 }

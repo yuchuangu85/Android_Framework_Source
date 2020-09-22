@@ -16,7 +16,9 @@
 
 package android.security.keymaster;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
+
 import java.util.Date;
 
 /**
@@ -36,6 +38,7 @@ class KeymasterDateArgument extends KeymasterArgument {
         this.date = date;
     }
 
+    @UnsupportedAppUsage
     public KeymasterDateArgument(int tag, Parcel in) {
         super(tag);
         date = new Date(in.readLong());

@@ -34,7 +34,7 @@ import java.util.function.Consumer;
  * Implementing this interface allows an object to be the target of
  * the "for-each loop" statement. See
  * <strong>
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/language/foreach.html">For-each Loop</a>
+ * <a href="{@docRoot}/../technotes/guides/language/foreach.html">For-each Loop</a>
  * </strong>
  *
  * @param <T> the type of elements returned by the iterator

@@ -16,12 +16,16 @@
 
 package android.location;
 
-import java.util.HashMap;
-
+import android.annotation.SystemService;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.Context;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.RemoteException;
 import android.util.Log;
+
+import java.util.HashMap;
 
 /**
  * This class provides access to the system country detector service. This
@@ -40,13 +44,10 @@ import android.util.Log;
  * To be notified of the future country change, use the
  * {@link #addCountryListener}
  * <p>
- * <p>
- * You do not instantiate this class directly; instead, retrieve it through
- * {@link android.content.Context#getSystemService
- * Context.getSystemService(Context.COUNTRY_DETECTOR)}.
  *
  * @hide
  */
+@SystemService(Context.COUNTRY_DETECTOR)
 public class CountryDetector {
 
     /**
@@ -88,6 +89,7 @@ public class CountryDetector {
      *       create an instance of this class is using the factory
      *       Context.getSystemService.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public CountryDetector(ICountryDetector service) {
         mService = service;
         mListeners = new HashMap<CountryListener, ListenerTransport>();
@@ -99,6 +101,7 @@ public class CountryDetector {
      * @return the country if it is available immediately, otherwise null will
      *         be returned.
      */
+    @UnsupportedAppUsage
     public Country detectCountry() {
         try {
             return mService.detectCountry();
@@ -117,6 +120,7 @@ public class CountryDetector {
      *        implement the callback mechanism. If looper is null then the
      *        callbacks will be called on the main thread.
      */
+    @UnsupportedAppUsage
     public void addCountryListener(CountryListener listener, Looper looper) {
         synchronized (mListeners) {
             if (!mListeners.containsKey(listener)) {
@@ -134,6 +138,7 @@ public class CountryDetector {
     /**
      * Remove the listener
      */
+    @UnsupportedAppUsage
     public void removeCountryListener(CountryListener listener) {
         synchronized (mListeners) {
             ListenerTransport transport = mListeners.get(listener);

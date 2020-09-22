@@ -23,9 +23,9 @@ import android.net.wifi.WifiScanner;
 import android.net.wifi.WifiScanner.ScanData;
 import android.net.wifi.WifiScanner.ScanSettings;
 import android.util.ArraySet;
+import android.util.Log;
 import android.util.Pair;
 import android.util.Rational;
-import android.util.Slog;
 
 import com.android.server.wifi.WifiNative;
 import com.android.server.wifi.scanner.ChannelHelper.ChannelCollection;
@@ -36,7 +36,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
@@ -426,7 +425,7 @@ public class BackgroundScanScheduler {
         if (maxScheduledBucket != null) {
             return maxScheduledBucket.bucketId;
         } else {
-            Slog.wtf(TAG, "No bucket found for settings");
+            Log.wtf(TAG, "No bucket found for settings");
             return -1;
         }
     }
@@ -441,7 +440,6 @@ public class BackgroundScanScheduler {
 
         schedule.max_ap_per_scan = 0;
         schedule.report_threshold_num_scans = getMaxBatch();
-        HashSet<Integer> hiddenNetworkIdSet = new HashSet<>();
 
         // set all buckets in schedule
         int bucketId = 0;
@@ -458,12 +456,6 @@ public class BackgroundScanScheduler {
                         && settings.maxScansToCache < schedule.report_threshold_num_scans) {
                     schedule.report_threshold_num_scans = settings.maxScansToCache;
                 }
-                // note hidden networks
-                if (settings.hiddenNetworkIds != null) {
-                    for (int j = 0; j < settings.hiddenNetworkIds.length; j++) {
-                        hiddenNetworkIdSet.add(settings.hiddenNetworkIds[j]);
-                    }
-                }
             }
             bucketId++;
         }
@@ -472,13 +464,6 @@ public class BackgroundScanScheduler {
 
         if (schedule.max_ap_per_scan == 0 || schedule.max_ap_per_scan > getMaxApPerScan()) {
             schedule.max_ap_per_scan = getMaxApPerScan();
-        }
-        if (hiddenNetworkIdSet.size() > 0) {
-            schedule.hiddenNetworkIds = new int[hiddenNetworkIdSet.size()];
-            int numHiddenNetworks = 0;
-            for (Integer hiddenNetworkId : hiddenNetworkIdSet) {
-                schedule.hiddenNetworkIds[numHiddenNetworks++] = hiddenNetworkId;
-            }
         }
 
         // update base period as gcd of periods
@@ -489,7 +474,7 @@ public class BackgroundScanScheduler {
             }
 
             if (gcd < PERIOD_MIN_GCD_MS) {
-                Slog.wtf(TAG, "found gcd less than min gcd");
+                Log.wtf(TAG, "found gcd less than min gcd");
                 gcd = PERIOD_MIN_GCD_MS;
             }
 
@@ -532,7 +517,7 @@ public class BackgroundScanScheduler {
             }
         }
         if (index == -1) {
-            Slog.wtf(TAG, "Could not find best bucket for period " + requestedPeriod + " in "
+            Log.wtf(TAG, "Could not find best bucket for period " + requestedPeriod + " in "
                      + maxNumBuckets + " buckets");
         }
         return index;
@@ -569,7 +554,6 @@ public class BackgroundScanScheduler {
         ScanSettings settings = new ScanSettings();
         settings.band = originalSettings.band;
         settings.channels = originalSettings.channels;
-        settings.hiddenNetworkIds = originalSettings.hiddenNetworkIds;
         settings.periodInMs = originalSettings.periodInMs;
         settings.reportEvents = originalSettings.reportEvents;
         settings.numBssidsPerScan = originalSettings.numBssidsPerScan;

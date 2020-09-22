@@ -18,26 +18,29 @@ package com.android.systemui.qs;
 
 import android.animation.ValueAnimator;
 import android.content.Context;
-import android.graphics.drawable.Drawable;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 
 import com.android.systemui.R;
-import com.android.systemui.qs.QSTile.SignalState;
+import com.android.systemui.plugins.qs.QSTile.SignalState;
+import com.android.systemui.plugins.qs.QSTile.State;
+import com.android.systemui.qs.tileimpl.QSIconViewImpl;
+import com.android.systemui.qs.tileimpl.SlashImageView;
 
 /** View that represents a custom quick settings tile for displaying signal info (wifi/cell). **/
-public final class SignalTileView extends QSIconView {
+public class SignalTileView extends QSIconViewImpl {
     private static final long DEFAULT_DURATION = new ValueAnimator().getDuration();
     private static final long SHORT_DURATION = DEFAULT_DURATION / 3;
 
-    private FrameLayout mIconFrame;
-    private ImageView mSignal;
+    protected FrameLayout mIconFrame;
+    protected ImageView mSignal;
     private ImageView mOverlay;
     private ImageView mIn;
     private ImageView mOut;
 
     private int mWideOverlayIconStartPadding;
+    private int mSignalIndicatorToIconFrameSpacing;
 
     public SignalTileView(Context context) {
         super(context);
@@ -45,8 +48,13 @@ public final class SignalTileView extends QSIconView {
         mIn = addTrafficView(R.drawable.ic_qs_signal_in);
         mOut = addTrafficView(R.drawable.ic_qs_signal_out);
 
+        setClipChildren(false);
+        setClipToPadding(false);
+
         mWideOverlayIconStartPadding = context.getResources().getDimensionPixelSize(
                 R.dimen.wide_type_icon_start_padding_qs);
+        mSignalIndicatorToIconFrameSpacing = context.getResources().getDimensionPixelSize(
+                R.dimen.signal_indicator_to_icon_frame_spacing);
     }
 
     private ImageView addTrafficView(int icon) {
@@ -60,11 +68,15 @@ public final class SignalTileView extends QSIconView {
     @Override
     protected View createIcon() {
         mIconFrame = new FrameLayout(mContext);
-        mSignal = new ImageView(mContext);
+        mSignal = createSlashImageView(mContext);
         mIconFrame.addView(mSignal);
         mOverlay = new ImageView(mContext);
         mIconFrame.addView(mOverlay, LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
         return mIconFrame;
+    }
+
+    protected SlashImageView createSlashImageView(Context context) {
+        return new SlashImageView(context);
     }
 
     @Override
@@ -92,10 +104,10 @@ public final class SignalTileView extends QSIconView {
         boolean isRtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
         int left, right;
         if (isRtl) {
-            right = mIconFrame.getLeft();
+            right = getLeft() - mSignalIndicatorToIconFrameSpacing;
             left = right - indicator.getMeasuredWidth();
         } else {
-            left = mIconFrame.getRight();
+            left = getRight() + mSignalIndicatorToIconFrameSpacing;
             right = left + indicator.getMeasuredWidth();
         }
         indicator.layout(
@@ -106,9 +118,10 @@ public final class SignalTileView extends QSIconView {
     }
 
     @Override
-    public void setIcon(QSTile.State state) {
+    public void setIcon(State state, boolean allowAnimations) {
         final SignalState s = (SignalState) state;
-        setIcon(mSignal, s);
+        setIcon(mSignal, s, allowAnimations);
+
         if (s.overlayIconId > 0) {
             mOverlay.setVisibility(VISIBLE);
             mOverlay.setImageResource(s.overlayIconId);
@@ -120,13 +133,9 @@ public final class SignalTileView extends QSIconView {
         } else {
             mSignal.setPaddingRelative(0, 0, 0, 0);
         }
-        Drawable drawable = mSignal.getDrawable();
-        if (state.autoMirrorDrawable && drawable != null) {
-            drawable.setAutoMirrored(true);
-        }
-        final boolean shown = isShown();
-        setVisibility(mIn, shown, s.activityIn);
-        setVisibility(mOut, shown, s.activityOut);
+        final boolean shouldAnimate = allowAnimations && isShown();
+        setVisibility(mIn, shouldAnimate, s.activityIn);
+        setVisibility(mOut, shouldAnimate, s.activityOut);
     }
 
     private void setVisibility(View view, boolean shown, boolean visible) {

@@ -16,6 +16,7 @@
 
 package android.content;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.OperationCanceledException;
@@ -49,7 +50,11 @@ import java.util.concurrent.Executor;
  *      fragment}
  *
  * @param <D> the data type to be loaded.
+ *
+ * @deprecated Use the <a href="{@docRoot}tools/extras/support-library.html">Support Library</a>
+ *      {@link android.support.v4.content.AsyncTaskLoader}
  */
+@Deprecated
 public abstract class AsyncTaskLoader<D> extends Loader<D> {
     static final String TAG = "AsyncTaskLoader";
     static final boolean DEBUG = false;
@@ -124,6 +129,7 @@ public abstract class AsyncTaskLoader<D> extends Loader<D> {
         }
     }
 
+    @UnsupportedAppUsage
     private final Executor mExecutor;
 
     volatile LoadTask mTask;
@@ -170,6 +176,9 @@ public abstract class AsyncTaskLoader<D> extends Loader<D> {
     protected boolean onCancelLoad() {
         if (DEBUG) Log.v(TAG, "onCancelLoad: mTask=" + mTask);
         if (mTask != null) {
+            if (!mStarted) {
+                mContentChanged = true;
+            }
             if (mCancellingTask != null) {
                 // There was a pending task already waiting for a previous
                 // one being canceled; just drop it.
@@ -347,6 +356,7 @@ public abstract class AsyncTaskLoader<D> extends Loader<D> {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void waitForLoader() {
         LoadTask task = mTask;
         if (task != null) {

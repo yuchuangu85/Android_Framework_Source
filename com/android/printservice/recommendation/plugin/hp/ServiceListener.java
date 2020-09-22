@@ -21,16 +21,17 @@ import android.content.res.TypedArray;
 import android.net.nsd.NsdManager;
 import android.net.nsd.NsdServiceInfo;
 import android.text.TextUtils;
-import android.util.Pair;
 
+import com.android.printservice.recommendation.R;
+import com.android.printservice.recommendation.util.DiscoveryListenerMultiplexer;
+import com.android.printservice.recommendation.util.PrinterHashMap;
+
+import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import com.android.printservice.recommendation.R;
-import com.android.printservice.recommendation.util.DiscoveryListenerMultiplexer;
 
 public class ServiceListener implements ServiceResolveQueue.ResolveCallback {
 
@@ -176,11 +177,16 @@ public class ServiceListener implements ServiceResolveQueue.ResolveCallback {
         mListeners.clear();
     }
 
-    public Pair<Integer, Integer> getCount() {
-        int count = 0;
-        for (PrinterHashMap map : mVendorHashMap.values()) {
-            count += map.size();
+    /**
+     * @return The {@link InetAddress addresses} of the discovered printers
+     */
+    public ArrayList<InetAddress> getPrinters() {
+        ArrayList<InetAddress> printerAddressess = new ArrayList<>();
+
+        for (PrinterHashMap oneVendorPrinters : mVendorHashMap.values()) {
+            printerAddressess.addAll(oneVendorPrinters.getPrinterAddresses());
         }
-        return Pair.create(mVendorHashMap.size(), count);
+
+        return printerAddressess;
     }
 }

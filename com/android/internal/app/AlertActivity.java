@@ -18,6 +18,7 @@ package com.android.internal.app;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.DialogInterface;
 import android.os.Bundle;
 import android.view.KeyEvent;
@@ -33,16 +34,22 @@ import android.view.accessibility.AccessibilityEvent;
  */
 public abstract class AlertActivity extends Activity implements DialogInterface {
 
+    @UnsupportedAppUsage
+    public AlertActivity() {
+    }
+
     /**
      * The model for the alert.
      * 
      * @see #mAlertParams
      */
+    @UnsupportedAppUsage
     protected AlertController mAlert;
 
     /**
      * The parameters for the alert.
      */
+    @UnsupportedAppUsage
     protected AlertController.AlertParams mAlertParams;
 
     @Override
@@ -67,10 +74,15 @@ public abstract class AlertActivity extends Activity implements DialogInterface 
 
     @Override
     public boolean dispatchPopulateAccessibilityEvent(AccessibilityEvent event) {
-        event.setClassName(Dialog.class.getName());
-        event.setPackageName(getPackageName());
+        return dispatchPopulateAccessibilityEvent(this, event);
+    }
 
-        ViewGroup.LayoutParams params = getWindow().getAttributes();
+    public static boolean dispatchPopulateAccessibilityEvent(Activity act,
+            AccessibilityEvent event) {
+        event.setClassName(Dialog.class.getName());
+        event.setPackageName(act.getPackageName());
+
+        ViewGroup.LayoutParams params = act.getWindow().getAttributes();
         boolean isFullScreen = (params.width == ViewGroup.LayoutParams.MATCH_PARENT) &&
                 (params.height == ViewGroup.LayoutParams.MATCH_PARENT);
         event.setFullScreen(isFullScreen);
@@ -85,9 +97,9 @@ public abstract class AlertActivity extends Activity implements DialogInterface 
      * @see #mAlert
      * @see #mAlertParams
      */
+    @UnsupportedAppUsage
     protected void setupAlert() {
-        mAlertParams.apply(mAlert);
-        mAlert.installContent();
+        mAlert.installContent(mAlertParams);
     }
 
     @Override

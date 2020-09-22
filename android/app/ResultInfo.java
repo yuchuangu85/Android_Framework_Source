@@ -16,19 +16,27 @@
 
 package android.app;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import java.util.Objects;
 
 /**
  * {@hide}
  */
 public class ResultInfo implements Parcelable {
+    @UnsupportedAppUsage
     public final String mResultWho;
+    @UnsupportedAppUsage
     public final int mRequestCode;
     public final int mResultCode;
+    @UnsupportedAppUsage
     public final Intent mData;
 
+    @UnsupportedAppUsage
     public ResultInfo(String resultWho, int requestCode, int resultCode,
             Intent data) {
         mResultWho = resultWho;
@@ -58,7 +66,8 @@ public class ResultInfo implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<ResultInfo> CREATOR
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+    public static final @android.annotation.NonNull Parcelable.Creator<ResultInfo> CREATOR
             = new Parcelable.Creator<ResultInfo>() {
         public ResultInfo createFromParcel(Parcel in) {
             return new ResultInfo(in);
@@ -78,5 +87,30 @@ public class ResultInfo implements Parcelable {
         } else {
             mData = null;
         }
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null || !(obj instanceof ResultInfo)) {
+            return false;
+        }
+        final ResultInfo other = (ResultInfo) obj;
+        final boolean intentsEqual = mData == null ? (other.mData == null)
+                : mData.filterEquals(other.mData);
+        return intentsEqual && Objects.equals(mResultWho, other.mResultWho)
+                && mResultCode == other.mResultCode
+                && mRequestCode == other.mRequestCode;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = 17;
+        result = 31 * result + mRequestCode;
+        result = 31 * result + mResultCode;
+        result = 31 * result + Objects.hashCode(mResultWho);
+        if (mData != null) {
+            result = 31 * result + mData.filterHashCode();
+        }
+        return result;
     }
 }

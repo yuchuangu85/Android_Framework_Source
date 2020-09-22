@@ -1,12 +1,15 @@
 package com.android.systemui.qs;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
+import android.content.res.TypedArray;
 import android.graphics.drawable.AnimatedVectorDrawable;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
+
 import com.android.systemui.R;
 
 import java.util.ArrayList;
@@ -21,7 +24,7 @@ public class PageIndicator extends ViewGroup {
     // The size of a single dot in relation to the whole animation.
     private static final float SINGLE_SCALE = .4f;
 
-    private static final float MINOR_ALPHA = .3f;
+    private static final float MINOR_ALPHA = .42f;
 
     private final ArrayList<Integer> mQueuedPositions = new ArrayList<>();
 
@@ -42,7 +45,19 @@ public class PageIndicator extends ViewGroup {
     }
 
     public void setNumPages(int numPages) {
-        setVisibility(numPages > 1 ? View.VISIBLE : View.INVISIBLE);
+        TypedArray array = getContext().obtainStyledAttributes(
+                new int[]{android.R.attr.colorControlActivated});
+        int color = array.getColor(0, 0);
+        array.recycle();
+        setNumPages(numPages, color);
+    }
+
+    /** Overload of setNumPages that allows the indicator color to be specified.*/
+    public void setNumPages(int numPages, int color) {
+        setVisibility(numPages > 1 ? View.VISIBLE : View.GONE);
+        if (numPages == getChildCount()) {
+            return;
+        }
         if (mAnimating) {
             Log.w(TAG, "setNumPages during animation");
         }
@@ -52,6 +67,7 @@ public class PageIndicator extends ViewGroup {
         while (numPages > getChildCount()) {
             ImageView v = new ImageView(mContext);
             v.setImageResource(R.drawable.minor_a_b);
+            v.setImageTintList(ColorStateList.valueOf(color));
             addView(v, new LayoutParams(mPageIndicatorWidth, mPageIndicatorHeight));
         }
         // Refresh state.
@@ -196,7 +212,7 @@ public class PageIndicator extends ViewGroup {
         for (int i = 0; i < N; i++) {
             getChildAt(i).measure(widthChildSpec, heightChildSpec);
         }
-        int width = (mPageIndicatorWidth - mPageDotWidth) * N + mPageDotWidth;
+        int width = (mPageIndicatorWidth - mPageDotWidth) * (N - 1) + mPageDotWidth;
         setMeasuredDimension(width, mPageIndicatorHeight);
     }
 

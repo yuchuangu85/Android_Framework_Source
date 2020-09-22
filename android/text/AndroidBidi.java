@@ -16,34 +16,48 @@
 
 package android.text;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.icu.text.Bidi;
 import android.text.Layout.Directions;
+
+import com.android.internal.annotations.VisibleForTesting;
 
 /**
  * Access the ICU bidi implementation.
  * @hide
  */
-/* package */ class AndroidBidi {
+@VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+public class AndroidBidi {
 
-    public static int bidi(int dir, char[] chs, byte[] chInfo, int n, boolean haveInfo) {
+    /**
+     * Runs the bidi algorithm on input text.
+     */
+    @UnsupportedAppUsage
+    public static int bidi(int dir, char[] chs, byte[] chInfo) {
         if (chs == null || chInfo == null) {
             throw new NullPointerException();
         }
 
-        if (n < 0 || chs.length < n || chInfo.length < n) {
+        final int length = chs.length;
+        if (chInfo.length < length) {
             throw new IndexOutOfBoundsException();
         }
 
-        switch(dir) {
-            case Layout.DIR_REQUEST_LTR: dir = 0; break;
-            case Layout.DIR_REQUEST_RTL: dir = 1; break;
-            case Layout.DIR_REQUEST_DEFAULT_LTR: dir = -2; break;
-            case Layout.DIR_REQUEST_DEFAULT_RTL: dir = -1; break;
-            default: dir = 0; break;
+        final byte paraLevel;
+        switch (dir) {
+            case Layout.DIR_REQUEST_LTR: paraLevel = Bidi.LTR; break;
+            case Layout.DIR_REQUEST_RTL: paraLevel = Bidi.RTL; break;
+            case Layout.DIR_REQUEST_DEFAULT_LTR: paraLevel = Bidi.LEVEL_DEFAULT_LTR; break;
+            case Layout.DIR_REQUEST_DEFAULT_RTL: paraLevel = Bidi.LEVEL_DEFAULT_RTL; break;
+            default: paraLevel = Bidi.LTR; break;
         }
-
-        int result = runBidi(dir, chs, chInfo, n, haveInfo);
-        result = (result & 0x1) == 0 ? Layout.DIR_LEFT_TO_RIGHT : Layout.DIR_RIGHT_TO_LEFT;
-        return result;
+        final Bidi icuBidi = new Bidi(length /* maxLength */, 0 /* maxRunCount */);
+        icuBidi.setPara(chs, paraLevel, null /* embeddingLevels */);
+        for (int i = 0; i < length; i++) {
+            chInfo[i] = icuBidi.getLevelAt(i);
+        }
+        final byte result = icuBidi.getParaLevel();
+        return (result & 0x1) == 0 ? Layout.DIR_LEFT_TO_RIGHT : Layout.DIR_RIGHT_TO_LEFT;
     }
 
     /**
@@ -175,6 +189,5 @@ import android.text.Layout.Directions;
         }
         return new Directions(ld);
     }
-
-    private native static int runBidi(int dir, char[] chs, byte[] chInfo, int n, boolean haveInfo);
 }
+

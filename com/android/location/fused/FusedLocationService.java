@@ -16,32 +16,40 @@
 
 package com.android.location.fused;
 
+import android.annotation.Nullable;
 import android.app.Service;
 import android.content.Intent;
 import android.os.IBinder;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+
 public class FusedLocationService extends Service {
-    private FusedLocationProvider mProvider;
+
+    @Nullable private FusedLocationProvider mProvider;
 
     @Override
     public IBinder onBind(Intent intent) {
         if (mProvider == null) {
-            mProvider = new FusedLocationProvider(getApplicationContext());
+            mProvider = new FusedLocationProvider(this);
+            mProvider.start();
         }
+
         return mProvider.getBinder();
     }
 
     @Override
-    public boolean onUnbind(Intent intent) {
-        // make sure to stop performing work
+    public void onDestroy() {
         if (mProvider != null) {
-            mProvider.onDisable();
+            mProvider.stop();
+            mProvider = null;
         }
-      return false;
     }
 
     @Override
-    public void onDestroy() {
-        mProvider = null;
+    protected void dump(FileDescriptor fd, PrintWriter writer, String[] args) {
+        if (mProvider != null) {
+            mProvider.dump(writer);
+        }
     }
 }

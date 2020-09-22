@@ -16,25 +16,39 @@
 
 package android.content.pm;
 
+import static android.os.Build.VERSION_CODES.DONUT;
+
+import android.annotation.IntDef;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.os.Environment;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.UserHandle;
-import android.text.TextUtils;
+import android.os.storage.StorageManager;
 import android.util.Printer;
+import android.util.SparseArray;
+import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.util.ArrayUtils;
+import com.android.server.SystemConfig;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.text.Collator;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Information you can retrieve about a particular application.  This
@@ -42,7 +56,6 @@ import java.util.Objects;
  * &lt;application&gt; tag.
  */
 public class ApplicationInfo extends PackageItemInfo implements Parcelable {
-    
     /**
      * Default task affinity of all activities in this application. See 
      * {@link ActivityInfo#taskAffinity} for more information.  This comes 
@@ -115,7 +128,15 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public int fullBackupContent = 0;
+
+    /**
+     * <code>true</code> if the package is capable of presenting a unified interface representing
+     * multiple profiles.
+     * @hide
+     */
+    public boolean crossProfile;
 
     /**
      * The default extra UI options for activities in this application.
@@ -222,10 +243,14 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
     
     /**
      * Value for {@link #flags}: true when the application knows how to
-     * accomodate different screen densities.  Corresponds to
+     * accommodate different screen densities.  Corresponds to
      * {@link android.R.styleable#AndroidManifestSupportsScreens_anyDensity
      * android:anyDensity}.
+     *
+     * @deprecated Set by default when targeting API 4 or higher and apps
+     *             should not set this to false.
      */
+    @Deprecated
     public static final int FLAG_SUPPORTS_SCREEN_DENSITIES = 1<<13;
     
     /**
@@ -342,9 +367,12 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
     public static final int FLAG_IS_DATA_ONLY = 1<<24;
 
     /**
-     * Value for {@link #flags}: true if the application was declared to be a game, or
-     * false if it is a non-game application.
+     * Value for {@link #flags}: true if the application was declared to be a
+     * game, or false if it is a non-game application.
+     *
+     * @deprecated use {@link #CATEGORY_GAME} instead.
      */
+    @Deprecated
     public static final int FLAG_IS_GAME = 1<<25;
 
     /**
@@ -364,7 +392,7 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      * {@code DownloadManager}, {@code MediaPlayer}) will refuse app's requests to use cleartext
      * traffic. Third-party libraries are encouraged to honor this flag as well.
      *
-     * <p>NOTE: {@code WebView} does not honor this flag.
+     * <p>NOTE: {@code WebView} honors this flag for applications targeting API level 26 and up.
      *
      * <p>This flag is ignored on Android N and above if an Android Network Security Config is
      * present.
@@ -447,21 +475,13 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
     public static final int PRIVATE_FLAG_CANT_SAVE_STATE = 1<<1;
 
     /**
-     * Value for {@link #privateFlags}: Set to true if the application has been
-     * installed using the forward lock option.
-     *
-     * NOTE: DO NOT CHANGE THIS VALUE!  It is saved in packages.xml.
-     *
-     * {@hide}
-     */
-    public static final int PRIVATE_FLAG_FORWARD_LOCK = 1<<2;
-
-    /**
      * Value for {@link #privateFlags}: set to {@code true} if the application
      * is permitted to hold privileged permissions.
      *
      * {@hide}
      */
+    @UnsupportedAppUsage
+    @TestApi
     public static final int PRIVATE_FLAG_PRIVILEGED = 1<<3;
 
     /**
@@ -489,12 +509,12 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
     public static final int PRIVATE_FLAG_DIRECT_BOOT_AWARE = 1 << 6;
 
     /**
-     * Value for {@link #privateFlags}: set to {@code true} if the application
-     * is AutoPlay.
+     * Value for {@link #privateFlags}: {@code true} if the application is installed
+     * as instant app.
      *
-     * {@hide}
+     * @hide
      */
-    public static final int PRIVATE_FLAG_AUTOPLAY = 1 << 7;
+    public static final int PRIVATE_FLAG_INSTANT = 1 << 7;
 
     /**
      * When set, at least one component inside this application is direct boot
@@ -504,12 +524,6 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      */
     public static final int PRIVATE_FLAG_PARTIALLY_DIRECT_BOOT_AWARE = 1 << 8;
 
-    /**
-     * Value for {@link #flags}: {@code true} if the application is blocked via restrictions
-     * and for most purposes is considered as not installed.
-     * {@hide}
-     */
-    public static final int PRIVATE_FLAG_EPHEMERAL = 1 << 9;
 
     /**
      * When set, signals that the application is required for the system user and should not be
@@ -517,15 +531,39 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      *
      * @hide
      */
-    public static final int PRIVATE_FLAG_REQUIRED_FOR_SYSTEM_USER = 1 << 10;
+    public static final int PRIVATE_FLAG_REQUIRED_FOR_SYSTEM_USER = 1 << 9;
 
     /**
-     * When set, the activities associated with this application are resizeable by default.
+     * When set, the application explicitly requested that its activities be resizeable by default.
      * @see android.R.styleable#AndroidManifestActivity_resizeableActivity
      *
      * @hide
      */
-    public static final int PRIVATE_FLAG_RESIZEABLE_ACTIVITIES = 1 << 11;
+    public static final int PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE = 1 << 10;
+
+    /**
+     * When set, the application explicitly requested that its activities *not* be resizeable by
+     * default.
+     * @see android.R.styleable#AndroidManifestActivity_resizeableActivity
+     *
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_UNRESIZEABLE = 1 << 11;
+
+    /**
+     * The application isn't requesting explicitly requesting for its activities to be resizeable or
+     * non-resizeable by default. So, we are making it activities resizeable by default based on the
+     * target SDK version of the app.
+     * @see android.R.styleable#AndroidManifestActivity_resizeableActivity
+     *
+     * NOTE: This only affects apps with target SDK >= N where the resizeableActivity attribute was
+     * introduced. It shouldn't be confused with {@link ActivityInfo#RESIZE_MODE_FORCE_RESIZEABLE}
+     * where certain pre-N apps are forced to the resizeable.
+     *
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION =
+            1 << 12;
 
     /**
      * Value for {@link #privateFlags}: {@code true} means the OS should go ahead and
@@ -533,13 +571,219 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      * foreground-equivalent run state.  Defaults to {@code false} if unspecified.
      * @hide
      */
-    public static final int PRIVATE_FLAG_BACKUP_IN_FOREGROUND = 1 << 12;
+    public static final int PRIVATE_FLAG_BACKUP_IN_FOREGROUND = 1 << 13;
+
+    /**
+     * Value for {@link #privateFlags}: {@code true} means this application
+     * contains a static shared library. Defaults to {@code false} if unspecified.
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_STATIC_SHARED_LIBRARY = 1 << 14;
+
+    /**
+     * Value for {@link #privateFlags}: When set, the application will only have its splits loaded
+     * if they are required to load a component. Splits can be loaded on demand using the
+     * {@link Context#createContextForSplit(String)} API.
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_ISOLATED_SPLIT_LOADING = 1 << 15;
+
+    /**
+     * Value for {@link #privateFlags}: When set, the application was installed as
+     * a virtual preload.
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_VIRTUAL_PRELOAD = 1 << 16;
+
+    /**
+     * Value for {@link #privateFlags}: whether this app is pre-installed on the
+     * OEM partition of the system image.
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_OEM = 1 << 17;
+
+    /**
+     * Value for {@link #privateFlags}: whether this app is pre-installed on the
+     * vendor partition of the system image.
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_VENDOR = 1 << 18;
+
+    /**
+     * Value for {@link #privateFlags}: whether this app is pre-installed on the
+     * product partition of the system image.
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_PRODUCT = 1 << 19;
+
+    /**
+     * Value for {@link #privateFlags}: whether this app is signed with the
+     * platform key.
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_SIGNED_WITH_PLATFORM_KEY = 1 << 20;
+
+    /**
+     * Value for {@link #privateFlags}: whether this app is pre-installed on the
+     * system_ext partition of the system image.
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_SYSTEM_EXT = 1 << 21;
+
+    /**
+     * Indicates whether this package requires access to non-SDK APIs.
+     * Only system apps and tests are allowed to use this property.
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_USES_NON_SDK_API = 1 << 22;
+
+    /**
+     * Indicates whether this application can be profiled by the shell user,
+     * even when running on a device that is running in user mode.
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_PROFILEABLE_BY_SHELL = 1 << 23;
+
+    /**
+     * Indicates whether this package requires access to non-SDK APIs.
+     * Only system apps and tests are allowed to use this property.
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_HAS_FRAGILE_USER_DATA = 1 << 24;
+
+    /**
+     * Indicates whether this application wants to use the embedded dex in the APK, rather than
+     * extracted or locally compiled variants. This keeps the dex code protected by the APK
+     * signature. Such apps will always run in JIT mode (same when they are first installed), and
+     * the system will never generate ahead-of-time compiled code for them. Depending on the app's
+     * workload, there may be some run time performance change, noteably the cold start time.
+     *
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_USE_EMBEDDED_DEX = 1 << 25;
+
+    /**
+     * Value for {@link #privateFlags}: indicates whether this application's data will be cleared
+     * on a failed restore.
+     *
+     * <p>Comes from the
+     * android.R.styleable#AndroidManifestApplication_allowClearUserDataOnFailedRestore attribute
+     * of the &lt;application&gt; tag.
+     *
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_ALLOW_CLEAR_USER_DATA_ON_FAILED_RESTORE = 1 << 26;
+
+    /**
+     * Value for {@link #privateFlags}: true if the application allows its audio playback
+     * to be captured by other apps.
+     *
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_ALLOW_AUDIO_PLAYBACK_CAPTURE  = 1 << 27;
+
+    /**
+     * Indicates whether this package is in fact a runtime resource overlay.
+     *
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_IS_RESOURCE_OVERLAY = 1 << 28;
+
+    /**
+     * Value for {@link #privateFlags}: If {@code true} this app requests
+     * full external storage access. The request may not be honored due to
+     * policy or other reasons.
+     *
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_REQUEST_LEGACY_EXTERNAL_STORAGE = 1 << 29;
+
+    /**
+     * Value for {@link #privateFlags}: whether this app is pre-installed on the
+     * ODM partition of the system image.
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_ODM = 1 << 30;
+
+    /**
+     * Value for {@link #privateFlags}: If {@code true} this app allows heap tagging.
+     * {@link com.android.server.am.ProcessList#NATIVE_HEAP_POINTER_TAGGING}
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING = 1 << 31;
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "PRIVATE_FLAG_" }, value = {
+            PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE,
+            PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION,
+            PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_UNRESIZEABLE,
+            PRIVATE_FLAG_BACKUP_IN_FOREGROUND,
+            PRIVATE_FLAG_CANT_SAVE_STATE,
+            PRIVATE_FLAG_DEFAULT_TO_DEVICE_PROTECTED_STORAGE,
+            PRIVATE_FLAG_DIRECT_BOOT_AWARE,
+            PRIVATE_FLAG_HAS_DOMAIN_URLS,
+            PRIVATE_FLAG_HIDDEN,
+            PRIVATE_FLAG_INSTANT,
+            PRIVATE_FLAG_IS_RESOURCE_OVERLAY,
+            PRIVATE_FLAG_ISOLATED_SPLIT_LOADING,
+            PRIVATE_FLAG_OEM,
+            PRIVATE_FLAG_PARTIALLY_DIRECT_BOOT_AWARE,
+            PRIVATE_FLAG_USE_EMBEDDED_DEX,
+            PRIVATE_FLAG_PRIVILEGED,
+            PRIVATE_FLAG_PRODUCT,
+            PRIVATE_FLAG_SYSTEM_EXT,
+            PRIVATE_FLAG_PROFILEABLE_BY_SHELL,
+            PRIVATE_FLAG_REQUIRED_FOR_SYSTEM_USER,
+            PRIVATE_FLAG_SIGNED_WITH_PLATFORM_KEY,
+            PRIVATE_FLAG_STATIC_SHARED_LIBRARY,
+            PRIVATE_FLAG_VENDOR,
+            PRIVATE_FLAG_VIRTUAL_PRELOAD,
+            PRIVATE_FLAG_HAS_FRAGILE_USER_DATA,
+            PRIVATE_FLAG_ALLOW_CLEAR_USER_DATA_ON_FAILED_RESTORE,
+            PRIVATE_FLAG_ALLOW_AUDIO_PLAYBACK_CAPTURE,
+            PRIVATE_FLAG_REQUEST_LEGACY_EXTERNAL_STORAGE,
+            PRIVATE_FLAG_ODM,
+            PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface ApplicationInfoPrivateFlags {}
+
+    /**
+     * Constant corresponding to <code>allowed</code> in the
+     * {@link android.R.attr#autoRevokePermissions} attribute.
+     *
+     * @hide
+     */
+    public static final int AUTO_REVOKE_ALLOWED = 0;
+
+    /**
+     * Constant corresponding to <code>discouraged</code> in the
+     * {@link android.R.attr#autoRevokePermissions} attribute.
+     *
+     * @hide
+     */
+    public static final int AUTO_REVOKE_DISCOURAGED = 1;
+
+    /**
+     * Constant corresponding to <code>disallowed</code> in the
+     * {@link android.R.attr#autoRevokePermissions} attribute.
+     *
+     * @hide
+     */
+    public static final int AUTO_REVOKE_DISALLOWED = 2;
 
     /**
      * Private/hidden flags. See {@code PRIVATE_FLAG_...} constants.
-     * {@hide}
+     * @hide
      */
-    public int privateFlags;
+    @UnsupportedAppUsage
+    @TestApi
+    public @ApplicationInfoPrivateFlags int privateFlags;
+
+    /**
+     * @hide
+     */
+    public static final String METADATA_PRELOADED_FONTS = "preloaded_fonts";
 
     /**
      * The required smallest screen width the application can run on.  If 0,
@@ -565,11 +809,40 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      */
     public int largestWidthLimitDp = 0;
 
-    /** {@hide} */
+    /**
+     * Value indicating the maximum aspect ratio the application supports.
+     * <p>
+     * 0 means unset.
+     * @See {@link android.R.attr#maxAspectRatio}.
+     * @hide
+     */
+    public float maxAspectRatio;
+
+    /**
+     * Value indicating the minimum aspect ratio the application supports.
+     * <p>
+     * 0 means unset.
+     * @see {@link android.R.attr#minAspectRatio}.
+     * @hide
+     */
+    public float minAspectRatio;
+
+    /** @hide */
     public String volumeUuid;
+
+    /**
+     * UUID of the storage volume on which this application is being hosted. For
+     * apps hosted on the default internal storage at
+     * {@link Environment#getDataDirectory()}, the UUID value is
+     * {@link StorageManager#UUID_DEFAULT}.
+     */
+    public UUID storageUuid;
+
     /** {@hide} */
+    @UnsupportedAppUsage
     public String scanSourceDir;
     /** {@hide} */
+    @UnsupportedAppUsage
     public String scanPublicSourceDir;
 
     /**
@@ -585,8 +858,12 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
     public String publicSourceDir;
 
     /**
-     * Full paths to zero or more split APKs that, when combined with the base
-     * APK defined in {@link #sourceDir}, form a complete application.
+     * The names of all installed split APKs, ordered lexicographically.
+     */
+    public String[] splitNames;
+
+    /**
+     * Full paths to zero or more split APKs, indexed by the same order as {@link #splitNames}.
      */
     public String[] splitSourceDirs;
 
@@ -594,28 +871,68 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      * Full path to the publicly available parts of {@link #splitSourceDirs},
      * including resources and manifest. This may be different from
      * {@link #splitSourceDirs} if an application is forward locked.
+     *
+     * @see #splitSourceDirs
      */
     public String[] splitPublicSourceDirs;
 
     /**
-     * Full paths to the locations of extra resource packages this application
-     * uses. This field is only used if there are extra resource packages,
-     * otherwise it is null.
-     * 
-     * {@hide}
+     * Maps the dependencies between split APKs. All splits implicitly depend on the base APK.
+     *
+     * Available since platform version O.
+     *
+     * Only populated if the application opts in to isolated split loading via the
+     * {@link android.R.attr.isolatedSplits} attribute in the &lt;manifest&gt; tag of the app's
+     * AndroidManifest.xml.
+     *
+     * The keys and values are all indices into the {@link #splitNames}, {@link #splitSourceDirs},
+     * and {@link #splitPublicSourceDirs} arrays.
+     * Each key represents a split and its value is an array of splits. The first element of this
+     * array is the parent split, and the rest are configuration splits. These configuration splits
+     * have no dependencies themselves.
+     * Cycles do not exist because they are illegal and screened for during installation.
+     *
+     * May be null if no splits are installed, or if no dependencies exist between them.
+     *
+     * NOTE: Any change to the way split dependencies are stored must update the logic that
+     *       creates the class loader context for dexopt (DexoptUtils#getClassLoaderContexts).
+     *
+     * @hide
      */
-    public String[] resourceDirs;
+    public SparseArray<int[]> splitDependencies;
 
     /**
-     * String retrieved from the seinfo tag found in selinux policy. This value
-     * can be overridden with a value set through the mac_permissions.xml policy
-     * construct. This value is useful in setting an SELinux security context on
-     * the process as well as its data directory. The String default is being used
-     * here to represent a catchall label when no policy matches.
+     * Full paths to the locations of extra resource packages (runtime overlays)
+     * this application uses. This field is only used if there are extra resource
+     * packages, otherwise it is null.
      *
      * {@hide}
      */
-    public String seinfo = "default";
+    @UnsupportedAppUsage
+    public String[] resourceDirs;
+
+    /**
+     * String retrieved from the seinfo tag found in selinux policy. This value can be set through
+     * the mac_permissions.xml policy construct. This value is used for setting an SELinux security
+     * context on the process as well as its data directory.
+     *
+     * {@hide}
+     */
+    public String seInfo;
+
+    /**
+     * The seinfo tag generated per-user. This value may change based upon the
+     * user's configuration. For example, when an instant app is installed for
+     * a user. It is an error if this field is ever {@code null} when trying to
+     * start a new process.
+     * <p>NOTE: We need to separate this out because we modify per-user values
+     * multiple times. This needs to be refactored since we're performing more
+     * work than necessary and these values should only be set once. When that
+     * happens, we can merge the per-user value with the seInfo state above.
+     *
+     * {@hide}
+     */
+    public String seInfoUser;
 
     /**
      * Paths to all shared libraries this application is linked against.  This
@@ -624,7 +941,17 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      * the structure.
      */
     public String[] sharedLibraryFiles;
-    
+
+    /**
+     * List of all shared libraries this application is linked against.  This
+     * field is only set if the {@link PackageManager#GET_SHARED_LIBRARY_FILES
+     * PackageManager.GET_SHARED_LIBRARY_FILES} flag was used when retrieving
+     * the structure.
+     *
+     * {@hide}
+     */
+    public List<SharedLibraryInfo> sharedLibraryInfos;
+
     /**
      * Full path to the default directory assigned to the package for its
      * persistent data.
@@ -639,10 +966,6 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      */
     public String deviceProtectedDataDir;
 
-    /** @removed */
-    @Deprecated
-    public String deviceEncryptedDataDir;
-
     /**
      * Full path to the credential-protected directory assigned to the package
      * for its persistent data.
@@ -651,10 +974,6 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      */
     @SystemApi
     public String credentialProtectedDataDir;
-
-    /** @removed */
-    @Deprecated
-    public String credentialEncryptedDataDir;
 
     /**
      * Full path to the directory where native JNI libraries are stored.
@@ -676,6 +995,7 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public String secondaryNativeLibraryDir;
 
     /**
@@ -687,6 +1007,7 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public String nativeLibraryRootDir;
 
     /**
@@ -706,6 +1027,7 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      *
      * {@hide}
      */
+    @UnsupportedAppUsage
     public String primaryCpuAbi;
 
     /**
@@ -715,6 +1037,7 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      *
      * {@hide}
      */
+    @UnsupportedAppUsage
     public String secondaryCpuAbi;
 
     /**
@@ -744,7 +1067,41 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      * The app's declared version code.
      * @hide
      */
+    public long longVersionCode;
+
+    /**
+     * An integer representation of the app's declared version code. This is being left in place as
+     * some apps were using reflection to access it before the move to long in
+     * {@link android.os.Build.VERSION_CODES#P}
+     * @deprecated Use {@link #longVersionCode} instead.
+     * @hide
+     */
+    @Deprecated
+    @UnsupportedAppUsage
     public int versionCode;
+
+    /**
+     * The user-visible SDK version (ex. 26) of the framework against which the application claims
+     * to have been compiled, or {@code 0} if not specified.
+     * <p>
+     * This property is the compile-time equivalent of
+     * {@link android.os.Build.VERSION#CODENAME Build.VERSION.SDK_INT}.
+     *
+     * @hide For platform use only; we don't expect developers to need to read this value.
+     */
+    public int compileSdkVersion;
+
+    /**
+     * The development codename (ex. "O", "REL") of the framework against which the application
+     * claims to have been compiled, or {@code null} if not specified.
+     * <p>
+     * This property is the compile-time equivalent of
+     * {@link android.os.Build.VERSION#CODENAME Build.VERSION.CODENAME}.
+     *
+     * @hide For platform use only; we don't expect developers to need to read this value.
+     */
+    @Nullable
+    public String compileSdkVersionCodename;
 
     /**
      * When false, indicates that all components within this application are
@@ -756,12 +1113,14 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      * For convenient access to the current enabled setting of this app.
      * @hide
      */
+    @UnsupportedAppUsage
     public int enabledSetting = PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
 
     /**
      * For convenient access to package's install location.
      * @hide
      */
+    @UnsupportedAppUsage
     public int installLocation = PackageInfo.INSTALL_LOCATION_UNSPECIFIED;
 
     /**
@@ -770,27 +1129,275 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      */
     public int networkSecurityConfigRes;
 
+    /**
+     * Version of the sandbox the application wants to run in.
+     * @hide
+     */
+    @SystemApi
+    public int targetSandboxVersion;
+
+    /**
+     * The factory of this package, as specified by the &lt;manifest&gt;
+     * tag's {@link android.R.styleable#AndroidManifestApplication_appComponentFactory}
+     * attribute.
+     */
+    public String appComponentFactory;
+
+    /**
+     * Resource id of {@link com.android.internal.R.styleable.AndroidManifestProvider_icon}
+     * @hide
+     */
+    public int iconRes;
+
+    /**
+     * Resource id of {@link com.android.internal.R.styleable.AndroidManifestProvider_roundIcon}
+     * @hide
+     */
+    public int roundIconRes;
+
+    /**
+     * The category of this app. Categories are used to cluster multiple apps
+     * together into meaningful groups, such as when summarizing battery,
+     * network, or disk usage. Apps should only define this value when they fit
+     * well into one of the specific categories.
+     * <p>
+     * Set from the {@link android.R.attr#appCategory} attribute in the
+     * manifest. If the manifest doesn't define a category, this value may have
+     * been provided by the installer via
+     * {@link PackageManager#setApplicationCategoryHint(String, int)}.
+     */
+    public @Category int category = CATEGORY_UNDEFINED;
+
+    /** {@hide} */
+    @IntDef(prefix = { "CATEGORY_" }, value = {
+            CATEGORY_UNDEFINED,
+            CATEGORY_GAME,
+            CATEGORY_AUDIO,
+            CATEGORY_VIDEO,
+            CATEGORY_IMAGE,
+            CATEGORY_SOCIAL,
+            CATEGORY_NEWS,
+            CATEGORY_MAPS,
+            CATEGORY_PRODUCTIVITY
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface Category {
+    }
+
+    /**
+     * Value when category is undefined.
+     *
+     * @see #category
+     */
+    public static final int CATEGORY_UNDEFINED = -1;
+
+    /**
+     * Category for apps which are primarily games.
+     *
+     * @see #category
+     */
+    public static final int CATEGORY_GAME = 0;
+
+    /**
+     * Category for apps which primarily work with audio or music, such as music
+     * players.
+     *
+     * @see #category
+     */
+    public static final int CATEGORY_AUDIO = 1;
+
+    /**
+     * Category for apps which primarily work with video or movies, such as
+     * streaming video apps.
+     *
+     * @see #category
+     */
+    public static final int CATEGORY_VIDEO = 2;
+
+    /**
+     * Category for apps which primarily work with images or photos, such as
+     * camera or gallery apps.
+     *
+     * @see #category
+     */
+    public static final int CATEGORY_IMAGE = 3;
+
+    /**
+     * Category for apps which are primarily social apps, such as messaging,
+     * communication, email, or social network apps.
+     *
+     * @see #category
+     */
+    public static final int CATEGORY_SOCIAL = 4;
+
+    /**
+     * Category for apps which are primarily news apps, such as newspapers,
+     * magazines, or sports apps.
+     *
+     * @see #category
+     */
+    public static final int CATEGORY_NEWS = 5;
+
+    /**
+     * Category for apps which are primarily maps apps, such as navigation apps.
+     *
+     * @see #category
+     */
+    public static final int CATEGORY_MAPS = 6;
+
+    /**
+     * Category for apps which are primarily productivity apps, such as cloud
+     * storage or workplace apps.
+     *
+     * @see #category
+     */
+    public static final int CATEGORY_PRODUCTIVITY = 7;
+
+    /**
+     * Return a concise, localized title for the given
+     * {@link ApplicationInfo#category} value, or {@code null} for unknown
+     * values such as {@link #CATEGORY_UNDEFINED}.
+     *
+     * @see #category
+     */
+    public static CharSequence getCategoryTitle(Context context, @Category int category) {
+        switch (category) {
+            case ApplicationInfo.CATEGORY_GAME:
+                return context.getText(com.android.internal.R.string.app_category_game);
+            case ApplicationInfo.CATEGORY_AUDIO:
+                return context.getText(com.android.internal.R.string.app_category_audio);
+            case ApplicationInfo.CATEGORY_VIDEO:
+                return context.getText(com.android.internal.R.string.app_category_video);
+            case ApplicationInfo.CATEGORY_IMAGE:
+                return context.getText(com.android.internal.R.string.app_category_image);
+            case ApplicationInfo.CATEGORY_SOCIAL:
+                return context.getText(com.android.internal.R.string.app_category_social);
+            case ApplicationInfo.CATEGORY_NEWS:
+                return context.getText(com.android.internal.R.string.app_category_news);
+            case ApplicationInfo.CATEGORY_MAPS:
+                return context.getText(com.android.internal.R.string.app_category_maps);
+            case ApplicationInfo.CATEGORY_PRODUCTIVITY:
+                return context.getText(com.android.internal.R.string.app_category_productivity);
+            default:
+                return null;
+        }
+    }
+
+    /** @hide */
+    public String classLoaderName;
+
+    /** @hide */
+    public String[] splitClassLoaderNames;
+
+    /** @hide */
+    public boolean hiddenUntilInstalled;
+
+    /** @hide */
+    public String zygotePreloadName;
+
+    /**
+     * Default (unspecified) setting of GWP-ASan.
+     */
+    public static final int GWP_ASAN_DEFAULT = -1;
+
+    /**
+     * Never enable GWP-ASan in this application or process.
+     */
+    public static final int GWP_ASAN_NEVER = 0;
+
+    /**
+     * Always enable GWP-ASan in this application or process.
+     */
+    public static final int GWP_ASAN_ALWAYS = 1;
+
+    /**
+     * These constants need to match the values of gwpAsanMode in application manifest.
+     * @hide
+     */
+    @IntDef(prefix = {"GWP_ASAN_"}, value = {
+            GWP_ASAN_DEFAULT,
+            GWP_ASAN_NEVER,
+            GWP_ASAN_ALWAYS,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface GwpAsanMode {}
+
+    /**
+     * Indicates if the application has requested GWP-ASan to be enabled, disabled, or left
+     * unspecified. Processes can override this setting.
+     */
+    private @GwpAsanMode int gwpAsanMode;
+
+    /**
+     * Represents the default policy. The actual policy used will depend on other properties of
+     * the application, e.g. the target SDK version.
+     * @hide
+     */
+    public static final int HIDDEN_API_ENFORCEMENT_DEFAULT = -1;
+    /**
+     * No API enforcement; the app can access the entire internal private API. Only for use by
+     * system apps.
+     * @hide
+     */
+    public static final int HIDDEN_API_ENFORCEMENT_DISABLED = 0;
+    /**
+     * No API enforcement, but enable the detection logic and warnings. Observed behaviour is the
+     * same as {@link #HIDDEN_API_ENFORCEMENT_DISABLED} but you may see warnings in the log when
+     * APIs are accessed.
+     * @hide
+     * */
+    public static final int HIDDEN_API_ENFORCEMENT_JUST_WARN = 1;
+    /**
+     * Dark grey list enforcement. Enforces the dark grey and black lists
+     * @hide
+     */
+    public static final int HIDDEN_API_ENFORCEMENT_ENABLED = 2;
+
+    private static final int HIDDEN_API_ENFORCEMENT_MIN = HIDDEN_API_ENFORCEMENT_DEFAULT;
+    private static final int HIDDEN_API_ENFORCEMENT_MAX = HIDDEN_API_ENFORCEMENT_ENABLED;
+
+    /**
+     * Values in this IntDef MUST be kept in sync with enum hiddenapi::EnforcementPolicy in
+     * art/runtime/hidden_api.h
+     * @hide
+     */
+    @IntDef(prefix = { "HIDDEN_API_ENFORCEMENT_" }, value = {
+            HIDDEN_API_ENFORCEMENT_DEFAULT,
+            HIDDEN_API_ENFORCEMENT_DISABLED,
+            HIDDEN_API_ENFORCEMENT_JUST_WARN,
+            HIDDEN_API_ENFORCEMENT_ENABLED,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface HiddenApiEnforcementPolicy {}
+
+    /** @hide */
+    public static boolean isValidHiddenApiEnforcementPolicy(int policy) {
+        return policy >= HIDDEN_API_ENFORCEMENT_MIN && policy <= HIDDEN_API_ENFORCEMENT_MAX;
+    }
+
+    private int mHiddenApiPolicy = HIDDEN_API_ENFORCEMENT_DEFAULT;
+
     public void dump(Printer pw, String prefix) {
         dump(pw, prefix, DUMP_FLAG_ALL);
     }
 
     /** @hide */
-    public void dump(Printer pw, String prefix, int flags) {
+    public void dump(Printer pw, String prefix, int dumpFlags) {
         super.dumpFront(pw, prefix);
-        if ((flags&DUMP_FLAG_DETAILS) != 0 && className != null) {
+        if ((dumpFlags & DUMP_FLAG_DETAILS) != 0 && className != null) {
             pw.println(prefix + "className=" + className);
         }
         if (permission != null) {
             pw.println(prefix + "permission=" + permission);
         }
         pw.println(prefix + "processName=" + processName);
-        if ((flags&DUMP_FLAG_DETAILS) != 0) {
+        if ((dumpFlags & DUMP_FLAG_DETAILS) != 0) {
             pw.println(prefix + "taskAffinity=" + taskAffinity);
         }
         pw.println(prefix + "uid=" + uid + " flags=0x" + Integer.toHexString(flags)
                 + " privateFlags=0x" + Integer.toHexString(privateFlags)
                 + " theme=0x" + Integer.toHexString(theme));
-        if ((flags&DUMP_FLAG_DETAILS) != 0) {
+        if ((dumpFlags & DUMP_FLAG_DETAILS) != 0) {
             pw.println(prefix + "requiresSmallestWidthDp=" + requiresSmallestWidthDp
                     + " compatibleWidthLimitDp=" + compatibleWidthLimitDp
                     + " largestWidthLimitDp=" + largestWidthLimitDp);
@@ -809,22 +1416,31 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
         if (resourceDirs != null) {
             pw.println(prefix + "resourceDirs=" + Arrays.toString(resourceDirs));
         }
-        if ((flags&DUMP_FLAG_DETAILS) != 0 && seinfo != null) {
-            pw.println(prefix + "seinfo=" + seinfo);
+        if ((dumpFlags & DUMP_FLAG_DETAILS) != 0 && seInfo != null) {
+            pw.println(prefix + "seinfo=" + seInfo);
+            pw.println(prefix + "seinfoUser=" + seInfoUser);
         }
         pw.println(prefix + "dataDir=" + dataDir);
-        if ((flags&DUMP_FLAG_DETAILS) != 0) {
+        if ((dumpFlags & DUMP_FLAG_DETAILS) != 0) {
             pw.println(prefix + "deviceProtectedDataDir=" + deviceProtectedDataDir);
             pw.println(prefix + "credentialProtectedDataDir=" + credentialProtectedDataDir);
             if (sharedLibraryFiles != null) {
                 pw.println(prefix + "sharedLibraryFiles=" + Arrays.toString(sharedLibraryFiles));
             }
         }
+        if (classLoaderName != null) {
+            pw.println(prefix + "classLoaderName=" + classLoaderName);
+        }
+        if (!ArrayUtils.isEmpty(splitClassLoaderNames)) {
+            pw.println(prefix + "splitClassLoaderNames=" + Arrays.toString(splitClassLoaderNames));
+        }
+
         pw.println(prefix + "enabled=" + enabled
                 + " minSdkVersion=" + minSdkVersion
                 + " targetSdkVersion=" + targetSdkVersion
-                + " versionCode=" + versionCode);
-        if ((flags&DUMP_FLAG_DETAILS) != 0) {
+                + " versionCode=" + longVersionCode
+                + " targetSandboxVersion=" + targetSandboxVersion);
+        if ((dumpFlags & DUMP_FLAG_DETAILS) != 0) {
             if (manageSpaceActivityName != null) {
                 pw.println(prefix + "manageSpaceActivityName=" + manageSpaceActivityName);
             }
@@ -841,18 +1457,132 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
                 pw.println(prefix + "fullBackupContent="
                         + (fullBackupContent < 0 ? "false" : "true"));
             }
+            pw.println(prefix + "crossProfile=" + (crossProfile ? "true" : "false"));
             if (networkSecurityConfigRes != 0) {
                 pw.println(prefix + "networkSecurityConfigRes=0x"
                         + Integer.toHexString(networkSecurityConfigRes));
             }
+            if (category != CATEGORY_UNDEFINED) {
+                pw.println(prefix + "category=" + category);
+            }
+            pw.println(prefix + "HiddenApiEnforcementPolicy=" + getHiddenApiEnforcementPolicy());
+            pw.println(prefix + "usesNonSdkApi=" + usesNonSdkApi());
+            pw.println(prefix + "allowsPlaybackCapture="
+                        + (isAudioPlaybackCaptureAllowed() ? "true" : "false"));
+            if (gwpAsanMode != GWP_ASAN_DEFAULT) {
+                pw.println(prefix + "gwpAsanMode=" + gwpAsanMode);
+            }
         }
         super.dumpBack(pw, prefix);
+    }
+
+    /** {@hide} */
+    public void dumpDebug(ProtoOutputStream proto, long fieldId, int dumpFlags) {
+        long token = proto.start(fieldId);
+        super.dumpDebug(proto, ApplicationInfoProto.PACKAGE, dumpFlags);
+        proto.write(ApplicationInfoProto.PERMISSION, permission);
+        proto.write(ApplicationInfoProto.PROCESS_NAME, processName);
+        proto.write(ApplicationInfoProto.UID, uid);
+        proto.write(ApplicationInfoProto.FLAGS, flags);
+        proto.write(ApplicationInfoProto.PRIVATE_FLAGS, privateFlags);
+        proto.write(ApplicationInfoProto.THEME, theme);
+        proto.write(ApplicationInfoProto.SOURCE_DIR, sourceDir);
+        if (!Objects.equals(sourceDir, publicSourceDir)) {
+            proto.write(ApplicationInfoProto.PUBLIC_SOURCE_DIR, publicSourceDir);
+        }
+        if (!ArrayUtils.isEmpty(splitSourceDirs)) {
+            for (String dir : splitSourceDirs) {
+                proto.write(ApplicationInfoProto.SPLIT_SOURCE_DIRS, dir);
+            }
+        }
+        if (!ArrayUtils.isEmpty(splitPublicSourceDirs)
+                && !Arrays.equals(splitSourceDirs, splitPublicSourceDirs)) {
+            for (String dir : splitPublicSourceDirs) {
+                proto.write(ApplicationInfoProto.SPLIT_PUBLIC_SOURCE_DIRS, dir);
+            }
+        }
+        if (resourceDirs != null) {
+            for (String dir : resourceDirs) {
+                proto.write(ApplicationInfoProto.RESOURCE_DIRS, dir);
+            }
+        }
+        proto.write(ApplicationInfoProto.DATA_DIR, dataDir);
+        proto.write(ApplicationInfoProto.CLASS_LOADER_NAME, classLoaderName);
+        if (!ArrayUtils.isEmpty(splitClassLoaderNames)) {
+            for (String name : splitClassLoaderNames) {
+                proto.write(ApplicationInfoProto.SPLIT_CLASS_LOADER_NAMES, name);
+            }
+        }
+
+        long versionToken = proto.start(ApplicationInfoProto.VERSION);
+        proto.write(ApplicationInfoProto.Version.ENABLED, enabled);
+        proto.write(ApplicationInfoProto.Version.MIN_SDK_VERSION, minSdkVersion);
+        proto.write(ApplicationInfoProto.Version.TARGET_SDK_VERSION, targetSdkVersion);
+        proto.write(ApplicationInfoProto.Version.VERSION_CODE, longVersionCode);
+        proto.write(ApplicationInfoProto.Version.TARGET_SANDBOX_VERSION, targetSandboxVersion);
+        proto.end(versionToken);
+
+        if ((dumpFlags & DUMP_FLAG_DETAILS) != 0) {
+            long detailToken = proto.start(ApplicationInfoProto.DETAIL);
+            if (className != null) {
+                proto.write(ApplicationInfoProto.Detail.CLASS_NAME, className);
+            }
+            proto.write(ApplicationInfoProto.Detail.TASK_AFFINITY, taskAffinity);
+            proto.write(ApplicationInfoProto.Detail.REQUIRES_SMALLEST_WIDTH_DP,
+                    requiresSmallestWidthDp);
+            proto.write(ApplicationInfoProto.Detail.COMPATIBLE_WIDTH_LIMIT_DP,
+                    compatibleWidthLimitDp);
+            proto.write(ApplicationInfoProto.Detail.LARGEST_WIDTH_LIMIT_DP,
+                    largestWidthLimitDp);
+            if (seInfo != null) {
+                proto.write(ApplicationInfoProto.Detail.SEINFO, seInfo);
+                proto.write(ApplicationInfoProto.Detail.SEINFO_USER, seInfoUser);
+            }
+            proto.write(ApplicationInfoProto.Detail.DEVICE_PROTECTED_DATA_DIR,
+                    deviceProtectedDataDir);
+            proto.write(ApplicationInfoProto.Detail.CREDENTIAL_PROTECTED_DATA_DIR,
+                    credentialProtectedDataDir);
+            if (sharedLibraryFiles != null) {
+                for (String f : sharedLibraryFiles) {
+                    proto.write(ApplicationInfoProto.Detail.SHARED_LIBRARY_FILES, f);
+                }
+            }
+            if (manageSpaceActivityName != null) {
+                proto.write(ApplicationInfoProto.Detail.MANAGE_SPACE_ACTIVITY_NAME,
+                        manageSpaceActivityName);
+            }
+            if (descriptionRes != 0) {
+                proto.write(ApplicationInfoProto.Detail.DESCRIPTION_RES, descriptionRes);
+            }
+            if (uiOptions != 0) {
+                proto.write(ApplicationInfoProto.Detail.UI_OPTIONS, uiOptions);
+            }
+            proto.write(ApplicationInfoProto.Detail.SUPPORTS_RTL, hasRtlSupport());
+            if (fullBackupContent > 0) {
+                proto.write(ApplicationInfoProto.Detail.CONTENT, "@xml/" + fullBackupContent);
+            } else {
+                proto.write(ApplicationInfoProto.Detail.IS_FULL_BACKUP, fullBackupContent == 0);
+            }
+            if (networkSecurityConfigRes != 0) {
+                proto.write(ApplicationInfoProto.Detail.NETWORK_SECURITY_CONFIG_RES,
+                        networkSecurityConfigRes);
+            }
+            if (category != CATEGORY_UNDEFINED) {
+                proto.write(ApplicationInfoProto.Detail.CATEGORY, category);
+            }
+            if (gwpAsanMode != GWP_ASAN_DEFAULT) {
+                proto.write(ApplicationInfoProto.Detail.ENABLE_GWP_ASAN, gwpAsanMode);
+            }
+            proto.end(detailToken);
+        }
+        proto.end(token);
     }
 
     /**
      * @return true if "supportsRtl" has been set to true in the AndroidManifest
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean hasRtlSupport() {
         return (flags & FLAG_SUPPORTS_RTL) == FLAG_SUPPORTS_RTL;
     }
@@ -881,7 +1611,9 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
             return sCollator.compare(sa.toString(), sb.toString());
         }
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
         private final Collator   sCollator = Collator.getInstance();
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
         private PackageManager   mPM;
     }
 
@@ -901,12 +1633,15 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
         compatibleWidthLimitDp = orig.compatibleWidthLimitDp;
         largestWidthLimitDp = orig.largestWidthLimitDp;
         volumeUuid = orig.volumeUuid;
+        storageUuid = orig.storageUuid;
         scanSourceDir = orig.scanSourceDir;
         scanPublicSourceDir = orig.scanPublicSourceDir;
         sourceDir = orig.sourceDir;
         publicSourceDir = orig.publicSourceDir;
+        splitNames = orig.splitNames;
         splitSourceDirs = orig.splitSourceDirs;
         splitPublicSourceDirs = orig.splitPublicSourceDirs;
+        splitDependencies = orig.splitDependencies;
         nativeLibraryDir = orig.nativeLibraryDir;
         secondaryNativeLibraryDir = orig.secondaryNativeLibraryDir;
         nativeLibraryRootDir = orig.nativeLibraryRootDir;
@@ -914,15 +1649,17 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
         primaryCpuAbi = orig.primaryCpuAbi;
         secondaryCpuAbi = orig.secondaryCpuAbi;
         resourceDirs = orig.resourceDirs;
-        seinfo = orig.seinfo;
+        seInfo = orig.seInfo;
+        seInfoUser = orig.seInfoUser;
         sharedLibraryFiles = orig.sharedLibraryFiles;
+        sharedLibraryInfos = orig.sharedLibraryInfos;
         dataDir = orig.dataDir;
-        deviceEncryptedDataDir = deviceProtectedDataDir = orig.deviceProtectedDataDir;
-        credentialEncryptedDataDir = credentialProtectedDataDir = orig.credentialProtectedDataDir;
+        deviceProtectedDataDir = orig.deviceProtectedDataDir;
+        credentialProtectedDataDir = orig.credentialProtectedDataDir;
         uid = orig.uid;
         minSdkVersion = orig.minSdkVersion;
         targetSdkVersion = orig.targetSdkVersion;
-        versionCode = orig.versionCode;
+        setVersionCode(orig.longVersionCode);
         enabled = orig.enabled;
         enabledSetting = orig.enabledSetting;
         installLocation = orig.installLocation;
@@ -931,7 +1668,21 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
         uiOptions = orig.uiOptions;
         backupAgentName = orig.backupAgentName;
         fullBackupContent = orig.fullBackupContent;
+        crossProfile = orig.crossProfile;
         networkSecurityConfigRes = orig.networkSecurityConfigRes;
+        category = orig.category;
+        targetSandboxVersion = orig.targetSandboxVersion;
+        classLoaderName = orig.classLoaderName;
+        splitClassLoaderNames = orig.splitClassLoaderNames;
+        appComponentFactory = orig.appComponentFactory;
+        iconRes = orig.iconRes;
+        roundIconRes = orig.roundIconRes;
+        compileSdkVersion = orig.compileSdkVersion;
+        compileSdkVersionCodename = orig.compileSdkVersionCodename;
+        mHiddenApiPolicy = orig.mHiddenApiPolicy;
+        hiddenUntilInstalled = orig.hiddenUntilInstalled;
+        zygotePreloadName = orig.zygotePreloadName;
+        gwpAsanMode = orig.gwpAsanMode;
     }
 
     public String toString() {
@@ -944,106 +1695,159 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
         return 0;
     }
 
+    @SuppressWarnings("unchecked")
     public void writeToParcel(Parcel dest, int parcelableFlags) {
+        if (dest.maybeWriteSquashed(this)) {
+            return;
+        }
         super.writeToParcel(dest, parcelableFlags);
-        dest.writeString(taskAffinity);
-        dest.writeString(permission);
-        dest.writeString(processName);
-        dest.writeString(className);
+        dest.writeString8(taskAffinity);
+        dest.writeString8(permission);
+        dest.writeString8(processName);
+        dest.writeString8(className);
         dest.writeInt(theme);
         dest.writeInt(flags);
         dest.writeInt(privateFlags);
         dest.writeInt(requiresSmallestWidthDp);
         dest.writeInt(compatibleWidthLimitDp);
         dest.writeInt(largestWidthLimitDp);
-        dest.writeString(volumeUuid);
-        dest.writeString(scanSourceDir);
-        dest.writeString(scanPublicSourceDir);
-        dest.writeString(sourceDir);
-        dest.writeString(publicSourceDir);
-        dest.writeStringArray(splitSourceDirs);
-        dest.writeStringArray(splitPublicSourceDirs);
-        dest.writeString(nativeLibraryDir);
-        dest.writeString(secondaryNativeLibraryDir);
-        dest.writeString(nativeLibraryRootDir);
+        if (storageUuid != null) {
+            dest.writeInt(1);
+            dest.writeLong(storageUuid.getMostSignificantBits());
+            dest.writeLong(storageUuid.getLeastSignificantBits());
+        } else {
+            dest.writeInt(0);
+        }
+        dest.writeString8(scanSourceDir);
+        dest.writeString8(scanPublicSourceDir);
+        dest.writeString8(sourceDir);
+        dest.writeString8(publicSourceDir);
+        dest.writeString8Array(splitNames);
+        dest.writeString8Array(splitSourceDirs);
+        dest.writeString8Array(splitPublicSourceDirs);
+        dest.writeSparseArray((SparseArray) splitDependencies);
+        dest.writeString8(nativeLibraryDir);
+        dest.writeString8(secondaryNativeLibraryDir);
+        dest.writeString8(nativeLibraryRootDir);
         dest.writeInt(nativeLibraryRootRequiresIsa ? 1 : 0);
-        dest.writeString(primaryCpuAbi);
-        dest.writeString(secondaryCpuAbi);
-        dest.writeStringArray(resourceDirs);
-        dest.writeString(seinfo);
-        dest.writeStringArray(sharedLibraryFiles);
-        dest.writeString(dataDir);
-        dest.writeString(deviceProtectedDataDir);
-        dest.writeString(credentialProtectedDataDir);
+        dest.writeString8(primaryCpuAbi);
+        dest.writeString8(secondaryCpuAbi);
+        dest.writeString8Array(resourceDirs);
+        dest.writeString8(seInfo);
+        dest.writeString8(seInfoUser);
+        dest.writeString8Array(sharedLibraryFiles);
+        dest.writeTypedList(sharedLibraryInfos);
+        dest.writeString8(dataDir);
+        dest.writeString8(deviceProtectedDataDir);
+        dest.writeString8(credentialProtectedDataDir);
         dest.writeInt(uid);
         dest.writeInt(minSdkVersion);
         dest.writeInt(targetSdkVersion);
-        dest.writeInt(versionCode);
+        dest.writeLong(longVersionCode);
         dest.writeInt(enabled ? 1 : 0);
         dest.writeInt(enabledSetting);
         dest.writeInt(installLocation);
-        dest.writeString(manageSpaceActivityName);
-        dest.writeString(backupAgentName);
+        dest.writeString8(manageSpaceActivityName);
+        dest.writeString8(backupAgentName);
         dest.writeInt(descriptionRes);
         dest.writeInt(uiOptions);
         dest.writeInt(fullBackupContent);
+        dest.writeBoolean(crossProfile);
         dest.writeInt(networkSecurityConfigRes);
+        dest.writeInt(category);
+        dest.writeInt(targetSandboxVersion);
+        dest.writeString8(classLoaderName);
+        dest.writeString8Array(splitClassLoaderNames);
+        dest.writeInt(compileSdkVersion);
+        dest.writeString8(compileSdkVersionCodename);
+        dest.writeString8(appComponentFactory);
+        dest.writeInt(iconRes);
+        dest.writeInt(roundIconRes);
+        dest.writeInt(mHiddenApiPolicy);
+        dest.writeInt(hiddenUntilInstalled ? 1 : 0);
+        dest.writeString8(zygotePreloadName);
+        dest.writeInt(gwpAsanMode);
     }
 
-    public static final Parcelable.Creator<ApplicationInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<ApplicationInfo> CREATOR
             = new Parcelable.Creator<ApplicationInfo>() {
+        @Override
         public ApplicationInfo createFromParcel(Parcel source) {
-            return new ApplicationInfo(source);
+            return source.readSquashed(ApplicationInfo::new);
         }
+
+        @Override
         public ApplicationInfo[] newArray(int size) {
             return new ApplicationInfo[size];
         }
     };
 
+    @SuppressWarnings("unchecked")
     private ApplicationInfo(Parcel source) {
         super(source);
-        taskAffinity = source.readString();
-        permission = source.readString();
-        processName = source.readString();
-        className = source.readString();
+        taskAffinity = source.readString8();
+        permission = source.readString8();
+        processName = source.readString8();
+        className = source.readString8();
         theme = source.readInt();
         flags = source.readInt();
         privateFlags = source.readInt();
         requiresSmallestWidthDp = source.readInt();
         compatibleWidthLimitDp = source.readInt();
         largestWidthLimitDp = source.readInt();
-        volumeUuid = source.readString();
-        scanSourceDir = source.readString();
-        scanPublicSourceDir = source.readString();
-        sourceDir = source.readString();
-        publicSourceDir = source.readString();
-        splitSourceDirs = source.readStringArray();
-        splitPublicSourceDirs = source.readStringArray();
-        nativeLibraryDir = source.readString();
-        secondaryNativeLibraryDir = source.readString();
-        nativeLibraryRootDir = source.readString();
+        if (source.readInt() != 0) {
+            storageUuid = new UUID(source.readLong(), source.readLong());
+            volumeUuid = StorageManager.convert(storageUuid);
+        }
+        scanSourceDir = source.readString8();
+        scanPublicSourceDir = source.readString8();
+        sourceDir = source.readString8();
+        publicSourceDir = source.readString8();
+        splitNames = source.createString8Array();
+        splitSourceDirs = source.createString8Array();
+        splitPublicSourceDirs = source.createString8Array();
+        splitDependencies = source.readSparseArray(null);
+        nativeLibraryDir = source.readString8();
+        secondaryNativeLibraryDir = source.readString8();
+        nativeLibraryRootDir = source.readString8();
         nativeLibraryRootRequiresIsa = source.readInt() != 0;
-        primaryCpuAbi = source.readString();
-        secondaryCpuAbi = source.readString();
-        resourceDirs = source.readStringArray();
-        seinfo = source.readString();
-        sharedLibraryFiles = source.readStringArray();
-        dataDir = source.readString();
-        deviceEncryptedDataDir = deviceProtectedDataDir = source.readString();
-        credentialEncryptedDataDir = credentialProtectedDataDir = source.readString();
+        primaryCpuAbi = source.readString8();
+        secondaryCpuAbi = source.readString8();
+        resourceDirs = source.createString8Array();
+        seInfo = source.readString8();
+        seInfoUser = source.readString8();
+        sharedLibraryFiles = source.createString8Array();
+        sharedLibraryInfos = source.createTypedArrayList(SharedLibraryInfo.CREATOR);
+        dataDir = source.readString8();
+        deviceProtectedDataDir = source.readString8();
+        credentialProtectedDataDir = source.readString8();
         uid = source.readInt();
         minSdkVersion = source.readInt();
         targetSdkVersion = source.readInt();
-        versionCode = source.readInt();
+        setVersionCode(source.readLong());
         enabled = source.readInt() != 0;
         enabledSetting = source.readInt();
         installLocation = source.readInt();
-        manageSpaceActivityName = source.readString();
-        backupAgentName = source.readString();
+        manageSpaceActivityName = source.readString8();
+        backupAgentName = source.readString8();
         descriptionRes = source.readInt();
         uiOptions = source.readInt();
         fullBackupContent = source.readInt();
+        crossProfile = source.readBoolean();
         networkSecurityConfigRes = source.readInt();
+        category = source.readInt();
+        targetSandboxVersion = source.readInt();
+        classLoaderName = source.readString8();
+        splitClassLoaderNames = source.createString8Array();
+        compileSdkVersion = source.readInt();
+        compileSdkVersionCodename = source.readString8();
+        appComponentFactory = source.readString8();
+        iconRes = source.readInt();
+        roundIconRes = source.readInt();
+        mHiddenApiPolicy = source.readInt();
+        hiddenUntilInstalled = source.readInt() != 0;
+        zygotePreloadName = source.readString8();
+        gwpAsanMode = source.readInt();
     }
 
     /**
@@ -1072,10 +1876,23 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
      * 
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void disableCompatibilityMode() {
         flags |= (FLAG_SUPPORTS_LARGE_SCREENS | FLAG_SUPPORTS_NORMAL_SCREENS |
                 FLAG_SUPPORTS_SMALL_SCREENS | FLAG_RESIZEABLE_FOR_SCREENS |
                 FLAG_SUPPORTS_SCREEN_DENSITIES | FLAG_SUPPORTS_XLARGE_SCREENS);
+    }
+
+    /**
+     * Is using compatibility mode for non densty aware legacy applications.
+     *
+     * @hide
+     */
+    public boolean usesCompatibilityMode() {
+        return targetSdkVersion < DONUT ||
+                (flags & (FLAG_SUPPORTS_LARGE_SCREENS | FLAG_SUPPORTS_NORMAL_SCREENS |
+                 FLAG_SUPPORTS_SMALL_SCREENS | FLAG_RESIZEABLE_FOR_SCREENS |
+                 FLAG_SUPPORTS_SCREEN_DENSITIES | FLAG_SUPPORTS_XLARGE_SCREENS)) == 0;
     }
 
     /** {@hide} */
@@ -1087,10 +1904,10 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
             return;
         }
 
-        deviceEncryptedDataDir = deviceProtectedDataDir = Environment
+        deviceProtectedDataDir = Environment
                 .getDataUserDePackageDirectory(volumeUuid, userId, packageName)
                 .getAbsolutePath();
-        credentialEncryptedDataDir = credentialProtectedDataDir = Environment
+        credentialProtectedDataDir = Environment
                 .getDataUserCePackageDirectory(volumeUuid, userId, packageName)
                 .getAbsolutePath();
 
@@ -1100,6 +1917,115 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
         } else {
             dataDir = credentialProtectedDataDir;
         }
+    }
+
+    private boolean isPackageWhitelistedForHiddenApis() {
+        return SystemConfig.getInstance().getHiddenApiWhitelistedApps().contains(packageName);
+    }
+
+    /**
+     * @hide
+     */
+    public boolean usesNonSdkApi() {
+        return (privateFlags & PRIVATE_FLAG_USES_NON_SDK_API) != 0;
+    }
+
+    /**
+     * Whether an app needs to keep the app data on uninstall.
+     *
+     * @return {@code true} if the app indicates that it needs to keep the app data
+     *
+     * @hide
+     */
+    public boolean hasFragileUserData() {
+        return (privateFlags & PRIVATE_FLAG_HAS_FRAGILE_USER_DATA) != 0;
+    }
+
+    /**
+     * Whether an app allows its playback audio to be captured by other apps.
+     *
+     * @return {@code true} if the app indicates that its audio can be captured by other apps.
+     *
+     * @hide
+     */
+    public boolean isAudioPlaybackCaptureAllowed() {
+        return (privateFlags & PRIVATE_FLAG_ALLOW_AUDIO_PLAYBACK_CAPTURE) != 0;
+    }
+
+    /**
+     * If {@code true} this app requested to run in the legacy storage mode.
+     *
+     * @hide
+     */
+    public boolean hasRequestedLegacyExternalStorage() {
+        return (privateFlags & PRIVATE_FLAG_REQUEST_LEGACY_EXTERNAL_STORAGE) != 0;
+    }
+
+    /**
+     * If {@code true} this app allows heap pointer tagging.
+     *
+     * @hide
+     */
+    public boolean allowsNativeHeapPointerTagging() {
+        return (privateFlags & PRIVATE_FLAG_ALLOW_NATIVE_HEAP_POINTER_TAGGING) != 0;
+    }
+
+    private boolean isAllowedToUseHiddenApis() {
+        if (isSignedWithPlatformKey()) {
+            return true;
+        } else if (isSystemApp() || isUpdatedSystemApp()) {
+            return usesNonSdkApi() || isPackageWhitelistedForHiddenApis();
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * @hide
+     */
+    public @HiddenApiEnforcementPolicy int getHiddenApiEnforcementPolicy() {
+        if (isAllowedToUseHiddenApis()) {
+            return HIDDEN_API_ENFORCEMENT_DISABLED;
+        }
+        if (mHiddenApiPolicy != HIDDEN_API_ENFORCEMENT_DEFAULT) {
+            return mHiddenApiPolicy;
+        }
+        return HIDDEN_API_ENFORCEMENT_ENABLED;
+    }
+
+    /**
+     * @hide
+     */
+    public void setHiddenApiEnforcementPolicy(@HiddenApiEnforcementPolicy int policy) {
+        if (!isValidHiddenApiEnforcementPolicy(policy)) {
+            throw new IllegalArgumentException("Invalid API enforcement policy: " + policy);
+        }
+        mHiddenApiPolicy = policy;
+    }
+
+    /**
+     * Updates the hidden API enforcement policy for this app from the given values, if appropriate.
+     *
+     * This will have no effect if this app is not subject to hidden API enforcement, i.e. if it
+     * is on the package whitelist.
+     *
+     * @param policy configured policy for this app, or {@link #HIDDEN_API_ENFORCEMENT_DEFAULT}
+     *        if nothing configured.
+     * @hide
+     */
+    public void maybeUpdateHiddenApiEnforcementPolicy(@HiddenApiEnforcementPolicy int policy) {
+        if (isPackageWhitelistedForHiddenApis()) {
+            return;
+        }
+        setHiddenApiEnforcementPolicy(policy);
+    }
+
+    /**
+     * @hide
+     */
+    public void setVersionCode(long newVersionCode) {
+        longVersionCode = newVersionCode;
+        versionCode = (int) newVersionCode;
     }
 
     /**
@@ -1115,53 +2041,13 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
         return pm.getDefaultActivityIcon();
     }
     
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private boolean isPackageUnavailable(PackageManager pm) {
         try {
             return pm.getPackageInfo(packageName, 0) == null;
         } catch (NameNotFoundException ex) {
             return true;
         }
-    }
-
-    /**
-     * @hide
-     */
-    public boolean isForwardLocked() {
-        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_FORWARD_LOCK) != 0;
-    }
-
-    /**
-     * @hide
-     */
-    @TestApi
-    public boolean isSystemApp() {
-        return (flags & ApplicationInfo.FLAG_SYSTEM) != 0;
-    }
-
-    /**
-     * @hide
-     */
-    @TestApi
-    public boolean isPrivilegedApp() {
-        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_PRIVILEGED) != 0;
-    }
-
-    /**
-     * @hide
-     */
-    public boolean isUpdatedSystemApp() {
-        return (flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
-    }
-
-    /** @hide */
-    public boolean isInternal() {
-        return (flags & ApplicationInfo.FLAG_EXTERNAL_STORAGE) == 0;
-    }
-
-    /** @hide */
-    public boolean isExternalAsec() {
-        return TextUtils.isEmpty(volumeUuid)
-                && (flags & ApplicationInfo.FLAG_EXTERNAL_STORAGE) != 0;
     }
 
     /** @hide */
@@ -1175,30 +2061,135 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
         return (privateFlags & ApplicationInfo.PRIVATE_FLAG_DIRECT_BOOT_AWARE) != 0;
     }
 
+    /**
+     * Check whether the application is encryption aware.
+     *
+     * @see #isDirectBootAware()
+     * @see #isPartiallyDirectBootAware()
+     *
+     * @hide
+     */
+    @SystemApi
+    public boolean isEncryptionAware() {
+        return isDirectBootAware() || isPartiallyDirectBootAware();
+    }
+
+    /** @hide */
+    public boolean isExternal() {
+        return (flags & ApplicationInfo.FLAG_EXTERNAL_STORAGE) != 0;
+    }
+
+    /**
+     * True if the application is installed as an instant app.
+     * @hide
+     */
+    @SystemApi
+    public boolean isInstantApp() {
+        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_INSTANT) != 0;
+    }
+
+    /** @hide */
+    public boolean isInternal() {
+        return (flags & ApplicationInfo.FLAG_EXTERNAL_STORAGE) == 0;
+    }
+
+    /** @hide */
+    public boolean isOem() {
+        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_OEM) != 0;
+    }
+
+    /** @hide */
+    public boolean isOdm() {
+        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_ODM) != 0;
+    }
+
     /** @hide */
     public boolean isPartiallyDirectBootAware() {
         return (privateFlags & ApplicationInfo.PRIVATE_FLAG_PARTIALLY_DIRECT_BOOT_AWARE) != 0;
     }
 
-    /**
-     * @hide
-     */
-    public boolean isAutoPlayApp() {
-        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_AUTOPLAY) != 0;
+    /** @hide */
+    public boolean isSignedWithPlatformKey() {
+        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_SIGNED_WITH_PLATFORM_KEY) != 0;
     }
 
-    /**
-     * @hide
-     */
-    public boolean isEphemeralApp() {
-        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_EPHEMERAL) != 0;
+    /** @hide */
+    @TestApi
+    public boolean isPrivilegedApp() {
+        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_PRIVILEGED) != 0;
     }
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public boolean isRequiredForSystemUser() {
         return (privateFlags & ApplicationInfo.PRIVATE_FLAG_REQUIRED_FOR_SYSTEM_USER) != 0;
+    }
+
+    /** @hide */
+    public boolean isStaticSharedLibrary() {
+        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_STATIC_SHARED_LIBRARY) != 0;
+    }
+
+    /** @hide */
+    @TestApi
+    public boolean isSystemApp() {
+        return (flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+    }
+
+    /** @hide */
+    public boolean isUpdatedSystemApp() {
+        return (flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
+    }
+
+    /** @hide */
+    public boolean isVendor() {
+        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_VENDOR) != 0;
+    }
+
+    /** @hide */
+    public boolean isProduct() {
+        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_PRODUCT) != 0;
+    }
+
+    /** @hide */
+    public boolean isSystemExt() {
+        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_SYSTEM_EXT) != 0;
+    }
+
+    /** @hide */
+    public boolean isEmbeddedDexUsed() {
+        return (privateFlags & PRIVATE_FLAG_USE_EMBEDDED_DEX) != 0;
+    }
+
+    /**
+     * Returns whether or not this application was installed as a virtual preload.
+     */
+    public boolean isVirtualPreload() {
+        return (privateFlags & PRIVATE_FLAG_VIRTUAL_PRELOAD) != 0;
+    }
+
+    /**
+     * Returns whether or not this application can be profiled by the shell user,
+     * even when running on a device that is running in user mode.
+     */
+    public boolean isProfileableByShell() {
+        return (privateFlags & PRIVATE_FLAG_PROFILEABLE_BY_SHELL) != 0;
+    }
+
+    /**
+     * Returns true if the app has declared in its manifest that it wants its split APKs to be
+     * loaded into isolated Contexts, with their own ClassLoaders and Resources objects.
+     * @hide
+     */
+    public boolean requestsIsolatedSplitLoading() {
+        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_ISOLATED_SPLIT_LOADING) != 0;
+    }
+
+    /**
+     * Returns true if the package has declared in its manifest that it is a
+     * runtime resource overlay.
+     */
+    public boolean isResourceOverlay() {
+        return (privateFlags & ApplicationInfo.PRIVATE_FLAG_IS_RESOURCE_OVERLAY) != 0;
     }
 
     /**
@@ -1208,17 +2199,45 @@ public class ApplicationInfo extends PackageItemInfo implements Parcelable {
         return this;
     }
 
+    /**
+     * Return all the APK paths that may be required to load this application, including all
+     * splits, shared libraries, and resource overlays.
+     * @hide
+     */
+    public String[] getAllApkPaths() {
+        final String[][] inputLists = { splitSourceDirs, sharedLibraryFiles, resourceDirs };
+        final List<String> output = new ArrayList<>(10);
+        if (sourceDir != null) {
+            output.add(sourceDir);
+        }
+        for (String[] inputList : inputLists) {
+            if (inputList != null) {
+                for (String input : inputList) {
+                    output.add(input);
+                }
+            }
+        }
+        return output.toArray(new String[output.size()]);
+    }
+
     /** {@hide} */ public void setCodePath(String codePath) { scanSourceDir = codePath; }
     /** {@hide} */ public void setBaseCodePath(String baseCodePath) { sourceDir = baseCodePath; }
     /** {@hide} */ public void setSplitCodePaths(String[] splitCodePaths) { splitSourceDirs = splitCodePaths; }
     /** {@hide} */ public void setResourcePath(String resourcePath) { scanPublicSourceDir = resourcePath; }
     /** {@hide} */ public void setBaseResourcePath(String baseResourcePath) { publicSourceDir = baseResourcePath; }
     /** {@hide} */ public void setSplitResourcePaths(String[] splitResourcePaths) { splitPublicSourceDirs = splitResourcePaths; }
+    /** {@hide} */ public void setGwpAsanMode(@GwpAsanMode int value) { gwpAsanMode = value; }
 
-    /** {@hide} */ public String getCodePath() { return scanSourceDir; }
+    /** {@hide} */
+    @UnsupportedAppUsage
+    public String getCodePath() { return scanSourceDir; }
     /** {@hide} */ public String getBaseCodePath() { return sourceDir; }
     /** {@hide} */ public String[] getSplitCodePaths() { return splitSourceDirs; }
     /** {@hide} */ public String getResourcePath() { return scanPublicSourceDir; }
-    /** {@hide} */ public String getBaseResourcePath() { return publicSourceDir; }
-    /** {@hide} */ public String[] getSplitResourcePaths() { return splitSourceDirs; }
+    /** {@hide} */
+    @UnsupportedAppUsage
+    public String getBaseResourcePath() { return publicSourceDir; }
+    /** {@hide} */ public String[] getSplitResourcePaths() { return splitPublicSourceDirs; }
+    @GwpAsanMode
+    public int getGwpAsanMode() { return gwpAsanMode; }
 }

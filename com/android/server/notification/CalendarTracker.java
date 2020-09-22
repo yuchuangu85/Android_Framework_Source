@@ -21,8 +21,8 @@ import android.content.ContentUris;
 import android.content.Context;
 import android.database.ContentObserver;
 import android.database.Cursor;
+import android.database.sqlite.SQLiteException;
 import android.net.Uri;
-import android.provider.BaseColumns;
 import android.provider.CalendarContract.Attendees;
 import android.provider.CalendarContract.Calendars;
 import android.provider.CalendarContract.Events;
@@ -30,6 +30,7 @@ import android.provider.CalendarContract.Instances;
 import android.service.notification.ZenModeConfig.EventInfo;
 import android.util.ArraySet;
 import android.util.Log;
+import android.util.Slog;
 
 import java.io.PrintWriter;
 import java.util.Date;
@@ -88,13 +89,13 @@ public class CalendarTracker {
         pw.print(prefix); pw.print("u="); pw.println(mUserContext.getUserId());
     }
 
-    private ArraySet<Long> getPrimaryCalendars() {
+    private ArraySet<Long> getCalendarsWithAccess() {
         final long start = System.currentTimeMillis();
         final ArraySet<Long> rt = new ArraySet<>();
-        final String primary = "\"primary\"";
-        final String[] projection = { Calendars._ID,
-                "(" + Calendars.ACCOUNT_NAME + "=" + Calendars.OWNER_ACCOUNT + ") AS " + primary };
-        final String selection = primary + " = 1";
+        final String[] projection = { Calendars._ID };
+        final String selection = Calendars.CALENDAR_ACCESS_LEVEL + " >= "
+                + Calendars.CAL_ACCESS_CONTRIBUTOR
+                + " AND " + Calendars.SYNC_EVENTS + " = 1";
         Cursor cursor = null;
         try {
             cursor = mUserContext.getContentResolver().query(Calendars.CONTENT_URI, projection,
@@ -102,12 +103,16 @@ public class CalendarTracker {
             while (cursor != null && cursor.moveToNext()) {
                 rt.add(cursor.getLong(0));
             }
+        } catch (SQLiteException e) {
+            Slog.w(TAG, "error querying calendar content provider", e);
         } finally {
             if (cursor != null) {
                 cursor.close();
             }
         }
-        if (DEBUG) Log.d(TAG, "getPrimaryCalendars took " + (System.currentTimeMillis() - start));
+        if (DEBUG) {
+            Log.d(TAG, "getCalendarsWithAccess took " + (System.currentTimeMillis() - start));
+        }
         return rt;
     }
 
@@ -116,12 +121,13 @@ public class CalendarTracker {
         ContentUris.appendId(uriBuilder, time);
         ContentUris.appendId(uriBuilder, time + EVENT_CHECK_LOOKAHEAD);
         final Uri uri = uriBuilder.build();
-        final Cursor cursor = mUserContext.getContentResolver().query(uri, INSTANCE_PROJECTION,
-                null, null, INSTANCE_ORDER_BY);
+        Cursor cursor = null;
         final CheckEventResult result = new CheckEventResult();
         result.recheckAt = time + EVENT_CHECK_LOOKAHEAD;
         try {
-            final ArraySet<Long> primaryCalendars = getPrimaryCalendars();
+            cursor = mUserContext.getContentResolver().query(uri, INSTANCE_PROJECTION,
+                    null, null, INSTANCE_ORDER_BY);
+            final ArraySet<Long> calendars = getCalendarsWithAccess();
             while (cursor != null && cursor.moveToNext()) {
                 final long begin = cursor.getLong(0);
                 final long end = cursor.getLong(1);
@@ -132,17 +138,19 @@ public class CalendarTracker {
                 final String owner = cursor.getString(6);
                 final long calendarId = cursor.getLong(7);
                 final int availability = cursor.getInt(8);
-                final boolean calendarPrimary = primaryCalendars.contains(calendarId);
-                if (DEBUG) Log.d(TAG, String.format(
-                        "%s %s-%s v=%s a=%s eid=%s n=%s o=%s cid=%s p=%s",
-                        title,
-                        new Date(begin), new Date(end), calendarVisible,
-                        availabilityToString(availability), eventId, name, owner, calendarId,
-                        calendarPrimary));
+                final boolean canAccessCal = calendars.contains(calendarId);
+                if (DEBUG) {
+                    Log.d(TAG, String.format("title=%s time=%s-%s vis=%s availability=%s "
+                                    + "eventId=%s name=%s owner=%s calId=%s canAccessCal=%s",
+                            title, new Date(begin), new Date(end), calendarVisible,
+                            availabilityToString(availability), eventId, name, owner, calendarId,
+                            canAccessCal));
+                }
                 final boolean meetsTime = time >= begin && time < end;
-                final boolean meetsCalendar = calendarVisible && calendarPrimary
-                        && (filter.calendar == null || Objects.equals(filter.calendar, owner)
-                        || Objects.equals(filter.calendar, name));
+                final boolean meetsCalendar = calendarVisible && canAccessCal
+                        && ((filter.calName == null && filter.calendarId == null)
+                        || (Objects.equals(filter.calendarId, calendarId))
+                        || Objects.equals(filter.calName, name));
                 final boolean meetsAvailability = availability != Instances.AVAILABILITY_FREE;
                 if (meetsCalendar && meetsAvailability) {
                     if (DEBUG) Log.d(TAG, "  MEETS CALENDAR & AVAILABILITY");
@@ -161,6 +169,8 @@ public class CalendarTracker {
                     }
                 }
             }
+        } catch (Exception e) {
+            Slog.w(TAG, "error reading calendar", e);
         } finally {
             if (cursor != null) {
                 cursor.close();
@@ -177,15 +187,16 @@ public class CalendarTracker {
             selection = null;
             selectionArgs = null;
         }
-        final Cursor cursor = mUserContext.getContentResolver().query(Attendees.CONTENT_URI,
-                ATTENDEE_PROJECTION, selection, selectionArgs, null);
+        Cursor cursor = null;
         try {
-            if (cursor.getCount() == 0) {
+            cursor = mUserContext.getContentResolver().query(Attendees.CONTENT_URI,
+                    ATTENDEE_PROJECTION, selection, selectionArgs, null);
+            if (cursor == null || cursor.getCount() == 0) {
                 if (DEBUG) Log.d(TAG, "No attendees found");
                 return true;
             }
             boolean rt = false;
-            while (cursor.moveToNext()) {
+            while (cursor != null && cursor.moveToNext()) {
                 final long rowEventId = cursor.getLong(0);
                 final String rowEmail = cursor.getString(1);
                 final int status = cursor.getInt(2);
@@ -199,8 +210,13 @@ public class CalendarTracker {
                 rt |= eventMeets;
             }
             return rt;
+        } catch (SQLiteException e) {
+            Slog.w(TAG, "error querying attendees content provider", e);
+            return false;
         } finally {
-            cursor.close();
+            if (cursor != null) {
+                cursor.close();
+            }
             if (DEBUG) Log.d(TAG, "meetsAttendee took " + (System.currentTimeMillis() - start));
         }
     }

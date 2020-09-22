@@ -58,7 +58,7 @@ public class SyncStats implements Parcelable {
      * attempted to update or delete a version of a resource on the server. This is expected
      * to clear itself automatically once the new state is retrieved from the server,
      * though it may remain until the user intervenes manually, perhaps by clearing the
-     * local storage and starting over frmo scratch. This is considered a hard error.
+     * local storage and starting over from scratch. This is considered a hard error.
      */
     public long numConflictDetectedExceptions;
 
@@ -166,7 +166,7 @@ public class SyncStats implements Parcelable {
         dest.writeLong(numSkippedEntries);
     }
 
-    public static final Creator<SyncStats> CREATOR = new Creator<SyncStats>() {
+    public static final @android.annotation.NonNull Creator<SyncStats> CREATOR = new Creator<SyncStats>() {
         public SyncStats createFromParcel(Parcel in) {
             return new SyncStats(in);
         }

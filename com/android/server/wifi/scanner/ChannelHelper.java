@@ -22,6 +22,7 @@ import android.util.ArraySet;
 import com.android.server.wifi.WifiNative;
 
 import java.util.Set;
+import java.util.StringJoiner;
 
 /**
  * ChannelHelper offers an abstraction for channel manipulation utilities allowing operation to be
@@ -52,8 +53,24 @@ public abstract class ChannelHelper {
     /**
      * Get the channels that are available for scanning on the supplied band.
      * This method may return empty if the information is not available.
+     * The channels will be returned in a 2d array, each row will represent channels within a
+     * {@link #WifiBandBasic}.
+     * For example, if band is WIFI_BAND_BOTH (for both 2.4GHz and 5GHz no DFS),
+     * the returned 2d array will be something like:
+     * [[2412, 2417, 2422],[5180, 5190, 5200, 5210,5220],[]]
+     * The first row is the 2.4GHz channels, second row is the 5GHz (no DFS channels), and the third
+     * row is empty (since the requested band does not include DFS channels).
      */
-    public abstract WifiScanner.ChannelSpec[] getAvailableScanChannels(int band);
+    public abstract WifiScanner.ChannelSpec[][] getAvailableScanChannels(int band);
+
+    /**
+     * Compares the channels / bands available from this helper with the channels / bands available
+     * from the other channel helper.
+     *
+     * @return true if the all the channels available from the other channel helper is also
+     * available in this helper.
+     */
+    public abstract boolean satisfies(ChannelHelper otherChannelHelper);
 
     /**
      * Estimates the duration that the chip will spend scanning with the given settings
@@ -222,10 +239,10 @@ public abstract class ChannelHelper {
         public abstract void fillBucketSettings(WifiNative.BucketSettings bucket, int maxChannels);
 
         /**
-         * Gets the list of channels that should be supplied to supplicant for a scan. Will either
-         * be a collection of all channels or null if all channels should be scanned.
+         * Gets the list of channels scan. Will either be a collection of all channels or null
+         * if all channels should be scanned.
          */
-        public abstract Set<Integer> getSupplicantScanFreqs();
+        public abstract Set<Integer> getScanFreqs();
     }
 
 
@@ -242,7 +259,7 @@ public abstract class ChannelHelper {
         if (scanSettings.band == WifiScanner.WIFI_BAND_UNSPECIFIED) {
             return toString(scanSettings.channels);
         } else {
-            return toString(scanSettings.band);
+            return bandToString(scanSettings.band);
         }
     }
 
@@ -255,7 +272,7 @@ public abstract class ChannelHelper {
         if (bucketSettings.band == WifiScanner.WIFI_BAND_UNSPECIFIED) {
             return toString(bucketSettings.channels, bucketSettings.num_channels);
         } else {
-            return toString(bucketSettings.band);
+            return bandToString(bucketSettings.band);
         }
     }
 
@@ -293,24 +310,39 @@ public abstract class ChannelHelper {
         return sb.toString();
     }
 
-    private static String toString(int band) {
-        switch (band) {
-            case WifiScanner.WIFI_BAND_UNSPECIFIED:
-                return "unspecified";
-            case WifiScanner.WIFI_BAND_24_GHZ:
-                return "24Ghz";
-            case WifiScanner.WIFI_BAND_5_GHZ:
-                return "5Ghz (no DFS)";
-            case WifiScanner.WIFI_BAND_5_GHZ_DFS_ONLY:
-                return "5Ghz (DFS only)";
-            case WifiScanner.WIFI_BAND_5_GHZ_WITH_DFS:
-                return "5Ghz (DFS incl)";
-            case WifiScanner.WIFI_BAND_BOTH:
-                return "24Ghz & 5Ghz (no DFS)";
-            case WifiScanner.WIFI_BAND_BOTH_WITH_DFS:
-                return "24Ghz & 5Ghz (DFS incl)";
-        }
+    /**
+     * Converts a WifiScanner.WIFI_BAND_* constant to a meaningful String
+     */
+    public static String bandToString(int band) {
+        StringJoiner sj = new StringJoiner(" & ");
+        sj.setEmptyValue("unspecified");
 
-        return "invalid band";
+        if ((band & WifiScanner.WIFI_BAND_24_GHZ) != 0) {
+            sj.add("24Ghz");
+        }
+        band &= ~WifiScanner.WIFI_BAND_24_GHZ;
+
+        switch (band & WifiScanner.WIFI_BAND_5_GHZ_WITH_DFS) {
+            case WifiScanner.WIFI_BAND_5_GHZ:
+                sj.add("5Ghz (no DFS)");
+                break;
+            case WifiScanner.WIFI_BAND_5_GHZ_DFS_ONLY:
+                sj.add("5Ghz (DFS only)");
+                break;
+            case WifiScanner.WIFI_BAND_5_GHZ_WITH_DFS:
+                sj.add("5Ghz (DFS incl)");
+                break;
+        }
+        band &= ~WifiScanner.WIFI_BAND_5_GHZ_WITH_DFS;
+
+        if ((band & WifiScanner.WIFI_BAND_6_GHZ) != 0) {
+            sj.add("6Ghz");
+        }
+        band &= ~WifiScanner.WIFI_BAND_6_GHZ;
+
+        if (band != 0) {
+            return "Invalid band";
+        }
+        return sj.toString();
     }
 }

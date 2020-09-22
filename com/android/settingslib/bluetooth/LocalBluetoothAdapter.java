@@ -24,6 +24,7 @@ import android.content.Context;
 import android.os.ParcelUuid;
 import android.util.Log;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -34,8 +35,11 @@ import java.util.Set;
  * <p>Connection and bonding state changes affecting specific devices
  * are handled by {@link CachedBluetoothDeviceManager},
  * {@link BluetoothEventManager}, and {@link LocalBluetoothProfileManager}.
+ *
+ * @deprecated use {@link BluetoothAdapter} instead.
  */
-public final class LocalBluetoothAdapter {
+@Deprecated
+public class LocalBluetoothAdapter {
     private static final String TAG = "LocalBluetoothAdapter";
 
     /** This class does not allow direct access to the BluetoothAdapter. */
@@ -90,6 +94,10 @@ public final class LocalBluetoothAdapter {
         return mAdapter.disable();
     }
 
+    public String getAddress() {
+        return mAdapter.getAddress();
+    }
+
     void getProfileProxy(Context context,
             BluetoothProfile.ServiceListener listener, int profile) {
         mAdapter.getProfileProxy(context, listener, profile);
@@ -135,6 +143,10 @@ public final class LocalBluetoothAdapter {
         mAdapter.setDiscoverableTimeout(timeout);
     }
 
+    public long getDiscoveryEndMillis() {
+        return mAdapter.getDiscoveryEndMillis();
+    }
+
     public void setName(String name) {
         mAdapter.setName(name);
     }
@@ -163,7 +175,7 @@ public final class LocalBluetoothAdapter {
                     return;
                 }
                 A2dpSinkProfile a2dpSink = mProfileManager.getA2dpSinkProfile();
-                if ((a2dpSink != null) && (a2dpSink.isA2dpPlaying())){
+                if ((a2dpSink != null) && (a2dpSink.isAudioPlaying())) {
                     return;
                 }
             }
@@ -186,8 +198,13 @@ public final class LocalBluetoothAdapter {
         return mState;
     }
 
-    synchronized void setBluetoothStateInt(int state) {
-        mState = state;
+    void setBluetoothStateInt(int state) {
+        synchronized(this) {
+            if (mState == state) {
+                return;
+            }
+            mState = state;
+        }
 
         if (state == BluetoothAdapter.STATE_ON) {
             // if mProfileManager hasn't been constructed yet, it will
@@ -218,7 +235,7 @@ public final class LocalBluetoothAdapter {
                 ? BluetoothAdapter.STATE_TURNING_ON
                 : BluetoothAdapter.STATE_TURNING_OFF);
         } else {
-            if (Utils.V) {
+            if (BluetoothUtils.V) {
                 Log.v(TAG, "setBluetoothEnabled call, manager didn't return " +
                         "success for enabled: " + enabled);
             }
@@ -230,5 +247,9 @@ public final class LocalBluetoothAdapter {
 
     public BluetoothDevice getRemoteDevice(String address) {
         return mAdapter.getRemoteDevice(address);
+    }
+
+    public List<Integer> getSupportedProfiles() {
+        return mAdapter.getSupportedProfiles();
     }
 }

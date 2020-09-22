@@ -19,30 +19,26 @@ package com.android.internal.telephony.sip;
 import android.content.Context;
 import android.net.LinkProperties;
 import android.os.AsyncResult;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.os.RegistrantList;
-import android.os.SystemProperties;
-import android.telephony.CellLocation;
+import android.os.ResultReceiver;
+import android.sysprop.TelephonyProperties;
+import android.telephony.NetworkScanRequest;
 import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
-import android.telephony.Rlog;
 
 import com.android.internal.telephony.Call;
-import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.Connection;
-import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.dataconnection.DataConnection;
 import com.android.internal.telephony.IccCard;
 import com.android.internal.telephony.IccPhoneBookInterfaceManager;
 import com.android.internal.telephony.MmiCode;
 import com.android.internal.telephony.OperatorInfo;
+import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneNotifier;
-import com.android.internal.telephony.TelephonyProperties;
-import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.uicc.IccFileHandler;
+import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -65,13 +61,6 @@ abstract class SipPhoneBase extends Phone {
 
     @Override
     public abstract Call getRingingCall();
-
-    @Override
-    public Connection dial(String dialString, UUSInfo uusInfo, int videoState, Bundle intentExtras)
-            throws CallStateException {
-        // ignore UUSInfo
-        return dial(dialString, videoState);
-    }
 
     void migrateFrom(SipPhoneBase from) {
         super.migrateFrom(from);
@@ -110,11 +99,6 @@ abstract class SipPhoneBase extends Phone {
     }
 
     @Override
-    public CellLocation getCellLocation() {
-        return null;
-    }
-
-    @Override
     public PhoneConstants.State getState() {
         return mState;
     }
@@ -146,11 +130,6 @@ abstract class SipPhoneBase extends Phone {
 
     @Override
     public PhoneConstants.DataState getDataConnectionState() {
-        return PhoneConstants.DataState.DISCONNECTED;
-    }
-
-    @Override
-    public PhoneConstants.DataState getDataConnectionState(String apnType) {
         return PhoneConstants.DataState.DISCONNECTED;
     }
 
@@ -206,10 +185,9 @@ abstract class SipPhoneBase extends Phone {
         Rlog.v(LOG_TAG, "canDial(): serviceState = " + serviceState);
         if (serviceState == ServiceState.STATE_POWER_OFF) return false;
 
-        String disableCall = SystemProperties.get(
-                TelephonyProperties.PROPERTY_DISABLE_CALL, "false");
+        boolean disableCall = TelephonyProperties.disable_call().orElse(false);
         Rlog.v(LOG_TAG, "canDial(): disableCall = " + disableCall);
-        if (disableCall.equals("true")) return false;
+        if (disableCall) return false;
 
         Rlog.v(LOG_TAG, "canDial(): ringingCall: " + getRingingCall().getState());
         Rlog.v(LOG_TAG, "canDial(): foregndCall: " + getForegroundCall().getState());
@@ -235,6 +213,11 @@ abstract class SipPhoneBase extends Phone {
 
     @Override
     public boolean handlePinMmi(String dialString) {
+        return false;
+    }
+
+    @Override
+    public boolean handleUssdRequest(String dialString, ResultReceiver wrappedCallback) {
         return false;
     }
 
@@ -341,8 +324,19 @@ abstract class SipPhoneBase extends Phone {
     }
 
     @Override
+    public void getCallForwardingOption(int commandInterfaceCFReason, int serviceClass,
+            Message onComplete) {
+    }
+
+    @Override
     public void setCallForwardingOption(int commandInterfaceCFAction,
             int commandInterfaceCFReason, String dialingNumber,
+            int timerSeconds, Message onComplete) {
+    }
+
+    @Override
+    public void setCallForwardingOption(int commandInterfaceCFAction,
+            int commandInterfaceCFReason, String dialingNumber, int serviceClass,
             int timerSeconds, Message onComplete) {
     }
 
@@ -387,6 +381,14 @@ abstract class SipPhoneBase extends Phone {
     }
 
     @Override
+    public void startNetworkScan(NetworkScanRequest nsr, Message response) {
+    }
+
+    @Override
+    public void stopNetworkScan(Message response) {
+    }
+
+    @Override
     public void setNetworkSelectionModeAutomatic(Message response) {
     }
 
@@ -396,19 +398,7 @@ abstract class SipPhoneBase extends Phone {
     }
 
     @Override
-    public void getNeighboringCids(Message response) {
-    }
-
-    @Override
     public void setOnPostDialCharacter(Handler h, int what, Object obj) {
-    }
-
-    @Override
-    public void getDataCallList(Message response) {
-    }
-
-    public List<DataConnection> getCurrentDataConnectionList () {
-        return null;
     }
 
     @Override
@@ -433,12 +423,8 @@ abstract class SipPhoneBase extends Phone {
     }
 
     @Override
-    public boolean getDataEnabled() {
+    public boolean isUserDataEnabled() {
         return false;
-    }
-
-    @Override
-    public void setDataEnabled(boolean enable) {
     }
 
     public boolean enableDataConnectivity() {
@@ -450,7 +436,7 @@ abstract class SipPhoneBase extends Phone {
     }
 
     @Override
-    public boolean isDataConnectivityPossible() {
+    public boolean isDataAllowed(int apnType) {
         return false;
     }
 
@@ -534,5 +520,15 @@ abstract class SipPhoneBase extends Phone {
 
     @Override
     public void setBroadcastEmergencyCallStateChanges(boolean broadcast) {
+    }
+
+    @Override
+    public void getCallBarring(String facility, String password, Message onComplete,
+            int serviceClass) {
+    }
+
+    @Override
+    public void setCallBarring(String facility, boolean lockState, String password,
+            Message onComplete, int serviceClass) {
     }
 }

@@ -16,7 +16,7 @@
 
 package android.widget;
 
-import android.content.Context;
+import android.annotation.Nullable;
 import android.text.Editable;
 import android.text.Selection;
 import android.text.Spanned;
@@ -93,6 +93,7 @@ public class SpellChecker implements SpellCheckerSessionListener {
     // concurrently due to the asynchronous nature of onGetSuggestions.
     private WordIterator mWordIterator;
 
+    @Nullable
     private TextServicesManager mTextServicesManager;
 
     private Runnable mSpellRunnable;
@@ -114,13 +115,14 @@ public class SpellChecker implements SpellCheckerSessionListener {
         mCookie = hashCode();
     }
 
-    private void resetSession() {
+    void resetSession() {
         closeSession();
 
-        mTextServicesManager = (TextServicesManager) mTextView.getContext().
-                getSystemService(Context.TEXT_SERVICES_MANAGER_SERVICE);
-        if (!mTextServicesManager.isSpellCheckerEnabled()
-                || mCurrentLocale == null
+        mTextServicesManager = mTextView.getTextServicesManagerForUser();
+        if (mCurrentLocale == null
+                || mTextServicesManager == null
+                || mTextView.length() == 0
+                || !mTextServicesManager.isSpellCheckerEnabled()
                 || mTextServicesManager.getCurrentSpellCheckerSubtype(true) == null) {
             mSpellCheckerSession = null;
         } else {
@@ -225,7 +227,8 @@ public class SpellChecker implements SpellCheckerSessionListener {
             start = 0;
             end = mTextView.getText().length();
         } else {
-            final boolean spellCheckerActivated = mTextServicesManager.isSpellCheckerEnabled();
+            final boolean spellCheckerActivated =
+                    mTextServicesManager != null && mTextServicesManager.isSpellCheckerEnabled();
             if (isSessionActive != spellCheckerActivated) {
                 // Spell checker has been turned of or off since last spellCheck
                 resetSession();
@@ -277,18 +280,19 @@ public class SpellChecker implements SpellCheckerSessionListener {
             // Do not check this word if the user is currently editing it
             final boolean isEditing;
 
-            // Defer spell check when typing a word with an interior apostrophe.
-            // TODO: a better solution to this would be to make the word
-            // iterator locale-sensitive and include the apostrophe in
-            // languages that use it (such as English).
-            final boolean apostrophe = (selectionStart == end + 1 && editable.charAt(end) == '\'');
-            if (mIsSentenceSpellCheckSupported) {
+            // Defer spell check when typing a word ending with a punctuation like an apostrophe
+            // which could end up being a mid-word punctuation.
+            if (selectionStart == end + 1
+                    && WordIterator.isMidWordPunctuation(
+                            mCurrentLocale, Character.codePointBefore(editable, end + 1))) {
+                isEditing = false;
+            } else if (mIsSentenceSpellCheckSupported) {
                 // Allow the overlap of the cursor and the first boundary of the spell check span
                 // no to skip the spell check of the following word because the
                 // following word will never be spell-checked even if the user finishes composing
-                isEditing = !apostrophe && (selectionEnd <= start || selectionStart > end);
+                isEditing = selectionEnd <= start || selectionStart > end;
             } else {
-                isEditing = !apostrophe && (selectionEnd < start || selectionStart > end);
+                isEditing = selectionEnd < start || selectionStart > end;
             }
             if (start >= 0 && end > start && isEditing) {
                 spellCheckSpan.setSpellCheckInProgress(true);

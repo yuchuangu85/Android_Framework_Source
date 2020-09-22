@@ -16,6 +16,7 @@
 
 package org.apache.harmony.xml.parsers;
 
+import com.android.org.kxml2.io.KXmlParser;
 import java.io.IOException;
 import java.net.URL;
 import java.net.URLConnection;
@@ -26,7 +27,6 @@ import org.apache.harmony.xml.dom.DOMImplementationImpl;
 import org.apache.harmony.xml.dom.DocumentImpl;
 import org.apache.harmony.xml.dom.DocumentTypeImpl;
 import org.apache.harmony.xml.dom.TextImpl;
-import org.kxml2.io.KXmlParser;
 import org.w3c.dom.Attr;
 import org.w3c.dom.DOMImplementation;
 import org.w3c.dom.Document;
@@ -129,11 +129,12 @@ class DocumentBuilderImpl extends DocumentBuilder {
 
             parser.require(XmlPullParser.END_DOCUMENT, null, null);
         } catch (XmlPullParserException ex) {
-            if (ex.getDetail() instanceof IOException) {
-                throw (IOException) ex.getDetail();
+            Throwable detail = ex.getDetail();
+            if (detail instanceof IOException) {
+                throw (IOException) detail;
             }
-            if (ex.getDetail() instanceof RuntimeException) {
-                throw (RuntimeException) ex.getDetail();
+            if (detail instanceof RuntimeException) {
+                throw (RuntimeException) detail;
             }
 
             LocatorImpl locator = new LocatorImpl();

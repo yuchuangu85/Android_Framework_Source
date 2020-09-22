@@ -16,26 +16,33 @@
 
 package com.android.internal.telephony;
 
-import com.android.internal.telephony.RILConstants;
+import android.compat.annotation.UnsupportedAppUsage;
 
-import android.telephony.Rlog;
+import com.android.telephony.Rlog;
 
 /**
  * {@hide}
  */
 public class CommandException extends RuntimeException {
+    @UnsupportedAppUsage
     private Error mError;
 
     public enum Error {
         INVALID_RESPONSE,
+        @UnsupportedAppUsage
         RADIO_NOT_AVAILABLE,
+        @UnsupportedAppUsage
         GENERIC_FAILURE,
+        @UnsupportedAppUsage
         PASSWORD_INCORRECT,
         SIM_PIN2,
+        @UnsupportedAppUsage
         SIM_PUK2,
+        @UnsupportedAppUsage
         REQUEST_NOT_SUPPORTED,
         OP_NOT_ALLOWED_DURING_VOICE_CALL,
         OP_NOT_ALLOWED_BEFORE_REG_NW,
+        @UnsupportedAppUsage
         SMS_FAIL_RETRY,
         SIM_ABSENT,
         SUBSCRIPTION_NOT_AVAILABLE,
@@ -52,6 +59,7 @@ public class CommandException extends RuntimeException {
         USSD_MODIFIED_TO_SS,
         USSD_MODIFIED_TO_USSD,
         SS_MODIFIED_TO_DIAL,
+        SS_MODIFIED_TO_DIAL_VIDEO,
         SS_MODIFIED_TO_USSD,
         SS_MODIFIED_TO_SS,
         SIM_ALREADY_POWERED_OFF,
@@ -116,8 +124,10 @@ public class CommandException extends RuntimeException {
         OEM_ERROR_23,
         OEM_ERROR_24,
         OEM_ERROR_25,
+        REQUEST_CANCELLED,
     }
 
+    @UnsupportedAppUsage
     public CommandException(Error e) {
         super(e.toString());
         mError = e;
@@ -128,6 +138,7 @@ public class CommandException extends RuntimeException {
         mError = e;
     }
 
+    @UnsupportedAppUsage
     public static CommandException
     fromRilErrno(int ril_errno) {
         switch(ril_errno) {
@@ -260,6 +271,8 @@ public class CommandException extends RuntimeException {
                 return new CommandException(Error.DEVICE_IN_USE);
             case RILConstants.ABORTED:
                 return new CommandException(Error.ABORTED);
+            case RILConstants.INVALID_RESPONSE:
+                return new CommandException(Error.INVALID_RESPONSE);
             case RILConstants.OEM_ERROR_1:
                 return new CommandException(Error.OEM_ERROR_1);
             case RILConstants.OEM_ERROR_2:
@@ -310,6 +323,8 @@ public class CommandException extends RuntimeException {
                 return new CommandException(Error.OEM_ERROR_24);
             case RILConstants.OEM_ERROR_25:
                 return new CommandException(Error.OEM_ERROR_25);
+            case RILConstants.REQUEST_CANCELLED:
+                return new CommandException(Error.REQUEST_CANCELLED);
 
             default:
                 Rlog.e("GSM", "Unrecognized RIL errno " + ril_errno);
@@ -317,6 +332,7 @@ public class CommandException extends RuntimeException {
         }
     }
 
+    @UnsupportedAppUsage
     public Error getCommandError() {
         return mError;
     }

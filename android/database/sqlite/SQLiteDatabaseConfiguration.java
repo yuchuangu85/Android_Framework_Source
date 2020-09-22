@@ -16,8 +16,14 @@
 
 package android.database.sqlite;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.util.ArrayMap;
+import android.util.Pair;
+
 import java.util.ArrayList;
 import java.util.Locale;
+import java.util.function.BinaryOperator;
+import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
 
 /**
@@ -67,6 +73,7 @@ public final class SQLiteDatabaseConfiguration {
      *
      * Default is 25.
      */
+    @UnsupportedAppUsage
     public int maxSqlCacheSize;
 
     /**
@@ -84,10 +91,55 @@ public final class SQLiteDatabaseConfiguration {
     public boolean foreignKeyConstraintsEnabled;
 
     /**
-     * The custom functions to register.
+     * The custom scalar functions to register.
      */
-    public final ArrayList<SQLiteCustomFunction> customFunctions =
-            new ArrayList<SQLiteCustomFunction>();
+    public final ArrayMap<String, UnaryOperator<String>> customScalarFunctions
+            = new ArrayMap<>();
+
+    /**
+     * The custom aggregate functions to register.
+     */
+    public final ArrayMap<String, BinaryOperator<String>> customAggregateFunctions
+            = new ArrayMap<>();
+
+    /**
+     * The statements to execute to initialize each connection.
+     */
+    public final ArrayList<Pair<String, Object[]>> perConnectionSql = new ArrayList<>();
+
+    /**
+     * The size in bytes of each lookaside slot
+     *
+     * <p>If negative, the default lookaside configuration will be used
+     */
+    public int lookasideSlotSize = -1;
+
+    /**
+     * The total number of lookaside memory slots per database connection
+     *
+     * <p>If negative, the default lookaside configuration will be used
+     */
+    public int lookasideSlotCount = -1;
+
+    /**
+     * The number of milliseconds that SQLite connection is allowed to be idle before it
+     * is closed and removed from the pool.
+     * <p>By default, idle connections are not closed
+     */
+    public long idleConnectionTimeoutMs = Long.MAX_VALUE;
+
+    /**
+     * Journal mode to use when {@link SQLiteDatabase#ENABLE_WRITE_AHEAD_LOGGING} is not set.
+     * <p>Default is returned by {@link SQLiteGlobal#getDefaultJournalMode()}
+     */
+    public String journalMode;
+
+    /**
+     * Synchronous mode to use.
+     * <p>Default is returned by {@link SQLiteGlobal#getDefaultSyncMode()}
+     * or {@link SQLiteGlobal#getWALSyncMode()} depending on journal mode
+     */
+    public String syncMode;
 
     /**
      * Creates a database configuration with the required parameters for opening a
@@ -144,8 +196,17 @@ public final class SQLiteDatabaseConfiguration {
         maxSqlCacheSize = other.maxSqlCacheSize;
         locale = other.locale;
         foreignKeyConstraintsEnabled = other.foreignKeyConstraintsEnabled;
-        customFunctions.clear();
-        customFunctions.addAll(other.customFunctions);
+        customScalarFunctions.clear();
+        customScalarFunctions.putAll(other.customScalarFunctions);
+        customAggregateFunctions.clear();
+        customAggregateFunctions.putAll(other.customAggregateFunctions);
+        perConnectionSql.clear();
+        perConnectionSql.addAll(other.perConnectionSql);
+        lookasideSlotSize = other.lookasideSlotSize;
+        lookasideSlotCount = other.lookasideSlotCount;
+        idleConnectionTimeoutMs = other.idleConnectionTimeoutMs;
+        journalMode = other.journalMode;
+        syncMode = other.syncMode;
     }
 
     /**
@@ -156,10 +217,19 @@ public final class SQLiteDatabaseConfiguration {
         return path.equalsIgnoreCase(MEMORY_DB_PATH);
     }
 
+    boolean isLegacyCompatibilityWalEnabled() {
+        return journalMode == null && syncMode == null
+                && (openFlags & SQLiteDatabase.ENABLE_LEGACY_COMPATIBILITY_WAL) != 0;
+    }
+
     private static String stripPathForLogs(String path) {
         if (path.indexOf('@') == -1) {
             return path;
         }
         return EMAIL_IN_DB_PATTERN.matcher(path).replaceAll("XX@YY");
+    }
+
+    boolean isLookasideConfigSet() {
+        return lookasideSlotCount >= 0 && lookasideSlotSize >= 0;
     }
 }

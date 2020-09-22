@@ -24,11 +24,13 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.util.LocalLog;
 import android.util.Slog;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.Preconditions;
+import com.android.server.power.ShutdownThread;
 import com.google.android.collect.Lists;
 
 import java.io.FileDescriptor;
@@ -44,6 +46,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.LinkedList;
+import java.util.Objects;
 
 /**
  * Generic connector class for interfacing with a native daemon which uses the
@@ -124,7 +127,7 @@ final class NativeDaemonConnector implements Runnable, Handler.Callback, Watchdo
      */
     public void setWarnIfHeld(Object warnIfHeld) {
         Preconditions.checkState(mWarnIfHeld == null);
-        mWarnIfHeld = Preconditions.checkNotNull(warnIfHeld);
+        mWarnIfHeld = Objects.requireNonNull(warnIfHeld);
     }
 
     @Override
@@ -132,13 +135,21 @@ final class NativeDaemonConnector implements Runnable, Handler.Callback, Watchdo
         mCallbackHandler = new Handler(mLooper, this);
 
         while (true) {
+            if (isShuttingDown()) break;
             try {
                 listenToSocket();
             } catch (Exception e) {
                 loge("Error in NativeDaemonConnector: " + e);
+                if (isShuttingDown()) break;
                 SystemClock.sleep(5000);
             }
         }
+    }
+
+    private static boolean isShuttingDown() {
+        String shutdownAct = SystemProperties.get(
+            ShutdownThread.SHUTDOWN_ACTION_PROPERTY, "");
+        return shutdownAct != null && shutdownAct.length() > 0;
     }
 
     @Override

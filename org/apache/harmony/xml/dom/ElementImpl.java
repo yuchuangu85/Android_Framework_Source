@@ -16,9 +16,6 @@
 
 package org.apache.harmony.xml.dom;
 
-import java.util.ArrayList;
-import java.util.List;
-import libcore.util.Objects;
 import org.w3c.dom.Attr;
 import org.w3c.dom.DOMException;
 import org.w3c.dom.Element;
@@ -26,6 +23,12 @@ import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.w3c.dom.TypeInfo;
+
+import android.compat.annotation.UnsupportedAppUsage;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * Provides a straightforward implementation of the corresponding W3C DOM
@@ -42,6 +45,7 @@ public class ElementImpl extends InnerNodeImpl implements Element {
     boolean namespaceAware;
     String namespaceURI;
     String prefix;
+    @UnsupportedAppUsage
     String localName;
 
     private List<AttrImpl> attributes = new ArrayList<AttrImpl>();
@@ -59,7 +63,7 @@ public class ElementImpl extends InnerNodeImpl implements Element {
     private int indexOfAttribute(String name) {
         for (int i = 0; i < attributes.size(); i++) {
             AttrImpl attr = attributes.get(i);
-            if (Objects.equal(name, attr.getNodeName())) {
+            if (Objects.equals(name, attr.getNodeName())) {
                 return i;
             }
         }
@@ -70,8 +74,8 @@ public class ElementImpl extends InnerNodeImpl implements Element {
     private int indexOfAttributeNS(String namespaceURI, String localName) {
         for (int i = 0; i < attributes.size(); i++) {
             AttrImpl attr = attributes.get(i);
-            if (Objects.equal(namespaceURI, attr.getNamespaceURI())
-                    && Objects.equal(localName, attr.getLocalName())) {
+            if (Objects.equals(namespaceURI, attr.getNamespaceURI())
+                    && Objects.equals(localName, attr.getLocalName())) {
                 return i;
             }
         }

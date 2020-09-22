@@ -16,9 +16,16 @@
 
 package android.telephony;
 
+import android.annotation.IntRange;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.telephony.Rlog;
+import android.os.PersistableBundle;
+
+import com.android.telephony.Rlog;
+
+import java.util.Objects;
 
 /**
  * GSM signal strength related information.
@@ -28,84 +35,61 @@ public final class CellSignalStrengthGsm extends CellSignalStrength implements P
     private static final String LOG_TAG = "CellSignalStrengthGsm";
     private static final boolean DBG = false;
 
-    private static final int GSM_SIGNAL_STRENGTH_GREAT = 12;
-    private static final int GSM_SIGNAL_STRENGTH_GOOD = 8;
-    private static final int GSM_SIGNAL_STRENGTH_MODERATE = 5;
+    private static final int GSM_RSSI_MAX = -51;
+    private static final int GSM_RSSI_GREAT = -89;
+    private static final int GSM_RSSI_GOOD = -97;
+    private static final int GSM_RSSI_MODERATE = -103;
+    private static final int GSM_RSSI_POOR = -107;
+    private static final int GSM_RSSI_MIN = -113;
 
-    private int mSignalStrength; // Valid values are (0-31, 99) as defined in TS 27.007 8.5
-    private int mBitErrorRate;   // bit error rate (0-7, 99) as defined in TS 27.007 8.5
-    private int mTimingAdvance;
+    private static final int[] sRssiThresholds = new int[] {
+            GSM_RSSI_POOR, GSM_RSSI_MODERATE, GSM_RSSI_GOOD, GSM_RSSI_GREAT};
 
-    /**
-     * Empty constructor
-     *
-     * @hide
-     */
+    private int mRssi; // in dBm [-113, -51] or UNAVAILABLE
+    @UnsupportedAppUsage
+    private int mBitErrorRate; // bit error rate (0-7, 99) TS 27.007 8.5 or UNAVAILABLE
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
+    private int mTimingAdvance; // range from 0-219 or CellInfo.UNAVAILABLE if unknown
+    private int mLevel;
+
+    /** @hide */
+    @UnsupportedAppUsage
     public CellSignalStrengthGsm() {
         setDefaultValues();
     }
 
-    /**
-     * Constructor
-     *
-     * @hide
-     */
-    public CellSignalStrengthGsm(int ss, int ber) {
-        initialize(ss, ber);
+    /** @hide */
+    public CellSignalStrengthGsm(int rssi, int ber, int ta) {
+        mRssi = inRangeOrUnavailable(rssi, GSM_RSSI_MIN, GSM_RSSI_MAX);
+        mBitErrorRate = inRangeOrUnavailable(ber, 0, 7, 99);
+        mTimingAdvance = inRangeOrUnavailable(ta, 0, 219);
+        updateLevel(null, null);
     }
 
-    /**
-     * Copy constructors
-     *
-     * @param s Source SignalStrength
-     *
-     * @hide
-     */
+    /** @hide */
+    public CellSignalStrengthGsm(android.hardware.radio.V1_0.GsmSignalStrength gsm) {
+        // Convert from HAL values as part of construction.
+        this(getRssiDbmFromAsu(gsm.signalStrength), gsm.bitErrorRate, gsm.timingAdvance);
+
+        if (mRssi == CellInfo.UNAVAILABLE) {
+            setDefaultValues();
+        }
+    }
+
+    /** @hide */
     public CellSignalStrengthGsm(CellSignalStrengthGsm s) {
         copyFrom(s);
     }
 
-    /**
-     * Initialize all the values
-     *
-     * @param ss SignalStrength as ASU value
-     * @param ber is Bit Error Rate
-     *
-     * @hide
-     */
-    public void initialize(int ss, int ber) {
-        mSignalStrength = ss;
-        mBitErrorRate = ber;
-        mTimingAdvance = Integer.MAX_VALUE;
-    }
-
-    /**
-     * Initialize all the values
-     *
-     * @param ss SignalStrength as ASU value
-     * @param ber is Bit Error Rate
-     * @param ta timing advance
-     *
-     * @hide
-     */
-    public void initialize(int ss, int ber, int ta) {
-        mSignalStrength = ss;
-        mBitErrorRate = ber;
-        mTimingAdvance = ta;
-    }
-
-    /**
-     * @hide
-     */
+    /** @hide */
     protected void copyFrom(CellSignalStrengthGsm s) {
-        mSignalStrength = s.mSignalStrength;
+        mRssi = s.mRssi;
         mBitErrorRate = s.mBitErrorRate;
         mTimingAdvance = s.mTimingAdvance;
+        mLevel = s.mLevel;
     }
 
-    /**
-     * @hide
-     */
+    /** @hide */
     @Override
     public CellSignalStrengthGsm copy() {
         return new CellSignalStrengthGsm(this);
@@ -114,87 +98,115 @@ public final class CellSignalStrengthGsm extends CellSignalStrength implements P
     /** @hide */
     @Override
     public void setDefaultValues() {
-        mSignalStrength = Integer.MAX_VALUE;
-        mBitErrorRate = Integer.MAX_VALUE;
-        mTimingAdvance = Integer.MAX_VALUE;
+        mRssi = CellInfo.UNAVAILABLE;
+        mBitErrorRate = CellInfo.UNAVAILABLE;
+        mTimingAdvance = CellInfo.UNAVAILABLE;
+        mLevel = SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
     }
 
-    /**
-     * Get signal level as an int from 0..4
-     */
+    /** {@inheritDoc} */
     @Override
+    @IntRange(from = SIGNAL_STRENGTH_NONE_OR_UNKNOWN, to = SIGNAL_STRENGTH_GREAT)
     public int getLevel() {
-        int level;
+        return mLevel;
+    }
 
-        // ASU ranges from 0 to 31 - TS 27.007 Sec 8.5
-        // asu = 0 (-113dB or less) is very weak
-        // signal, its better to show 0 bars to the user in such cases.
-        // asu = 99 is a special case, where the signal strength is unknown.
-        int asu = mSignalStrength;
-        if (asu <= 2 || asu == 99) level = SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
-        else if (asu >= GSM_SIGNAL_STRENGTH_GREAT) level = SIGNAL_STRENGTH_GREAT;
-        else if (asu >= GSM_SIGNAL_STRENGTH_GOOD)  level = SIGNAL_STRENGTH_GOOD;
-        else if (asu >= GSM_SIGNAL_STRENGTH_MODERATE)  level = SIGNAL_STRENGTH_MODERATE;
-        else level = SIGNAL_STRENGTH_POOR;
-        if (DBG) log("getLevel=" + level);
-        return level;
+    /** @hide */
+    @Override
+    public void updateLevel(PersistableBundle cc, ServiceState ss) {
+        int[] rssiThresholds;
+        if (cc == null) {
+            rssiThresholds = sRssiThresholds;
+        } else {
+            rssiThresholds = cc.getIntArray(CarrierConfigManager.KEY_GSM_RSSI_THRESHOLDS_INT_ARRAY);
+            if (rssiThresholds == null || rssiThresholds.length != NUM_SIGNAL_STRENGTH_THRESHOLDS) {
+                rssiThresholds = sRssiThresholds;
+            }
+        }
+        int level = NUM_SIGNAL_STRENGTH_THRESHOLDS;
+        if (mRssi < GSM_RSSI_MIN || mRssi > GSM_RSSI_MAX) {
+            mLevel = SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
+            return;
+        }
+        while (level > 0 && mRssi < rssiThresholds[level - 1]) level--;
+        mLevel = level;
     }
 
     /**
-     * Get the signal strength as dBm
+     * Get the GSM timing advance between 0..219 symbols (normally 0..63).
+     * <p>{@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} is reported when there is no RR
+     * connection. Refer to 3GPP 45.010 Sec 5.8.
+     *
+     * @return the current GSM timing advance, if available.
+     */
+    public int getTimingAdvance() {
+        return mTimingAdvance;
+    }
+
+    /**
+     * Get the signal strength as dBm.
+     *
+     * @return the RSSI of the measured cell.
      */
     @Override
     public int getDbm() {
-        int dBm;
-
-        int level = mSignalStrength;
-        int asu = (level == 99 ? Integer.MAX_VALUE : level);
-        if (asu != Integer.MAX_VALUE) {
-            dBm = -113 + (2 * asu);
-        } else {
-            dBm = Integer.MAX_VALUE;
-        }
-        if (DBG) log("getDbm=" + dBm);
-        return dBm;
+        return mRssi;
     }
 
     /**
-     * Get the signal level as an asu value between 0..31, 99 is unknown
-     * Asu is calculated based on 3GPP RSRP. Refer to 3GPP 27.007 (Ver 10.3.0) Sec 8.69
+     * Get the RSSI in ASU.
+     *
+     * Asu is calculated based on 3GPP RSSI. Refer to 3GPP 27.007 (Ver 10.3.0) Sec 8.69
+     *
+     * @return RSSI in ASU 0..31, 99, or UNAVAILABLE
      */
     @Override
     public int getAsuLevel() {
-        // ASU ranges from 0 to 31 - TS 27.007 Sec 8.5
-        // asu = 0 (-113dB or less) is very weak
-        // signal, its better to show 0 bars to the user in such cases.
-        // asu = 99 is a special case, where the signal strength is unknown.
-        int level = mSignalStrength;
-        if (DBG) log("getAsuLevel=" + level);
-        return level;
+        return getAsuFromRssiDbm(mRssi);
+    }
+
+    /**
+     * Return the Received Signal Strength Indicator.
+     *
+     * @return the RSSI in dBm (-113, -51) or
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE}.
+     */
+    public int getRssi() {
+        return mRssi;
+    }
+
+    /**
+     * Return the Bit Error Rate.
+     *
+     * @return the bit error rate (0-7, 99) as defined in TS 27.007 8.5 or
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE}.
+     */
+    public int getBitErrorRate() {
+        return mBitErrorRate;
     }
 
     @Override
     public int hashCode() {
-        int primeNum = 31;
-        return (mSignalStrength * primeNum) + (mBitErrorRate * primeNum);
+        return Objects.hash(mRssi, mBitErrorRate, mTimingAdvance);
+    }
+
+    private static final CellSignalStrengthGsm sInvalid = new CellSignalStrengthGsm();
+
+    /** @hide */
+    @Override
+    public boolean isValid() {
+        return !this.equals(sInvalid);
     }
 
     @Override
-    public boolean equals (Object o) {
-        CellSignalStrengthGsm s;
+    public boolean equals(Object o) {
+        if (!(o instanceof CellSignalStrengthGsm)) return false;
+        CellSignalStrengthGsm s = (CellSignalStrengthGsm) o;
 
-        try {
-            s = (CellSignalStrengthGsm) o;
-        } catch (ClassCastException ex) {
-            return false;
-        }
-
-        if (o == null) {
-            return false;
-        }
-
-        return mSignalStrength == s.mSignalStrength && mBitErrorRate == s.mBitErrorRate &&
-                        s.mTimingAdvance == mTimingAdvance;
+        return mRssi == s.mRssi
+                && mBitErrorRate == s.mBitErrorRate
+                && mTimingAdvance == s.mTimingAdvance
+                && mLevel == s.mLevel;
     }
 
     /**
@@ -203,18 +215,20 @@ public final class CellSignalStrengthGsm extends CellSignalStrength implements P
     @Override
     public String toString() {
         return "CellSignalStrengthGsm:"
-                + " ss=" + mSignalStrength
+                + " rssi=" + mRssi
                 + " ber=" + mBitErrorRate
-                + " mTa=" + mTimingAdvance;
+                + " mTa=" + mTimingAdvance
+                + " mLevel=" + mLevel;
     }
 
     /** Implement the Parcelable interface */
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         if (DBG) log("writeToParcel(Parcel, int): " + toString());
-        dest.writeInt(mSignalStrength);
+        dest.writeInt(mRssi);
         dest.writeInt(mBitErrorRate);
         dest.writeInt(mTimingAdvance);
+        dest.writeInt(mLevel);
     }
 
     /**
@@ -222,9 +236,10 @@ public final class CellSignalStrengthGsm extends CellSignalStrength implements P
      * where the token is already been processed.
      */
     private CellSignalStrengthGsm(Parcel in) {
-        mSignalStrength = in.readInt();
+        mRssi = in.readInt();
         mBitErrorRate = in.readInt();
         mTimingAdvance = in.readInt();
+        mLevel = in.readInt();
         if (DBG) log("CellSignalStrengthGsm(Parcel): " + toString());
     }
 
@@ -236,7 +251,7 @@ public final class CellSignalStrengthGsm extends CellSignalStrength implements P
 
     /** Implement the Parcelable interface */
     @SuppressWarnings("hiding")
-    public static final Parcelable.Creator<CellSignalStrengthGsm> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<CellSignalStrengthGsm> CREATOR =
             new Parcelable.Creator<CellSignalStrengthGsm>() {
         @Override
         public CellSignalStrengthGsm createFromParcel(Parcel in) {

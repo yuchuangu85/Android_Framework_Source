@@ -16,8 +16,17 @@
 
 package android.hardware.usb;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.app.ActivityThread;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.RemoteException;
+
+import com.android.internal.util.Preconditions;
+import java.util.Objects;
+
+import java.util.Objects;
 
 /**
  * A class representing a USB accessory, which is an external hardware component
@@ -46,12 +55,12 @@ public class UsbAccessory implements Parcelable {
 
     private static final String TAG = "UsbAccessory";
 
-    private final String mManufacturer;
-    private final String mModel;
-    private final String mDescription;
-    private final String mVersion;
-    private final String mUri;
-    private final String mSerial;
+    private final @NonNull String mManufacturer;
+    private final @NonNull String mModel;
+    private final @Nullable String mDescription;
+    private final @Nullable String mVersion;
+    private final @Nullable String mUri;
+    private final @NonNull IUsbSerialReader mSerialNumberReader;
 
     /** @hide */
     public static final int MANUFACTURER_STRING = 0;
@@ -70,27 +79,40 @@ public class UsbAccessory implements Parcelable {
      * UsbAccessory should only be instantiated by UsbService implementation
      * @hide
      */
-    public UsbAccessory(String manufacturer, String model, String description,
-            String version, String uri, String serial) {
-        mManufacturer = manufacturer;
-        mModel = model;
+    public UsbAccessory(@NonNull String manufacturer, @NonNull String model,
+            @Nullable String description, @Nullable String version, @Nullable String uri,
+            @NonNull IUsbSerialReader serialNumberReader) {
+        mManufacturer = Objects.requireNonNull(manufacturer);
+        mModel = Objects.requireNonNull(model);
         mDescription = description;
         mVersion = version;
         mUri = uri;
-        mSerial = serial;
+        mSerialNumberReader = serialNumberReader;
+
+        // Make sure the binder belongs to the system
+        if (ActivityThread.isSystem()) {
+            Preconditions.checkArgument(mSerialNumberReader instanceof IUsbSerialReader.Stub);
+        }
     }
 
     /**
-     * UsbAccessory should only be instantiated by UsbService implementation
+     * DO NOT USE. Only for backwards compatibility with
+     * {@link com.android.future.usb.UsbAccessory}.
+     *
      * @hide
+     * @deprecated use {@link UsbAccessory#UsbAccessory(String, String, String, String, String,
+     *             IUsbSerialReader) instead}
      */
-    public UsbAccessory(String[] strings) {
-        mManufacturer = strings[MANUFACTURER_STRING];
-        mModel = strings[MODEL_STRING];
-        mDescription = strings[DESCRIPTION_STRING];
-        mVersion = strings[VERSION_STRING];
-        mUri = strings[URI_STRING];
-        mSerial = strings[SERIAL_STRING];
+    @Deprecated
+    public UsbAccessory(@NonNull String manufacturer, @NonNull String model,
+            @Nullable String description, @Nullable String version, @Nullable String uri,
+            @Nullable String serialNumber) {
+        this(manufacturer, model, description, version, uri, new IUsbSerialReader.Stub() {
+            @Override
+            public String getSerial(String packageName) {
+                return serialNumber;
+            }
+        });
     }
 
     /**
@@ -98,7 +120,7 @@ public class UsbAccessory implements Parcelable {
      *
      * @return the accessory manufacturer
      */
-    public String getManufacturer() {
+    public @NonNull String getManufacturer() {
         return mManufacturer;
     }
 
@@ -107,25 +129,25 @@ public class UsbAccessory implements Parcelable {
      *
      * @return the accessory model
      */
-    public String getModel() {
+    public @NonNull String getModel() {
         return mModel;
     }
 
     /**
      * Returns a user visible description of the accessory.
      *
-     * @return the accessory description
+     * @return the accessory description, or {@code null} if not set
      */
-    public String getDescription() {
+    public @Nullable String getDescription() {
         return mDescription;
     }
 
     /**
      * Returns the version of the accessory.
      *
-     * @return the accessory version
+     * @return the accessory version, or {@code null} if not set
      */
-    public String getVersion() {
+    public @Nullable String getVersion() {
         return mVersion;
     }
 
@@ -134,9 +156,9 @@ public class UsbAccessory implements Parcelable {
      * This is an optional URI that might show information about the accessory
      * or provide the option to download an application for the accessory
      *
-     * @return the accessory URI
+     * @return the accessory URI, or {@code null} if not set
      */
-    public String getUri() {
+    public @Nullable String getUri() {
         return mUri;
     }
 
@@ -145,10 +167,18 @@ public class UsbAccessory implements Parcelable {
      * This is an optional serial number that can be used to differentiate
      * between individual accessories of the same model and manufacturer
      *
-     * @return the unique serial number
+     * @return the unique serial number, or {@code null} if not set
+     *
+     * @throws SecurityException if the app targets SDK >= {@value android.os.Build.VERSION_CODES#Q}
+     *                           and the app does not have permission to read from the accessory.
      */
-    public String getSerial() {
-        return mSerial;
+    public @Nullable String getSerial() {
+        try {
+            return mSerialNumberReader.getSerial(ActivityThread.currentPackageName());
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+            return null;
+        }
     }
 
     private static boolean compare(String s1, String s2) {
@@ -165,19 +195,17 @@ public class UsbAccessory implements Parcelable {
                     compare(mDescription, accessory.getDescription()) &&
                     compare(mVersion, accessory.getVersion()) &&
                     compare(mUri, accessory.getUri()) &&
-                    compare(mSerial, accessory.getSerial()));
+                    compare(getSerial(), accessory.getSerial()));
         }
         return false;
     }
 
     @Override
     public int hashCode() {
-        return ((mManufacturer == null ? 0 : mManufacturer.hashCode()) ^
-                (mModel == null ? 0 : mModel.hashCode()) ^
+        return mManufacturer.hashCode() ^ mModel.hashCode() ^
                 (mDescription == null ? 0 : mDescription.hashCode()) ^
                 (mVersion == null ? 0 : mVersion.hashCode()) ^
-                (mUri == null ? 0 : mUri.hashCode()) ^
-                (mSerial == null ? 0 : mSerial.hashCode()));
+                (mUri == null ? 0 : mUri.hashCode());
     }
 
     @Override
@@ -187,10 +215,10 @@ public class UsbAccessory implements Parcelable {
                             ", mDescription=" + mDescription +
                             ", mVersion=" + mVersion +
                             ", mUri=" + mUri +
-                            ", mSerial=" + mSerial + "]";
+                            ", mSerialNumberReader=" + mSerialNumberReader + "]";
     }
 
-    public static final Parcelable.Creator<UsbAccessory> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<UsbAccessory> CREATOR =
         new Parcelable.Creator<UsbAccessory>() {
         public UsbAccessory createFromParcel(Parcel in) {
             String manufacturer = in.readString();
@@ -198,8 +226,11 @@ public class UsbAccessory implements Parcelable {
             String description = in.readString();
             String version = in.readString();
             String uri = in.readString();
-            String serial = in.readString();
-            return new UsbAccessory(manufacturer, model, description, version, uri, serial);
+            IUsbSerialReader serialNumberReader = IUsbSerialReader.Stub.asInterface(
+                    in.readStrongBinder());
+
+            return new UsbAccessory(manufacturer, model, description, version, uri,
+                    serialNumberReader);
         }
 
         public UsbAccessory[] newArray(int size) {
@@ -217,6 +248,6 @@ public class UsbAccessory implements Parcelable {
         parcel.writeString(mDescription);
         parcel.writeString(mVersion);
         parcel.writeString(mUri);
-        parcel.writeString(mSerial);
+        parcel.writeStrongBinder(mSerialNumberReader.asBinder());
    }
 }

@@ -16,6 +16,8 @@
 
 package android.net.wifi.p2p.nsd;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -83,6 +85,7 @@ public class WifiP2pServiceInfo implements Parcelable {
      * {"upnp", "10", "uuid:6859dede-8574-59ab-9322-123456789012::urn:schemas-upnp
      * -org:service:ContentDirectory:2"}
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private List<String> mQueryList;
 
     /**
@@ -91,6 +94,7 @@ public class WifiP2pServiceInfo implements Parcelable {
      * @param queryList query string for wpa_supplicant
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     protected WifiP2pServiceInfo(List<String> queryList) {
         if (queryList == null) {
             throw new IllegalArgumentException("query list cannot be null");
@@ -166,7 +170,8 @@ public class WifiP2pServiceInfo implements Parcelable {
     }
 
     /** Implement the Parcelable interface {@hide} */
-    public static final Creator<WifiP2pServiceInfo> CREATOR =
+    @UnsupportedAppUsage
+    public static final @android.annotation.NonNull Creator<WifiP2pServiceInfo> CREATOR =
         new Creator<WifiP2pServiceInfo>() {
             public WifiP2pServiceInfo createFromParcel(Parcel in) {
 

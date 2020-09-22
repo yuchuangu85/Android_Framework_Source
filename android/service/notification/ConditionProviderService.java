@@ -17,7 +17,8 @@
 package android.service.notification;
 
 import android.annotation.SdkConstant;
-import android.annotation.SystemApi;
+import android.annotation.TestApi;
+import android.app.ActivityManager;
 import android.app.INotificationManager;
 import android.app.Service;
 import android.content.ComponentName;
@@ -27,6 +28,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
+import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.util.Log;
 
@@ -55,7 +57,18 @@ import android.util.Log;
  *           &lt;/meta-data>
  * &lt;/service></pre>
  *
+ *  <p> Condition providers cannot be bound by the system on
+ * {@link ActivityManager#isLowRamDevice() low ram} devices running Android Q (and below)</p>
+ *
+ * @deprecated Instead of using an automatically bound service, use
+ * {@link android.app.NotificationManager#setAutomaticZenRuleState(String, Condition)} to tell the
+ * system about the state of your rule. In order to maintain a link from
+ * Settings to your rule configuration screens, provide a configuration activity that handles
+ * {@link android.app.NotificationManager#ACTION_AUTOMATIC_ZEN_RULE} on your
+ * {@link android.app.AutomaticZenRule} via
+ * {@link android.app.AutomaticZenRule#setConfigurationActivity(ComponentName)}.
  */
+@Deprecated
 public abstract class ConditionProviderService extends Service {
     private final String TAG = ConditionProviderService.class.getSimpleName()
             + "[" + getClass().getSimpleName() + "]";
@@ -64,6 +77,7 @@ public abstract class ConditionProviderService extends Service {
 
     private Provider mProvider;
     private INotificationManager mNoMan;
+    boolean mIsConnected;
 
     /**
      * The {@link Intent} that must be declared as handled by the service.
@@ -75,26 +89,38 @@ public abstract class ConditionProviderService extends Service {
     /**
      * The name of the {@code meta-data} tag containing a localized name of the type of zen rules
      * provided by this service.
+     *
+     * @deprecated see {@link android.app.NotificationManager#META_DATA_AUTOMATIC_RULE_TYPE}.
      */
+    @Deprecated
     public static final String META_DATA_RULE_TYPE = "android.service.zen.automatic.ruleType";
 
     /**
      * The name of the {@code meta-data} tag containing the {@link ComponentName} of an activity
      * that allows users to configure the conditions provided by this service.
+     *
+     * @deprecated see {@link android.app.NotificationManager#ACTION_AUTOMATIC_ZEN_RULE}.
      */
+    @Deprecated
     public static final String META_DATA_CONFIGURATION_ACTIVITY =
             "android.service.zen.automatic.configurationActivity";
 
     /**
      * The name of the {@code meta-data} tag containing the maximum number of rule instances that
      * can be created for this rule type. Omit or enter a value <= 0 to allow unlimited instances.
+     *
+     * @deprecated see {@link android.app.NotificationManager#META_DATA_RULE_INSTANCE_LIMIT}.
      */
+    @Deprecated
     public static final String META_DATA_RULE_INSTANCE_LIMIT =
             "android.service.zen.automatic.ruleInstanceLimit";
 
     /**
      * A String rule id extra passed to {@link #META_DATA_CONFIGURATION_ACTIVITY}.
+     *
+     * @deprecated see {@link android.app.NotificationManager#EXTRA_AUTOMATIC_RULE_ID}.
      */
+    @Deprecated
     public static final String EXTRA_RULE_ID = "android.service.notification.extra.RULE_ID";
 
     /**
@@ -102,7 +128,6 @@ public abstract class ConditionProviderService extends Service {
      */
     abstract public void onConnected();
 
-    @SystemApi
     public void onRequestConditions(int relevance) {}
 
     /**
@@ -126,13 +151,53 @@ public abstract class ConditionProviderService extends Service {
     }
 
     /**
+     * Request that the provider be rebound, after a previous call to (@link #requestUnbind).
+     *
+     * <p>This method will fail for providers that have not been granted the permission by the user.
+     */
+    public static final void requestRebind(ComponentName componentName) {
+        INotificationManager noMan = INotificationManager.Stub.asInterface(
+                ServiceManager.getService(Context.NOTIFICATION_SERVICE));
+        try {
+            noMan.requestBindProvider(componentName);
+        } catch (RemoteException ex) {
+            throw ex.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Request that the provider service be unbound.
+     *
+     * <p>This will no longer receive subscription updates and will not be able to update the
+     * state of conditions until {@link #requestRebind(ComponentName)} is called.
+     * The service will likely be killed by the system after this call.
+     *
+     * <p>The service should wait for the {@link #onConnected()} event before performing this
+     * operation.
+     */
+    public final void requestUnbind() {
+        INotificationManager noMan = getNotificationInterface();
+        try {
+            noMan.requestUnbindProvider(mProvider);
+            // Disable future messages.
+            mIsConnected = false;
+        } catch (RemoteException ex) {
+            throw ex.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Informs the notification manager that the state of a Condition has changed. Use this method
      * to put the system into Do Not Disturb mode or request that it exits Do Not Disturb mode. This
      * call will be ignored unless there is an enabled {@link android.app.AutomaticZenRule} owned by
      * service that has an {@link android.app.AutomaticZenRule#getConditionId()} equal to this
      * {@link Condition#id}.
      * @param condition the condition that has changed.
+     *
+     * @deprecated see
+     * {@link android.app.NotificationManager#setAutomaticZenRuleState(String, Condition)}.
      */
+    @Deprecated
     public final void notifyCondition(Condition condition) {
         if (condition == null) return;
         notifyConditions(new Condition[]{ condition });
@@ -142,7 +207,11 @@ public abstract class ConditionProviderService extends Service {
      * Informs the notification manager that the state of one or more Conditions has changed. See
      * {@link #notifyCondition(Condition)} for restrictions.
      * @param conditions the changed conditions.
+     *
+     * @deprecated see
+     *       {@link android.app.NotificationManager#setAutomaticZenRuleState(String, Condition)}.
      */
+    @Deprecated
     public final void notifyConditions(Condition... conditions) {
         if (!isBound() || conditions == null) return;
         try {
@@ -160,17 +229,21 @@ public abstract class ConditionProviderService extends Service {
         return mProvider;
     }
 
-    private boolean isBound() {
-        if (mProvider == null) {
+    /**
+     * @hide
+     */
+    @TestApi
+    public boolean isBound() {
+        if (!mIsConnected) {
             Log.w(TAG, "Condition provider service not yet bound.");
-            return false;
         }
-        return true;
+        return mIsConnected;
     }
 
     private final class Provider extends IConditionProvider.Stub {
         @Override
         public void onConnected() {
+            mIsConnected = true;
             mHandler.obtainMessage(H.ON_CONNECTED).sendToTarget();
         }
 
@@ -193,6 +266,9 @@ public abstract class ConditionProviderService extends Service {
         @Override
         public void handleMessage(Message msg) {
             String name = null;
+            if (!mIsConnected) {
+                return;
+            }
             try {
                 switch(msg.what) {
                     case ON_CONNECTED:

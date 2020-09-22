@@ -18,10 +18,11 @@
 
 package android.opengl;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.SurfaceTexture;
 import android.view.Surface;
-import android.view.SurfaceView;
 import android.view.SurfaceHolder;
+import android.view.SurfaceView;
 
 /**
  * EGL 1.4
@@ -163,6 +164,7 @@ public static final int EGL_CORE_NATIVE_ENGINE             = 0x305B;
     /**
      * {@hide}
      */
+    @UnsupportedAppUsage
     public static native EGLDisplay eglGetDisplay(
         long display_id
     );
@@ -284,6 +286,7 @@ public static final int EGL_CORE_NATIVE_ENGINE             = 0x305B;
 
     // C function EGLSurface eglCreatePixmapSurface ( EGLDisplay dpy, EGLConfig config, EGLNativePixmapType pixmap, const EGLint *attrib_list )
 
+    @Deprecated
     public static native EGLSurface eglCreatePixmapSurface(
         EGLDisplay dpy,
         EGLConfig config,

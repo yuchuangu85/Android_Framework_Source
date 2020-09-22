@@ -20,10 +20,10 @@ import android.annotation.Nullable;
 import android.annotation.XmlRes;
 import android.app.Activity;
 import android.app.Fragment;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.TypedArray;
-import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -88,29 +88,22 @@ import android.widget.TextView;
  * guide.</p>
  * </div>
  *
- * <a name="SampleCode"></a>
- * <h3>Sample Code</h3>
- *
- * <p>The following sample code shows a simple preference fragment that is
- * populated from a resource.  The resource it loads is:</p>
- *
- * {@sample development/samples/ApiDemos/res/xml/preferences.xml preferences}
- *
- * <p>The fragment implementation itself simply populates the preferences
- * when created.  Note that the preferences framework takes care of loading
- * the current values out of the app preferences and writing them when changed:</p>
- *
- * {@sample development/samples/ApiDemos/src/com/example/android/apis/preference/FragmentPreferences.java
- *      fragment}
- *
  * @see Preference
  * @see PreferenceScreen
+ *
+ * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+ *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+ *      Preference Library</a> for consistent behavior across all devices. For more information on
+ *      using the AndroidX Preference Library see
+ *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
  */
+@Deprecated
 public abstract class PreferenceFragment extends Fragment implements
         PreferenceManager.OnPreferenceTreeClickListener {
 
     private static final String PREFERENCES_TAG = "android:preferences";
 
+    @UnsupportedAppUsage
     private PreferenceManager mPreferenceManager;
     private ListView mList;
     private boolean mHavePrefs;
@@ -146,7 +139,11 @@ public abstract class PreferenceFragment extends Fragment implements
      * Interface that PreferenceFragment's containing activity should
      * implement to be able to process preference items that wish to
      * switch to a new fragment.
+     *
+     * @deprecated Use {@link
+     * android.support.v7.preference.PreferenceFragmentCompat.OnPreferenceStartFragmentCallback}
      */
+    @Deprecated
     public interface OnPreferenceStartFragmentCallback {
         /**
          * Called when the user has clicked on a Preference that has
@@ -396,6 +393,7 @@ public abstract class PreferenceFragment extends Fragment implements
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public ListView getListView() {
         ensureList();
         return mList;

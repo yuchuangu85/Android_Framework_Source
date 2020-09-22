@@ -23,8 +23,6 @@ import android.os.SystemProperties;
 import android.util.Log;
 
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.text.SimpleDateFormat;
@@ -39,7 +37,7 @@ import java.util.Locale;
  *  adb shell setprop debug.falsing_log true
  *
  * The log gets dumped as part of the SystemUI services. To dump on demand:
- *  adb shell dumpsys activity service com.android.systemui SystemBars | grep -A 999 FALSING | less
+ *  adb shell dumpsys activity service com.android.systemui StatusBar | grep -A 999 FALSING | less
  *
  * To dump into logcat:
  *  adb shell setprop debug.falsing_logcat true
@@ -82,6 +80,11 @@ public class FalsingLog {
             Log.i(TAG, tag + "\t" + s);
         }
         log("I", tag, s);
+    }
+
+    public static void wLogcat(String tag, String s) {
+        Log.w(TAG, tag + "\t" + s);
+        log("W", tag, s);
     }
 
     public static void w(String tag, String s) {
@@ -133,7 +136,7 @@ public class FalsingLog {
         pw.println();
     }
 
-    public static synchronized void wtf(String tag, String s) {
+    public static synchronized void wtf(String tag, String s, Throwable here) {
         if (!ENABLED) {
             return;
         }
@@ -161,6 +164,6 @@ public class FalsingLog {
             Log.e(TAG, "Unable to write log, build must be debuggable.");
         }
 
-        Log.wtf(TAG, tag + " " + s + "; " + fileMessage);
+        Log.wtf(TAG, tag + " " + s + "; " + fileMessage, here);
     }
 }

@@ -22,6 +22,7 @@ import android.animation.TypeEvaluator;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Matrix;
+import android.graphics.Picture;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.BitmapDrawable;
@@ -99,7 +100,7 @@ public class TransitionUtils {
 
         ImageView copy = new ImageView(view.getContext());
         copy.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        Bitmap bitmap = createViewBitmap(view, matrix, bounds);
+        Bitmap bitmap = createViewBitmap(view, matrix, bounds, sceneRoot);
         if (bitmap != null) {
             copy.setImageBitmap(bitmap);
         }
@@ -113,7 +114,7 @@ public class TransitionUtils {
     /**
      * Get a copy of bitmap of given drawable, return null if intrinsic size is zero
      */
-    public static Bitmap createDrawableBitmap(Drawable drawable) {
+    public static Bitmap createDrawableBitmap(Drawable drawable, View hostView) {
         int width = drawable.getIntrinsicWidth();
         int height = drawable.getIntrinsicHeight();
         if (width <= 0 || height <= 0) {
@@ -126,8 +127,9 @@ public class TransitionUtils {
         }
         int bitmapWidth = (int) (width * scale);
         int bitmapHeight = (int) (height * scale);
-        Bitmap bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
+        final Picture picture = new Picture();
+        final Canvas canvas = picture.beginRecording(width, height);
+        // Do stuff with the canvas
         Rect existingBounds = drawable.getBounds();
         int left = existingBounds.left;
         int top = existingBounds.top;
@@ -136,7 +138,8 @@ public class TransitionUtils {
         drawable.setBounds(0, 0, bitmapWidth, bitmapHeight);
         drawable.draw(canvas);
         drawable.setBounds(left, top, right, bottom);
-        return bitmap;
+        picture.endRecording();
+        return Bitmap.createBitmap(picture);
     }
 
     /**
@@ -150,22 +153,43 @@ public class TransitionUtils {
      *               returning.
      * @param bounds The bounds of the bitmap in the destination coordinate system (where the
      *               view should be presented. Typically, this is matrix.mapRect(viewBounds);
+     * @param sceneRoot A ViewGroup that is attached to the window to temporarily contain the view
+     *                  if it isn't attached to the window.
      * @return A bitmap of the given view or null if bounds has no width or height.
      */
-    public static Bitmap createViewBitmap(View view, Matrix matrix, RectF bounds) {
+    public static Bitmap createViewBitmap(View view, Matrix matrix, RectF bounds,
+            ViewGroup sceneRoot) {
+        final boolean addToOverlay = !view.isAttachedToWindow();
+        ViewGroup parent = null;
+        int indexInParent = 0;
+        if (addToOverlay) {
+            if (sceneRoot == null || !sceneRoot.isAttachedToWindow()) {
+                return null;
+            }
+            parent = (ViewGroup) view.getParent();
+            indexInParent = parent.indexOfChild(view);
+            sceneRoot.getOverlay().add(view);
+        }
         Bitmap bitmap = null;
         int bitmapWidth = Math.round(bounds.width());
         int bitmapHeight = Math.round(bounds.height());
         if (bitmapWidth > 0 && bitmapHeight > 0) {
-            float scale = Math.min(1f, ((float)MAX_IMAGE_SIZE) / (bitmapWidth * bitmapHeight));
+            float scale = Math.min(1f, ((float) MAX_IMAGE_SIZE) / (bitmapWidth * bitmapHeight));
             bitmapWidth *= scale;
             bitmapHeight *= scale;
             matrix.postTranslate(-bounds.left, -bounds.top);
             matrix.postScale(scale, scale);
-            bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888);
-            Canvas canvas = new Canvas(bitmap);
+
+            final Picture picture = new Picture();
+            final Canvas canvas = picture.beginRecording(bitmapWidth, bitmapHeight);
             canvas.concat(matrix);
             view.draw(canvas);
+            picture.endRecording();
+            bitmap = Bitmap.createBitmap(picture);
+        }
+        if (addToOverlay) {
+            sceneRoot.getOverlay().remove(view);
+            parent.addView(view, indexInParent);
         }
         return bitmap;
     }

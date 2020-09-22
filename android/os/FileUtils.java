@@ -16,8 +16,32 @@
 
 package android.os;
 
+import static android.os.ParcelFileDescriptor.MODE_APPEND;
+import static android.os.ParcelFileDescriptor.MODE_CREATE;
+import static android.os.ParcelFileDescriptor.MODE_READ_ONLY;
+import static android.os.ParcelFileDescriptor.MODE_READ_WRITE;
+import static android.os.ParcelFileDescriptor.MODE_TRUNCATE;
+import static android.os.ParcelFileDescriptor.MODE_WRITE_ONLY;
+import static android.system.OsConstants.F_OK;
+import static android.system.OsConstants.O_ACCMODE;
+import static android.system.OsConstants.O_APPEND;
+import static android.system.OsConstants.O_CREAT;
+import static android.system.OsConstants.O_RDONLY;
+import static android.system.OsConstants.O_RDWR;
+import static android.system.OsConstants.O_TRUNC;
+import static android.system.OsConstants.O_WRONLY;
+import static android.system.OsConstants.R_OK;
+import static android.system.OsConstants.SPLICE_F_MORE;
+import static android.system.OsConstants.SPLICE_F_MOVE;
+import static android.system.OsConstants.S_ISFIFO;
+import static android.system.OsConstants.S_ISREG;
+import static android.system.OsConstants.W_OK;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.ContentResolver;
 import android.provider.DocumentsContract.Document;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -28,7 +52,10 @@ import android.util.Slog;
 import android.webkit.MimeTypeMap;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.ArrayUtils;
+import com.android.internal.util.SizedInputStream;
 
+import libcore.io.IoUtils;
 import libcore.util.EmptyArray;
 
 import java.io.BufferedInputStream;
@@ -38,39 +65,48 @@ import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Objects;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.zip.CRC32;
 import java.util.zip.CheckedInputStream;
 
 /**
- * Tools for managing files.  Not for public consumption.
- * @hide
+ * Utility methods useful for working with files.
  */
-public class FileUtils {
+public final class FileUtils {
     private static final String TAG = "FileUtils";
 
-    public static final int S_IRWXU = 00700;
-    public static final int S_IRUSR = 00400;
-    public static final int S_IWUSR = 00200;
-    public static final int S_IXUSR = 00100;
+    /** {@hide} */ public static final int S_IRWXU = 00700;
+    /** {@hide} */ public static final int S_IRUSR = 00400;
+    /** {@hide} */ public static final int S_IWUSR = 00200;
+    /** {@hide} */ public static final int S_IXUSR = 00100;
 
-    public static final int S_IRWXG = 00070;
-    public static final int S_IRGRP = 00040;
-    public static final int S_IWGRP = 00020;
-    public static final int S_IXGRP = 00010;
+    /** {@hide} */ public static final int S_IRWXG = 00070;
+    /** {@hide} */ public static final int S_IRGRP = 00040;
+    /** {@hide} */ public static final int S_IWGRP = 00020;
+    /** {@hide} */ public static final int S_IXGRP = 00010;
 
-    public static final int S_IRWXO = 00007;
-    public static final int S_IROTH = 00004;
-    public static final int S_IWOTH = 00002;
-    public static final int S_IXOTH = 00001;
+    /** {@hide} */ public static final int S_IRWXO = 00007;
+    /** {@hide} */ public static final int S_IROTH = 00004;
+    /** {@hide} */ public static final int S_IWOTH = 00002;
+    /** {@hide} */ public static final int S_IXOTH = 00001;
+
+    @UnsupportedAppUsage
+    private FileUtils() {
+    }
 
     /** Regular expression for safe filenames: no spaces or metacharacters.
       *
@@ -80,7 +116,17 @@ public class FileUtils {
         public static final Pattern SAFE_FILENAME_PATTERN = Pattern.compile("[\\w%+,./=_-]+");
     }
 
-    private static final File[] EMPTY = new File[0];
+    // non-final so it can be toggled by Robolectric's ShadowFileUtils
+    private static boolean sEnableCopyOptimizations = true;
+
+    private static final long COPY_CHECKPOINT_BYTES = 524288;
+
+    /**
+     * Listener that is called periodically as progress is made.
+     */
+    public interface ProgressListener {
+        public void onProgress(long progress);
+    }
 
     /**
      * Set owner and mode of of given {@link File}.
@@ -89,7 +135,9 @@ public class FileUtils {
      * @param uid to apply through {@code chown}, or -1 to leave unchanged
      * @param gid to apply through {@code chown}, or -1 to leave unchanged
      * @return 0 on success, otherwise errno.
+     * @hide
      */
+    @UnsupportedAppUsage
     public static int setPermissions(File path, int mode, int uid, int gid) {
         return setPermissions(path.getAbsolutePath(), mode, uid, gid);
     }
@@ -101,7 +149,9 @@ public class FileUtils {
      * @param uid to apply through {@code chown}, or -1 to leave unchanged
      * @param gid to apply through {@code chown}, or -1 to leave unchanged
      * @return 0 on success, otherwise errno.
+     * @hide
      */
+    @UnsupportedAppUsage
     public static int setPermissions(String path, int mode, int uid, int gid) {
         try {
             Os.chmod(path, mode);
@@ -129,7 +179,9 @@ public class FileUtils {
      * @param uid to apply through {@code chown}, or -1 to leave unchanged
      * @param gid to apply through {@code chown}, or -1 to leave unchanged
      * @return 0 on success, otherwise errno.
+     * @hide
      */
+    @UnsupportedAppUsage
     public static int setPermissions(FileDescriptor fd, int mode, int uid, int gid) {
         try {
             Os.fchmod(fd, mode);
@@ -150,7 +202,14 @@ public class FileUtils {
         return 0;
     }
 
-    public static void copyPermissions(File from, File to) throws IOException {
+    /**
+     * Copy the owner UID, owner GID, and mode bits from one file to another.
+     *
+     * @param from File where attributes should be copied from.
+     * @param to File where attributes should be copied to.
+     * @hide
+     */
+    public static void copyPermissions(@NonNull File from, @NonNull File to) throws IOException {
         try {
             final StructStat stat = Os.stat(from.getAbsolutePath());
             Os.chmod(to.getAbsolutePath(), stat.st_mode);
@@ -161,8 +220,10 @@ public class FileUtils {
     }
 
     /**
-     * Return owning UID of given path, otherwise -1.
+     * @deprecated use {@link Os#stat(String)} instead.
+     * @hide
      */
+    @Deprecated
     public static int getUid(String path) {
         try {
             return Os.stat(path).st_uid;
@@ -174,7 +235,10 @@ public class FileUtils {
     /**
      * Perform an fsync on the given FileOutputStream.  The stream at this
      * point must be flushed but not yet closed.
+     *
+     * @hide
      */
+    @UnsupportedAppUsage
     public static boolean sync(FileOutputStream stream) {
         try {
             if (stream != null) {
@@ -186,6 +250,11 @@ public class FileUtils {
         return false;
     }
 
+    /**
+     * @deprecated use {@link #copy(File, File)} instead.
+     * @hide
+     */
+    @UnsupportedAppUsage
     @Deprecated
     public static boolean copyFile(File srcFile, File destFile) {
         try {
@@ -196,14 +265,22 @@ public class FileUtils {
         }
     }
 
-    // copy a file from srcFile to destFile, return true if succeed, return
-    // false if fail
+    /**
+     * @deprecated use {@link #copy(File, File)} instead.
+     * @hide
+     */
+    @Deprecated
     public static void copyFileOrThrow(File srcFile, File destFile) throws IOException {
         try (InputStream in = new FileInputStream(srcFile)) {
             copyToFileOrThrow(in, destFile);
         }
     }
 
+    /**
+     * @deprecated use {@link #copy(InputStream, OutputStream)} instead.
+     * @hide
+     */
+    @UnsupportedAppUsage
     @Deprecated
     public static boolean copyToFile(InputStream inputStream, File destFile) {
         try {
@@ -215,35 +292,307 @@ public class FileUtils {
     }
 
     /**
-     * Copy data from a source stream to destFile.
-     * Return true if succeed, return false if failed.
+     * @deprecated use {@link #copy(InputStream, OutputStream)} instead.
+     * @hide
      */
-    public static void copyToFileOrThrow(InputStream inputStream, File destFile)
-            throws IOException {
+    @Deprecated
+    public static void copyToFileOrThrow(InputStream in, File destFile) throws IOException {
         if (destFile.exists()) {
             destFile.delete();
         }
-        FileOutputStream out = new FileOutputStream(destFile);
-        try {
-            byte[] buffer = new byte[4096];
-            int bytesRead;
-            while ((bytesRead = inputStream.read(buffer)) >= 0) {
-                out.write(buffer, 0, bytesRead);
-            }
-        } finally {
-            out.flush();
+        try (FileOutputStream out = new FileOutputStream(destFile)) {
+            copy(in, out);
             try {
-                out.getFD().sync();
-            } catch (IOException e) {
+                Os.fsync(out.getFD());
+            } catch (ErrnoException e) {
+                throw e.rethrowAsIOException();
             }
-            out.close();
         }
+    }
+
+    /**
+     * Copy the contents of one file to another, replacing any existing content.
+     * <p>
+     * Attempts to use several optimization strategies to copy the data in the
+     * kernel before falling back to a userspace copy as a last resort.
+     *
+     * @return number of bytes copied.
+     * @hide
+     */
+    public static long copy(@NonNull File from, @NonNull File to) throws IOException {
+        return copy(from, to, null, null, null);
+    }
+
+    /**
+     * Copy the contents of one file to another, replacing any existing content.
+     * <p>
+     * Attempts to use several optimization strategies to copy the data in the
+     * kernel before falling back to a userspace copy as a last resort.
+     *
+     * @param signal to signal if the copy should be cancelled early.
+     * @param executor that listener events should be delivered via.
+     * @param listener to be periodically notified as the copy progresses.
+     * @return number of bytes copied.
+     * @hide
+     */
+    public static long copy(@NonNull File from, @NonNull File to,
+            @Nullable CancellationSignal signal, @Nullable Executor executor,
+            @Nullable ProgressListener listener) throws IOException {
+        try (FileInputStream in = new FileInputStream(from);
+                FileOutputStream out = new FileOutputStream(to)) {
+            return copy(in, out, signal, executor, listener);
+        }
+    }
+
+    /**
+     * Copy the contents of one stream to another.
+     * <p>
+     * Attempts to use several optimization strategies to copy the data in the
+     * kernel before falling back to a userspace copy as a last resort.
+     *
+     * @return number of bytes copied.
+     */
+    public static long copy(@NonNull InputStream in, @NonNull OutputStream out) throws IOException {
+        return copy(in, out, null, null, null);
+    }
+
+    /**
+     * Copy the contents of one stream to another.
+     * <p>
+     * Attempts to use several optimization strategies to copy the data in the
+     * kernel before falling back to a userspace copy as a last resort.
+     *
+     * @param signal to signal if the copy should be cancelled early.
+     * @param executor that listener events should be delivered via.
+     * @param listener to be periodically notified as the copy progresses.
+     * @return number of bytes copied.
+     */
+    public static long copy(@NonNull InputStream in, @NonNull OutputStream out,
+            @Nullable CancellationSignal signal, @Nullable Executor executor,
+            @Nullable ProgressListener listener) throws IOException {
+        if (sEnableCopyOptimizations) {
+            if (in instanceof FileInputStream && out instanceof FileOutputStream) {
+                return copy(((FileInputStream) in).getFD(), ((FileOutputStream) out).getFD(),
+                        signal, executor, listener);
+            }
+        }
+
+        // Worse case fallback to userspace
+        return copyInternalUserspace(in, out, signal, executor, listener);
+    }
+
+    /**
+     * Copy the contents of one FD to another.
+     * <p>
+     * Attempts to use several optimization strategies to copy the data in the
+     * kernel before falling back to a userspace copy as a last resort.
+     *
+     * @return number of bytes copied.
+     */
+    public static long copy(@NonNull FileDescriptor in, @NonNull FileDescriptor out)
+            throws IOException {
+        return copy(in, out, null, null, null);
+    }
+
+    /**
+     * Copy the contents of one FD to another.
+     * <p>
+     * Attempts to use several optimization strategies to copy the data in the
+     * kernel before falling back to a userspace copy as a last resort.
+     *
+     * @param signal to signal if the copy should be cancelled early.
+     * @param executor that listener events should be delivered via.
+     * @param listener to be periodically notified as the copy progresses.
+     * @return number of bytes copied.
+     */
+    public static long copy(@NonNull FileDescriptor in, @NonNull FileDescriptor out,
+            @Nullable CancellationSignal signal, @Nullable Executor executor,
+            @Nullable ProgressListener listener) throws IOException {
+        return copy(in, out, Long.MAX_VALUE, signal, executor, listener);
+    }
+
+    /**
+     * Copy the contents of one FD to another.
+     * <p>
+     * Attempts to use several optimization strategies to copy the data in the
+     * kernel before falling back to a userspace copy as a last resort.
+     *
+     * @param count the number of bytes to copy.
+     * @param signal to signal if the copy should be cancelled early.
+     * @param executor that listener events should be delivered via.
+     * @param listener to be periodically notified as the copy progresses.
+     * @return number of bytes copied.
+     * @hide
+     */
+    public static long copy(@NonNull FileDescriptor in, @NonNull FileDescriptor out, long count,
+            @Nullable CancellationSignal signal, @Nullable Executor executor,
+            @Nullable ProgressListener listener) throws IOException {
+        if (sEnableCopyOptimizations) {
+            try {
+                final StructStat st_in = Os.fstat(in);
+                final StructStat st_out = Os.fstat(out);
+                if (S_ISREG(st_in.st_mode) && S_ISREG(st_out.st_mode)) {
+                    return copyInternalSendfile(in, out, count, signal, executor, listener);
+                } else if (S_ISFIFO(st_in.st_mode) || S_ISFIFO(st_out.st_mode)) {
+                    return copyInternalSplice(in, out, count, signal, executor, listener);
+                }
+            } catch (ErrnoException e) {
+                throw e.rethrowAsIOException();
+            }
+        }
+
+        // Worse case fallback to userspace
+        return copyInternalUserspace(in, out, count, signal, executor, listener);
+    }
+
+    /**
+     * Requires one of input or output to be a pipe.
+     *
+     * @hide
+     */
+    @VisibleForTesting
+    public static long copyInternalSplice(FileDescriptor in, FileDescriptor out, long count,
+            CancellationSignal signal, Executor executor, ProgressListener listener)
+            throws ErrnoException {
+        long progress = 0;
+        long checkpoint = 0;
+
+        long t;
+        while ((t = Os.splice(in, null, out, null, Math.min(count, COPY_CHECKPOINT_BYTES),
+                SPLICE_F_MOVE | SPLICE_F_MORE)) != 0) {
+            progress += t;
+            checkpoint += t;
+            count -= t;
+
+            if (checkpoint >= COPY_CHECKPOINT_BYTES) {
+                if (signal != null) {
+                    signal.throwIfCanceled();
+                }
+                if (executor != null && listener != null) {
+                    final long progressSnapshot = progress;
+                    executor.execute(() -> {
+                        listener.onProgress(progressSnapshot);
+                    });
+                }
+                checkpoint = 0;
+            }
+        }
+        if (executor != null && listener != null) {
+            final long progressSnapshot = progress;
+            executor.execute(() -> {
+                listener.onProgress(progressSnapshot);
+            });
+        }
+        return progress;
+    }
+
+    /**
+     * Requires both input and output to be a regular file.
+     *
+     * @hide
+     */
+    @VisibleForTesting
+    public static long copyInternalSendfile(FileDescriptor in, FileDescriptor out, long count,
+            CancellationSignal signal, Executor executor, ProgressListener listener)
+            throws ErrnoException {
+        long progress = 0;
+        long checkpoint = 0;
+
+        long t;
+        while ((t = Os.sendfile(out, in, null, Math.min(count, COPY_CHECKPOINT_BYTES))) != 0) {
+            progress += t;
+            checkpoint += t;
+            count -= t;
+
+            if (checkpoint >= COPY_CHECKPOINT_BYTES) {
+                if (signal != null) {
+                    signal.throwIfCanceled();
+                }
+                if (executor != null && listener != null) {
+                    final long progressSnapshot = progress;
+                    executor.execute(() -> {
+                        listener.onProgress(progressSnapshot);
+                    });
+                }
+                checkpoint = 0;
+            }
+        }
+        if (executor != null && listener != null) {
+            final long progressSnapshot = progress;
+            executor.execute(() -> {
+                listener.onProgress(progressSnapshot);
+            });
+        }
+        return progress;
+    }
+
+    /** {@hide} */
+    @Deprecated
+    @VisibleForTesting
+    public static long copyInternalUserspace(FileDescriptor in, FileDescriptor out,
+            ProgressListener listener, CancellationSignal signal, long count)
+            throws IOException {
+        return copyInternalUserspace(in, out, count, signal, Runnable::run, listener);
+    }
+
+    /** {@hide} */
+    @VisibleForTesting
+    public static long copyInternalUserspace(FileDescriptor in, FileDescriptor out, long count,
+            CancellationSignal signal, Executor executor, ProgressListener listener)
+            throws IOException {
+        if (count != Long.MAX_VALUE) {
+            return copyInternalUserspace(new SizedInputStream(new FileInputStream(in), count),
+                    new FileOutputStream(out), signal, executor, listener);
+        } else {
+            return copyInternalUserspace(new FileInputStream(in),
+                    new FileOutputStream(out), signal, executor, listener);
+        }
+    }
+
+    /** {@hide} */
+    @VisibleForTesting
+    public static long copyInternalUserspace(InputStream in, OutputStream out,
+            CancellationSignal signal, Executor executor, ProgressListener listener)
+            throws IOException {
+        long progress = 0;
+        long checkpoint = 0;
+        byte[] buffer = new byte[8192];
+
+        int t;
+        while ((t = in.read(buffer)) != -1) {
+            out.write(buffer, 0, t);
+
+            progress += t;
+            checkpoint += t;
+
+            if (checkpoint >= COPY_CHECKPOINT_BYTES) {
+                if (signal != null) {
+                    signal.throwIfCanceled();
+                }
+                if (executor != null && listener != null) {
+                    final long progressSnapshot = progress;
+                    executor.execute(() -> {
+                        listener.onProgress(progressSnapshot);
+                    });
+                }
+                checkpoint = 0;
+            }
+        }
+        if (executor != null && listener != null) {
+            final long progressSnapshot = progress;
+            executor.execute(() -> {
+                listener.onProgress(progressSnapshot);
+            });
+        }
+        return progress;
     }
 
     /**
      * Check if a filename is "safe" (no metacharacters or spaces).
      * @param file  The file to check
+     * @hide
      */
+    @UnsupportedAppUsage
     public static boolean isFilenameSafe(File file) {
         // Note, we check whether it matches what's known to be safe,
         // rather than what's known to be unsafe.  Non-ASCII, control
@@ -258,7 +607,9 @@ public class FileUtils {
      * @param ellipsis to add of the file was truncated (can be null)
      * @return the contents of the file, possibly truncated
      * @throws IOException if something goes wrong reading the file
+     * @hide
      */
+    @UnsupportedAppUsage
     public static String readTextFile(File file, int max, String ellipsis) throws IOException {
         InputStream input = new FileInputStream(file);
         // wrapping a BufferedInputStream around it because when reading /proc with unbuffered
@@ -312,8 +663,31 @@ public class FileUtils {
         }
     }
 
+    /** {@hide} */
+    @UnsupportedAppUsage
     public static void stringToFile(File file, String string) throws IOException {
         stringToFile(file.getAbsolutePath(), string);
+    }
+
+    /**
+     * Writes the bytes given in {@code content} to the file whose absolute path
+     * is {@code filename}.
+     *
+     * @hide
+     */
+    public static void bytesToFile(String filename, byte[] content) throws IOException {
+        if (filename.startsWith("/proc/")) {
+            final int oldMask = StrictMode.allowThreadDiskWritesMask();
+            try (FileOutputStream fos = new FileOutputStream(filename)) {
+                fos.write(content);
+            } finally {
+                StrictMode.setThreadPolicyMask(oldMask);
+            }
+        } else {
+            try (FileOutputStream fos = new FileOutputStream(filename)) {
+                fos.write(content);
+            }
+        }
     }
 
     /**
@@ -322,23 +696,25 @@ public class FileUtils {
      * @param filename
      * @param string
      * @throws IOException
+     * @hide
      */
+    @UnsupportedAppUsage
     public static void stringToFile(String filename, String string) throws IOException {
-        FileWriter out = new FileWriter(filename);
-        try {
-            out.write(string);
-        } finally {
-            out.close();
-        }
+        bytesToFile(filename, string.getBytes(StandardCharsets.UTF_8));
     }
 
     /**
-     * Computes the checksum of a file using the CRC32 checksum routine.
-     * The value of the checksum is returned.
+     * Computes the checksum of a file using the CRC32 checksum routine. The
+     * value of the checksum is returned.
      *
-     * @param file  the file to checksum, must not be null
+     * @param file the file to checksum, must not be null
      * @return the checksum value or an exception is thrown.
+     * @deprecated this is a weak hashing algorithm, and should not be used due
+     *             to its potential for collision.
+     * @hide
      */
+    @UnsupportedAppUsage
+    @Deprecated
     public static long checksumCrc32(File file) throws FileNotFoundException, IOException {
         CRC32 checkSummer = new CRC32();
         CheckedInputStream cis = null;
@@ -361,15 +737,72 @@ public class FileUtils {
     }
 
     /**
+     * Compute the digest of the given file using the requested algorithm.
+     *
+     * @param algorithm Any valid algorithm accepted by
+     *            {@link MessageDigest#getInstance(String)}.
+     * @hide
+     */
+    @TestApi
+    @NonNull
+    public static byte[] digest(@NonNull File file, @NonNull String algorithm)
+            throws IOException, NoSuchAlgorithmException {
+        try (FileInputStream in = new FileInputStream(file)) {
+            return digest(in, algorithm);
+        }
+    }
+
+    /**
+     * Compute the digest of the given file using the requested algorithm.
+     *
+     * @param algorithm Any valid algorithm accepted by
+     *            {@link MessageDigest#getInstance(String)}.
+     * @hide
+     */
+    @TestApi
+    @NonNull
+    public static byte[] digest(@NonNull InputStream in, @NonNull String algorithm)
+            throws IOException, NoSuchAlgorithmException {
+        // TODO: implement kernel optimizations
+        return digestInternalUserspace(in, algorithm);
+    }
+
+    /**
+     * Compute the digest of the given file using the requested algorithm.
+     *
+     * @param algorithm Any valid algorithm accepted by
+     *            {@link MessageDigest#getInstance(String)}.
+     * @hide
+     */
+    public static byte[] digest(FileDescriptor fd, String algorithm)
+            throws IOException, NoSuchAlgorithmException {
+        // TODO: implement kernel optimizations
+        return digestInternalUserspace(new FileInputStream(fd), algorithm);
+    }
+
+    private static byte[] digestInternalUserspace(InputStream in, String algorithm)
+            throws IOException, NoSuchAlgorithmException {
+        final MessageDigest digest = MessageDigest.getInstance(algorithm);
+        try (DigestInputStream digestStream = new DigestInputStream(in, digest)) {
+            final byte[] buffer = new byte[8192];
+            while (digestStream.read(buffer) != -1) {
+            }
+        }
+        return digest.digest();
+    }
+
+    /**
      * Delete older files in a directory until only those matching the given
      * constraints remain.
      *
      * @param minCount Always keep at least this many files.
-     * @param minAge Always keep files younger than this age.
+     * @param minAgeMs Always keep files younger than this age, in milliseconds.
      * @return if any files were deleted.
+     * @hide
      */
-    public static boolean deleteOlderFiles(File dir, int minCount, long minAge) {
-        if (minCount < 0 || minAge < 0) {
+    @UnsupportedAppUsage
+    public static boolean deleteOlderFiles(File dir, int minCount, long minAgeMs) {
+        if (minCount < 0 || minAgeMs < 0) {
             throw new IllegalArgumentException("Constraints must be positive or 0");
         }
 
@@ -380,7 +813,7 @@ public class FileUtils {
         Arrays.sort(files, new Comparator<File>() {
             @Override
             public int compare(File lhs, File rhs) {
-                return (int) (rhs.lastModified() - lhs.lastModified());
+                return Long.compare(rhs.lastModified(), lhs.lastModified());
             }
         });
 
@@ -389,9 +822,9 @@ public class FileUtils {
         for (int i = minCount; i < files.length; i++) {
             final File file = files[i];
 
-            // Keep files newer than minAge
+            // Keep files newer than minAgeMs
             final long age = System.currentTimeMillis() - file.lastModified();
-            if (age > minAge) {
+            if (age > minAgeMs) {
                 if (file.delete()) {
                     Log.d(TAG, "Deleted old file " + file);
                     deleted = true;
@@ -408,8 +841,20 @@ public class FileUtils {
      * Both files <em>must</em> have been resolved using
      * {@link File#getCanonicalFile()} to avoid symlink or path traversal
      * attacks.
+     *
+     * @hide
      */
     public static boolean contains(File[] dirs, File file) {
+        for (File dir : dirs) {
+            if (contains(dir, file)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** {@hide} */
+    public static boolean contains(Collection<File> dirs, File file) {
         for (File dir : dirs) {
             if (contains(dir, file)) {
                 return true;
@@ -425,23 +870,36 @@ public class FileUtils {
      * Both files <em>must</em> have been resolved using
      * {@link File#getCanonicalFile()} to avoid symlink or path traversal
      * attacks.
+     *
+     * @hide
      */
+    @TestApi
     public static boolean contains(File dir, File file) {
         if (dir == null || file == null) return false;
+        return contains(dir.getAbsolutePath(), file.getAbsolutePath());
+    }
 
-        String dirPath = dir.getAbsolutePath();
-        String filePath = file.getAbsolutePath();
-
+    /**
+     * Test if a file lives under the given directory, either as a direct child
+     * or a distant grandchild.
+     * <p>
+     * Both files <em>must</em> have been resolved using
+     * {@link File#getCanonicalFile()} to avoid symlink or path traversal
+     * attacks.
+     *
+     * @hide
+     */
+    public static boolean contains(String dirPath, String filePath) {
         if (dirPath.equals(filePath)) {
             return true;
         }
-
         if (!dirPath.endsWith("/")) {
             dirPath += "/";
         }
         return filePath.startsWith(dirPath);
     }
 
+    /** {@hide} */
     public static boolean deleteContentsAndDir(File dir) {
         if (deleteContents(dir)) {
             return dir.delete();
@@ -450,6 +908,8 @@ public class FileUtils {
         }
     }
 
+    /** {@hide} */
+    @UnsupportedAppUsage
     public static boolean deleteContents(File dir) {
         File[] files = dir.listFiles();
         boolean success = true;
@@ -479,6 +939,8 @@ public class FileUtils {
 
     /**
      * Check if given filename is valid for an ext4 filesystem.
+     *
+     * @hide
      */
     public static boolean isValidExtFilename(String name) {
         return (name != null) && name.equals(buildValidExtFilename(name));
@@ -487,6 +949,8 @@ public class FileUtils {
     /**
      * Mutate the given filename to make it valid for an ext4 filesystem,
      * replacing any invalid characters with "_".
+     *
+     * @hide
      */
     public static String buildValidExtFilename(String name) {
         if (TextUtils.isEmpty(name) || ".".equals(name) || "..".equals(name)) {
@@ -528,6 +992,8 @@ public class FileUtils {
 
     /**
      * Check if given filename is valid for a FAT filesystem.
+     *
+     * @hide
      */
     public static boolean isValidFatFilename(String name) {
         return (name != null) && name.equals(buildValidFatFilename(name));
@@ -536,6 +1002,8 @@ public class FileUtils {
     /**
      * Mutate the given filename to make it valid for a FAT filesystem,
      * replacing any invalid characters with "_".
+     *
+     * @hide
      */
     public static String buildValidFatFilename(String name) {
         if (TextUtils.isEmpty(name) || ".".equals(name) || "..".equals(name)) {
@@ -556,6 +1024,7 @@ public class FileUtils {
         return res.toString();
     }
 
+    /** {@hide} */
     @VisibleForTesting
     public static String trimFilename(String str, int maxBytes) {
         final StringBuilder res = new StringBuilder(str);
@@ -563,6 +1032,7 @@ public class FileUtils {
         return res.toString();
     }
 
+    /** {@hide} */
     private static void trimFilename(StringBuilder res, int maxBytes) {
         byte[] raw = res.toString().getBytes(StandardCharsets.UTF_8);
         if (raw.length > maxBytes) {
@@ -575,12 +1045,14 @@ public class FileUtils {
         }
     }
 
+    /** {@hide} */
     public static String rewriteAfterRename(File beforeDir, File afterDir, String path) {
         if (path == null) return null;
         final File result = rewriteAfterRename(beforeDir, afterDir, new File(path));
         return (result != null) ? result.getAbsolutePath() : null;
     }
 
+    /** {@hide} */
     public static String[] rewriteAfterRename(File beforeDir, File afterDir, String[] paths) {
         if (paths == null) return null;
         final String[] result = new String[paths.length];
@@ -594,6 +1066,8 @@ public class FileUtils {
      * Given a path under the "before" directory, rewrite it to live under the
      * "after" directory. For example, {@code /before/foo/bar.txt} would become
      * {@code /after/foo/bar.txt}.
+     *
+     * @hide
      */
     public static File rewriteAfterRename(File beforeDir, File afterDir, File file) {
         if (file == null || beforeDir == null || afterDir == null) return null;
@@ -605,6 +1079,7 @@ public class FileUtils {
         return null;
     }
 
+    /** {@hide} */
     private static File buildUniqueFileWithExtension(File parent, String name, String ext)
             throws FileNotFoundException {
         File file = buildFile(parent, name, ext);
@@ -631,6 +1106,7 @@ public class FileUtils {
      * 'example.txt' or 'example (1).txt', etc.
      *
      * @throws FileNotFoundException
+     * @hide
      */
     public static File buildUniqueFile(File parent, String mimeType, String displayName)
             throws FileNotFoundException {
@@ -638,9 +1114,17 @@ public class FileUtils {
         return buildUniqueFileWithExtension(parent, parts[0], parts[1]);
     }
 
+    /** {@hide} */
+    public static File buildNonUniqueFile(File parent, String mimeType, String displayName) {
+        final String[] parts = splitFileName(mimeType, displayName);
+        return buildFile(parent, parts[0], parts[1]);
+    }
+
     /**
      * Generates a unique file name under the given parent directory, keeping
      * any extension intact.
+     *
+     * @hide
      */
     public static File buildUniqueFile(File parent, String displayName)
             throws FileNotFoundException {
@@ -665,6 +1149,8 @@ public class FileUtils {
      * If the display name doesn't have an extension that matches the requested MIME type, the
      * extension is regarded as a part of filename and default extension for that MIME type is
      * appended.
+     *
+     * @hide
      */
     public static String[] splitFileName(String mimeType, String displayName) {
         String name;
@@ -690,11 +1176,16 @@ public class FileUtils {
             }
 
             if (mimeTypeFromExt == null) {
-                mimeTypeFromExt = "application/octet-stream";
+                mimeTypeFromExt = ContentResolver.MIME_TYPE_DEFAULT;
             }
 
-            final String extFromMimeType = MimeTypeMap.getSingleton().getExtensionFromMimeType(
-                    mimeType);
+            final String extFromMimeType;
+            if (ContentResolver.MIME_TYPE_DEFAULT.equals(mimeType)) {
+                extFromMimeType = null;
+            } else {
+                extFromMimeType = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
+            }
+
             if (Objects.equals(mimeType, mimeTypeFromExt) || Objects.equals(ext, extFromMimeType)) {
                 // Extension maps back to requested MIME type; allow it
             } else {
@@ -711,6 +1202,7 @@ public class FileUtils {
         return new String[] { name, ext };
     }
 
+    /** {@hide} */
     private static File buildFile(File parent, String name, String ext) {
         if (TextUtils.isEmpty(ext)) {
             return new File(parent, name);
@@ -719,37 +1211,282 @@ public class FileUtils {
         }
     }
 
+    /** {@hide} */
     public static @NonNull String[] listOrEmpty(@Nullable File dir) {
-        if (dir == null) return EmptyArray.STRING;
-        final String[] res = dir.list();
-        if (res != null) {
-            return res;
-        } else {
-            return EmptyArray.STRING;
-        }
+        return (dir != null) ? ArrayUtils.defeatNullable(dir.list())
+                : EmptyArray.STRING;
     }
 
+    /** {@hide} */
     public static @NonNull File[] listFilesOrEmpty(@Nullable File dir) {
-        if (dir == null) return EMPTY;
-        final File[] res = dir.listFiles();
-        if (res != null) {
-            return res;
-        } else {
-            return EMPTY;
-        }
+        return (dir != null) ? ArrayUtils.defeatNullable(dir.listFiles())
+                : ArrayUtils.EMPTY_FILE;
     }
 
+    /** {@hide} */
     public static @NonNull File[] listFilesOrEmpty(@Nullable File dir, FilenameFilter filter) {
-        if (dir == null) return EMPTY;
-        final File[] res = dir.listFiles(filter);
-        if (res != null) {
-            return res;
-        } else {
-            return EMPTY;
-        }
+        return (dir != null) ? ArrayUtils.defeatNullable(dir.listFiles(filter))
+                : ArrayUtils.EMPTY_FILE;
     }
 
+    /** {@hide} */
     public static @Nullable File newFileOrNull(@Nullable String path) {
         return (path != null) ? new File(path) : null;
+    }
+
+    /**
+     * Creates a directory with name {@code name} under an existing directory {@code baseDir}.
+     * Returns a {@code File} object representing the directory on success, {@code null} on
+     * failure.
+     *
+     * @hide
+     */
+    public static @Nullable File createDir(File baseDir, String name) {
+        final File dir = new File(baseDir, name);
+
+        return createDir(dir) ? dir : null;
+    }
+
+    /** @hide */
+    public static boolean createDir(File dir) {
+        if (dir.exists()) {
+            return dir.isDirectory();
+        }
+
+        return dir.mkdir();
+    }
+
+    /**
+     * Round the given size of a storage device to a nice round power-of-two
+     * value, such as 256MB or 32GB. This avoids showing weird values like
+     * "29.5GB" in UI.
+     *
+     * @hide
+     */
+    public static long roundStorageSize(long size) {
+        long val = 1;
+        long pow = 1;
+        while ((val * pow) < size) {
+            val <<= 1;
+            if (val > 512) {
+                val = 1;
+                pow *= 1000;
+            }
+        }
+        return val * pow;
+    }
+
+    /**
+     * Closes the given object quietly, ignoring any checked exceptions. Does
+     * nothing if the given object is {@code null}.
+     *
+     * @deprecated This method may suppress potentially significant exceptions, particularly when
+     *   closing writable resources. With a writable resource, a failure thrown from {@code close()}
+     *   should be considered as significant as a failure thrown from a write method because it may
+     *   indicate a failure to flush bytes to the underlying resource.
+     */
+    @Deprecated
+    public static void closeQuietly(@Nullable AutoCloseable closeable) {
+        IoUtils.closeQuietly(closeable);
+    }
+
+    /**
+     * Closes the given object quietly, ignoring any checked exceptions. Does
+     * nothing if the given object is {@code null}.
+     *
+     * @deprecated This method may suppress potentially significant exceptions, particularly when
+     *   closing writable resources. With a writable resource, a failure thrown from {@code close()}
+     *   should be considered as significant as a failure thrown from a write method because it may
+     *   indicate a failure to flush bytes to the underlying resource.
+     */
+    @Deprecated
+    public static void closeQuietly(@Nullable FileDescriptor fd) {
+        IoUtils.closeQuietly(fd);
+    }
+
+    /** {@hide} */
+    public static int translateModeStringToPosix(String mode) {
+        // Sanity check for invalid chars
+        for (int i = 0; i < mode.length(); i++) {
+            switch (mode.charAt(i)) {
+                case 'r':
+                case 'w':
+                case 't':
+                case 'a':
+                    break;
+                default:
+                    throw new IllegalArgumentException("Bad mode: " + mode);
+            }
+        }
+
+        int res = 0;
+        if (mode.startsWith("rw")) {
+            res = O_RDWR | O_CREAT;
+        } else if (mode.startsWith("w")) {
+            res = O_WRONLY | O_CREAT;
+        } else if (mode.startsWith("r")) {
+            res = O_RDONLY;
+        } else {
+            throw new IllegalArgumentException("Bad mode: " + mode);
+        }
+        if (mode.indexOf('t') != -1) {
+            res |= O_TRUNC;
+        }
+        if (mode.indexOf('a') != -1) {
+            res |= O_APPEND;
+        }
+        return res;
+    }
+
+    /** {@hide} */
+    public static String translateModePosixToString(int mode) {
+        String res = "";
+        if ((mode & O_ACCMODE) == O_RDWR) {
+            res = "rw";
+        } else if ((mode & O_ACCMODE) == O_WRONLY) {
+            res = "w";
+        } else if ((mode & O_ACCMODE) == O_RDONLY) {
+            res = "r";
+        } else {
+            throw new IllegalArgumentException("Bad mode: " + mode);
+        }
+        if ((mode & O_TRUNC) == O_TRUNC) {
+            res += "t";
+        }
+        if ((mode & O_APPEND) == O_APPEND) {
+            res += "a";
+        }
+        return res;
+    }
+
+    /** {@hide} */
+    public static int translateModePosixToPfd(int mode) {
+        int res = 0;
+        if ((mode & O_ACCMODE) == O_RDWR) {
+            res = MODE_READ_WRITE;
+        } else if ((mode & O_ACCMODE) == O_WRONLY) {
+            res = MODE_WRITE_ONLY;
+        } else if ((mode & O_ACCMODE) == O_RDONLY) {
+            res = MODE_READ_ONLY;
+        } else {
+            throw new IllegalArgumentException("Bad mode: " + mode);
+        }
+        if ((mode & O_CREAT) == O_CREAT) {
+            res |= MODE_CREATE;
+        }
+        if ((mode & O_TRUNC) == O_TRUNC) {
+            res |= MODE_TRUNCATE;
+        }
+        if ((mode & O_APPEND) == O_APPEND) {
+            res |= MODE_APPEND;
+        }
+        return res;
+    }
+
+    /** {@hide} */
+    public static int translateModePfdToPosix(int mode) {
+        int res = 0;
+        if ((mode & MODE_READ_WRITE) == MODE_READ_WRITE) {
+            res = O_RDWR;
+        } else if ((mode & MODE_WRITE_ONLY) == MODE_WRITE_ONLY) {
+            res = O_WRONLY;
+        } else if ((mode & MODE_READ_ONLY) == MODE_READ_ONLY) {
+            res = O_RDONLY;
+        } else {
+            throw new IllegalArgumentException("Bad mode: " + mode);
+        }
+        if ((mode & MODE_CREATE) == MODE_CREATE) {
+            res |= O_CREAT;
+        }
+        if ((mode & MODE_TRUNCATE) == MODE_TRUNCATE) {
+            res |= O_TRUNC;
+        }
+        if ((mode & MODE_APPEND) == MODE_APPEND) {
+            res |= O_APPEND;
+        }
+        return res;
+    }
+
+    /** {@hide} */
+    public static int translateModeAccessToPosix(int mode) {
+        if (mode == F_OK) {
+            // There's not an exact mapping, so we attempt a read-only open to
+            // determine if a file exists
+            return O_RDONLY;
+        } else if ((mode & (R_OK | W_OK)) == (R_OK | W_OK)) {
+            return O_RDWR;
+        } else if ((mode & R_OK) == R_OK) {
+            return O_RDONLY;
+        } else if ((mode & W_OK) == W_OK) {
+            return O_WRONLY;
+        } else {
+            throw new IllegalArgumentException("Bad mode: " + mode);
+        }
+    }
+
+    /** {@hide} */
+    @VisibleForTesting
+    public static class MemoryPipe extends Thread implements AutoCloseable {
+        private final FileDescriptor[] pipe;
+        private final byte[] data;
+        private final boolean sink;
+
+        private MemoryPipe(byte[] data, boolean sink) throws IOException {
+            try {
+                this.pipe = Os.pipe();
+            } catch (ErrnoException e) {
+                throw e.rethrowAsIOException();
+            }
+            this.data = data;
+            this.sink = sink;
+        }
+
+        private MemoryPipe startInternal() {
+            super.start();
+            return this;
+        }
+
+        public static MemoryPipe createSource(byte[] data) throws IOException {
+            return new MemoryPipe(data, false).startInternal();
+        }
+
+        public static MemoryPipe createSink(byte[] data) throws IOException {
+            return new MemoryPipe(data, true).startInternal();
+        }
+
+        public FileDescriptor getFD() {
+            return sink ? pipe[1] : pipe[0];
+        }
+
+        public FileDescriptor getInternalFD() {
+            return sink ? pipe[0] : pipe[1];
+        }
+
+        @Override
+        public void run() {
+            final FileDescriptor fd = getInternalFD();
+            try {
+                int i = 0;
+                while (i < data.length) {
+                    if (sink) {
+                        i += Os.read(fd, data, i, data.length - i);
+                    } else {
+                        i += Os.write(fd, data, i, data.length - i);
+                    }
+                }
+            } catch (IOException | ErrnoException e) {
+                // Ignored
+            } finally {
+                if (sink) {
+                    SystemClock.sleep(TimeUnit.SECONDS.toMillis(1));
+                }
+                IoUtils.closeQuietly(fd);
+            }
+        }
+
+        @Override
+        public void close() throws Exception {
+            IoUtils.closeQuietly(getFD());
+        }
     }
 }

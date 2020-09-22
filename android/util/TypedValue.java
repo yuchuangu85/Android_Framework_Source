@@ -187,6 +187,27 @@ public class TypedValue {
     /**
      * If the value came from a resource, these are the configurations for
      * which its contents can change.
+     *
+     * <p>For example, if a resource has a value defined for the -land resource qualifier,
+     * this field will have the {@link android.content.pm.ActivityInfo#CONFIG_ORIENTATION} bit set.
+     * </p>
+     *
+     * @see android.content.pm.ActivityInfo#CONFIG_MCC
+     * @see android.content.pm.ActivityInfo#CONFIG_MNC
+     * @see android.content.pm.ActivityInfo#CONFIG_LOCALE
+     * @see android.content.pm.ActivityInfo#CONFIG_TOUCHSCREEN
+     * @see android.content.pm.ActivityInfo#CONFIG_KEYBOARD
+     * @see android.content.pm.ActivityInfo#CONFIG_KEYBOARD_HIDDEN
+     * @see android.content.pm.ActivityInfo#CONFIG_NAVIGATION
+     * @see android.content.pm.ActivityInfo#CONFIG_ORIENTATION
+     * @see android.content.pm.ActivityInfo#CONFIG_SCREEN_LAYOUT
+     * @see android.content.pm.ActivityInfo#CONFIG_UI_MODE
+     * @see android.content.pm.ActivityInfo#CONFIG_SCREEN_SIZE
+     * @see android.content.pm.ActivityInfo#CONFIG_SMALLEST_SCREEN_SIZE
+     * @see android.content.pm.ActivityInfo#CONFIG_DENSITY
+     * @see android.content.pm.ActivityInfo#CONFIG_LAYOUT_DIRECTION
+     * @see android.content.pm.ActivityInfo#CONFIG_COLOR_MODE
+     *
      */
     public @Config int changingConfigurations = -1;
 
@@ -194,6 +215,12 @@ public class TypedValue {
      * If the Value came from a resource, this holds the corresponding pixel density.
      * */
     public int density;
+
+    /**
+     * If the Value came from a style resource or a layout resource (set in an XML layout), this
+     * holds the corresponding style or layout resource id against which the attribute was resolved.
+     */
+    public int sourceResourceId;
 
     /* ------------------------------------------------------------ */
 
@@ -209,6 +236,18 @@ public class TypedValue {
         1.0f*MANTISSA_MULT, 1.0f/(1<<7)*MANTISSA_MULT,
         1.0f/(1<<15)*MANTISSA_MULT, 1.0f/(1<<23)*MANTISSA_MULT
     };
+
+    /**
+     * Determine if a value is a color.
+     *
+     * This works by comparing {@link #type} to {@link #TYPE_FIRST_COLOR_INT}
+     * and {@link #TYPE_LAST_COLOR_INT}.
+     *
+     * @return true if this value is a color
+     */
+    public boolean isColorType() {
+        return (type >= TYPE_FIRST_COLOR_INT && type <= TYPE_LAST_COLOR_INT);
+    }
 
     /**
      * Retrieve the base value from a complex data integer.  This uses the 
@@ -300,7 +339,7 @@ public class TypedValue {
                 (data>>COMPLEX_UNIT_SHIFT)&COMPLEX_UNIT_MASK,
                 value,
                 metrics);
-        final int res = (int)(f+0.5f);
+        final int res = (int) ((f >= 0) ? (f + 0.5f) : (f - 0.5f));
         if (res != 0) return res;
         if (value == 0) return 0;
         if (value > 0) return 1;

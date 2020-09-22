@@ -109,7 +109,7 @@ public final class NetworkStatsAccess {
         final TelephonyManager tm = (TelephonyManager)
                 context.getSystemService(Context.TELEPHONY_SERVICE);
         boolean hasCarrierPrivileges = tm != null &&
-                tm.checkCarrierPrivilegesForPackage(callingPackage) ==
+                tm.checkCarrierPrivilegesForPackageAnyPhone(callingPackage) ==
                         TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS;
         boolean isDeviceOwner = dpmi != null && dpmi.isActiveAdminWithPolicy(callingUid,
                 DeviceAdminInfo.USES_POLICY_DEVICE_OWNER);
@@ -174,7 +174,7 @@ public final class NetworkStatsAccess {
             AppOpsManager appOps = (AppOpsManager) context.getSystemService(
                     Context.APP_OPS_SERVICE);
 
-            final int mode = appOps.checkOp(AppOpsManager.OP_GET_USAGE_STATS,
+            final int mode = appOps.noteOp(AppOpsManager.OP_GET_USAGE_STATS,
                     callingUid, callingPackage);
             if (mode == AppOpsManager.MODE_DEFAULT) {
                 // The default behavior here is to check if PackageManager has given the app

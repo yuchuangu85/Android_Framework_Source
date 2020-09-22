@@ -111,13 +111,15 @@ public class LegacyMetadataMapper {
      *
      * @param parameters A non-{@code null} parameters set
      * @param info Camera info with camera facing direction and angle of orientation
+     * @param cameraId Current camera Id
+     * @param displaySize Device display size
      *
      * @return static camera characteristics for a camera device
      *
      * @throws NullPointerException if any of the args were {@code null}
      */
     public static CameraCharacteristics createCharacteristics(Camera.Parameters parameters,
-            CameraInfo info) {
+            CameraInfo info, int cameraId, Size displaySize) {
         checkNotNull(parameters, "parameters must not be null");
         checkNotNull(info, "info must not be null");
 
@@ -125,7 +127,7 @@ public class LegacyMetadataMapper {
         android.hardware.CameraInfo outerInfo = new android.hardware.CameraInfo();
         outerInfo.info = info;
 
-        return createCharacteristics(paramStr, outerInfo);
+        return createCharacteristics(paramStr, outerInfo, cameraId, displaySize);
     }
 
     /**
@@ -134,12 +136,14 @@ public class LegacyMetadataMapper {
      *
      * @param parameters A string parseable by {@link Camera.Parameters#unflatten}
      * @param info Camera info with camera facing direction and angle of orientation
+     * @param cameraId Current camera id
+     * @param displaySize Device display size
      * @return static camera characteristics for a camera device
      *
      * @throws NullPointerException if any of the args were {@code null}
      */
     public static CameraCharacteristics createCharacteristics(String parameters,
-            android.hardware.CameraInfo info) {
+            android.hardware.CameraInfo info, int cameraId, Size displaySize) {
         checkNotNull(parameters, "parameters must not be null");
         checkNotNull(info, "info must not be null");
         checkNotNull(info.info, "info.info must not be null");
@@ -158,6 +162,9 @@ public class LegacyMetadataMapper {
             m.dumpToLog();
             Log.v(TAG, "--------------------------------------------------- (end)");
         }
+
+        m.setCameraId(cameraId);
+        m.setDisplaySize(displaySize);
 
         return new CameraCharacteristics(m);
     }
@@ -646,7 +653,7 @@ public class LegacyMetadataMapper {
 
         // Special case where the only scene mode listed is AUTO => no scene mode
         if (sceneModes != null && sceneModes.size() == 1 &&
-                sceneModes.get(0) == Parameters.SCENE_MODE_AUTO) {
+                sceneModes.get(0).equals(Parameters.SCENE_MODE_AUTO)) {
             supportedSceneModes = null;
         }
 
@@ -764,6 +771,7 @@ public class LegacyMetadataMapper {
                     CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES                     ,
                     CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE                      ,
                     CameraCharacteristics.CONTROL_MAX_REGIONS                             ,
+                    CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE                        ,
                     CameraCharacteristics.FLASH_INFO_AVAILABLE                            ,
                     CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL                   ,
                     CameraCharacteristics.JPEG_AVAILABLE_THUMBNAIL_SIZES                  ,
@@ -781,6 +789,7 @@ public class LegacyMetadataMapper {
                     CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE                   ,
                     CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE                       ,
                     CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE                    ,
+                    CameraCharacteristics.SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE    ,
                     CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE                    ,
                     CameraCharacteristics.SENSOR_ORIENTATION                              ,
                     CameraCharacteristics.STATISTICS_INFO_AVAILABLE_FACE_DETECT_MODES     ,
@@ -820,6 +829,7 @@ public class LegacyMetadataMapper {
                     CaptureRequest.CONTROL_MODE,
                     CaptureRequest.CONTROL_SCENE_MODE,
                     CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                    CaptureRequest.CONTROL_ZOOM_RATIO,
                     CaptureRequest.FLASH_MODE,
                     CaptureRequest.JPEG_GPS_COORDINATES,
                     CaptureRequest.JPEG_GPS_PROCESSING_METHOD,
@@ -864,6 +874,7 @@ public class LegacyMetadataMapper {
                     CaptureResult.CONTROL_AWB_MODE                                 ,
                     CaptureResult.CONTROL_AWB_LOCK                                 ,
                     CaptureResult.CONTROL_MODE                                     ,
+                    CaptureResult.CONTROL_ZOOM_RATIO                               ,
                     CaptureResult.FLASH_MODE                                       ,
                     CaptureResult.JPEG_GPS_COORDINATES                             ,
                     CaptureResult.JPEG_GPS_PROCESSING_METHOD                       ,
@@ -927,6 +938,12 @@ public class LegacyMetadataMapper {
 
     private static void mapScaler(CameraMetadataNative m, Parameters p) {
         /*
+         * control.zoomRatioRange
+         */
+        Range<Float> zoomRatioRange = new Range<Float>(1.0f, ParameterUtils.getMaxZoomRatio(p));
+        m.set(CONTROL_ZOOM_RATIO_RANGE, zoomRatioRange);
+
+        /*
          * scaler.availableMaxDigitalZoom
          */
         m.set(SCALER_AVAILABLE_MAX_DIGITAL_ZOOM, ParameterUtils.getMaxZoomRatio(p));
@@ -941,11 +958,12 @@ public class LegacyMetadataMapper {
         // Use the largest jpeg size (by area) for both active array and pixel array
         Size largestJpegSize = getLargestSupportedJpegSizeByArea(p);
         /*
-         * sensor.info.activeArraySize
+         * sensor.info.activeArraySize, and preCorrectionActiveArraySize
          */
         {
             Rect activeArrayRect = ParamsUtils.createRect(largestJpegSize);
             m.set(SENSOR_INFO_ACTIVE_ARRAY_SIZE, activeArrayRect);
+            m.set(SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE, activeArrayRect);
         }
 
         /*
@@ -1373,6 +1391,9 @@ public class LegacyMetadataMapper {
 
         // control.sceneMode -- DISABLED is always available
         m.set(CaptureRequest.CONTROL_SCENE_MODE, CONTROL_SCENE_MODE_DISABLED);
+
+        // control.zoomRatio -- 1.0
+        m.set(CaptureRequest.CONTROL_ZOOM_RATIO, 1.0f);
 
         /*
          * statistics.*

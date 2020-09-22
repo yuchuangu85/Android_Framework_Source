@@ -16,28 +16,27 @@
 
 package com.android.settingslib;
 
+import static com.android.settingslib.RestrictedLockUtils.EnforcedAdmin;
+
 import android.content.Context;
 import android.os.UserHandle;
-import android.support.v4.content.res.TypedArrayUtils;
-import android.support.v7.preference.Preference;
-import android.support.v7.preference.PreferenceManager;
-import android.support.v7.preference.PreferenceViewHolder;
 import android.util.AttributeSet;
 import android.view.View;
 
-import static com.android.settingslib.RestrictedLockUtils.EnforcedAdmin;
+import androidx.core.content.res.TypedArrayUtils;
+import androidx.preference.PreferenceManager;
+import androidx.preference.PreferenceViewHolder;
 
 /**
  * Preference class that supports being disabled by a user restriction
  * set by a device admin.
  */
-public class RestrictedPreference extends Preference {
+public class RestrictedPreference extends TwoTargetPreference {
     RestrictedPreferenceHelper mHelper;
 
     public RestrictedPreference(Context context, AttributeSet attrs,
             int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
-        setWidgetLayoutResource(R.layout.restricted_icon);
         mHelper = new RestrictedPreferenceHelper(context, this, attrs);
     }
 
@@ -46,13 +45,22 @@ public class RestrictedPreference extends Preference {
     }
 
     public RestrictedPreference(Context context, AttributeSet attrs) {
-        this(context, attrs, TypedArrayUtils.getAttr(context,
-                android.support.v7.preference.R.attr.preferenceStyle,
+        this(context, attrs, TypedArrayUtils.getAttr(context, R.attr.preferenceStyle,
                 android.R.attr.preferenceStyle));
     }
 
     public RestrictedPreference(Context context) {
         this(context, null);
+    }
+
+    @Override
+    protected int getSecondTargetResId() {
+        return R.layout.restricted_icon;
+    }
+
+    @Override
+    protected boolean shouldHideSecondTarget() {
+        return !isDisabledByAdmin();
     }
 
     @Override

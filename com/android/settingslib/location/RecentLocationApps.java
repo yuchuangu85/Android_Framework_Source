@@ -16,20 +16,24 @@
 
 package com.android.settingslib.location;
 
-import android.app.AppGlobals;
 import android.app.AppOpsManager;
 import android.content.Context;
+import android.content.PermissionChecker;
 import android.content.pm.ApplicationInfo;
-import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
 import android.graphics.drawable.Drawable;
-import android.os.Process;
-import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
+import android.text.format.DateUtils;
+import android.util.IconDrawableFactory;
 import android.util.Log;
 
+import androidx.annotation.VisibleForTesting;
+
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -37,31 +41,44 @@ import java.util.List;
  */
 public class RecentLocationApps {
     private static final String TAG = RecentLocationApps.class.getSimpleName();
-    private static final String ANDROID_SYSTEM_PACKAGE_NAME = "android";
+    @VisibleForTesting
+    static final String ANDROID_SYSTEM_PACKAGE_NAME = "android";
 
-    private static final int RECENT_TIME_INTERVAL_MILLIS = 15 * 60 * 1000;
+    // Keep last 24 hours of location app information.
+    private static final long RECENT_TIME_INTERVAL_MILLIS = DateUtils.DAY_IN_MILLIS;
 
-    private static final int[] LOCATION_OPS = new int[] {
+    @VisibleForTesting
+    static final int[] LOCATION_REQUEST_OPS = new int[]{
             AppOpsManager.OP_MONITOR_LOCATION,
             AppOpsManager.OP_MONITOR_HIGH_POWER_LOCATION,
+    };
+    @VisibleForTesting
+    static final int[] LOCATION_PERMISSION_OPS = new int[]{
+            AppOpsManager.OP_FINE_LOCATION,
+            AppOpsManager.OP_COARSE_LOCATION,
     };
 
     private final PackageManager mPackageManager;
     private final Context mContext;
+    private final IconDrawableFactory mDrawableFactory;
 
     public RecentLocationApps(Context context) {
         mContext = context;
         mPackageManager = context.getPackageManager();
+        mDrawableFactory = IconDrawableFactory.newInstance(context);
     }
 
     /**
      * Fills a list of applications which queried location recently within specified time.
+     * Apps are sorted by recency. Apps with more recent location requests are in the front.
      */
-    public List<Request> getAppList() {
+    public List<Request> getAppList(boolean showSystemApps) {
+        // Retrieve a location usage list from AppOps
+        PackageManager pm = mContext.getPackageManager();
         // Retrieve a location usage list from AppOps
         AppOpsManager aoManager =
                 (AppOpsManager) mContext.getSystemService(Context.APP_OPS_SERVICE);
-        List<AppOpsManager.PackageOps> appOps = aoManager.getPackagesForOps(LOCATION_OPS);
+        List<AppOpsManager.PackageOps> appOps = aoManager.getPackagesForOps(LOCATION_REQUEST_OPS);
 
         final int appOpsCount = appOps != null ? appOps.size() : 0;
 
@@ -77,18 +94,65 @@ public class RecentLocationApps {
             // Also don't show apps belonging to background users except managed users.
             String packageName = ops.getPackageName();
             int uid = ops.getUid();
-            int userId = UserHandle.getUserId(uid);
+            final UserHandle user = UserHandle.getUserHandleForUid(uid);
+
             boolean isAndroidOs =
-                    (uid == Process.SYSTEM_UID) && ANDROID_SYSTEM_PACKAGE_NAME.equals(packageName);
-            if (isAndroidOs || !profiles.contains(new UserHandle(userId))) {
+                    (uid == android.os.Process.SYSTEM_UID) && ANDROID_SYSTEM_PACKAGE_NAME.equals(
+                            packageName);
+            if (isAndroidOs || !profiles.contains(user)) {
                 continue;
             }
-            Request request = getRequestFromOps(now, ops);
-            if (request != null) {
-                requests.add(request);
+
+            // Don't show apps that do not have user sensitive location permissions
+            boolean showApp = true;
+            if (!showSystemApps) {
+                for (int op : LOCATION_PERMISSION_OPS) {
+                    final String permission = AppOpsManager.opToPermission(op);
+                    final int permissionFlags = pm.getPermissionFlags(permission, packageName,
+                            user);
+                    if (PermissionChecker.checkPermissionForPreflight(mContext, permission,
+                            PermissionChecker.PID_UNKNOWN, uid, packageName)
+                                    == PermissionChecker.PERMISSION_GRANTED) {
+                        if ((permissionFlags
+                                & PackageManager.FLAG_PERMISSION_USER_SENSITIVE_WHEN_GRANTED)
+                                == 0) {
+                            showApp = false;
+                            break;
+                        }
+                    } else {
+                        if ((permissionFlags
+                                & PackageManager.FLAG_PERMISSION_USER_SENSITIVE_WHEN_DENIED) == 0) {
+                            showApp = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (showApp) {
+                Request request = getRequestFromOps(now, ops);
+                if (request != null) {
+                    requests.add(request);
+                }
             }
         }
+        return requests;
+    }
 
+    /**
+     * Gets a list of apps that requested for location recently, sorting by recency.
+     *
+     * @param showSystemApps whether includes system apps in the list.
+     * @return the list of apps that recently requested for location.
+     */
+    public List<Request> getAppListSorted(boolean showSystemApps) {
+        List<Request> requests = getAppList(showSystemApps);
+        // Sort the list of Requests by recency. Most recent request first.
+        Collections.sort(requests, Collections.reverseOrder(new Comparator<Request>() {
+            @Override
+            public int compare(Request request1, Request request2) {
+                return Long.compare(request1.requestFinishTime, request2.requestFinishTime);
+            }
+        }));
         return requests;
     }
 
@@ -105,10 +169,12 @@ public class RecentLocationApps {
         List<AppOpsManager.OpEntry> entries = ops.getOps();
         boolean highBattery = false;
         boolean normalBattery = false;
+        long locationRequestFinishTime = 0L;
         // Earliest time for a location request to end and still be shown in list.
         long recentLocationCutoffTime = now - RECENT_TIME_INTERVAL_MILLIS;
         for (AppOpsManager.OpEntry entry : entries) {
             if (entry.isRunning() || entry.getTime() >= recentLocationCutoffTime) {
+                locationRequestFinishTime = entry.getTime() + entry.getDuration();
                 switch (entry.getOp()) {
                     case AppOpsManager.OP_MONITOR_LOCATION:
                         normalBattery = true;
@@ -130,15 +196,13 @@ public class RecentLocationApps {
         }
 
         // The package is fresh enough, continue.
-
         int uid = ops.getUid();
         int userId = UserHandle.getUserId(uid);
 
         Request request = null;
         try {
-            IPackageManager ipm = AppGlobals.getPackageManager();
-            ApplicationInfo appInfo =
-                    ipm.getApplicationInfo(packageName, PackageManager.GET_META_DATA, userId);
+            ApplicationInfo appInfo = mPackageManager.getApplicationInfoAsUser(
+                    packageName, PackageManager.GET_META_DATA, userId);
             if (appInfo == null) {
                 Log.w(TAG, "Null application info retrieved for package " + packageName
                         + ", userId " + userId);
@@ -146,8 +210,7 @@ public class RecentLocationApps {
             }
 
             final UserHandle userHandle = new UserHandle(userId);
-            Drawable appIcon = mPackageManager.getApplicationIcon(appInfo);
-            Drawable icon = mPackageManager.getUserBadgedIcon(appIcon, userHandle);
+            Drawable icon = mDrawableFactory.getBadgedIcon(appInfo, userId);
             CharSequence appLabel = mPackageManager.getApplicationLabel(appInfo);
             CharSequence badgedAppLabel = mPackageManager.getUserBadgedLabel(appLabel, userHandle);
             if (appLabel.toString().contentEquals(badgedAppLabel)) {
@@ -156,12 +219,10 @@ public class RecentLocationApps {
                 badgedAppLabel = null;
             }
             request = new Request(packageName, userHandle, icon, appLabel, highBattery,
-                    badgedAppLabel);
-        } catch (RemoteException e) {
-            Log.w(TAG, "Error while retrieving application info for package " + packageName
-                    + ", userId " + userId, e);
+                    badgedAppLabel, locationRequestFinishTime);
+        } catch (NameNotFoundException e) {
+            Log.w(TAG, "package name not found for " + packageName + ", userId " + userId);
         }
-
         return request;
     }
 
@@ -172,15 +233,18 @@ public class RecentLocationApps {
         public final CharSequence label;
         public final boolean isHighBattery;
         public final CharSequence contentDescription;
+        public final long requestFinishTime;
 
-        private Request(String packageName, UserHandle userHandle, Drawable icon,
-                CharSequence label, boolean isHighBattery, CharSequence contentDescription) {
+        public Request(String packageName, UserHandle userHandle, Drawable icon,
+                CharSequence label, boolean isHighBattery, CharSequence contentDescription,
+                long requestFinishTime) {
             this.packageName = packageName;
             this.userHandle = userHandle;
             this.icon = icon;
             this.label = label;
             this.isHighBattery = isHighBattery;
             this.contentDescription = contentDescription;
+            this.requestFinishTime = requestFinishTime;
         }
     }
 }

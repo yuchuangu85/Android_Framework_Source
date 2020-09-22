@@ -15,7 +15,9 @@
 
 package android.graphics;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.AssetManager;
+import android.os.Build;
 
 import java.io.FileDescriptor;
 import java.io.FileInputStream;
@@ -165,6 +167,7 @@ public final class BitmapRegionDecoder {
 
         This can be called from JNI code.
     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private BitmapRegionDecoder(long decoder) {
         mNativeBitmapRegionDecoder = decoder;
         mRecycled = false;
@@ -178,15 +181,23 @@ public final class BitmapRegionDecoder {
      *             inPurgeable is not supported.
      * @return The decoded bitmap, or null if the image data could not be
      *         decoded.
+     * @throws IllegalArgumentException if {@link BitmapFactory.Options#inPreferredConfig}
+     *         is {@link android.graphics.Bitmap.Config#HARDWARE}
+     *         and {@link BitmapFactory.Options#inMutable} is set, if the specified color space
+     *         is not {@link ColorSpace.Model#RGB RGB}, or if the specified color space's transfer
+     *         function is not an {@link ColorSpace.Rgb.TransferParameters ICC parametric curve}
      */
     public Bitmap decodeRegion(Rect rect, BitmapFactory.Options options) {
+        BitmapFactory.Options.validate(options);
         synchronized (mNativeLock) {
             checkRecycled("decodeRegion called on recycled region decoder");
             if (rect.right <= 0 || rect.bottom <= 0 || rect.left >= getWidth()
                     || rect.top >= getHeight())
                 throw new IllegalArgumentException("rectangle is outside the image");
             return nativeDecodeRegion(mNativeBitmapRegionDecoder, rect.left, rect.top,
-                    rect.right - rect.left, rect.bottom - rect.top, options);
+                    rect.right - rect.left, rect.bottom - rect.top, options,
+                    BitmapFactory.Options.nativeInBitmap(options),
+                    BitmapFactory.Options.nativeColorSpace(options));
         }
     }
 
@@ -256,11 +267,13 @@ public final class BitmapRegionDecoder {
 
     private static native Bitmap nativeDecodeRegion(long lbm,
             int start_x, int start_y, int width, int height,
-            BitmapFactory.Options options);
+            BitmapFactory.Options options, long inBitmapHandle,
+            long colorSpaceHandle);
     private static native int nativeGetWidth(long lbm);
     private static native int nativeGetHeight(long lbm);
     private static native void nativeClean(long lbm);
 
+    @UnsupportedAppUsage
     private static native BitmapRegionDecoder nativeNewInstance(
             byte[] data, int offset, int length, boolean isShareable);
     private static native BitmapRegionDecoder nativeNewInstance(

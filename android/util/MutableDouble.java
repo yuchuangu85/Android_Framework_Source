@@ -17,11 +17,13 @@
 package android.util;
 
 /**
+ * @deprecated This class will be removed from a future version of the Android API.
  */
+@Deprecated
 public final class MutableDouble {
-  public double value;
+    public double value;
 
-  public MutableDouble(double value) {
-    this.value = value;
-  }
+    public MutableDouble(double value) {
+        this.value = value;
+    }
 }

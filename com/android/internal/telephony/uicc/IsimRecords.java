@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * {@hide}
  */
@@ -26,6 +28,7 @@ public interface IsimRecords {
      * Returns null if the IMPI hasn't been loaded or isn't present on the ISIM.
      * @return the IMS private user identity string, or null if not available
      */
+    @UnsupportedAppUsage
     String getIsimImpi();
 
     /**
@@ -33,6 +36,7 @@ public interface IsimRecords {
      * Returns null if the IMS domain hasn't been loaded or isn't present on the ISIM.
      * @return the IMS home network domain name, or null if not available
      */
+    @UnsupportedAppUsage
     String getIsimDomain();
 
     /**
@@ -40,6 +44,7 @@ public interface IsimRecords {
      * Returns null if the IMPU hasn't been loaded or isn't present on the ISIM.
      * @return an array of IMS public user identity strings, or null if not available
      */
+    @UnsupportedAppUsage
     String[] getIsimImpu();
 
     /**
@@ -54,11 +59,4 @@ public interface IsimRecords {
      *      not present or not loaded
      */
     String[] getIsimPcscf();
-
-    /**
-     * Returns the response of ISIM Authetification through RIL.
-     * Returns null if the Authentification hasn't been successed or isn't present iphonesubinfo.
-     * @return the response of ISIM Authetification, or null if not available
-     */
-    String getIsimChallengeResponse(String nonce);
 }

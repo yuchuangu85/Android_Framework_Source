@@ -16,10 +16,10 @@
 
 package android.view.textservice;
 
-import com.android.internal.util.ArrayUtils;
-
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import com.android.internal.util.ArrayUtils;
 
 /**
  * This class contains a metadata of suggestions from the text service
@@ -162,7 +162,7 @@ public final class SuggestionsInfo implements Parcelable {
     /**
      * Used to make this class parcelable.
      */
-    public static final Parcelable.Creator<SuggestionsInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<SuggestionsInfo> CREATOR
             = new Parcelable.Creator<SuggestionsInfo>() {
         @Override
         public SuggestionsInfo createFromParcel(Parcel source) {

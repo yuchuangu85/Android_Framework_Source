@@ -17,16 +17,16 @@
 package android.media;
 
 
-import java.io.FileDescriptor;
-import java.lang.ref.WeakReference;
-import java.lang.CloneNotSupportedException;
-
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.AssetFileDescriptor;
-import android.os.Looper;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
 import android.util.AndroidRuntimeException;
 import android.util.Log;
+
+import java.io.FileDescriptor;
+import java.lang.ref.WeakReference;
 
 /**
  * JetPlayer provides access to JET content playback and control.
@@ -119,6 +119,9 @@ public class JetPlayer
     
     private static JetPlayer singletonRef;
     
+    static {
+        System.loadLibrary("media_jni");
+    }
     
     //--------------------------------
     // Used exclusively by native code
@@ -127,6 +130,7 @@ public class JetPlayer
      * Accessed by native methods: provides access to C++ JetPlayer object 
      */
     @SuppressWarnings("unused")
+    @UnsupportedAppUsage
     private long mNativePlayerInJavaObj;
 
     
@@ -560,6 +564,7 @@ public class JetPlayer
     // Called exclusively by native code
     //--------------------
     @SuppressWarnings("unused")
+    @UnsupportedAppUsage
     private static void postEventFromNative(Object jetplayer_ref,
             int what, int arg1, int arg2) {
         //logd("Event posted from the native side: event="+ what + " args="+ arg1+" "+arg2);

@@ -16,6 +16,11 @@
 package android.util;
 
 import android.text.TextUtils;
+import android.util.proto.ProtoOutputStream;
+
+import java.io.PrintWriter;
+import java.time.Duration;
+import java.time.format.DateTimeParseException;
 
 /**
  * Parses a list of key=value pairs, separated by some delimiter, and puts the results in
@@ -128,5 +133,297 @@ public class KeyValueListParser {
             return value;
         }
         return def;
+    }
+
+    /**
+     * Get the value for key as a boolean.
+     * @param key The key to lookup.
+     * @param def The value to return if the key was not found.
+     * @return the string value associated with the key.
+     */
+    public boolean getBoolean(String key, boolean def) {
+        String value = mValues.get(key);
+        if (value != null) {
+            try {
+                return Boolean.parseBoolean(value);
+            } catch (NumberFormatException e) {
+                // fallthrough
+            }
+        }
+        return def;
+    }
+
+    /**
+     * Get the value for key as an integer array.
+     *
+     * The value should be encoded as "0:1:2:3:4"
+     *
+     * @param key The key to lookup.
+     * @param def The value to return if the key was not found.
+     * @return the int[] value associated with the key.
+     */
+    public int[] getIntArray(String key, int[] def) {
+        String value = mValues.get(key);
+        if (value != null) {
+            try {
+                String[] parts = value.split(":");
+                if (parts.length > 0) {
+                    int[] ret = new int[parts.length];
+                    for (int i = 0; i < parts.length; i++) {
+                        ret[i] = Integer.parseInt(parts[i]);
+                    }
+                    return ret;
+                }
+            } catch (NumberFormatException e) {
+                // fallthrough
+            }
+        }
+        return def;
+    }
+
+    /**
+     * @return the number of keys.
+     */
+    public int size() {
+        return mValues.size();
+    }
+
+    /**
+     * @return the key at {@code index}. Use with {@link #size()} to enumerate all key-value pairs.
+     */
+    public String keyAt(int index) {
+        return mValues.keyAt(index);
+    }
+
+    /**
+     * {@hide}
+     * Parse a duration in millis based on java.time.Duration or just a number (millis)
+     */
+    public long getDurationMillis(String key, long def) {
+        String value = mValues.get(key);
+        if (value != null) {
+            try {
+                if (value.startsWith("P") || value.startsWith("p")) {
+                    return Duration.parse(value).toMillis();
+                } else {
+                    return Long.parseLong(value);
+                }
+            } catch (NumberFormatException | DateTimeParseException e) {
+                // fallthrough
+            }
+        }
+        return def;
+    }
+
+    /** Represents an integer config value. */
+    public static class IntValue {
+        private final String mKey;
+        private final int mDefaultValue;
+        private int mValue;
+
+        /** Constructor, initialize with a config key and a default value. */
+        public IntValue(String key, int defaultValue) {
+            mKey = key;
+            mDefaultValue = defaultValue;
+            mValue = mDefaultValue;
+        }
+
+        /** Read a value from {@link KeyValueListParser} */
+        public void parse(KeyValueListParser parser) {
+            mValue = parser.getInt(mKey, mDefaultValue);
+        }
+
+        /** Return the config key. */
+        public String getKey() {
+            return mKey;
+        }
+
+        /** Return the default value. */
+        public int getDefaultValue() {
+            return mDefaultValue;
+        }
+
+        /** Return the actual config value. */
+        public int getValue() {
+            return mValue;
+        }
+
+        /** Overwrites with a value. */
+        public void setValue(int value) {
+            mValue = value;
+        }
+
+        /** Used for dumpsys */
+        public void dump(PrintWriter pw, String prefix) {
+            pw.print(prefix);
+            pw.print(mKey);
+            pw.print("=");
+            pw.print(mValue);
+            pw.println();
+        }
+
+        /** Used for proto dumpsys */
+        public void dumpProto(ProtoOutputStream proto, long tag) {
+            proto.write(tag, mValue);
+        }
+    }
+
+    /** Represents an long config value. */
+    public static class LongValue {
+        private final String mKey;
+        private final long mDefaultValue;
+        private long mValue;
+
+        /** Constructor, initialize with a config key and a default value. */
+        public LongValue(String key, long defaultValue) {
+            mKey = key;
+            mDefaultValue = defaultValue;
+            mValue = mDefaultValue;
+        }
+
+        /** Read a value from {@link KeyValueListParser} */
+        public void parse(KeyValueListParser parser) {
+            mValue = parser.getLong(mKey, mDefaultValue);
+        }
+
+        /** Return the config key. */
+        public String getKey() {
+            return mKey;
+        }
+
+        /** Return the default value. */
+        public long getDefaultValue() {
+            return mDefaultValue;
+        }
+
+        /** Return the actual config value. */
+        public long getValue() {
+            return mValue;
+        }
+
+        /** Overwrites with a value. */
+        public void setValue(long value) {
+            mValue = value;
+        }
+
+        /** Used for dumpsys */
+        public void dump(PrintWriter pw, String prefix) {
+            pw.print(prefix);
+            pw.print(mKey);
+            pw.print("=");
+            pw.print(mValue);
+            pw.println();
+        }
+
+        /** Used for proto dumpsys */
+        public void dumpProto(ProtoOutputStream proto, long tag) {
+            proto.write(tag, mValue);
+        }
+    }
+
+    /** Represents an string config value. */
+    public static class StringValue {
+        private final String mKey;
+        private final String mDefaultValue;
+        private String mValue;
+
+        /** Constructor, initialize with a config key and a default value. */
+        public StringValue(String key, String defaultValue) {
+            mKey = key;
+            mDefaultValue = defaultValue;
+            mValue = mDefaultValue;
+        }
+
+        /** Read a value from {@link KeyValueListParser} */
+        public void parse(KeyValueListParser parser) {
+            mValue = parser.getString(mKey, mDefaultValue);
+        }
+
+        /** Return the config key. */
+        public String getKey() {
+            return mKey;
+        }
+
+        /** Return the default value. */
+        public String getDefaultValue() {
+            return mDefaultValue;
+        }
+
+        /** Return the actual config value. */
+        public String getValue() {
+            return mValue;
+        }
+
+        /** Overwrites with a value. */
+        public void setValue(String value) {
+            mValue = value;
+        }
+
+        /** Used for dumpsys */
+        public void dump(PrintWriter pw, String prefix) {
+            pw.print(prefix);
+            pw.print(mKey);
+            pw.print("=");
+            pw.print(mValue);
+            pw.println();
+        }
+
+        /** Used for proto dumpsys */
+        public void dumpProto(ProtoOutputStream proto, long tag) {
+            proto.write(tag, mValue);
+        }
+    }
+
+    /** Represents an float config value. */
+    public static class FloatValue {
+        private final String mKey;
+        private final float mDefaultValue;
+        private float mValue;
+
+        /** Constructor, initialize with a config key and a default value. */
+        public FloatValue(String key, float defaultValue) {
+            mKey = key;
+            mDefaultValue = defaultValue;
+            mValue = mDefaultValue;
+        }
+
+        /** Read a value from {@link KeyValueListParser} */
+        public void parse(KeyValueListParser parser) {
+            mValue = parser.getFloat(mKey, mDefaultValue);
+        }
+
+        /** Return the config key. */
+        public String getKey() {
+            return mKey;
+        }
+
+        /** Return the default value. */
+        public float getDefaultValue() {
+            return mDefaultValue;
+        }
+
+        /** Return the actual config value. */
+        public float getValue() {
+            return mValue;
+        }
+
+        /** Overwrites with a value. */
+        public void setValue(float value) {
+            mValue = value;
+        }
+
+        /** Used for dumpsys */
+        public void dump(PrintWriter pw, String prefix) {
+            pw.print(prefix);
+            pw.print(mKey);
+            pw.print("=");
+            pw.print(mValue);
+            pw.println();
+        }
+
+        /** Used for proto dumpsys */
+        public void dumpProto(ProtoOutputStream proto, long tag) {
+            proto.write(tag, mValue);
+        }
     }
 }

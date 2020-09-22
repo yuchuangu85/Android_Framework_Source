@@ -17,6 +17,7 @@
 package com.android.internal.net;
 
 import android.app.PendingIntent;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.net.NetworkInfo;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -38,9 +39,15 @@ public class LegacyVpnInfo implements Parcelable {
     public static final int STATE_TIMEOUT = 4;
     public static final int STATE_FAILED = 5;
 
+    @UnsupportedAppUsage
     public String key;
+    @UnsupportedAppUsage
     public int state = -1;
     public PendingIntent intent;
+
+    @UnsupportedAppUsage
+    public LegacyVpnInfo() {
+    }
 
     @Override
     public int describeContents() {
@@ -54,6 +61,7 @@ public class LegacyVpnInfo implements Parcelable {
         out.writeParcelable(intent, flags);
     }
 
+    @UnsupportedAppUsage
     public static final Parcelable.Creator<LegacyVpnInfo> CREATOR =
             new Parcelable.Creator<LegacyVpnInfo>() {
         @Override

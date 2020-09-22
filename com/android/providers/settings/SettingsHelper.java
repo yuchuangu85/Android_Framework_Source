@@ -16,7 +16,8 @@
 
 package com.android.providers.settings;
 
-import android.app.ActivityManagerNative;
+import android.annotation.NonNull;
+import android.app.ActivityManager;
 import android.app.IActivityManager;
 import android.app.backup.IBackupManager;
 import android.content.ContentResolver;
@@ -24,24 +25,33 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
-import android.location.LocationManager;
+import android.icu.util.ULocale;
 import android.media.AudioManager;
 import android.media.RingtoneManager;
 import android.net.Uri;
-import android.os.IPowerManager;
+import android.os.LocaleList;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.UserHandle;
-import android.os.UserManager;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.ArraySet;
 
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.app.LocalePicker;
+
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Locale;
 
 public class SettingsHelper {
+    private static final String TAG = "SettingsHelper";
     private static final String SILENT_RINGTONE = "_silent";
+    private static final String SETTINGS_REPLACED_KEY = "backup_skip_user_facing_data";
+    private static final String SETTING_ORIGINAL_KEY_SUFFIX = "_original";
+    private static final float FLOAT_TOLERANCE = 0.01f;
+
     private Context mContext;
     private AudioManager mAudioManager;
     private TelephonyManager mTelephonyManager;
@@ -66,7 +76,11 @@ public class SettingsHelper {
         sBroadcastOnRestore.add(Settings.Secure.ENABLED_NOTIFICATION_LISTENERS);
         sBroadcastOnRestore.add(Settings.Secure.ENABLED_VR_LISTENERS);
         sBroadcastOnRestore.add(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        sBroadcastOnRestore.add(Settings.Secure.ENABLED_INPUT_METHODS);
+        sBroadcastOnRestore.add(Settings.Global.BLUETOOTH_ON);
+        sBroadcastOnRestore.add(Settings.Secure.UI_NIGHT_MODE);
+        sBroadcastOnRestore.add(Settings.Secure.DARK_THEME_CUSTOM_START_TIME);
+        sBroadcastOnRestore.add(Settings.Secure.DARK_THEME_CUSTOM_END_TIME);
+        sBroadcastOnRestore.add(Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_NAVBAR_ENABLED);
     }
 
     private interface SettingsLookup {
@@ -109,7 +123,11 @@ public class SettingsHelper {
      * and in some cases the property value needs to be modified before setting.
      */
     public void restoreValue(Context context, ContentResolver cr, ContentValues contentValues,
-            Uri destination, String name, String value) {
+            Uri destination, String name, String value, int restoredFromSdkInt) {
+        if (isReplacedSystemSetting(name)) {
+            return;
+        }
+
         // Will we need a post-restore broadcast for this element?
         String oldValue = null;
         boolean sendBroadcast = false;
@@ -130,21 +148,16 @@ public class SettingsHelper {
         }
 
         try {
-            if (Settings.System.SCREEN_BRIGHTNESS.equals(name)) {
-                setBrightness(Integer.parseInt(value));
-                // fall through to the ordinary write to settings
-            } else if (Settings.System.SOUND_EFFECTS_ENABLED.equals(name)) {
+            if (Settings.System.SOUND_EFFECTS_ENABLED.equals(name)) {
                 setSoundEffects(Integer.parseInt(value) == 1);
                 // fall through to the ordinary write to settings
-            } else if (Settings.Secure.LOCATION_PROVIDERS_ALLOWED.equals(name)) {
-                setGpsLocation(value);
-                return;
             } else if (Settings.Secure.BACKUP_AUTO_RESTORE.equals(name)) {
                 setAutoRestore(Integer.parseInt(value) == 1);
             } else if (isAlreadyConfiguredCriticalAccessibilitySetting(name)) {
                 return;
             } else if (Settings.System.RINGTONE.equals(name)
-                    || Settings.System.NOTIFICATION_SOUND.equals(name)) {
+                    || Settings.System.NOTIFICATION_SOUND.equals(name)
+                    || Settings.System.ALARM_ALERT.equals(name)) {
                 setRingtone(name, value);
                 return;
             }
@@ -166,7 +179,8 @@ public class SettingsHelper {
                         .setPackage("android").addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY)
                         .putExtra(Intent.EXTRA_SETTING_NAME, name)
                         .putExtra(Intent.EXTRA_SETTING_NEW_VALUE, value)
-                        .putExtra(Intent.EXTRA_SETTING_PREVIOUS_VALUE, oldValue);
+                        .putExtra(Intent.EXTRA_SETTING_PREVIOUS_VALUE, oldValue)
+                        .putExtra(Intent.EXTRA_SETTING_RESTORED_FROM_SDK_INT, restoredFromSdkInt);
                 context.sendBroadcastAsUser(intent, UserHandle.SYSTEM, null);
             }
         }
@@ -175,7 +189,8 @@ public class SettingsHelper {
     public String onBackupValue(String name, String value) {
         // Special processing for backing up ringtones & notification sounds
         if (Settings.System.RINGTONE.equals(name)
-                || Settings.System.NOTIFICATION_SOUND.equals(name)) {
+                || Settings.System.NOTIFICATION_SOUND.equals(name)
+                || Settings.System.ALARM_ALERT.equals(name)) {
             if (value == null) {
                 if (Settings.System.RINGTONE.equals(name)) {
                     // For ringtones, we need to distinguish between non-telephony vs telephony
@@ -187,7 +202,7 @@ public class SettingsHelper {
                         return null;
                     }
                 } else {
-                    // Backup a null notification sound as silent
+                    // Backup a null notification sound or alarm alert as silent
                     return SILENT_RINGTONE;
                 }
             } else {
@@ -195,19 +210,46 @@ public class SettingsHelper {
             }
         }
         // Return the original value
-        return value;
+        return isReplacedSystemSetting(name) ? getRealValueForSystemSetting(name) : value;
+    }
+
+    /**
+     * The setting value might have been replaced temporarily. If that's the case, return the real
+     * value instead of the temporary one.
+     */
+    @VisibleForTesting
+    public String getRealValueForSystemSetting(String setting) {
+        // The real value irrespectively of the original setting's namespace is stored in
+        // Settings.Secure.
+        return Settings.Secure.getString(mContext.getContentResolver(),
+                setting + SETTING_ORIGINAL_KEY_SUFFIX);
+    }
+
+    @VisibleForTesting
+    public boolean isReplacedSystemSetting(String setting) {
+        // This list should not be modified.
+        if (!Settings.System.SCREEN_OFF_TIMEOUT.equals(setting)) {
+            return false;
+        }
+        // If this flag is set, values for the system settings from the list above have been
+        // temporarily replaced. We don't want to back up the temporary value or run restore for
+        // such settings.
+        // TODO(154822946): Remove this logic in the next release.
+        return Settings.Secure.getInt(mContext.getContentResolver(), SETTINGS_REPLACED_KEY,
+                /* def */ 0) != 0;
     }
 
     /**
      * Sets the ringtone of type specified by the name.
      *
-     * @param name should be Settings.System.RINGTONE or Settings.System.NOTIFICATION_SOUND.
+     * @param name should be Settings.System.RINGTONE, Settings.System.NOTIFICATION_SOUND
+     * or Settings.System.ALARM_ALERT.
      * @param value can be a canonicalized uri or "_silent" to indicate a silent (null) ringtone.
      */
     private void setRingtone(String name, String value) {
         // If it's null, don't change the default
         if (value == null) return;
-        Uri ringtoneUri = null;
+        final Uri ringtoneUri;
         if (SILENT_RINGTONE.equals(value)) {
             ringtoneUri = null;
         } else {
@@ -218,9 +260,22 @@ public class SettingsHelper {
                 return;
             }
         }
-        final int ringtoneType = Settings.System.RINGTONE.equals(name)
-                ? RingtoneManager.TYPE_RINGTONE : RingtoneManager.TYPE_NOTIFICATION;
+        final int ringtoneType = getRingtoneType(name);
+
         RingtoneManager.setActualDefaultRingtoneUri(mContext, ringtoneType, ringtoneUri);
+    }
+
+    private int getRingtoneType(String name) {
+        switch (name) {
+            case Settings.System.RINGTONE:
+                return RingtoneManager.TYPE_RINGTONE;
+            case Settings.System.NOTIFICATION_SOUND:
+                return RingtoneManager.TYPE_NOTIFICATION;
+            case Settings.System.ALARM_ALERT:
+                return RingtoneManager.TYPE_ALARM;
+            default:
+                throw new IllegalArgumentException("Incorrect ringtone name: " + name);
+        }
     }
 
     private String getCanonicalRingtoneValue(String value) {
@@ -238,19 +293,22 @@ public class SettingsHelper {
         // these features working after the restore.
         switch (name) {
             case Settings.Secure.ACCESSIBILITY_ENABLED:
-            case Settings.Secure.ACCESSIBILITY_SCRIPT_INJECTION:
-            case Settings.Secure.ACCESSIBILITY_SPEAK_PASSWORD:
             case Settings.Secure.TOUCH_EXPLORATION_ENABLED:
             case Settings.Secure.ACCESSIBILITY_DISPLAY_DALTONIZER_ENABLED:
             case Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_ENABLED:
-            case Settings.Secure.UI_NIGHT_MODE:
+            case Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_NAVBAR_ENABLED:
                 return Settings.Secure.getInt(mContext.getContentResolver(), name, 0) != 0;
             case Settings.Secure.TOUCH_EXPLORATION_GRANTED_ACCESSIBILITY_SERVICES:
             case Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES:
             case Settings.Secure.ACCESSIBILITY_DISPLAY_DALTONIZER:
-            case Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_SCALE:
                 return !TextUtils.isEmpty(Settings.Secure.getString(
                         mContext.getContentResolver(), name));
+            case Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_SCALE:
+                float defaultScale = mContext.getResources().getFraction(
+                        R.fraction.def_accessibility_display_magnification_scale, 1, 1);
+                float currentScale = Settings.Secure.getFloat(
+                        mContext.getContentResolver(), name, defaultScale);
+                return Math.abs(currentScale - defaultScale) >= FLOAT_TOLERANCE;
             case Settings.System.FONT_SCALE:
                 return Settings.System.getFloat(mContext.getContentResolver(), name, 1.0f) != 1.0f;
             default:
@@ -268,21 +326,6 @@ public class SettingsHelper {
         } catch (RemoteException e) {}
     }
 
-    private void setGpsLocation(String value) {
-        UserManager um = (UserManager) mContext.getSystemService(Context.USER_SERVICE);
-        if (um.hasUserRestriction(UserManager.DISALLOW_SHARE_LOCATION)) {
-            return;
-        }
-        final String GPS = LocationManager.GPS_PROVIDER;
-        boolean enabled =
-                GPS.equals(value) ||
-                value.startsWith(GPS + ",") ||
-                value.endsWith("," + GPS) ||
-                value.contains("," + GPS + ",");
-        Settings.Secure.setLocationProviderEnabled(
-                mContext.getContentResolver(), GPS, enabled);
-    }
-
     private void setSoundEffects(boolean enable) {
         if (enable) {
             mAudioManager.loadSoundEffects();
@@ -291,65 +334,106 @@ public class SettingsHelper {
         }
     }
 
-    private void setBrightness(int brightness) {
-        try {
-            IPowerManager power = IPowerManager.Stub.asInterface(
-                    ServiceManager.getService("power"));
-            if (power != null) {
-                power.setTemporaryScreenBrightnessSettingOverride(brightness);
-            }
-        } catch (RemoteException doe) {
-
-        }
+    /* package */ byte[] getLocaleData() {
+        Configuration conf = mContext.getResources().getConfiguration();
+        return conf.getLocales().toLanguageTags().getBytes();
     }
 
-    byte[] getLocaleData() {
-        Configuration conf = mContext.getResources().getConfiguration();
-        final Locale loc = conf.locale;
-        String localeString = loc.getLanguage();
-        String country = loc.getCountry();
-        if (!TextUtils.isEmpty(country)) {
-            localeString += "-" + country;
+    private static Locale toFullLocale(@NonNull Locale locale) {
+        if (locale.getScript().isEmpty() || locale.getCountry().isEmpty()) {
+            return ULocale.addLikelySubtags(ULocale.forLocale(locale)).toLocale();
         }
-        return localeString.getBytes();
+        return locale;
     }
 
     /**
-     * Sets the locale specified. Input data is the byte representation of a
-     * BCP-47 language tag. For backwards compatibility, strings of the form
+     * Merging the locale came from backup server and current device locale.
+     *
+     * Merge works with following rules.
+     * - The backup locales are appended to the current locale with keeping order.
+     *   e.g. current locale "en-US,zh-CN" and backup locale "ja-JP,ko-KR" are merged to
+     *   "en-US,zh-CH,ja-JP,ko-KR".
+     *
+     * - Duplicated locales are dropped.
+     *   e.g. current locale "en-US,zh-CN" and backup locale "ja-JP,zh-Hans-CN,en-US" are merged to
+     *   "en-US,zh-CN,ja-JP".
+     *
+     * - Unsupported locales are dropped.
+     *   e.g. current locale "en-US" and backup locale "ja-JP,zh-CN" but the supported locales
+     *   are "en-US,zh-CN", the merged locale list is "en-US,zh-CN".
+     *
+     * - The final result locale list only contains the supported locales.
+     *   e.g. current locale "en-US" and backup locale "zh-Hans-CN" and supported locales are
+     *   "en-US,zh-CN", the merged locale list is "en-US,zh-CN".
+     *
+     * @param restore The locale list that came from backup server.
+     * @param current The device's locale setting.
+     * @param supportedLocales The list of language tags supported by this device.
+     */
+    @VisibleForTesting
+    public static LocaleList resolveLocales(LocaleList restore, LocaleList current,
+            String[] supportedLocales) {
+        final HashMap<Locale, Locale> allLocales = new HashMap<>(supportedLocales.length);
+        for (String supportedLocaleStr : supportedLocales) {
+            final Locale locale = Locale.forLanguageTag(supportedLocaleStr);
+            allLocales.put(toFullLocale(locale), locale);
+        }
+
+        final ArrayList<Locale> filtered = new ArrayList<>(current.size());
+        for (int i = 0; i < current.size(); i++) {
+            final Locale locale = current.get(i);
+            allLocales.remove(toFullLocale(locale));
+            filtered.add(locale);
+        }
+
+        for (int i = 0; i < restore.size(); i++) {
+            final Locale locale = allLocales.remove(toFullLocale(restore.get(i)));
+            if (locale != null) {
+                filtered.add(locale);
+            }
+        }
+
+        if (filtered.size() == current.size()) {
+            return current;  // Nothing added to current locale list.
+        }
+
+        return new LocaleList(filtered.toArray(new Locale[filtered.size()]));
+    }
+
+    /**
+     * Sets the locale specified. Input data is the byte representation of comma separated
+     * multiple BCP-47 language tags. For backwards compatibility, strings of the form
      * {@code ll_CC} are also accepted, where {@code ll} is a two letter language
      * code and {@code CC} is a two letter country code.
      *
-     * @param data the locale string in bytes.
+     * @param data the comma separated BCP-47 language tags in bytes.
      */
-    void setLocaleData(byte[] data, int size) {
-        // Check if locale was set by the user:
-        Configuration conf = mContext.getResources().getConfiguration();
-        // TODO: The following is not working as intended because the network is forcing a locale
-        // change after registering. Need to find some other way to detect if the user manually
-        // changed the locale
-        if (conf.userSetLocale) return; // Don't change if user set it in the SetupWizard
+    /* package */ void setLocaleData(byte[] data, int size) {
+        final Configuration conf = mContext.getResources().getConfiguration();
 
-        final String[] availableLocales = mContext.getAssets().getLocales();
         // Replace "_" with "-" to deal with older backups.
-        String localeCode = new String(data, 0, size).replace('_', '-');
-        Locale loc = null;
-        for (int i = 0; i < availableLocales.length; i++) {
-            if (availableLocales[i].equals(localeCode)) {
-                loc = Locale.forLanguageTag(localeCode);
-                break;
-            }
+        final String localeCodes = new String(data, 0, size).replace('_', '-');
+        final LocaleList localeList = LocaleList.forLanguageTags(localeCodes);
+        if (localeList.isEmpty()) {
+            return;
         }
-        if (loc == null) return; // Couldn't find the saved locale in this version of the software
+
+        final String[] supportedLocales = LocalePicker.getSupportedLocales(mContext);
+        final LocaleList currentLocales = conf.getLocales();
+
+        final LocaleList merged = resolveLocales(localeList, currentLocales, supportedLocales);
+        if (merged.equals(currentLocales)) {
+            return;
+        }
 
         try {
-            IActivityManager am = ActivityManagerNative.getDefault();
+            IActivityManager am = ActivityManager.getService();
             Configuration config = am.getConfiguration();
-            config.locale = loc;
+            config.setLocales(merged);
             // indicate this isn't some passing default - the user wants this remembered
             config.userSetLocale = true;
 
-            am.updateConfiguration(config);
+            am.updatePersistentConfiguration(config);
         } catch (RemoteException e) {
             // Intentionally left blank
         }

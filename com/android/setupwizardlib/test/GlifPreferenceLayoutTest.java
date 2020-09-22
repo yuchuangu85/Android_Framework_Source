@@ -16,94 +16,88 @@
 
 package com.android.setupwizardlib.test;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.os.Build;
-import android.support.v7.widget.RecyclerView;
-import android.test.InstrumentationTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
+import androidx.recyclerview.widget.RecyclerView;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-
+import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import com.android.setupwizardlib.GlifPreferenceLayout;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
 
-public class GlifPreferenceLayoutTest extends InstrumentationTestCase {
+@RunWith(AndroidJUnit4.class)
+@SmallTest
+public class GlifPreferenceLayoutTest {
 
-    private Context mContext;
+  private Context mContext;
 
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
-        mContext = new ContextThemeWrapper(getInstrumentation().getContext(),
-                R.style.SuwThemeGlif_Light);
+  @Before
+  public void setUp() throws Exception {
+    mContext =
+        new ContextThemeWrapper(InstrumentationRegistry.getContext(), R.style.SuwThemeGlif_Light);
+  }
+
+  @Test
+  public void testDefaultTemplate() {
+    GlifPreferenceLayout layout = new GlifPreferenceLayout(mContext);
+    assertPreferenceTemplateInflated(layout);
+  }
+
+  @Test
+  public void testGetRecyclerView() {
+    GlifPreferenceLayout layout = new GlifPreferenceLayout(mContext);
+    assertPreferenceTemplateInflated(layout);
+    assertNotNull("getRecyclerView should not be null", layout.getRecyclerView());
+  }
+
+  @Test
+  public void testOnCreateRecyclerView() {
+    GlifPreferenceLayout layout = new GlifPreferenceLayout(mContext);
+    assertPreferenceTemplateInflated(layout);
+    final RecyclerView recyclerView =
+        layout.onCreateRecyclerView(
+            LayoutInflater.from(mContext), layout, null /* savedInstanceState */);
+    assertNotNull("RecyclerView created should not be null", recyclerView);
+  }
+
+  @Test
+  public void testDividerInset() {
+    GlifPreferenceLayout layout = new GlifPreferenceLayout(mContext);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
     }
+    assertPreferenceTemplateInflated(layout);
 
-    @SmallTest
-    public void testDefaultTemplate() {
-        GlifPreferenceLayout layout = new TestLayout(mContext);
-        assertPreferenceTemplateInflated(layout);
-    }
+    layout.addView(
+        layout.onCreateRecyclerView(
+            LayoutInflater.from(mContext), layout, null /* savedInstanceState */));
 
-    @SmallTest
-    public void testGetRecyclerView() {
-        GlifPreferenceLayout layout = new TestLayout(mContext);
-        assertPreferenceTemplateInflated(layout);
-        assertNotNull("getRecyclerView should not be null", layout.getRecyclerView());
-    }
+    layout.setDividerInset(10);
+    assertEquals("Divider inset should be 10", 10, layout.getDividerInset());
 
-    @SmallTest
-    public void testOnCreateRecyclerView() {
-        GlifPreferenceLayout layout = new TestLayout(mContext);
-        assertPreferenceTemplateInflated(layout);
-        final RecyclerView recyclerView = layout.onCreateRecyclerView(LayoutInflater.from(mContext),
-                layout, null /* savedInstanceState */);
-        assertNotNull("RecyclerView created should not be null", recyclerView);
-    }
+    final Drawable divider = layout.getDivider();
+    assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
+  }
 
-    @SmallTest
-    public void testDividerInset() {
-        GlifPreferenceLayout layout = new TestLayout(mContext);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            layout.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
-        }
-        assertPreferenceTemplateInflated(layout);
+  private void assertPreferenceTemplateInflated(GlifPreferenceLayout layout) {
+    View contentContainer = layout.findViewById(R.id.suw_layout_content);
+    assertTrue(
+        "@id/suw_layout_content should be a ViewGroup", contentContainer instanceof ViewGroup);
 
-        layout.addView(layout.onCreateRecyclerView(LayoutInflater.from(mContext), layout,
-                null /* savedInstanceState */));
-
-        layout.setDividerInset(10);
-        assertEquals("Divider inset should be 10", 10, layout.getDividerInset());
-
-        final Drawable divider = layout.getDivider();
-        assertTrue("Divider should be instance of InsetDrawable", divider instanceof InsetDrawable);
-    }
-
-    private void assertPreferenceTemplateInflated(GlifPreferenceLayout layout) {
-        View contentContainer = layout.findViewById(R.id.suw_layout_content);
-        assertTrue("@id/suw_layout_content should be a ViewGroup",
-                contentContainer instanceof ViewGroup);
-
-        if (layout instanceof TestLayout) {
-            assertNotNull("Header text view should not be null",
-                    ((TestLayout) layout).findManagedViewById(R.id.suw_layout_title));
-            assertNotNull("Icon view should not be null",
-                    ((TestLayout) layout).findManagedViewById(R.id.suw_layout_icon));
-        }
-    }
-
-    // Make some methods public for testing
-    public static class TestLayout extends GlifPreferenceLayout {
-
-        public TestLayout(Context context) {
-            super(context);
-        }
-
-        @Override
-        public View findManagedViewById(int id) {
-            return super.findManagedViewById(id);
-        }
-    }
+    assertNotNull(
+        "Header text view should not be null", layout.findManagedViewById(R.id.suw_layout_title));
+    assertNotNull("Icon view should not be null", layout.findManagedViewById(R.id.suw_layout_icon));
+  }
 }

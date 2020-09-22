@@ -100,4 +100,17 @@ public class QSDetailClipper {
             mAnimator = null;
         };
     };
+
+    public void showBackground() {
+        mBackground.showSecondLayer();
+    }
+
+    /**
+     * Cancels the animator if it's running.
+     */
+    public void cancelAnimator() {
+        if (mAnimator != null) {
+            mAnimator.cancel();
+        }
+    }
 }

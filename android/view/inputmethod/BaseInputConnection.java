@@ -1,12 +1,12 @@
 /*
  * Copyright (C) 2008 The Android Open Source Project
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
  * the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
  * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
@@ -35,7 +35,6 @@ import android.util.LogPrinter;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.View;
-import android.view.ViewRootImpl;
 
 class ComposingText implements NoCopySpan {
 }
@@ -56,25 +55,25 @@ public class BaseInputConnection implements InputConnection {
     protected final InputMethodManager mIMM;
     final View mTargetView;
     final boolean mDummyMode;
-    
+
     private Object[] mDefaultComposingSpans;
-    
+
     Editable mEditable;
     KeyCharacterMap mKeyCharacterMap;
-    
+
     BaseInputConnection(InputMethodManager mgr, boolean fullEditor) {
         mIMM = mgr;
         mTargetView = null;
         mDummyMode = !fullEditor;
     }
-    
+
     public BaseInputConnection(View targetView, boolean fullEditor) {
         mIMM = (InputMethodManager)targetView.getContext().getSystemService(
                 Context.INPUT_METHOD_SERVICE);
         mTargetView = targetView;
         mDummyMode = !fullEditor;
     }
-    
+
     public static final void removeComposingSpans(Spannable text) {
         text.removeSpan(COMPOSING);
         Object[] sps = text.getSpans(0, text.length(), Object.class);
@@ -104,8 +103,8 @@ public class BaseInputConnection implements InputConnection {
                 }
 
                 final int fl = text.getSpanFlags(o);
-                if ((fl&(Spanned.SPAN_COMPOSING|Spanned.SPAN_POINT_MARK_MASK)) 
-                        != (Spanned.SPAN_COMPOSING|Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)) {
+                if ((fl & (Spanned.SPAN_COMPOSING | Spanned.SPAN_POINT_MARK_MASK))
+                        != (Spanned.SPAN_COMPOSING | Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)) {
                     text.setSpan(o, text.getSpanStart(o), text.getSpanEnd(o),
                             (fl & ~Spanned.SPAN_POINT_MARK_MASK)
                                     | Spanned.SPAN_COMPOSING
@@ -117,15 +116,15 @@ public class BaseInputConnection implements InputConnection {
         text.setSpan(COMPOSING, start, end,
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE | Spanned.SPAN_COMPOSING);
     }
-    
+
     public static int getComposingSpanStart(Spannable text) {
         return text.getSpanStart(COMPOSING);
     }
-    
+
     public static int getComposingSpanEnd(Spannable text) {
         return text.getSpanEnd(COMPOSING);
     }
-    
+
     /**
      * Return the target of edit operations.  The default implementation
      * returns its own fake editable that is just used for composing text;
@@ -139,7 +138,7 @@ public class BaseInputConnection implements InputConnection {
         }
         return mEditable;
     }
-    
+
     /**
      * Default implementation does nothing.
      */
@@ -212,6 +211,10 @@ public class BaseInputConnection implements InputConnection {
      *        If this is greater than the number of existing characters between the cursor and
      *        the end of the text, then this method does not fail but deletes all the characters in
      *        that range.
+     *
+     * @return {@code true} when selected text is deleted, {@code false} when either the
+     *         selection is invalid or not yet attached (i.e. selection start or end is -1),
+     *         or the editable text is {@code null}.
      */
     public boolean deleteSurroundingText(int beforeLength, int afterLength) {
         if (DEBUG) Log.v(TAG, "deleteSurroundingText " + beforeLength
@@ -228,6 +231,12 @@ public class BaseInputConnection implements InputConnection {
             int tmp = a;
             a = b;
             b = tmp;
+        }
+
+        // Skip when the selection is not yet attached.
+        if (a == -1 || b == -1) {
+            endBatchEdit();
+            return false;
         }
 
         // Ignore the composing text.
@@ -248,8 +257,12 @@ public class BaseInputConnection implements InputConnection {
         if (beforeLength > 0) {
             int start = a - beforeLength;
             if (start < 0) start = 0;
-            content.delete(start, a);
-            deleted = a - start;
+
+            final int numDeleteBefore = a - start;
+            if (a >= 0 && numDeleteBefore > 0) {
+                content.delete(start, a);
+                deleted = numDeleteBefore;
+            }
         }
 
         if (afterLength > 0) {
@@ -258,7 +271,10 @@ public class BaseInputConnection implements InputConnection {
             int end = b + afterLength;
             if (end > content.length()) end = content.length();
 
-            content.delete(b, end);
+            final int numDeleteAfter = end - b;
+            if (b >= 0 && numDeleteAfter > 0) {
+                content.delete(b, end);
+            }
         }
 
         endBatchEdit();
@@ -452,10 +468,10 @@ public class BaseInputConnection implements InputConnection {
      */
     public int getCursorCapsMode(int reqModes) {
         if (mDummyMode) return 0;
-        
+
         final Editable content = getEditable();
         if (content == null) return 0;
-        
+
         int a = Selection.getSelectionStart(content);
         int b = Selection.getSelectionEnd(content);
 
@@ -495,7 +511,7 @@ public class BaseInputConnection implements InputConnection {
         if (a <= 0) {
             return "";
         }
-        
+
         if (length > a) {
             length = a;
         }
@@ -523,7 +539,7 @@ public class BaseInputConnection implements InputConnection {
             b = tmp;
         }
 
-        if (a == b) return null;
+        if (a == b || a < 0) return null;
 
         if ((flags&GET_TEXT_WITH_STYLES) != 0) {
             return content.subSequence(a, b);
@@ -702,7 +718,7 @@ public class BaseInputConnection implements InputConnection {
         if (!mDummyMode) {
             return;
         }
-        
+
         Editable content = getEditable();
         if (content != null) {
             final int N = content.length();
@@ -727,7 +743,7 @@ public class BaseInputConnection implements InputConnection {
                     return;
                 }
             }
-            
+
             // Otherwise, revert to the special key event containing
             // the actual characters.
             KeyEvent event = new KeyEvent(SystemClock.uptimeMillis(),
@@ -742,8 +758,9 @@ public class BaseInputConnection implements InputConnection {
             Context context;
             if (mTargetView != null) {
                 context = mTargetView.getContext();
-            } else if (mIMM.mServedView != null) {
-                context = mIMM.mServedView.getContext();
+            } else if (mIMM.mCurRootView != null) {
+                final View servedView = mIMM.mCurRootView.getImeFocusController().getServedView();
+                context = servedView != null ? servedView.getContext() : null;
             } else {
                 context = null;
             }
@@ -768,7 +785,7 @@ public class BaseInputConnection implements InputConnection {
         if (content == null) {
             return;
         }
-        
+
         beginBatchEdit();
 
         // delete composing text set previously.
@@ -776,7 +793,7 @@ public class BaseInputConnection implements InputConnection {
         int b = getComposingSpanEnd(content);
 
         if (DEBUG) Log.v(TAG, "Composing span: " + a + " to " + b);
-        
+
         if (b < a) {
             int tmp = a;
             a = b;
@@ -814,11 +831,11 @@ public class BaseInputConnection implements InputConnection {
             }
             setComposingSpans(sp);
         }
-        
+
         if (DEBUG) Log.v(TAG, "Replacing from " + a + " to " + b + " with \""
                 + text + "\", composing=" + composing
                 + ", type=" + text.getClass().getCanonicalName());
-        
+
         if (DEBUG) {
             LogPrinter lp = new LogPrinter(Log.VERBOSE, TAG);
             lp.println("Current text:");
@@ -842,13 +859,13 @@ public class BaseInputConnection implements InputConnection {
         Selection.setSelection(content, newCursorPosition);
 
         content.replace(a, b, text);
-        
+
         if (DEBUG) {
             LogPrinter lp = new LogPrinter(Log.VERBOSE, TAG);
             lp.println("Final text:");
             TextUtils.dumpSpans(content, lp, "  ");
         }
-        
+
         endBatchEdit();
     }
 

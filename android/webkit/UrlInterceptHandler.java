@@ -16,8 +16,10 @@
 
 package android.webkit;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.webkit.CacheManager.CacheResult;
-import android.webkit.PluginData;
+
 import java.util.Map;
 
 /**
@@ -30,31 +32,35 @@ public interface UrlInterceptHandler {
 
     /**
      * Given an URL, returns the CacheResult which contains the
-     * surrogate response for the request, or null if the handler is
+     * surrogate response for the request, or {@code null} if the handler is
      * not interested.
      *
      * @param url URL string.
-     * @param headers The headers associated with the request. May be null.
+     * @param headers The headers associated with the request.
      * @return The CacheResult containing the surrogate response.
      *
      * @hide
      * @deprecated Do not use, this interface is deprecated.
      */
     @Deprecated
-    public CacheResult service(String url, Map<String, String> headers);
+    @Nullable
+    @UnsupportedAppUsage
+    CacheResult service(String url, @Nullable Map<String, String> headers);
 
     /**
      * Given an URL, returns the PluginData which contains the
-     * surrogate response for the request, or null if the handler is
+     * surrogate response for the request, or {@code null} if the handler is
      * not interested.
      *
      * @param url URL string.
-     * @param headers The headers associated with the request. May be null.
+     * @param headers The headers associated with the request.
      * @return The PluginData containing the surrogate response.
      *
      * @hide
      * @deprecated Do not use, this interface is deprecated.
      */
     @Deprecated
-    public PluginData getPluginData(String url, Map<String, String> headers);
+    @Nullable
+    @UnsupportedAppUsage
+    PluginData getPluginData(String url, @Nullable Map<String, String> headers);
 }

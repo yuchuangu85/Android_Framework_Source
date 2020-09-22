@@ -17,22 +17,6 @@
 package com.android.server.input;
 
 import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.os.Build;
-import android.os.LocaleList;
-import android.util.Log;
-import android.view.Display;
-import com.android.internal.inputmethod.InputMethodSubtypeHandle;
-import com.android.internal.os.SomeArgs;
-import com.android.internal.R;
-import com.android.internal.util.XmlUtils;
-import com.android.server.DisplayThread;
-import com.android.server.LocalServices;
-import com.android.server.Watchdog;
-
-import org.xmlpull.v1.XmlPullParser;
-
-import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -46,78 +30,91 @@ import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.content.pm.PackageManager.NameNotFoundException;
+import android.content.pm.ResolveInfo;
 import android.content.res.Resources;
 import android.content.res.Resources.NotFoundException;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
 import android.database.ContentObserver;
+import android.hardware.display.DisplayManager;
 import android.hardware.display.DisplayViewport;
 import android.hardware.input.IInputDevicesChangedListener;
 import android.hardware.input.IInputManager;
+import android.hardware.input.ITabletModeChangedListener;
 import android.hardware.input.InputDeviceIdentifier;
 import android.hardware.input.InputManager;
 import android.hardware.input.InputManagerInternal;
-import android.hardware.input.ITabletModeChangedListener;
 import android.hardware.input.KeyboardLayout;
 import android.hardware.input.TouchCalibration;
+import android.media.AudioManager;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.LocaleList;
 import android.os.Looper;
 import android.os.Message;
 import android.os.MessageQueue;
 import android.os.Process;
 import android.os.RemoteException;
-import android.os.ResultReceiver;
-import android.os.ShellCommand;
 import android.os.UserHandle;
+import android.provider.DeviceConfig;
 import android.provider.Settings;
 import android.provider.Settings.SettingNotFoundException;
 import android.text.TextUtils;
+import android.util.Log;
 import android.util.Slog;
 import android.util.SparseArray;
-import android.util.Xml;
+import android.view.Display;
 import android.view.IInputFilter;
 import android.view.IInputFilterHost;
+import android.view.IInputMonitorHost;
+import android.view.InputApplicationHandle;
 import android.view.InputChannel;
 import android.view.InputDevice;
 import android.view.InputEvent;
+import android.view.InputMonitor;
 import android.view.KeyEvent;
 import android.view.PointerIcon;
 import android.view.Surface;
+import android.view.VerifiedInputEvent;
 import android.view.ViewConfiguration;
-import android.view.WindowManagerPolicy;
-import android.view.inputmethod.InputMethod;
-import android.view.inputmethod.InputMethodInfo;
-import android.view.inputmethod.InputMethodSubtype;
 import android.widget.Toast;
+
+import com.android.internal.R;
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.messages.nano.SystemMessageProto.SystemMessage;
+import com.android.internal.notification.SystemNotificationChannels;
+import com.android.internal.os.SomeArgs;
+import com.android.internal.util.DumpUtils;
+import com.android.internal.util.XmlUtils;
+import com.android.server.DisplayThread;
+import com.android.server.LocalServices;
+import com.android.server.Watchdog;
+import com.android.server.policy.WindowManagerPolicy;
+
+import libcore.io.IoUtils;
+import libcore.io.Streams;
 
 import java.io.File;
 import java.io.FileDescriptor;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-
-import libcore.io.IoUtils;
-import libcore.io.Streams;
-import libcore.util.Objects;
-
+import java.util.Map;
+import java.util.Objects;
 /*
  * Wraps the C++ InputManager and provides its callbacks.
  */
@@ -127,6 +124,10 @@ public class InputManagerService extends IInputManager.Stub
     static final boolean DEBUG = false;
 
     private static final String EXCLUDED_DEVICES_PATH = "etc/excluded-input-devices.xml";
+    private static final String PORT_ASSOCIATIONS_PATH = "etc/input-port-associations.xml";
+
+    // Feature flag name for the deep press feature
+    private static final String DEEP_PRESS_ENABLED = "deep_press_enabled";
 
     private static final int MSG_DELIVER_INPUT_DEVICES_CHANGED = 1;
     private static final int MSG_SWITCH_KEYBOARD_LAYOUT = 2;
@@ -134,13 +135,15 @@ public class InputManagerService extends IInputManager.Stub
     private static final int MSG_UPDATE_KEYBOARD_LAYOUTS = 4;
     private static final int MSG_RELOAD_DEVICE_ALIASES = 5;
     private static final int MSG_DELIVER_TABLET_MODE_CHANGED = 6;
-    private static final int MSG_INPUT_METHOD_SUBTYPE_CHANGED = 7;
 
     // Pointer to native input manager service object.
     private final long mPtr;
 
     private final Context mContext;
     private final InputManagerHandler mHandler;
+
+    // Context cache used for loading pointer resources.
+    private Context mDisplayContext;
 
     private final File mDoubleTouchGestureEnableFile;
 
@@ -171,7 +174,7 @@ public class InputManagerService extends IInputManager.Stub
     private final ArrayList<InputDevice>
             mTempFullKeyboards = new ArrayList<InputDevice>(); // handler thread only
     private boolean mKeyboardLayoutNotificationShown;
-    private InputMethodSubtypeHandle mCurrentImeHandle;
+    private Toast mSwitchedKeyboardLayoutToast;
 
     // State for vibrator tokens.
     private Object mVibratorLock = new Object();
@@ -184,14 +187,18 @@ public class InputManagerService extends IInputManager.Stub
     IInputFilter mInputFilter; // guarded by mInputFilterLock
     InputFilterHost mInputFilterHost; // guarded by mInputFilterLock
 
+    // The associations of input devices to displays by port. Maps from input device port (String)
+    // to display id (int). Currently only accessed by InputReader.
+    private final Map<String, Integer> mStaticAssociations;
+    private final Object mAssociationsLock = new Object();
+    @GuardedBy("mAssociationLock")
+    private final Map<String, Integer> mRuntimeAssociations = new HashMap<String, Integer>();
+
     private static native long nativeInit(InputManagerService service,
             Context context, MessageQueue messageQueue);
     private static native void nativeStart(long ptr);
-    private static native void nativeSetDisplayViewport(long ptr, boolean external,
-            int displayId, int rotation,
-            int logicalLeft, int logicalTop, int logicalRight, int logicalBottom,
-            int physicalLeft, int physicalTop, int physicalRight, int physicalBottom,
-            int deviceWidth, int deviceHeight);
+    private static native void nativeSetDisplayViewports(long ptr,
+            DisplayViewport[] viewports);
 
     private static native int nativeGetScanCodeState(long ptr,
             int deviceId, int sourceMask, int scanCode);
@@ -201,21 +208,26 @@ public class InputManagerService extends IInputManager.Stub
             int deviceId, int sourceMask, int sw);
     private static native boolean nativeHasKeys(long ptr,
             int deviceId, int sourceMask, int[] keyCodes, boolean[] keyExists);
-    private static native void nativeRegisterInputChannel(long ptr, InputChannel inputChannel,
-            InputWindowHandle inputWindowHandle, boolean monitor);
+    private static native void nativeRegisterInputChannel(long ptr, InputChannel inputChannel);
+    private static native void nativeRegisterInputMonitor(long ptr, InputChannel inputChannel,
+            int displayId, boolean isGestureMonitor);
     private static native void nativeUnregisterInputChannel(long ptr, InputChannel inputChannel);
+    private static native void nativePilferPointers(long ptr, IBinder token);
     private static native void nativeSetInputFilterEnabled(long ptr, boolean enable);
-    private static native int nativeInjectInputEvent(long ptr, InputEvent event, int displayId,
+    private static native void nativeSetInTouchMode(long ptr, boolean inTouchMode);
+    private static native int nativeInjectInputEvent(long ptr, InputEvent event,
             int injectorPid, int injectorUid, int syncMode, int timeoutMillis,
             int policyFlags);
+    private static native VerifiedInputEvent nativeVerifyInputEvent(long ptr, InputEvent event);
     private static native void nativeToggleCapsLock(long ptr, int deviceId);
-    private static native void nativeSetInputWindows(long ptr, InputWindowHandle[] windowHandles);
+    private static native void nativeDisplayRemoved(long ptr, int displayId);
     private static native void nativeSetInputDispatchMode(long ptr, boolean enabled, boolean frozen);
     private static native void nativeSetSystemUiVisibility(long ptr, int visibility);
     private static native void nativeSetFocusedApplication(long ptr,
-            InputApplicationHandle application);
+            int displayId, InputApplicationHandle application);
+    private static native void nativeSetFocusedDisplay(long ptr, int displayId);
     private static native boolean nativeTransferTouchFocus(long ptr,
-            InputChannel fromChannel, InputChannel toChannel);
+            IBinder fromChannelToken, IBinder toChannelToken);
     private static native void nativeSetPointerSpeed(long ptr, int speed);
     private static native void nativeSetShowTouches(long ptr, boolean enabled);
     private static native void nativeSetInteractive(long ptr, boolean interactive);
@@ -227,9 +239,16 @@ public class InputManagerService extends IInputManager.Stub
     private static native void nativeReloadDeviceAliases(long ptr);
     private static native String nativeDump(long ptr);
     private static native void nativeMonitor(long ptr);
+    private static native boolean nativeIsInputDeviceEnabled(long ptr, int deviceId);
+    private static native void nativeEnableInputDevice(long ptr, int deviceId);
+    private static native void nativeDisableInputDevice(long ptr, int deviceId);
     private static native void nativeSetPointerIconType(long ptr, int iconId);
     private static native void nativeReloadPointerIcons(long ptr);
     private static native void nativeSetCustomPointerIcon(long ptr, PointerIcon icon);
+    private static native void nativeSetPointerCapture(long ptr, boolean detached);
+    private static native boolean nativeCanDispatchToDisplay(long ptr, int deviceId, int displayId);
+    private static native void nativeNotifyPortAssociationsChanged(long ptr);
+    private static native void nativeSetMotionClassifierEnabled(long ptr, boolean enabled);
 
     // Input event injection constants defined in InputDispatcher.h.
     private static final int INPUT_EVENT_INJECTION_SUCCEEDED = 0;
@@ -285,6 +304,9 @@ public class InputManagerService extends IInputManager.Stub
     /** Switch code: Camera lens cover. When set the lens is covered. */
     public static final int SW_CAMERA_LENS_COVER = 0x09;
 
+    /** Switch code: Microphone. When set it is off. */
+    public static final int SW_MUTE_DEVICE = 0x0e;
+
     public static final int SW_LID_BIT = 1 << SW_LID;
     public static final int SW_TABLET_MODE_BIT = 1 << SW_TABLET_MODE;
     public static final int SW_KEYPAD_SLIDE_BIT = 1 << SW_KEYPAD_SLIDE;
@@ -295,6 +317,7 @@ public class InputManagerService extends IInputManager.Stub
     public static final int SW_JACK_BITS =
             SW_HEADPHONE_INSERT_BIT | SW_MICROPHONE_INSERT_BIT | SW_JACK_PHYSICAL_INSERT_BIT | SW_LINEOUT_INSERT_BIT;
     public static final int SW_CAMERA_LENS_COVER_BIT = 1 << SW_CAMERA_LENS_COVER;
+    public static final int SW_MUTE_DEVICE_BIT = 1 << SW_MUTE_DEVICE;
 
     /** Whether to use the dev/input/event or uevent subsystem for the audio jack. */
     final boolean mUseDevInputEventForAudioJack;
@@ -303,6 +326,7 @@ public class InputManagerService extends IInputManager.Stub
         this.mContext = context;
         this.mHandler = new InputManagerHandler(DisplayThread.get().getLooper());
 
+        mStaticAssociations = loadStaticInputPortAssociations();
         mUseDevInputEventForAudioJack =
                 context.getResources().getBoolean(R.bool.config_useDevInputEventForAudioJack);
         Slog.i(TAG, "Initializing input manager, mUseDevInputEventForAudioJack="
@@ -335,6 +359,7 @@ public class InputManagerService extends IInputManager.Stub
         registerPointerSpeedSettingObserver();
         registerShowTouchesSettingObserver();
         registerAccessibilityLargePointerSettingObserver();
+        registerLongPressTimeoutObserver();
 
         mContext.registerReceiver(new BroadcastReceiver() {
             @Override
@@ -342,15 +367,17 @@ public class InputManagerService extends IInputManager.Stub
                 updatePointerSpeedFromSettings();
                 updateShowTouchesFromSettings();
                 updateAccessibilityLargePointerFromSettings();
+                updateDeepPressStatusFromSettings("user switched");
             }
         }, new IntentFilter(Intent.ACTION_USER_SWITCHED), null, mHandler);
 
         updatePointerSpeedFromSettings();
         updateShowTouchesFromSettings();
         updateAccessibilityLargePointerFromSettings();
+        updateDeepPressStatusFromSettings("just booted");
     }
 
-    // TODO(BT) Pass in paramter for bluetooth system
+    // TODO(BT) Pass in parameter for bluetooth system
     public void systemRunning() {
         if (DEBUG) {
             Slog.d(TAG, "System ready.");
@@ -401,27 +428,8 @@ public class InputManagerService extends IInputManager.Stub
         nativeReloadDeviceAliases(mPtr);
     }
 
-    private void setDisplayViewportsInternal(DisplayViewport defaultViewport,
-            DisplayViewport externalTouchViewport) {
-        if (defaultViewport.valid) {
-            setDisplayViewport(false, defaultViewport);
-        }
-
-        if (externalTouchViewport.valid) {
-            setDisplayViewport(true, externalTouchViewport);
-        } else if (defaultViewport.valid) {
-            setDisplayViewport(true, defaultViewport);
-        }
-    }
-
-    private void setDisplayViewport(boolean external, DisplayViewport viewport) {
-        nativeSetDisplayViewport(mPtr, external,
-                viewport.displayId, viewport.orientation,
-                viewport.logicalFrame.left, viewport.logicalFrame.top,
-                viewport.logicalFrame.right, viewport.logicalFrame.bottom,
-                viewport.physicalFrame.left, viewport.physicalFrame.top,
-                viewport.physicalFrame.right, viewport.physicalFrame.bottom,
-                viewport.deviceWidth, viewport.deviceHeight);
+    private void setDisplayViewportsInternal(List<DisplayViewport> viewports) {
+        nativeSetDisplayViewports(mPtr, viewports.toArray(new DisplayViewport[0]));
     }
 
     /**
@@ -491,32 +499,69 @@ public class InputManagerService extends IInputManager.Stub
     /**
      * Creates an input channel that will receive all input from the input dispatcher.
      * @param inputChannelName The input channel name.
+     * @param displayId Target display id.
      * @return The input channel.
      */
-    public InputChannel monitorInput(String inputChannelName) {
+    public InputChannel monitorInput(String inputChannelName, int displayId) {
         if (inputChannelName == null) {
             throw new IllegalArgumentException("inputChannelName must not be null.");
         }
 
+        if (displayId < Display.DEFAULT_DISPLAY) {
+            throw new IllegalArgumentException("displayId must >= 0.");
+        }
+
         InputChannel[] inputChannels = InputChannel.openInputChannelPair(inputChannelName);
-        nativeRegisterInputChannel(mPtr, inputChannels[0], null, true);
+        nativeRegisterInputMonitor(mPtr, inputChannels[0], displayId, false /*isGestureMonitor*/);
         inputChannels[0].dispose(); // don't need to retain the Java object reference
         return inputChannels[1];
     }
 
     /**
-     * Registers an input channel so that it can be used as an input event target.
-     * @param inputChannel The input channel to register.
-     * @param inputWindowHandle The handle of the input window associated with the
-     * input channel, or null if none.
+     * Creates an input monitor that will receive pointer events for the purposes of system-wide
+     * gesture interpretation.
+     *
+     * @param inputChannelName The input channel name.
+     * @param displayId Target display id.
+     * @return The input channel.
      */
-    public void registerInputChannel(InputChannel inputChannel,
-            InputWindowHandle inputWindowHandle) {
+    @Override // Binder call
+    public InputMonitor monitorGestureInput(String inputChannelName, int displayId) {
+        if (!checkCallingPermission(android.Manifest.permission.MONITOR_INPUT,
+                "monitorInputRegion()")) {
+            throw new SecurityException("Requires MONITOR_INPUT permission");
+        }
+
+        Objects.requireNonNull(inputChannelName, "inputChannelName must not be null.");
+
+        if (displayId < Display.DEFAULT_DISPLAY) {
+            throw new IllegalArgumentException("displayId must >= 0.");
+        }
+
+        final long ident = Binder.clearCallingIdentity();
+        try {
+            InputChannel[] inputChannels = InputChannel.openInputChannelPair(inputChannelName);
+            InputMonitorHost host = new InputMonitorHost(inputChannels[0]);
+            nativeRegisterInputMonitor(mPtr, inputChannels[0], displayId,
+                    true /*isGestureMonitor*/);
+            return new InputMonitor(inputChannels[1], host);
+        } finally {
+            Binder.restoreCallingIdentity(ident);
+        }
+    }
+
+    /**
+     * Registers an input channel so that it can be used as an input event target. The channel is
+     * registered with a generated token.
+     *
+     * @param inputChannel The input channel to register.
+     */
+    public void registerInputChannel(InputChannel inputChannel) {
         if (inputChannel == null) {
             throw new IllegalArgumentException("inputChannel must not be null.");
         }
 
-        nativeRegisterInputChannel(mPtr, inputChannel, inputWindowHandle, false);
+        nativeRegisterInputChannel(mPtr, inputChannel);
     }
 
     /**
@@ -574,12 +619,31 @@ public class InputManagerService extends IInputManager.Stub
         }
     }
 
-    @Override // Binder call
-    public boolean injectInputEvent(InputEvent event, int mode) {
-        return injectInputEventInternal(event, Display.DEFAULT_DISPLAY, mode);
+    /**
+     * Set the state of the touch mode.
+     *
+     * WindowManager remains the source of truth of the touch mode state.
+     * However, we need to keep a copy of this state in input.
+     *
+     * The apps determine the touch mode state. Therefore, a single app will
+     * affect the global state. That state change needs to be propagated to
+     * other apps, when they become focused.
+     *
+     * When input dispatches focus to the apps, the touch mode state
+     * will be sent together with the focus change.
+     *
+     * @param inTouchMode true if the device is in touch mode.
+     */
+    public void setInTouchMode(boolean inTouchMode) {
+        nativeSetInTouchMode(mPtr, inTouchMode);
     }
 
-    private boolean injectInputEventInternal(InputEvent event, int displayId, int mode) {
+    @Override // Binder call
+    public boolean injectInputEvent(InputEvent event, int mode) {
+        return injectInputEventInternal(event, mode);
+    }
+
+    private boolean injectInputEventInternal(InputEvent event, int mode) {
         if (event == null) {
             throw new IllegalArgumentException("event must not be null");
         }
@@ -594,7 +658,7 @@ public class InputManagerService extends IInputManager.Stub
         final long ident = Binder.clearCallingIdentity();
         final int result;
         try {
-            result = nativeInjectInputEvent(mPtr, event, displayId, pid, uid, mode,
+            result = nativeInjectInputEvent(mPtr, event, pid, uid, mode,
                     INJECTION_TIMEOUT_MILLIS, WindowManagerPolicy.FLAG_DISABLE_KEY_REPEAT);
         } finally {
             Binder.restoreCallingIdentity(ident);
@@ -616,6 +680,11 @@ public class InputManagerService extends IInputManager.Stub
         }
     }
 
+    @Override // Binder call
+    public VerifiedInputEvent verifyInputEvent(InputEvent event) {
+        return nativeVerifyInputEvent(mPtr, event);
+    }
+
     /**
      * Gets information about the input device with the specified id.
      * @param deviceId The device id.
@@ -633,6 +702,32 @@ public class InputManagerService extends IInputManager.Stub
             }
         }
         return null;
+    }
+
+    // Binder call
+    @Override
+    public boolean isInputDeviceEnabled(int deviceId) {
+        return nativeIsInputDeviceEnabled(mPtr, deviceId);
+    }
+
+    // Binder call
+    @Override
+    public void enableInputDevice(int deviceId) {
+        if (!checkCallingPermission(android.Manifest.permission.DISABLE_INPUT_DEVICE,
+                "enableInputDevice()")) {
+            throw new SecurityException("Requires DISABLE_INPUT_DEVICE permission");
+        }
+        nativeEnableInputDevice(mPtr, deviceId);
+    }
+
+    // Binder call
+    @Override
+    public void disableInputDevice(int deviceId) {
+        if (!checkCallingPermission(android.Manifest.permission.DISABLE_INPUT_DEVICE,
+                "disableInputDevice()")) {
+            throw new SecurityException("Requires DISABLE_INPUT_DEVICE permission");
+        }
+        nativeDisableInputDevice(mPtr, deviceId);
     }
 
     /**
@@ -908,6 +1003,11 @@ public class InputManagerService extends IInputManager.Stub
     }
 
     @Override // Binder call
+    public int isMicMuted() {
+        return getSwitchState(-1, InputDevice.SOURCE_ANY, SW_MUTE_DEVICE);
+    }
+
+    @Override // Binder call
     public void registerTabletModeChangedListener(ITabletModeChangedListener listener) {
         if (!checkCallingPermission(android.Manifest.permission.TABLET_MODE,
                 "registerTabletModeChangedListener()")) {
@@ -969,22 +1069,22 @@ public class InputManagerService extends IInputManager.Stub
                     | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
                     | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             final PendingIntent keyboardLayoutIntent = PendingIntent.getActivityAsUser(mContext, 0,
-                    intent, 0, null, UserHandle.CURRENT);
+                    intent, PendingIntent.FLAG_IMMUTABLE, null, UserHandle.CURRENT);
 
             Resources r = mContext.getResources();
-            Notification notification = new Notification.Builder(mContext)
-                    .setContentTitle(r.getString(
-                            R.string.select_keyboard_layout_notification_title))
-                    .setContentText(r.getString(
-                            R.string.select_keyboard_layout_notification_message))
-                    .setContentIntent(keyboardLayoutIntent)
-                    .setSmallIcon(R.drawable.ic_settings_language)
-                    .setPriority(Notification.PRIORITY_LOW)
-                    .setColor(mContext.getColor(
-                            com.android.internal.R.color.system_notification_accent_color))
-                    .build();
+            Notification notification =
+                    new Notification.Builder(mContext, SystemNotificationChannels.PHYSICAL_KEYBOARD)
+                            .setContentTitle(r.getString(
+                                    R.string.select_keyboard_layout_notification_title))
+                            .setContentText(r.getString(
+                                    R.string.select_keyboard_layout_notification_message))
+                            .setContentIntent(keyboardLayoutIntent)
+                            .setSmallIcon(R.drawable.ic_settings_language)
+                            .setColor(mContext.getColor(
+                                    com.android.internal.R.color.system_notification_accent_color))
+                            .build();
             mNotificationManager.notifyAsUser(null,
-                    R.string.select_keyboard_layout_notification_title,
+                    SystemMessage.NOTE_SELECT_KEYBOARD_LAYOUT,
                     notification, UserHandle.ALL);
             mKeyboardLayoutNotificationShown = true;
         }
@@ -995,7 +1095,7 @@ public class InputManagerService extends IInputManager.Stub
         if (mKeyboardLayoutNotificationShown) {
             mKeyboardLayoutNotificationShown = false;
             mNotificationManager.cancelAsUser(null,
-                    R.string.select_keyboard_layout_notification_title,
+                    SystemMessage.NOTE_SELECT_KEYBOARD_LAYOUT,
                     UserHandle.ALL);
         }
     }
@@ -1321,82 +1421,6 @@ public class InputManagerService extends IInputManager.Stub
     }
 
     @Override // Binder call
-    @Nullable
-    public KeyboardLayout getKeyboardLayoutForInputDevice(InputDeviceIdentifier identifier,
-            InputMethodInfo imeInfo, InputMethodSubtype imeSubtype) {
-        InputMethodSubtypeHandle handle = new InputMethodSubtypeHandle(imeInfo, imeSubtype);
-        String key = getLayoutDescriptor(identifier);
-        final String keyboardLayoutDescriptor;
-        synchronized (mDataStore) {
-            keyboardLayoutDescriptor = mDataStore.getKeyboardLayout(key, handle);
-        }
-
-        if (keyboardLayoutDescriptor == null) {
-            return null;
-        }
-
-        final KeyboardLayout[] result = new KeyboardLayout[1];
-        visitKeyboardLayout(keyboardLayoutDescriptor, new KeyboardLayoutVisitor() {
-            @Override
-            public void visitKeyboardLayout(Resources resources,
-                    int keyboardLayoutResId, KeyboardLayout layout) {
-                result[0] = layout;
-            }
-        });
-        if (result[0] == null) {
-            Slog.w(TAG, "Could not get keyboard layout with descriptor '"
-                    + keyboardLayoutDescriptor + "'.");
-        }
-        return result[0];
-    }
-
-    @Override
-    public void setKeyboardLayoutForInputDevice(InputDeviceIdentifier identifier,
-            InputMethodInfo imeInfo, InputMethodSubtype imeSubtype,
-            String keyboardLayoutDescriptor) {
-        if (!checkCallingPermission(android.Manifest.permission.SET_KEYBOARD_LAYOUT,
-                "setKeyboardLayoutForInputDevice()")) {
-            throw new SecurityException("Requires SET_KEYBOARD_LAYOUT permission");
-        }
-        if (keyboardLayoutDescriptor == null) {
-            throw new IllegalArgumentException("keyboardLayoutDescriptor must not be null");
-        }
-        if (imeInfo == null) {
-            throw new IllegalArgumentException("imeInfo must not be null");
-        }
-        InputMethodSubtypeHandle handle = new InputMethodSubtypeHandle(imeInfo, imeSubtype);
-        setKeyboardLayoutForInputDeviceInner(identifier, handle, keyboardLayoutDescriptor);
-    }
-
-    private void setKeyboardLayoutForInputDeviceInner(InputDeviceIdentifier identifier,
-            InputMethodSubtypeHandle imeHandle, String keyboardLayoutDescriptor) {
-        String key = getLayoutDescriptor(identifier);
-        synchronized (mDataStore) {
-            try {
-                if (mDataStore.setKeyboardLayout(key, imeHandle, keyboardLayoutDescriptor)) {
-                    if (DEBUG) {
-                        Slog.d(TAG, "Set keyboard layout " + keyboardLayoutDescriptor +
-                                " for subtype " + imeHandle + " and device " + identifier +
-                                " using key " + key);
-                    }
-                    if (imeHandle.equals(mCurrentImeHandle)) {
-                        if (DEBUG) {
-                            Slog.d(TAG, "Layout for current subtype changed, switching layout");
-                        }
-                        SomeArgs args = SomeArgs.obtain();
-                        args.arg1 = identifier;
-                        args.arg2 = imeHandle;
-                        mHandler.obtainMessage(MSG_SWITCH_KEYBOARD_LAYOUT, args).sendToTarget();
-                    }
-                    mHandler.sendEmptyMessage(MSG_RELOAD_KEYBOARD_LAYOUTS);
-                }
-            } finally {
-                mDataStore.saveIfNeeded();
-            }
-        }
-    }
-
-    @Override // Binder call
     public void addKeyboardLayoutForInputDevice(InputDeviceIdentifier identifier,
             String keyboardLayoutDescriptor) {
         if (!checkCallingPermission(android.Manifest.permission.SET_KEYBOARD_LAYOUT,
@@ -1415,7 +1439,8 @@ public class InputManagerService extends IInputManager.Stub
                     oldLayout = mDataStore.getCurrentKeyboardLayout(identifier.getDescriptor());
                 }
                 if (mDataStore.addKeyboardLayout(key, keyboardLayoutDescriptor)
-                        && !Objects.equal(oldLayout, mDataStore.getCurrentKeyboardLayout(key))) {
+                        && !Objects.equals(oldLayout,
+                                mDataStore.getCurrentKeyboardLayout(key))) {
                     mHandler.sendEmptyMessage(MSG_RELOAD_KEYBOARD_LAYOUTS);
                 }
             } finally {
@@ -1448,7 +1473,7 @@ public class InputManagerService extends IInputManager.Stub
                     removed |= mDataStore.removeKeyboardLayout(identifier.getDescriptor(),
                             keyboardLayoutDescriptor);
                 }
-                if (removed && !Objects.equal(oldLayout,
+                if (removed && !Objects.equals(oldLayout,
                                 mDataStore.getCurrentKeyboardLayout(key))) {
                     mHandler.sendEmptyMessage(MSG_RELOAD_KEYBOARD_LAYOUTS);
                 }
@@ -1458,61 +1483,67 @@ public class InputManagerService extends IInputManager.Stub
         }
     }
 
-    // Must be called on handler.
-    private void handleSwitchInputMethodSubtype(int userId,
-            @Nullable InputMethodInfo inputMethodInfo, @Nullable InputMethodSubtype subtype) {
-        if (DEBUG) {
-            Slog.i(TAG, "InputMethodSubtype changed: userId=" + userId
-                    + " ime=" + inputMethodInfo + " subtype=" + subtype);
-        }
-        if (inputMethodInfo == null) {
-            Slog.d(TAG, "No InputMethod is running, ignoring change");
-            return;
-        }
-        if (subtype != null && !"keyboard".equals(subtype.getMode())) {
-            Slog.d(TAG, "InputMethodSubtype changed to non-keyboard subtype, ignoring change");
-            return;
-        }
-        InputMethodSubtypeHandle handle = new InputMethodSubtypeHandle(inputMethodInfo, subtype);
-        if (!handle.equals(mCurrentImeHandle)) {
-            mCurrentImeHandle = handle;
-            handleSwitchKeyboardLayout(null, handle);
-        }
+    public void switchKeyboardLayout(int deviceId, int direction) {
+        mHandler.obtainMessage(MSG_SWITCH_KEYBOARD_LAYOUT, deviceId, direction).sendToTarget();
     }
 
     // Must be called on handler.
-    private void handleSwitchKeyboardLayout(@Nullable InputDeviceIdentifier identifier,
-            InputMethodSubtypeHandle handle) {
-        synchronized (mInputDevicesLock) {
-            for (InputDevice device : mInputDevices) {
-                if (identifier != null && !device.getIdentifier().equals(identifier) ||
-                        !device.isFullKeyboard()) {
-                    continue;
+    private void handleSwitchKeyboardLayout(int deviceId, int direction) {
+        final InputDevice device = getInputDevice(deviceId);
+        if (device != null) {
+            final boolean changed;
+            final String keyboardLayoutDescriptor;
+
+            String key = getLayoutDescriptor(device.getIdentifier());
+            synchronized (mDataStore) {
+                try {
+                    changed = mDataStore.switchKeyboardLayout(key, direction);
+                    keyboardLayoutDescriptor = mDataStore.getCurrentKeyboardLayout(
+                            key);
+                } finally {
+                    mDataStore.saveIfNeeded();
                 }
-                String key = getLayoutDescriptor(device.getIdentifier());
-                boolean changed = false;
-                synchronized (mDataStore) {
-                    try {
-                        if (mDataStore.switchKeyboardLayout(key, handle)) {
-                            changed = true;
-                        }
-                    } finally {
-                        mDataStore.saveIfNeeded();
+            }
+
+            if (changed) {
+                if (mSwitchedKeyboardLayoutToast != null) {
+                    mSwitchedKeyboardLayoutToast.cancel();
+                    mSwitchedKeyboardLayoutToast = null;
+                }
+                if (keyboardLayoutDescriptor != null) {
+                    KeyboardLayout keyboardLayout = getKeyboardLayout(keyboardLayoutDescriptor);
+                    if (keyboardLayout != null) {
+                        mSwitchedKeyboardLayoutToast = Toast.makeText(
+                                mContext, keyboardLayout.getLabel(), Toast.LENGTH_SHORT);
+                        mSwitchedKeyboardLayoutToast.show();
                     }
                 }
-                if (changed) {
-                    reloadKeyboardLayouts();
-                }
+
+                reloadKeyboardLayouts();
             }
         }
     }
 
-    public void setInputWindows(InputWindowHandle[] windowHandles) {
-        nativeSetInputWindows(mPtr, windowHandles);
+    public void setFocusedApplication(int displayId, InputApplicationHandle application) {
+        nativeSetFocusedApplication(mPtr, displayId, application);
     }
 
-    public void setFocusedApplication(InputApplicationHandle application) {
-        nativeSetFocusedApplication(mPtr, application);
+    public void setFocusedDisplay(int displayId) {
+        nativeSetFocusedDisplay(mPtr, displayId);
+    }
+
+    /** Clean up input window handles of the given display. */
+    public void onDisplayRemoved(int displayId) {
+        nativeDisplayRemoved(mPtr, displayId);
+    }
+
+    @Override
+    public void requestPointerCapture(IBinder windowToken, boolean enabled) {
+        boolean requestConfigurationRefresh =
+                mWindowManagerCallbacks.requestPointerCapture(windowToken, enabled);
+        if (requestConfigurationRefresh) {
+            nativeSetPointerCapture(mPtr, enabled);
+        }
     }
 
     public void setInputDispatchMode(boolean enabled, boolean frozen) {
@@ -1536,14 +1567,29 @@ public class InputManagerService extends IInputManager.Stub
      * @return True if the transfer was successful.  False if the window with the
      * specified channel did not actually have touch focus at the time of the request.
      */
-    public boolean transferTouchFocus(InputChannel fromChannel, InputChannel toChannel) {
-        if (fromChannel == null) {
-            throw new IllegalArgumentException("fromChannel must not be null.");
-        }
-        if (toChannel == null) {
-            throw new IllegalArgumentException("toChannel must not be null.");
-        }
-        return nativeTransferTouchFocus(mPtr, fromChannel, toChannel);
+    public boolean transferTouchFocus(@NonNull InputChannel fromChannel,
+            @NonNull InputChannel toChannel) {
+        return nativeTransferTouchFocus(mPtr, fromChannel.getToken(), toChannel.getToken());
+    }
+
+    /**
+     * Atomically transfers touch focus from one window to another as identified by
+     * their input channels.  It is possible for multiple windows to have
+     * touch focus if they support split touch dispatch
+     * {@link android.view.WindowManager.LayoutParams#FLAG_SPLIT_TOUCH} but this
+     * method only transfers touch focus of the specified window without affecting
+     * other windows that may also have touch focus at the same time.
+     * @param fromChannelToken The channel token of a window that currently has touch focus.
+     * @param toChannelToken The channel token of the window that should receive touch focus in
+     * place of the first.
+     * @return True if the transfer was successful.  False if the window with the
+     * specified channel did not actually have touch focus at the time of the request.
+     */
+    public boolean transferTouchFocus(@NonNull IBinder fromChannelToken,
+            @NonNull IBinder toChannelToken) {
+        Objects.nonNull(fromChannelToken);
+        Objects.nonNull(toChannelToken);
+        return nativeTransferTouchFocus(mPtr, fromChannelToken, toChannelToken);
     }
 
     @Override // Binder call
@@ -1560,7 +1606,7 @@ public class InputManagerService extends IInputManager.Stub
         setPointerSpeedUnchecked(speed);
     }
 
-    public void updatePointerSpeedFromSettings() {
+    private void updatePointerSpeedFromSettings() {
         int speed = getPointerSpeedSetting();
         setPointerSpeedUnchecked(speed);
     }
@@ -1592,7 +1638,7 @@ public class InputManagerService extends IInputManager.Stub
         return speed;
     }
 
-    public void updateShowTouchesFromSettings() {
+    private void updateShowTouchesFromSettings() {
         int setting = getShowTouchesSetting(0);
         nativeSetShowTouches(mPtr, setting != 0);
     }
@@ -1608,7 +1654,7 @@ public class InputManagerService extends IInputManager.Stub
                 }, UserHandle.USER_ALL);
     }
 
-    public void updateAccessibilityLargePointerFromSettings() {
+    private void updateAccessibilityLargePointerFromSettings() {
         final int accessibilityConfig = Settings.Secure.getIntForUser(
                 mContext.getContentResolver(), Settings.Secure.ACCESSIBILITY_LARGE_POINTER_ICON,
                 0, UserHandle.USER_CURRENT);
@@ -1623,6 +1669,34 @@ public class InputManagerService extends IInputManager.Stub
                     @Override
                     public void onChange(boolean selfChange) {
                         updateAccessibilityLargePointerFromSettings();
+                    }
+                }, UserHandle.USER_ALL);
+    }
+
+    private void updateDeepPressStatusFromSettings(String reason) {
+        // Not using ViewConfiguration.getLongPressTimeout here because it may return a stale value
+        final int timeout = Settings.Secure.getIntForUser(mContext.getContentResolver(),
+                Settings.Secure.LONG_PRESS_TIMEOUT, ViewConfiguration.DEFAULT_LONG_PRESS_TIMEOUT,
+                UserHandle.USER_CURRENT);
+        final boolean featureEnabledFlag =
+                DeviceConfig.getBoolean(DeviceConfig.NAMESPACE_INPUT_NATIVE_BOOT,
+                        DEEP_PRESS_ENABLED, true /* default */);
+        final boolean enabled =
+                featureEnabledFlag && timeout <= ViewConfiguration.DEFAULT_LONG_PRESS_TIMEOUT;
+        Log.i(TAG,
+                (enabled ? "Enabling" : "Disabling") + " motion classifier because " + reason
+                + ": feature " + (featureEnabledFlag ? "enabled" : "disabled")
+                + ", long press timeout = " + timeout);
+        nativeSetMotionClassifierEnabled(mPtr, enabled);
+    }
+
+    private void registerLongPressTimeoutObserver() {
+        mContext.getContentResolver().registerContentObserver(
+                Settings.Secure.getUriFor(Settings.Secure.LONG_PRESS_TIMEOUT), true,
+                new ContentObserver(mHandler) {
+                    @Override
+                    public void onChange(boolean selfChange) {
+                        updateDeepPressStatusFromSettings("timeout changed");
                     }
                 }, UserHandle.USER_ALL);
     }
@@ -1705,65 +1779,84 @@ public class InputManagerService extends IInputManager.Stub
     // Binder call
     @Override
     public void setCustomPointerIcon(PointerIcon icon) {
+        Objects.requireNonNull(icon);
         nativeSetCustomPointerIcon(mPtr, icon);
     }
 
-    @Override
-    public void dump(FileDescriptor fd, final PrintWriter pw, String[] args) {
-        if (mContext.checkCallingOrSelfPermission(Manifest.permission.DUMP)
-                != PackageManager.PERMISSION_GRANTED) {
-            pw.println("Permission Denial: can't dump InputManager from from pid="
-                    + Binder.getCallingPid()
-                    + ", uid=" + Binder.getCallingUid());
-            return;
+    /**
+     * Add a runtime association between the input port and the display port. This overrides any
+     * static associations.
+     * @param inputPort The port of the input device.
+     * @param displayPort The physical port of the associated display.
+     */
+    @Override // Binder call
+    public void addPortAssociation(@NonNull String inputPort, int displayPort) {
+        if (!checkCallingPermission(
+                android.Manifest.permission.ASSOCIATE_INPUT_DEVICE_TO_DISPLAY_BY_PORT,
+                "addPortAssociation()")) {
+            throw new SecurityException(
+                    "Requires ASSOCIATE_INPUT_DEVICE_TO_DISPLAY_BY_PORT permission");
         }
+
+        Objects.requireNonNull(inputPort);
+        synchronized (mAssociationsLock) {
+            mRuntimeAssociations.put(inputPort, displayPort);
+        }
+        nativeNotifyPortAssociationsChanged(mPtr);
+    }
+
+    /**
+     * Remove the runtime association between the input port and the display port. Any existing
+     * static association for the cleared input port will be restored.
+     * @param inputPort The port of the input device to be cleared.
+     */
+    @Override // Binder call
+    public void removePortAssociation(@NonNull String inputPort) {
+        if (!checkCallingPermission(
+                android.Manifest.permission.ASSOCIATE_INPUT_DEVICE_TO_DISPLAY_BY_PORT,
+                "clearPortAssociations()")) {
+            throw new SecurityException(
+                    "Requires ASSOCIATE_INPUT_DEVICE_TO_DISPLAY_BY_PORT permission");
+        }
+
+        Objects.requireNonNull(inputPort);
+        synchronized (mAssociationsLock) {
+            mRuntimeAssociations.remove(inputPort);
+        }
+        nativeNotifyPortAssociationsChanged(mPtr);
+    }
+
+    @Override
+    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+        if (!DumpUtils.checkDumpPermission(mContext, TAG, pw)) return;
 
         pw.println("INPUT MANAGER (dumpsys input)\n");
         String dumpStr = nativeDump(mPtr);
         if (dumpStr != null) {
             pw.println(dumpStr);
+            dumpAssociations(pw);
         }
-        pw.println("  Keyboard Layouts:");
-        visitAllKeyboardLayouts(new KeyboardLayoutVisitor() {
-            @Override
-            public void visitKeyboardLayout(Resources resources,
-                    int keyboardLayoutResId, KeyboardLayout layout) {
-                pw.println("    \"" + layout + "\": " + layout.getDescriptor());
+    }
+
+    private void dumpAssociations(PrintWriter pw) {
+        if (!mStaticAssociations.isEmpty()) {
+            pw.println("Static Associations:");
+            mStaticAssociations.forEach((k, v) -> {
+                pw.print("  port: " + k);
+                pw.println("  display: " + v);
+            });
+        }
+
+        synchronized (mAssociationsLock) {
+            if (!mRuntimeAssociations.isEmpty()) {
+                pw.println("Runtime Associations:");
+                mRuntimeAssociations.forEach((k, v) -> {
+                    pw.print("  port: " + k);
+                    pw.println("  display: " + v);
+                });
             }
-        });
-        pw.println();
-        synchronized(mDataStore) {
-            mDataStore.dump(pw, "  ");
         }
     }
-
-    @Override
-    public void onShellCommand(FileDescriptor in, FileDescriptor out,
-            FileDescriptor err, String[] args, ResultReceiver resultReceiver) {
-        (new Shell()).exec(this, in, out, err, args, resultReceiver);
-    }
-
-    public int onShellCommand(Shell shell, String cmd) {
-        if (TextUtils.isEmpty(cmd)) {
-            shell.onHelp();
-            return 1;
-        }
-        if (cmd.equals("setlayout")) {
-            if (!checkCallingPermission(android.Manifest.permission.SET_KEYBOARD_LAYOUT,
-                    "onShellCommand()")) {
-                throw new SecurityException("Requires SET_KEYBOARD_LAYOUT permission");
-            }
-            InputMethodSubtypeHandle handle = new InputMethodSubtypeHandle(
-                    shell.getNextArgRequired(), Integer.parseInt(shell.getNextArgRequired()));
-            String descriptor = shell.getNextArgRequired();
-            int vid = Integer.decode(shell.getNextArgRequired());
-            int pid = Integer.decode(shell.getNextArgRequired());
-            InputDeviceIdentifier id = new InputDeviceIdentifier(descriptor, vid, pid);
-            setKeyboardLayoutForInputDeviceInner(id, handle, shell.getNextArgRequired());
-        }
-        return 0;
-    }
-
 
     private boolean checkCallingPermission(String permission, String func) {
         // Quick check: if the calling permission is me, it's all okay.
@@ -1786,6 +1879,7 @@ public class InputManagerService extends IInputManager.Stub
     @Override
     public void monitor() {
         synchronized (mInputFilterLock) { }
+        synchronized (mAssociationsLock) { /* Test if blocked by associations lock. */}
         nativeMonitor(mPtr);
     }
 
@@ -1837,18 +1931,33 @@ public class InputManagerService extends IInputManager.Stub
             mHandler.obtainMessage(MSG_DELIVER_TABLET_MODE_CHANGED,
                     args).sendToTarget();
         }
+
+        if ((switchMask & SW_MUTE_DEVICE_BIT) != 0) {
+            final boolean micMute = ((switchValues & SW_MUTE_DEVICE_BIT) != 0);
+            AudioManager audioManager = mContext.getSystemService(AudioManager.class);
+            audioManager.setMicrophoneMuteFromSwitch(micMute);
+        }
     }
 
     // Native callback.
-    private void notifyInputChannelBroken(InputWindowHandle inputWindowHandle) {
-        mWindowManagerCallbacks.notifyInputChannelBroken(inputWindowHandle);
+    private void notifyInputChannelBroken(IBinder token) {
+        mWindowManagerCallbacks.notifyInputChannelBroken(token);
+    }
+
+    // Native callback
+    private void notifyFocusChanged(IBinder oldToken, IBinder newToken) {
+        final boolean requestConfigurationRefresh =
+                mWindowManagerCallbacks.notifyFocusChanged(oldToken, newToken);
+        if (requestConfigurationRefresh) {
+            nativeSetPointerCapture(mPtr, false);
+        }
     }
 
     // Native callback.
-    private long notifyANR(InputApplicationHandle inputApplicationHandle,
-            InputWindowHandle inputWindowHandle, String reason) {
-        return mWindowManagerCallbacks.notifyANR(
-                inputApplicationHandle, inputWindowHandle, reason);
+    private long notifyANR(InputApplicationHandle inputApplicationHandle, IBinder token,
+            String reason) {
+        return mWindowManagerCallbacks.notifyANR(inputApplicationHandle,
+                token, reason);
     }
 
     // Native callback.
@@ -1873,20 +1982,19 @@ public class InputManagerService extends IInputManager.Stub
     }
 
     // Native callback.
-    private int interceptMotionBeforeQueueingNonInteractive(long whenNanos, int policyFlags) {
+    private int interceptMotionBeforeQueueingNonInteractive(int displayId,
+            long whenNanos, int policyFlags) {
         return mWindowManagerCallbacks.interceptMotionBeforeQueueingNonInteractive(
-                whenNanos, policyFlags);
+                displayId, whenNanos, policyFlags);
     }
 
     // Native callback.
-    private long interceptKeyBeforeDispatching(InputWindowHandle focus,
-            KeyEvent event, int policyFlags) {
+    private long interceptKeyBeforeDispatching(IBinder focus, KeyEvent event, int policyFlags) {
         return mWindowManagerCallbacks.interceptKeyBeforeDispatching(focus, event, policyFlags);
     }
 
     // Native callback.
-    private KeyEvent dispatchUnhandledKey(InputWindowHandle focus,
-            KeyEvent event, int policyFlags) {
+    private KeyEvent dispatchUnhandledKey(IBinder focus, KeyEvent event, int policyFlags) {
         return mWindowManagerCallbacks.dispatchUnhandledKey(focus, event, policyFlags);
     }
 
@@ -1897,45 +2005,94 @@ public class InputManagerService extends IInputManager.Stub
     }
 
     // Native callback.
+    private void onPointerDownOutsideFocus(IBinder touchedToken) {
+        mWindowManagerCallbacks.onPointerDownOutsideFocus(touchedToken);
+    }
+
+    // Native callback.
     private int getVirtualKeyQuietTimeMillis() {
         return mContext.getResources().getInteger(
                 com.android.internal.R.integer.config_virtualKeyQuietTimeMillis);
     }
 
     // Native callback.
-    private String[] getExcludedDeviceNames() {
-        ArrayList<String> names = new ArrayList<String>();
-
+    private static String[] getExcludedDeviceNames() {
+        List<String> names = new ArrayList<>();
         // Read partner-provided list of excluded input devices
-        XmlPullParser parser = null;
         // Environment.getRootDirectory() is a fancy way of saying ANDROID_ROOT or "/system".
-        File confFile = new File(Environment.getRootDirectory(), EXCLUDED_DEVICES_PATH);
-        FileReader confreader = null;
-        try {
-            confreader = new FileReader(confFile);
-            parser = Xml.newPullParser();
-            parser.setInput(confreader);
-            XmlUtils.beginDocument(parser, "devices");
-
-            while (true) {
-                XmlUtils.nextElement(parser);
-                if (!"device".equals(parser.getName())) {
-                    break;
-                }
-                String name = parser.getAttributeValue(null, "name");
-                if (name != null) {
-                    names.add(name);
-                }
+        final File[] baseDirs = {
+            Environment.getRootDirectory(),
+            Environment.getVendorDirectory()
+        };
+        for (File baseDir: baseDirs) {
+            File confFile = new File(baseDir, EXCLUDED_DEVICES_PATH);
+            try {
+                InputStream stream = new FileInputStream(confFile);
+                names.addAll(ConfigurationProcessor.processExcludedDeviceNames(stream));
+            } catch (FileNotFoundException e) {
+                // It's ok if the file does not exist.
+            } catch (Exception e) {
+                Slog.e(TAG, "Could not parse '" + confFile.getAbsolutePath() + "'", e);
             }
+        }
+        return names.toArray(new String[0]);
+    }
+
+    /**
+     * Flatten a map into a string list, with value positioned directly next to the
+     * key.
+     * @return Flattened list
+     */
+    private static List<String> flatten(@NonNull Map<String, Integer> map) {
+        final List<String> list = new ArrayList<>(map.size() * 2);
+        map.forEach((k, v)-> {
+            list.add(k);
+            list.add(v.toString());
+        });
+        return list;
+    }
+
+    /**
+     * Ports are highly platform-specific, so only allow these to be specified in the vendor
+     * directory.
+     */
+    private static Map<String, Integer> loadStaticInputPortAssociations() {
+        final File baseDir = Environment.getVendorDirectory();
+        final File confFile = new File(baseDir, PORT_ASSOCIATIONS_PATH);
+
+        try {
+            final InputStream stream = new FileInputStream(confFile);
+            return ConfigurationProcessor.processInputPortAssociations(stream);
         } catch (FileNotFoundException e) {
-            // It's ok if the file does not exist.
+            // Most of the time, file will not exist, which is expected.
         } catch (Exception e) {
-            Slog.e(TAG, "Exception while parsing '" + confFile.getAbsolutePath() + "'", e);
-        } finally {
-            try { if (confreader != null) confreader.close(); } catch (IOException e) { }
+            Slog.e(TAG, "Could not parse '" + confFile.getAbsolutePath() + "'", e);
         }
 
-        return names.toArray(new String[names.size()]);
+        return new HashMap<>();
+    }
+
+    // Native callback
+    private String[] getInputPortAssociations() {
+        final Map<String, Integer> associations = new HashMap<>(mStaticAssociations);
+
+        // merge the runtime associations.
+        synchronized (mAssociationsLock) {
+            associations.putAll(mRuntimeAssociations);
+        }
+
+        final List<String> associationList = flatten(associations);
+        return associationList.toArray(new String[0]);
+    }
+
+    /**
+     * Gets if an input device could dispatch to the given display".
+     * @param deviceId The input device id.
+     * @param displayId The specific display id.
+     * @return True if the device could dispatch to the given display, false otherwise.
+     */
+    public boolean canDispatchToDisplay(int deviceId, int displayId) {
+        return nativeCanDispatchToDisplay(mPtr, deviceId, displayId);
     }
 
     // Native callback.
@@ -1974,8 +2131,30 @@ public class InputManagerService extends IInputManager.Stub
     }
 
     // Native callback.
-    private PointerIcon getPointerIcon() {
-        return PointerIcon.getDefaultIcon(mContext);
+    private PointerIcon getPointerIcon(int displayId) {
+        return PointerIcon.getDefaultIcon(getContextForDisplay(displayId));
+    }
+
+    private Context getContextForDisplay(int displayId) {
+        if (mDisplayContext != null && mDisplayContext.getDisplay().getDisplayId() == displayId) {
+            return mDisplayContext;
+        }
+
+        if (mContext.getDisplay().getDisplayId() == displayId) {
+            mDisplayContext = mContext;
+            return mDisplayContext;
+        }
+
+        // Create and cache context for non-default display.
+        final DisplayManager displayManager = mContext.getSystemService(DisplayManager.class);
+        final Display display = displayManager.getDisplay(displayId);
+        mDisplayContext = mContext.createDisplayContext(display);
+        return mDisplayContext;
+    }
+
+    // Native callback.
+    private int getPointerDisplayId() {
+        return mWindowManagerCallbacks.getPointerDisplayId();
     }
 
     // Native callback.
@@ -2030,22 +2209,56 @@ public class InputManagerService extends IInputManager.Stub
 
         public void notifyCameraLensCoverSwitchChanged(long whenNanos, boolean lensCovered);
 
-        public void notifyInputChannelBroken(InputWindowHandle inputWindowHandle);
+        public void notifyInputChannelBroken(IBinder token);
 
-        public long notifyANR(InputApplicationHandle inputApplicationHandle,
-                InputWindowHandle inputWindowHandle, String reason);
+        /**
+         * Notifies the window manager about an application that is not responding.
+         * Returns a new timeout to continue waiting in nanoseconds, or 0 to abort dispatch.
+         */
+        long notifyANR(InputApplicationHandle inputApplicationHandle, IBinder token,
+                String reason);
 
         public int interceptKeyBeforeQueueing(KeyEvent event, int policyFlags);
 
-        public int interceptMotionBeforeQueueingNonInteractive(long whenNanos, int policyFlags);
+        /**
+         * Provides an opportunity for the window manager policy to intercept early motion event
+         * processing when the device is in a non-interactive state since these events are normally
+         * dropped.
+         */
+        int interceptMotionBeforeQueueingNonInteractive(int displayId, long whenNanos,
+                int policyFlags);
 
-        public long interceptKeyBeforeDispatching(InputWindowHandle focus,
+        public long interceptKeyBeforeDispatching(IBinder token,
                 KeyEvent event, int policyFlags);
 
-        public KeyEvent dispatchUnhandledKey(InputWindowHandle focus,
+        public KeyEvent dispatchUnhandledKey(IBinder token,
                 KeyEvent event, int policyFlags);
 
         public int getPointerLayer();
+
+        public int getPointerDisplayId();
+
+        /**
+         * Notifies window manager that a {@link android.view.MotionEvent#ACTION_DOWN} pointer event
+         * occurred on a window that did not have focus.
+         *
+         * @param touchedToken The token for the window that received the input event.
+         */
+        void onPointerDownOutsideFocus(IBinder touchedToken);
+
+        /**
+         * Called when the focused window has changed.
+         *
+         * @return true if we want to request a configuration refresh.
+         */
+        boolean notifyFocusChanged(IBinder oldToken, IBinder newToken);
+
+        /**
+         * Called by the client to request pointer capture.
+         *
+         * @return true if we want to request a configuration refresh.
+         */
+        boolean requestPointerCapture(IBinder windowToken, boolean enabled);
     }
 
     /**
@@ -2070,12 +2283,9 @@ public class InputManagerService extends IInputManager.Stub
                 case MSG_DELIVER_INPUT_DEVICES_CHANGED:
                     deliverInputDevicesChanged((InputDevice[])msg.obj);
                     break;
-                case MSG_SWITCH_KEYBOARD_LAYOUT: {
-                    SomeArgs args = (SomeArgs)msg.obj;
-                    handleSwitchKeyboardLayout((InputDeviceIdentifier)args.arg1,
-                            (InputMethodSubtypeHandle)args.arg2);
+                case MSG_SWITCH_KEYBOARD_LAYOUT:
+                    handleSwitchKeyboardLayout(msg.arg1, msg.arg2);
                     break;
-                }
                 case MSG_RELOAD_KEYBOARD_LAYOUTS:
                     reloadKeyboardLayouts();
                     break;
@@ -2085,22 +2295,12 @@ public class InputManagerService extends IInputManager.Stub
                 case MSG_RELOAD_DEVICE_ALIASES:
                     reloadDeviceAliases();
                     break;
-                case MSG_DELIVER_TABLET_MODE_CHANGED: {
+                case MSG_DELIVER_TABLET_MODE_CHANGED:
                     SomeArgs args = (SomeArgs) msg.obj;
                     long whenNanos = (args.argi1 & 0xFFFFFFFFl) | ((long) args.argi2 << 32);
                     boolean inTabletMode = (boolean) args.arg1;
                     deliverTabletModeChanged(whenNanos, inTabletMode);
                     break;
-                }
-                case MSG_INPUT_METHOD_SUBTYPE_CHANGED: {
-                    final int userId = msg.arg1;
-                    final SomeArgs args = (SomeArgs) msg.obj;
-                    final InputMethodInfo inputMethodInfo = (InputMethodInfo) args.arg1;
-                    final InputMethodSubtype subtype = (InputMethodSubtype) args.arg2;
-                    args.recycle();
-                    handleSwitchInputMethodSubtype(userId, inputMethodInfo, subtype);
-                    break;
-                }
             }
         }
     }
@@ -2123,11 +2323,33 @@ public class InputManagerService extends IInputManager.Stub
 
             synchronized (mInputFilterLock) {
                 if (!mDisconnected) {
-                    nativeInjectInputEvent(mPtr, event, Display.DEFAULT_DISPLAY, 0, 0,
+                    nativeInjectInputEvent(mPtr, event, 0, 0,
                             InputManager.INJECT_INPUT_EVENT_MODE_ASYNC, 0,
                             policyFlags | WindowManagerPolicy.FLAG_FILTERED);
                 }
             }
+        }
+    }
+
+    /**
+     * Interface for the system to handle request from InputMonitors.
+     */
+    private final class InputMonitorHost extends IInputMonitorHost.Stub {
+        private final InputChannel mInputChannel;
+
+        InputMonitorHost(InputChannel channel) {
+            mInputChannel = channel;
+        }
+
+        @Override
+        public void pilferPointers() {
+            nativePilferPointers(mPtr, mInputChannel.getToken());
+        }
+
+        @Override
+        public void dispose() {
+            nativeUnregisterInputChannel(mPtr, mInputChannel);
+            mInputChannel.dispose();
         }
     }
 
@@ -2242,50 +2464,20 @@ public class InputManagerService extends IInputManager.Stub
         }
     }
 
-    private class Shell extends ShellCommand {
-        @Override
-        public int onCommand(String cmd) {
-            return onShellCommand(this, cmd);
-        }
-
-        @Override
-        public void onHelp() {
-            final PrintWriter pw = getOutPrintWriter();
-            pw.println("Input manager commands:");
-            pw.println("  help");
-            pw.println("    Print this help text.");
-            pw.println("");
-            pw.println("  setlayout IME_ID IME_SUPTYPE_HASH_CODE"
-                    + " DEVICE_DESCRIPTOR VENDOR_ID PRODUCT_ID KEYBOARD_DESCRIPTOR");
-            pw.println("    Sets a keyboard layout for a given IME subtype and input device pair");
-        }
-    }
-
     private final class LocalService extends InputManagerInternal {
         @Override
-        public void setDisplayViewports(
-                DisplayViewport defaultViewport, DisplayViewport externalTouchViewport) {
-            setDisplayViewportsInternal(defaultViewport, externalTouchViewport);
+        public void setDisplayViewports(List<DisplayViewport> viewports) {
+            setDisplayViewportsInternal(viewports);
         }
 
         @Override
-        public boolean injectInputEvent(InputEvent event, int displayId, int mode) {
-            return injectInputEventInternal(event, displayId, mode);
+        public boolean injectInputEvent(InputEvent event, int mode) {
+            return injectInputEventInternal(event, mode);
         }
 
         @Override
         public void setInteractive(boolean interactive) {
             nativeSetInteractive(mPtr, interactive);
-        }
-
-        @Override
-        public void onInputMethodSubtypeChanged(int userId,
-                @Nullable InputMethodInfo inputMethodInfo, @Nullable InputMethodSubtype subtype) {
-            final SomeArgs someArgs = SomeArgs.obtain();
-            someArgs.arg1 = inputMethodInfo;
-            someArgs.arg2 = subtype;
-            mHandler.obtainMessage(MSG_INPUT_METHOD_SUBTYPE_CHANGED, userId, 0, someArgs)
-                    .sendToTarget();
         }
 
         @Override
@@ -2306,6 +2498,12 @@ public class InputManagerService extends IInputManager.Stub
                     IoUtils.closeQuietly(writer);
                 }
             }
+        }
+
+        @Override
+        public boolean transferTouchFocus(@NonNull IBinder fromChannelToken,
+                @NonNull IBinder toChannelToken) {
+            return InputManagerService.this.transferTouchFocus(fromChannelToken, toChannelToken);
         }
     }
 }

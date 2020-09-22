@@ -32,10 +32,10 @@ public interface WebResourceRequest {
     Uri getUrl();
 
     /**
-     * Gets whether the request was made for the main frame.
+     * Gets whether the request was made in order to fetch the main frame's document.
      *
-     * @return whether the request was made for the main frame. Will be false for iframes,
-     *         for example.
+     * @return whether the request was made for the main frame document. Will be
+     *         {@code false} for subresources or iframes, for example.
      */
     boolean isForMainFrame();
 
@@ -48,8 +48,9 @@ public interface WebResourceRequest {
 
     /**
      * Gets whether a gesture (such as a click) was associated with the request.
-     * For security reasons in certain situations this method may return false even though the
-     * sequence of events which caused the request to be created was initiated by a user gesture.
+     * For security reasons in certain situations this method may return {@code false} even though
+     * the sequence of events which caused the request to be created was initiated by a user
+     * gesture.
      *
      * @return whether a gesture was associated with the request.
      */

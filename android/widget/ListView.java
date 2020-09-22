@@ -16,14 +16,10 @@
 
 package android.widget;
 
-import com.google.android.collect.Lists;
-
-import com.android.internal.R;
-import com.android.internal.util.Predicate;
-
 import android.annotation.IdRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.TypedArray;
@@ -32,9 +28,11 @@ import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Trace;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.util.MathUtils;
 import android.util.SparseBooleanArray;
 import android.view.FocusFinder;
@@ -51,10 +49,16 @@ import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
 import android.view.accessibility.AccessibilityNodeInfo.CollectionInfo;
 import android.view.accessibility.AccessibilityNodeInfo.CollectionItemInfo;
 import android.view.accessibility.AccessibilityNodeProvider;
+import android.view.inspector.InspectableProperty;
 import android.widget.RemoteViews.RemoteView;
+
+import com.android.internal.R;
+
+import com.google.android.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 /*
  * Implementation Notes:
@@ -67,11 +71,73 @@ import java.util.List;
 
 
 /**
- * A view that shows items in a vertically scrolling list. The items
- * come from the {@link ListAdapter} associated with this view.
+ * <p>Displays a vertically-scrollable collection of views, where each view is positioned
+ * immediatelybelow the previous view in the list.  For a more modern, flexible, and performant
+ * approach to displaying lists, use {@link android.support.v7.widget.RecyclerView}.</p>
  *
- * <p>See the <a href="{@docRoot}guide/topics/ui/layout/listview.html">List View</a>
- * guide.</p>
+ * <p>To display a list, you can include a list view in your layout XML file:</p>
+ *
+ * <pre>&lt;ListView
+ *      android:id="@+id/list_view"
+ *      android:layout_width="match_parent"
+ *      android:layout_height="match_parent" /&gt;</pre>
+ *
+ * <p>A list view is an <a href="{@docRoot}guide/topics/ui/declaring-layout.html#AdapterViews">
+ * adapter view</a> that does not know the details, such as type and contents, of the views it
+ * contains. Instead list view requests views on demand from a {@link ListAdapter} as needed,
+ * such as to display new views as the user scrolls up or down.</p>
+ *
+ * <p>In order to display items in the list, call {@link #setAdapter(ListAdapter adapter)}
+ * to associate an adapter with the list.  For a simple example, see the discussion of filling an
+ * adapter view with text in the
+ * <a href="{@docRoot}guide/topics/ui/declaring-layout.html#FillingTheLayout">
+ * Layouts</a> guide.</p>
+ *
+ * <p>To display a more custom view for each item in your dataset, implement a ListAdapter.
+ * For example, extend {@link BaseAdapter} and create and configure the view for each data item in
+ * {@code getView(...)}:</p>
+ *
+ *  <pre>private class MyAdapter extends BaseAdapter {
+ *
+ *      // override other abstract methods here
+ *
+ *      &#64;Override
+ *      public View getView(int position, View convertView, ViewGroup container) {
+ *          if (convertView == null) {
+ *              convertView = getLayoutInflater().inflate(R.layout.list_item, container, false);
+ *          }
+ *
+ *          ((TextView) convertView.findViewById(android.R.id.text1))
+ *                  .setText(getItem(position));
+ *          return convertView;
+ *      }
+ *  }</pre>
+ *
+ * <p class="note">ListView attempts to reuse view objects in order to improve performance and
+ * avoid a lag in response to user scrolls.  To take advantage of this feature, check if the
+ * {@code convertView} provided to {@code getView(...)} is null before creating or inflating a new
+ * view object.  See
+ * <a href="{@docRoot}training/improving-layouts/smooth-scrolling.html">
+ * Making ListView Scrolling Smooth</a> for more ways to ensure a smooth user experience.</p>
+ *
+ * <p>To specify an action when a user clicks or taps on a single list item, see
+ * <a href="{@docRoot}guide/topics/ui/declaring-layout.html#HandlingUserSelections">
+ *     Handling click events</a>.</p>
+ *
+ * <p>To learn how to populate a list view with a CursorAdapter, see the discussion of filling an
+ * adapter view with text in the
+ * <a href="{@docRoot}guide/topics/ui/declaring-layout.html#FillingTheLayout">
+ * Layouts</a> guide.
+ * See <a href="{@docRoot}guide/topics/ui/layout/listview.html">
+ *     Using a Loader</a>
+ * to learn how to avoid blocking the main thread when using a cursor.</p>
+ *
+ * <p class="note">Note, many examples use {@link android.app.ListActivity ListActivity}
+ * or {@link android.app.ListFragment ListFragment}
+ * to display a list view. Instead, favor the more flexible approach when writing your own app:
+ * use a more generic Activity subclass or Fragment subclass and add a list view to the layout
+ * or view hierarchy directly.  This approach gives you more direct control of the
+ * list view and adapter.</p>
  *
  * @attr ref android.R.styleable#ListView_entries
  * @attr ref android.R.styleable#ListView_divider
@@ -81,6 +147,8 @@ import java.util.List;
  */
 @RemoteView
 public class ListView extends AbsListView {
+    static final String TAG = "ListView";
+
     /**
      * Used to indicate a no preference for a position type.
      */
@@ -112,10 +180,14 @@ public class ListView extends AbsListView {
         public boolean isSelectable;
     }
 
+    @UnsupportedAppUsage
     ArrayList<FixedViewInfo> mHeaderViewInfos = Lists.newArrayList();
+    @UnsupportedAppUsage
     ArrayList<FixedViewInfo> mFooterViewInfos = Lists.newArrayList();
 
+    @UnsupportedAppUsage
     Drawable mDivider;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     int mDividerHeight;
 
     Drawable mOverScrollHeader;
@@ -127,6 +199,7 @@ public class ListView extends AbsListView {
     private boolean mHeaderDividersEnabled;
     private boolean mFooterDividersEnabled;
 
+    @UnsupportedAppUsage
     private boolean mAreAllItemsSelectable = true;
 
     private boolean mItemsCanFocus = false;
@@ -159,6 +232,8 @@ public class ListView extends AbsListView {
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, R.styleable.ListView, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.ListView,
+                attrs, a, defStyleAttr, defStyleRes);
 
         final CharSequence[] entries = a.getTextArray(R.styleable.ListView_entries);
         if (entries != null) {
@@ -269,6 +344,12 @@ public class ListView extends AbsListView {
      * @param isSelectable whether the item is selectable
      */
     public void addHeaderView(View v, Object data, boolean isSelectable) {
+        if (v.getParent() != null && v.getParent() != this) {
+            if (Log.isLoggable(TAG, Log.WARN)) {
+                Log.w(TAG, "The specified child already has a parent. "
+                           + "You must call removeView() on the child's parent first.");
+            }
+        }
         final FixedViewInfo info = new FixedViewInfo();
         info.view = v;
         info.data = data;
@@ -363,6 +444,13 @@ public class ListView extends AbsListView {
      * @param isSelectable true if the footer view can be selected
      */
     public void addFooterView(View v, Object data, boolean isSelectable) {
+        if (v.getParent() != null && v.getParent() != this) {
+            if (Log.isLoggable(TAG, Log.WARN)) {
+                Log.w(TAG, "The specified child already has a parent. "
+                           + "You must call removeView() on the child's parent first.");
+            }
+        }
+
         final FixedViewInfo info = new FixedViewInfo();
         info.view = v;
         info.data = data;
@@ -448,7 +536,7 @@ public class ListView extends AbsListView {
      * through the specified intent.
      * @param intent the intent used to identify the RemoteViewsService for the adapter to connect to.
      */
-    @android.view.RemotableViewMethod
+    @android.view.RemotableViewMethod(asyncImpl="setRemoteViewsAdapterAsync")
     public void setRemoteViewsAdapter(Intent intent) {
         super.setRemoteViewsAdapter(intent);
     }
@@ -464,7 +552,7 @@ public class ListView extends AbsListView {
      *        data backing this list and for producing a view to represent an
      *        item in that data set.
      *
-     * @see #getAdapter() 
+     * @see #getAdapter()
      */
     @Override
     public void setAdapter(ListAdapter adapter) {
@@ -542,9 +630,9 @@ public class ListView extends AbsListView {
 
             for (int i = 0; i < count; i++) {
                 final View child = infos.get(i).view;
-                final LayoutParams p = (LayoutParams) child.getLayoutParams();
-                if (p != null) {
-                    p.recycledHeaderFooter = false;
+                final ViewGroup.LayoutParams params = child.getLayoutParams();
+                if (checkLayoutParams(params)) {
+                    ((LayoutParams) params).recycledHeaderFooter = false;
                 }
             }
         }
@@ -690,6 +778,7 @@ public class ListView extends AbsListView {
      * @return The view that is currently selected, if it happens to be in the
      *         range that we draw.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private View fillDown(int pos, int nextTop) {
         View selectedView = null;
 
@@ -724,6 +813,7 @@ public class ListView extends AbsListView {
      *
      * @return The view that is currently selected
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private View fillUp(int pos, int nextBottom) {
         View selectedView = null;
 
@@ -1300,6 +1390,7 @@ public class ListView extends AbsListView {
      *            startPosition is 0).
      * @return The height of this ListView with the given children.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     final int measureHeightOfChildren(int widthMeasureSpec, int startPosition, int endPosition,
             int maxHeight, int disallowPartialChildPosition) {
         final ListAdapter adapter = mAdapter;
@@ -1395,6 +1486,7 @@ public class ListView extends AbsListView {
      * @return The selected view, or null if the selected view is outside the
      *         visible area.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private View fillSpecific(int position, int top) {
         boolean tempIsSelected = position == mSelectedPosition;
         View temp = makeAndAddView(position, top, true, mListPadding.left, tempIsSelected);
@@ -1441,6 +1533,7 @@ public class ListView extends AbsListView {
      *
      * @param childCount Number of children
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private void correctTooHigh(int childCount) {
         // First see if the last item is visible. If it is not, it is OK for the
         // top of the list to be pushed up.
@@ -1490,6 +1583,7 @@ public class ListView extends AbsListView {
      *
      * @param childCount Number of children
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private void correctTooLow(int childCount) {
         // First see if the first item is visible. If it is not, it is OK for the
         // bottom of the list to be pushed down.
@@ -1532,7 +1626,7 @@ public class ListView extends AbsListView {
                         adjustViewsUpOrDown();
                     }
                 } else if (lastPosition == mItemCount - 1) {
-                    adjustViewsUpOrDown();                    
+                    adjustViewsUpOrDown();
                 }
             }
         }
@@ -1639,7 +1733,7 @@ public class ListView extends AbsListView {
                     final View focusChild = getAccessibilityFocusedChild(focusHost);
                     if (focusChild != null) {
                         if (!dataChanged || isDirectChildHeaderOrFooter(focusChild)
-                                || focusChild.hasTransientState() || mAdapterHasStableIds) {
+                                || (focusChild.hasTransientState() && mAdapterHasStableIds)) {
                             // The views won't be changing, so try to maintain
                             // focus on the current host and virtual view.
                             accessibilityFocusLayoutRestoreView = focusHost;
@@ -1857,7 +1951,7 @@ public class ListView extends AbsListView {
                     && focusLayoutRestoreView.getWindowToken() != null) {
                 focusLayoutRestoreView.dispatchFinishTemporaryDetach();
             }
-            
+
             mLayoutMode = LAYOUT_NORMAL;
             mDataChanged = false;
             if (mPositionScrollAfterLayout != null) {
@@ -1885,6 +1979,7 @@ public class ListView extends AbsListView {
     }
 
     @Override
+    @UnsupportedAppUsage
     boolean trackMotionScroll(int deltaY, int incrementalDeltaY) {
         final boolean result = super.trackMotionScroll(deltaY, incrementalDeltaY);
         removeUnusedFixedViews(mHeaderViewInfos);
@@ -1918,6 +2013,7 @@ public class ListView extends AbsListView {
      * @param child a direct child of this list.
      * @return Whether child is a header or footer view.
      */
+    @UnsupportedAppUsage
     private boolean isDirectChildHeaderOrFooter(View child) {
         final ArrayList<FixedViewInfo> headers = mHeaderViewInfos;
         final int numHeaders = headers.size();
@@ -1952,6 +2048,7 @@ public class ListView extends AbsListView {
      *                 otherwise
      * @return the view that was added
      */
+    @UnsupportedAppUsage
     private View makeAndAddView(int position, int y, boolean flow, int childrenLeft,
             boolean selected) {
         if (!mDataChanged) {
@@ -2109,10 +2206,11 @@ public class ListView extends AbsListView {
 
     /**
      * Makes the item at the supplied position selected.
-     * 
+     *
      * @param position the position of the item to select
      */
     @Override
+    @UnsupportedAppUsage
     void setSelectionInt(int position) {
         setNextSelectedPositionInt(position);
         boolean awakeScrollbars = false;
@@ -2147,6 +2245,7 @@ public class ListView extends AbsListView {
      *         down. Returns {@link #INVALID_POSITION} if nothing can be found.
      */
     @Override
+    @UnsupportedAppUsage
     int lookForSelectablePosition(int position, boolean lookDown) {
         final ListAdapter adapter = mAdapter;
         if (adapter == null || isInTouchMode()) {
@@ -2154,15 +2253,13 @@ public class ListView extends AbsListView {
         }
 
         final int count = adapter.getCount();
-        // mAreAllItemsSelectable默认为true，不过会根据header、footer以及
-        // Adapter.areAllItemsEnabled()方法来重新设置
         if (!mAreAllItemsSelectable) {
-            if (lookDown) {// 向下找，positon累加
+            if (lookDown) {
                 position = Math.max(0, position);
                 while (position < count && !adapter.isEnabled(position)) {
                     position++;
                 }
-            } else {// 向上找，position递减
+            } else {
                 position = Math.min(position, count - 1);
                 while (position >= 0 && !adapter.isEnabled(position)) {
                     position--;
@@ -2171,7 +2268,6 @@ public class ListView extends AbsListView {
         }
 
         if (position < 0 || position >= count) {
-            // 非法的position返回-1
             return INVALID_POSITION;
         }
 
@@ -2557,6 +2653,7 @@ public class ListView extends AbsListView {
      *
      * @return whether selection was moved
      */
+    @UnsupportedAppUsage
     boolean arrowScroll(int direction) {
         try {
             mInLayout = true;
@@ -2963,7 +3060,7 @@ public class ListView extends AbsListView {
             if (startPos < firstPosition) {
                 startPos = firstPosition;
             }
-            
+
             final int lastVisiblePos = getLastVisiblePosition();
             final ListAdapter adapter = getAdapter();
             for (int pos = startPos; pos <= lastVisiblePos; pos++) {
@@ -3132,7 +3229,7 @@ public class ListView extends AbsListView {
     /**
      * Determine the distance to the nearest edge of a view in a particular
      * direction.
-     * 
+     *
      * @param descendant A descendant of this list.
      * @return The distance, or 0 if the nearest edge is already on screen.
      */
@@ -3156,7 +3253,11 @@ public class ListView extends AbsListView {
      *
      * @param amount The amount (positive or negative) to scroll.
      */
+    @UnsupportedAppUsage
     private void scrollListItemsBy(int amount) {
+        int oldX = mScrollX;
+        int oldY = mScrollY;
+
         offsetChildrenTopAndBottom(amount);
 
         final int listBottom = getHeight() - mListPadding.bottom;
@@ -3229,6 +3330,7 @@ public class ListView extends AbsListView {
         recycleBin.fullyDetachScrapViews();
         removeUnusedFixedViews(mHeaderViewInfos);
         removeUnusedFixedViews(mFooterViewInfos);
+        onScrollChanged(mScrollX, mScrollY, oldX, oldY);
     }
 
     private View addViewAbove(View theView, int position) {
@@ -3389,7 +3491,7 @@ public class ListView extends AbsListView {
             final int listBottom = mBottom - mTop - effectivePaddingBottom + mScrollY;
             if (!mStackFromBottom) {
                 int bottom = 0;
-                
+
                 // Draw top divider or header for overscroll
                 final int scrollY = mScrollY;
                 if (count > 0 && scrollY < 0) {
@@ -3486,7 +3588,7 @@ public class ListView extends AbsListView {
                         }
                     }
                 }
-                
+
                 if (count > 0 && scrollY > 0) {
                     if (drawOverscrollFooter) {
                         final int absListBottom = mBottom;
@@ -3538,6 +3640,7 @@ public class ListView extends AbsListView {
      * @return the current drawable drawn between list elements
      * @attr ref R.styleable#ListView_divider
      */
+    @InspectableProperty
     @Nullable
     public Drawable getDivider() {
         return mDivider;
@@ -3567,10 +3670,11 @@ public class ListView extends AbsListView {
     /**
      * @return Returns the height of the divider that will be drawn between each item in the list.
      */
+    @InspectableProperty
     public int getDividerHeight() {
         return mDividerHeight;
     }
-    
+
     /**
      * Sets the height of the divider that will be drawn between each item in the list. Calling
      * this will override the intrinsic height as set by {@link #setDivider(Drawable)}
@@ -3602,6 +3706,7 @@ public class ListView extends AbsListView {
      *
      * @see #setHeaderDividersEnabled(boolean)
      */
+    @InspectableProperty(name = "headerDividersEnabled")
     public boolean areHeaderDividersEnabled() {
         return mHeaderDividersEnabled;
     }
@@ -3625,10 +3730,11 @@ public class ListView extends AbsListView {
      *
      * @see #setFooterDividersEnabled(boolean)
      */
+    @InspectableProperty(name = "footerDividersEnabled")
     public boolean areFooterDividersEnabled() {
         return mFooterDividersEnabled;
     }
-    
+
     /**
      * Sets the drawable that will be drawn above all other list content.
      * This area can become visible when the user overscrolls the list.
@@ -3738,32 +3844,30 @@ public class ListView extends AbsListView {
         }
     }
 
-    /* (non-Javadoc)
+    /**
      * @see android.view.View#findViewById(int)
-     * First look in our children, then in any header and footer views that may be scrolled off.
+     * @removed For internal use only. This should have been hidden.
      */
     @Override
-    protected View findViewTraversal(@IdRes int id) {
-        View v;
-        v = super.findViewTraversal(id);
+    protected <T extends View> T findViewTraversal(@IdRes int id) {
+        // First look in our children, then in any header and footer views that
+        // may be scrolled off.
+        View v = super.findViewTraversal(id);
         if (v == null) {
             v = findViewInHeadersOrFooters(mHeaderViewInfos, id);
             if (v != null) {
-                return v;
+                return (T) v;
             }
             v = findViewInHeadersOrFooters(mFooterViewInfos, id);
             if (v != null) {
-                return v;
+                return (T) v;
             }
         }
-        return v;
+        return (T) v;
     }
 
-    /* (non-Javadoc)
-     *
-     * Look in the passed in list of headers or footers for the view.
-     */
     View findViewInHeadersOrFooters(ArrayList<FixedViewInfo> where, int id) {
+        // Look in the passed in list of headers or footers for the view.
         if (where != null) {
             int len = where.size();
             View v;
@@ -3783,33 +3887,32 @@ public class ListView extends AbsListView {
         return null;
     }
 
-    /* (non-Javadoc)
+    /**
      * @see android.view.View#findViewWithTag(Object)
-     * First look in our children, then in any header and footer views that may be scrolled off.
+     * @removed For internal use only. This should have been hidden.
      */
     @Override
-    protected View findViewWithTagTraversal(Object tag) {
-        View v;
-        v = super.findViewWithTagTraversal(tag);
+    protected <T extends View> T findViewWithTagTraversal(Object tag) {
+        // First look in our children, then in any header and footer views that
+        // may be scrolled off.
+        View v = super.findViewWithTagTraversal(tag);
         if (v == null) {
             v = findViewWithTagInHeadersOrFooters(mHeaderViewInfos, tag);
             if (v != null) {
-                return v;
+                return (T) v;
             }
 
             v = findViewWithTagInHeadersOrFooters(mFooterViewInfos, tag);
             if (v != null) {
-                return v;
+                return (T) v;
             }
         }
-        return v;
+        return (T) v;
     }
 
-    /* (non-Javadoc)
-     *
-     * Look in the passed in list of headers or footers for the view with the tag.
-     */
     View findViewWithTagInHeadersOrFooters(ArrayList<FixedViewInfo> where, Object tag) {
+        // Look in the passed in list of headers or footers for the view with
+        // the tag.
         if (where != null) {
             int len = where.size();
             View v;
@@ -3830,32 +3933,33 @@ public class ListView extends AbsListView {
     }
 
     /**
-     * @hide
+     * First look in our children, then in any header and footer views that may
+     * be scrolled off.
+     *
      * @see android.view.View#findViewByPredicate(Predicate)
-     * First look in our children, then in any header and footer views that may be scrolled off.
+     * @hide
      */
     @Override
-    protected View findViewByPredicateTraversal(Predicate<View> predicate, View childToSkip) {
-        View v;
-        v = super.findViewByPredicateTraversal(predicate, childToSkip);
+    protected <T extends View> T findViewByPredicateTraversal(
+            Predicate<View> predicate, View childToSkip) {
+        View v = super.findViewByPredicateTraversal(predicate, childToSkip);
         if (v == null) {
             v = findViewByPredicateInHeadersOrFooters(mHeaderViewInfos, predicate, childToSkip);
             if (v != null) {
-                return v;
+                return (T) v;
             }
 
             v = findViewByPredicateInHeadersOrFooters(mFooterViewInfos, predicate, childToSkip);
             if (v != null) {
-                return v;
+                return (T) v;
             }
         }
-        return v;
+        return (T) v;
     }
 
-    /* (non-Javadoc)
-     *
-     * Look in the passed in list of headers or footers for the first view that matches
-     * the predicate.
+    /**
+     * Look in the passed in list of headers or footers for the first view that
+     * matches the predicate.
      */
     View findViewByPredicateInHeadersOrFooters(ArrayList<FixedViewInfo> where,
             Predicate<View> predicate, View childToSkip) {
@@ -3881,10 +3985,10 @@ public class ListView extends AbsListView {
     /**
      * Returns the set of checked items ids. The result is only valid if the
      * choice mode has not been set to {@link #CHOICE_MODE_NONE}.
-     * 
+     *
      * @return A new array which contains the id of each checked item in the
      *         list.
-     *         
+     *
      * @deprecated Use {@link #getCheckedItemIds()} instead.
      */
     @Deprecated
@@ -3924,6 +4028,7 @@ public class ListView extends AbsListView {
     }
 
     @Override
+    @UnsupportedAppUsage
     int getHeightForPosition(int position) {
         final int height = super.getHeightForPosition(position);
         if (shouldAdjustHeightForDivider(position)) {
@@ -4004,7 +4109,7 @@ public class ListView extends AbsListView {
         final int rowsCount = getCount();
         final int selectionMode = getSelectionModeForAccessibility();
         final CollectionInfo collectionInfo = CollectionInfo.obtain(
-                rowsCount, 1, false, selectionMode);
+                -1, -1, false, selectionMode);
         info.setCollectionInfo(collectionInfo);
 
         if (rowsCount > 0) {

@@ -16,13 +16,16 @@
 
 package android.content;
 
+import android.annotation.SystemService;
 import android.app.Activity;
 import android.app.admin.DevicePolicyManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.PersistableBundle;
 import android.os.RemoteException;
@@ -120,6 +123,7 @@ import java.util.List;
  * @see DevicePolicyManager#setRestrictionsProvider(ComponentName, ComponentName)
  * @see DevicePolicyManager#setApplicationRestrictions(ComponentName, String, Bundle)
  */
+@SystemService(Context.RESTRICTIONS_SERVICE)
 public class RestrictionsManager {
 
     private static final String TAG = "RestrictionsManager";
@@ -400,6 +404,7 @@ public class RestrictionsManager {
     private static final String TAG_RESTRICTION = "restriction";
 
     private final Context mContext;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final IRestrictionsManager mService;
 
     /**
@@ -719,10 +724,20 @@ public class RestrictionsManager {
                 bundle.putBundle(entry.getKey(), childBundle);
                 break;
             case RestrictionEntry.TYPE_BUNDLE_ARRAY:
-                restrictions = entry.getRestrictions();
-                Bundle[] bundleArray = new Bundle[restrictions.length];
-                for (int i = 0; i < restrictions.length; i++) {
-                    bundleArray[i] = addRestrictionToBundle(new Bundle(), restrictions[i]);
+                RestrictionEntry[] bundleRestrictionArray = entry.getRestrictions();
+                Bundle[] bundleArray = new Bundle[bundleRestrictionArray.length];
+                for (int i = 0; i < bundleRestrictionArray.length; i++) {
+                    RestrictionEntry[] bundleRestrictions =
+                            bundleRestrictionArray[i].getRestrictions();
+                    if (bundleRestrictions == null) {
+                        // Non-bundle entry found in bundle array.
+                        Log.w(TAG, "addRestrictionToBundle: " +
+                                "Non-bundle entry found in bundle array");
+                        bundleArray[i] = new Bundle();
+                    } else {
+                        bundleArray[i] = convertRestrictionsToBundle(Arrays.asList(
+                                bundleRestrictions));
+                    }
                 }
                 bundle.putParcelableArray(entry.getKey(), bundleArray);
                 break;

@@ -16,13 +16,11 @@
 
 package com.android.server.display;
 
-import com.android.internal.util.DumpUtils;
-import com.android.internal.util.IndentingPrintWriter;
-
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.WifiDisplay;
 import android.hardware.display.WifiDisplaySessionInfo;
@@ -35,15 +33,18 @@ import android.os.Message;
 import android.os.UserHandle;
 import android.util.Slog;
 import android.view.Display;
+import android.view.DisplayAddress;
 import android.view.Surface;
 import android.view.SurfaceControl;
 
+import com.android.internal.util.DumpUtils;
+import com.android.internal.util.IndentingPrintWriter;
+
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.ArrayList;
-
-import libcore.util.Objects;
+import java.util.Objects;
 
 /**
  * Connects to Wifi displays that implement the Miracast protocol.
@@ -95,6 +96,12 @@ final class WifiDisplayAdapter extends DisplayAdapter {
             Context context, Handler handler, Listener listener,
             PersistentDataStore persistentDataStore) {
         super(syncRoot, context, handler, listener, TAG);
+
+        if (!context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT)) {
+            throw new RuntimeException("WiFi display was requested, "
+                    + "but there is no WiFi Direct feature");
+        }
+
         mHandler = new WifiDisplayHandler(handler.getLooper());
         mPersistentDataStore = persistentDataStore;
         mSupportsProtectedBuffers = context.getResources().getBoolean(
@@ -248,7 +255,7 @@ final class WifiDisplayAdapter extends DisplayAdapter {
         }
 
         WifiDisplay display = mPersistentDataStore.getRememberedWifiDisplay(address);
-        if (display != null && !Objects.equal(display.getDeviceAlias(), alias)) {
+        if (display != null && !Objects.equals(display.getDeviceAlias(), alias)) {
             display = new WifiDisplay(address, display.getDeviceName(), alias,
                     false, false, false);
             if (mPersistentDataStore.rememberWifiDisplay(display)) {
@@ -582,7 +589,7 @@ final class WifiDisplayAdapter extends DisplayAdapter {
         private final int mHeight;
         private final float mRefreshRate;
         private final int mFlags;
-        private final String mAddress;
+        private final DisplayAddress mAddress;
         private final Display.Mode mMode;
 
         private Surface mSurface;
@@ -597,7 +604,7 @@ final class WifiDisplayAdapter extends DisplayAdapter {
             mHeight = height;
             mRefreshRate = refreshRate;
             mFlags = flags;
-            mAddress = address;
+            mAddress = DisplayAddress.fromMacAddress(address);
             mSurface = surface;
             mMode = createMode(width, height, refreshRate);
         }
@@ -621,9 +628,9 @@ final class WifiDisplayAdapter extends DisplayAdapter {
         }
 
         @Override
-        public void performTraversalInTransactionLocked() {
+        public void performTraversalLocked(SurfaceControl.Transaction t) {
             if (mSurface != null) {
-                setSurfaceInTransactionLocked(mSurface);
+                setSurfaceLocked(t, mSurface);
             }
         }
 
@@ -644,6 +651,8 @@ final class WifiDisplayAdapter extends DisplayAdapter {
                 mInfo.address = mAddress;
                 mInfo.touch = DisplayDeviceInfo.TOUCH_EXTERNAL;
                 mInfo.setAssumedDensityForExternalDisplay(mWidth, mHeight);
+                // The display is trusted since it is created by system.
+                mInfo.flags |= DisplayDeviceInfo.FLAG_TRUSTED;
             }
             return mInfo;
         }

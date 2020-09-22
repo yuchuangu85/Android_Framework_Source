@@ -15,45 +15,44 @@
  */
 package com.android.systemui.statusbar.policy;
 
+import static android.net.wifi.WifiManager.TrafficStateCallback.DATA_ACTIVITY_IN;
+import static android.net.wifi.WifiManager.TrafficStateCallback.DATA_ACTIVITY_INOUT;
+import static android.net.wifi.WifiManager.TrafficStateCallback.DATA_ACTIVITY_OUT;
+
 import android.content.Context;
 import android.content.Intent;
+import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
+import android.net.NetworkScoreManager;
 import android.net.wifi.WifiManager;
-import android.os.Handler;
-import android.os.Message;
-import android.os.Messenger;
-import android.util.Log;
+import android.text.TextUtils;
 
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.util.AsyncChannel;
 import com.android.settingslib.wifi.WifiStatusTracker;
+import com.android.systemui.R;
 import com.android.systemui.statusbar.policy.NetworkController.IconState;
 import com.android.systemui.statusbar.policy.NetworkController.SignalCallback;
 
-import com.android.systemui.R;
-
 import java.util.Objects;
-
 
 public class WifiSignalController extends
         SignalController<WifiSignalController.WifiState, SignalController.IconGroup> {
-    private final WifiManager mWifiManager;
-    private final AsyncChannel mWifiChannel;
-    private final boolean mHasMobileData;
+    private final boolean mHasMobileDataFeature;
     private final WifiStatusTracker mWifiTracker;
 
-    public WifiSignalController(Context context, boolean hasMobileData,
-            CallbackHandler callbackHandler, NetworkControllerImpl networkController) {
+    public WifiSignalController(Context context, boolean hasMobileDataFeature,
+            CallbackHandler callbackHandler, NetworkControllerImpl networkController,
+            WifiManager wifiManager, ConnectivityManager connectivityManager,
+            NetworkScoreManager networkScoreManager) {
         super("WifiSignalController", context, NetworkCapabilities.TRANSPORT_WIFI,
                 callbackHandler, networkController);
-        mWifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
-        mWifiTracker = new WifiStatusTracker(mWifiManager);
-        mHasMobileData = hasMobileData;
-        Handler handler = new WifiHandler();
-        mWifiChannel = new AsyncChannel();
-        Messenger wifiMessenger = mWifiManager.getWifiServiceMessenger();
-        if (wifiMessenger != null) {
-            mWifiChannel.connect(context, handler, wifiMessenger);
+        mWifiTracker = new WifiStatusTracker(mContext, wifiManager, networkScoreManager,
+                connectivityManager, this::handleStatusUpdated);
+        mWifiTracker.setListening(true);
+        mHasMobileDataFeature = hasMobileDataFeature;
+        if (wifiManager != null) {
+            wifiManager.registerTrafficStateCallback(context.getMainExecutor(),
+                    new WifiTrafficStateCallback());
         }
         // WiFi only has one state.
         mCurrentState.iconGroup = mLastState.iconGroup = new IconGroup(
@@ -74,25 +73,46 @@ public class WifiSignalController extends
         return new WifiState();
     }
 
+    void refreshLocale() {
+        mWifiTracker.refreshLocale();
+    }
+
     @Override
     public void notifyListeners(SignalCallback callback) {
         // only show wifi in the cluster if connected or if wifi-only
-        boolean wifiVisible = mCurrentState.enabled
-                && (mCurrentState.connected || !mHasMobileData);
-        String wifiDesc = wifiVisible ? mCurrentState.ssid : null;
+        boolean visibleWhenEnabled = mContext.getResources().getBoolean(
+                R.bool.config_showWifiIndicatorWhenEnabled);
+        boolean wifiVisible = mCurrentState.enabled && (
+                (mCurrentState.connected && mCurrentState.inetCondition == 1)
+                        || !mHasMobileDataFeature || mWifiTracker.isDefaultNetwork
+                        || visibleWhenEnabled);
+        String wifiDesc = mCurrentState.connected ? mCurrentState.ssid : null;
         boolean ssidPresent = wifiVisible && mCurrentState.ssid != null;
-        String contentDescription = getStringIfExists(getContentDescription());
+        String contentDescription = getTextIfExists(getContentDescription()).toString();
         if (mCurrentState.inetCondition == 0) {
-            contentDescription +=
-                    ("," + mContext.getString(R.string.accessibility_quick_settings_no_internet));
+            contentDescription += ("," + mContext.getString(R.string.data_connection_no_internet));
         }
-
         IconState statusIcon = new IconState(wifiVisible, getCurrentIconId(), contentDescription);
-        IconState qsIcon = new IconState(mCurrentState.connected, getQsCurrentIconId(),
-                contentDescription);
+        IconState qsIcon = new IconState(mCurrentState.connected,
+                mWifiTracker.isCaptivePortal ? R.drawable.ic_qs_wifi_disconnected
+                        : getQsCurrentIconId(), contentDescription);
         callback.setWifiIndicators(mCurrentState.enabled, statusIcon, qsIcon,
                 ssidPresent && mCurrentState.activityIn, ssidPresent && mCurrentState.activityOut,
-                wifiDesc);
+                wifiDesc, mCurrentState.isTransient, mCurrentState.statusLabel);
+    }
+
+    /**
+     * Fetches wifi initial state replacing the initial sticky broadcast.
+     */
+    public void fetchInitialState() {
+        mWifiTracker.fetchInitialState();
+        mCurrentState.enabled = mWifiTracker.enabled;
+        mCurrentState.connected = mWifiTracker.connected;
+        mCurrentState.ssid = mWifiTracker.ssid;
+        mCurrentState.rssi = mWifiTracker.rssi;
+        mCurrentState.level = mWifiTracker.level;
+        mCurrentState.statusLabel = mWifiTracker.statusLabel;
+        notifyListenersIfNecessary();
     }
 
     /**
@@ -105,63 +125,65 @@ public class WifiSignalController extends
         mCurrentState.ssid = mWifiTracker.ssid;
         mCurrentState.rssi = mWifiTracker.rssi;
         mCurrentState.level = mWifiTracker.level;
+        mCurrentState.statusLabel = mWifiTracker.statusLabel;
+        notifyListenersIfNecessary();
+    }
+
+    private void handleStatusUpdated() {
+        mCurrentState.statusLabel = mWifiTracker.statusLabel;
         notifyListenersIfNecessary();
     }
 
     @VisibleForTesting
     void setActivity(int wifiActivity) {
-        mCurrentState.activityIn = wifiActivity == WifiManager.DATA_ACTIVITY_INOUT
-                || wifiActivity == WifiManager.DATA_ACTIVITY_IN;
-        mCurrentState.activityOut = wifiActivity == WifiManager.DATA_ACTIVITY_INOUT
-                || wifiActivity == WifiManager.DATA_ACTIVITY_OUT;
+        mCurrentState.activityIn = wifiActivity == DATA_ACTIVITY_INOUT
+                || wifiActivity == DATA_ACTIVITY_IN;
+        mCurrentState.activityOut = wifiActivity == DATA_ACTIVITY_INOUT
+                || wifiActivity == DATA_ACTIVITY_OUT;
         notifyListenersIfNecessary();
     }
 
     /**
      * Handler to receive the data activity on wifi.
      */
-    private class WifiHandler extends Handler {
+    private class WifiTrafficStateCallback implements WifiManager.TrafficStateCallback {
         @Override
-        public void handleMessage(Message msg) {
-            switch (msg.what) {
-                case AsyncChannel.CMD_CHANNEL_HALF_CONNECTED:
-                    if (msg.arg1 == AsyncChannel.STATUS_SUCCESSFUL) {
-                        mWifiChannel.sendMessage(Message.obtain(this,
-                                AsyncChannel.CMD_CHANNEL_FULL_CONNECTION));
-                    } else {
-                        Log.e(mTag, "Failed to connect to wifi");
-                    }
-                    break;
-                case WifiManager.DATA_ACTIVITY_NOTIFICATION:
-                    setActivity(msg.arg1);
-                    break;
-                default:
-                    // Ignore
-                    break;
-            }
+        public void onStateChanged(int state) {
+            setActivity(state);
         }
     }
 
     static class WifiState extends SignalController.State {
         String ssid;
+        boolean isTransient;
+        String statusLabel;
 
         @Override
         public void copyFrom(State s) {
             super.copyFrom(s);
             WifiState state = (WifiState) s;
             ssid = state.ssid;
+            isTransient = state.isTransient;
+            statusLabel = state.statusLabel;
         }
 
         @Override
         protected void toString(StringBuilder builder) {
             super.toString(builder);
-            builder.append(',').append("ssid=").append(ssid);
+            builder.append(",ssid=").append(ssid)
+                .append(",isTransient=").append(isTransient)
+                .append(",statusLabel=").append(statusLabel);
         }
 
         @Override
         public boolean equals(Object o) {
-            return super.equals(o)
-                    && Objects.equals(((WifiState) o).ssid, ssid);
+            if (!super.equals(o)) {
+                return false;
+            }
+            WifiState other = (WifiState) o;
+            return Objects.equals(other.ssid, ssid)
+                    && other.isTransient == isTransient
+                    && TextUtils.equals(other.statusLabel, statusLabel);
         }
     }
 }

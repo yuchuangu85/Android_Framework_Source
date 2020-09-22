@@ -16,20 +16,20 @@
 package android.hardware.radio;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
-import android.content.ContentResolver;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.util.SparseArray;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -38,7 +38,7 @@ import java.util.Set;
  */
 @SystemApi
 public final class RadioMetadata implements Parcelable {
-    private static final String TAG = "RadioMetadata";
+    private static final String TAG = "BroadcastRadio.metadata";
 
     /**
      * The RDS Program Information.
@@ -100,6 +100,48 @@ public final class RadioMetadata implements Parcelable {
      */
     public static final String METADATA_KEY_CLOCK = "android.hardware.radio.metadata.CLOCK";
 
+    /**
+     * Technology-independent program name (station name).
+     */
+    public static final String METADATA_KEY_PROGRAM_NAME =
+            "android.hardware.radio.metadata.PROGRAM_NAME";
+
+    /**
+     * DAB ensemble name.
+     */
+    public static final String METADATA_KEY_DAB_ENSEMBLE_NAME =
+            "android.hardware.radio.metadata.DAB_ENSEMBLE_NAME";
+
+    /**
+     * DAB ensemble name - short version (up to 8 characters).
+     */
+    public static final String METADATA_KEY_DAB_ENSEMBLE_NAME_SHORT =
+            "android.hardware.radio.metadata.DAB_ENSEMBLE_NAME_SHORT";
+
+    /**
+     * DAB service name.
+     */
+    public static final String METADATA_KEY_DAB_SERVICE_NAME =
+            "android.hardware.radio.metadata.DAB_SERVICE_NAME";
+
+    /**
+     * DAB service name - short version (up to 8 characters).
+     */
+    public static final String METADATA_KEY_DAB_SERVICE_NAME_SHORT =
+            "android.hardware.radio.metadata.DAB_SERVICE_NAME_SHORT";
+
+    /**
+     * DAB component name.
+     */
+    public static final String METADATA_KEY_DAB_COMPONENT_NAME =
+            "android.hardware.radio.metadata.DAB_COMPONENT_NAME";
+
+    /**
+     * DAB component name.
+     */
+    public static final String METADATA_KEY_DAB_COMPONENT_NAME_SHORT =
+            "android.hardware.radio.metadata.DAB_COMPONENT_NAME_SHORT";
+
 
     private static final int METADATA_TYPE_INVALID = -1;
     private static final int METADATA_TYPE_INT = 0;
@@ -111,7 +153,7 @@ public final class RadioMetadata implements Parcelable {
 
     static {
         METADATA_KEYS_TYPE = new ArrayMap<String, Integer>();
-        METADATA_KEYS_TYPE.put(METADATA_KEY_RDS_PI, METADATA_TYPE_TEXT);
+        METADATA_KEYS_TYPE.put(METADATA_KEY_RDS_PI, METADATA_TYPE_INT);
         METADATA_KEYS_TYPE.put(METADATA_KEY_RDS_PS, METADATA_TYPE_TEXT);
         METADATA_KEYS_TYPE.put(METADATA_KEY_RDS_PTY, METADATA_TYPE_INT);
         METADATA_KEYS_TYPE.put(METADATA_KEY_RBDS_PTY, METADATA_TYPE_INT);
@@ -123,6 +165,13 @@ public final class RadioMetadata implements Parcelable {
         METADATA_KEYS_TYPE.put(METADATA_KEY_ICON, METADATA_TYPE_BITMAP);
         METADATA_KEYS_TYPE.put(METADATA_KEY_ART, METADATA_TYPE_BITMAP);
         METADATA_KEYS_TYPE.put(METADATA_KEY_CLOCK, METADATA_TYPE_CLOCK);
+        METADATA_KEYS_TYPE.put(METADATA_KEY_PROGRAM_NAME, METADATA_TYPE_TEXT);
+        METADATA_KEYS_TYPE.put(METADATA_KEY_DAB_ENSEMBLE_NAME, METADATA_TYPE_TEXT);
+        METADATA_KEYS_TYPE.put(METADATA_KEY_DAB_ENSEMBLE_NAME_SHORT, METADATA_TYPE_TEXT);
+        METADATA_KEYS_TYPE.put(METADATA_KEY_DAB_SERVICE_NAME, METADATA_TYPE_TEXT);
+        METADATA_KEYS_TYPE.put(METADATA_KEY_DAB_SERVICE_NAME_SHORT, METADATA_TYPE_TEXT);
+        METADATA_KEYS_TYPE.put(METADATA_KEY_DAB_COMPONENT_NAME, METADATA_TYPE_TEXT);
+        METADATA_KEYS_TYPE.put(METADATA_KEY_DAB_COMPONENT_NAME_SHORT, METADATA_TYPE_TEXT);
     }
 
     // keep in sync with: system/media/radio/include/system/radio_metadata.h
@@ -180,7 +229,7 @@ public final class RadioMetadata implements Parcelable {
             out.writeInt(mTimezoneOffsetMinutes);
         }
 
-        public static final Parcelable.Creator<Clock> CREATOR
+        public static final @android.annotation.NonNull Parcelable.Creator<Clock> CREATOR
                 = new Parcelable.Creator<Clock>() {
             public Clock createFromParcel(Parcel in) {
                 return new Clock(in);
@@ -212,6 +261,42 @@ public final class RadioMetadata implements Parcelable {
 
     private final Bundle mBundle;
 
+    // Lazily computed hash code based upon the contents of mBundle.
+    private Integer mHashCode;
+
+    @Override
+    public int hashCode() {
+        if (mHashCode == null) {
+            List<String> keys = new ArrayList<String>(mBundle.keySet());
+            keys.sort(null);
+            Object[] objs = new Object[2 * keys.size()];
+            for (int i = 0; i < keys.size(); i++) {
+                objs[2 * i] = keys.get(i);
+                objs[2 * i + 1] = mBundle.get(keys.get(i));
+            }
+            mHashCode = Arrays.hashCode(objs);
+        }
+        return mHashCode;
+    }
+
+    @Override
+    public boolean equals(@Nullable Object obj) {
+        if (this == obj) return true;
+        if (!(obj instanceof RadioMetadata)) return false;
+        Bundle otherBundle = ((RadioMetadata) obj).mBundle;
+        if (!mBundle.keySet().equals(otherBundle.keySet())) {
+            return false;
+        }
+        for (String key : mBundle.keySet()) {
+            // This logic will return a false negative if we ever put Bundles into mBundle. As of
+            // 2019-04-09, we only put ints, Strings, and Parcelables in, so it's fine for now.
+            if (!mBundle.get(key).equals(otherBundle.get(key))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     RadioMetadata() {
         mBundle = new Bundle();
     }
@@ -222,6 +307,30 @@ public final class RadioMetadata implements Parcelable {
 
     private RadioMetadata(Parcel in) {
         mBundle = in.readBundle();
+    }
+
+    @NonNull
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder("RadioMetadata[");
+
+        final String removePrefix = "android.hardware.radio.metadata";
+
+        boolean first = true;
+        for (String key : mBundle.keySet()) {
+            if (first) first = false;
+            else sb.append(", ");
+
+            String keyDisp = key;
+            if (key.startsWith(removePrefix)) keyDisp = key.substring(removePrefix.length());
+
+            sb.append(keyDisp);
+            sb.append('=');
+            sb.append(mBundle.get(key));
+        }
+
+        sb.append("]");
+        return sb.toString();
     }
 
     /**
@@ -245,6 +354,14 @@ public final class RadioMetadata implements Parcelable {
         return mBundle.getString(key);
     }
 
+    private static void putInt(Bundle bundle, String key, int value) {
+        int type = METADATA_KEYS_TYPE.getOrDefault(key, METADATA_TYPE_INVALID);
+        if (type != METADATA_TYPE_INT && type != METADATA_TYPE_BITMAP) {
+            throw new IllegalArgumentException("The " + key + " key cannot be used to put an int");
+        }
+        bundle.putInt(key, value);
+    }
+
     /**
      * Returns the value associated with the given key,
      * or 0 if the key is not found in the meta data.
@@ -261,7 +378,9 @@ public final class RadioMetadata implements Parcelable {
      *
      * @param key The key the value is stored under
      * @return a {@link Bitmap} or null
+     * @deprecated Use getBitmapId(String) instead
      */
+    @Deprecated
     public Bitmap getBitmap(String key) {
         Bitmap bmp = null;
         try {
@@ -271,6 +390,30 @@ public final class RadioMetadata implements Parcelable {
             Log.w(TAG, "Failed to retrieve a key as Bitmap.", e);
         }
         return bmp;
+    }
+
+    /**
+     * Retrieves an identifier for a bitmap.
+     *
+     * The format of an identifier is opaque to the application,
+     * with a special case of value 0 being invalid.
+     * An identifier for a given image-tuner pair is unique, so an application
+     * may cache images and determine if there is a necessity to fetch them
+     * again - if identifier changes, it means the image has changed.
+     *
+     * Only bitmap keys may be used with this method:
+     * <ul>
+     * <li>{@link #METADATA_KEY_ICON}</li>
+     * <li>{@link #METADATA_KEY_ART}</li>
+     * </ul>
+     *
+     * @param key The key the value is stored under.
+     * @return a bitmap identifier or 0 if it's missing.
+     * @hide This API is not thoroughly elaborated yet
+     */
+    public int getBitmapId(@NonNull String key) {
+        if (!METADATA_KEY_ICON.equals(key) && !METADATA_KEY_ART.equals(key)) return 0;
+        return getInt(key);
     }
 
     public Clock getClock(String key) {
@@ -324,7 +467,7 @@ public final class RadioMetadata implements Parcelable {
         return NATIVE_KEY_MAPPING.get(nativeKey, null);
     }
 
-    public static final Parcelable.Creator<RadioMetadata> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<RadioMetadata> CREATOR =
             new Parcelable.Creator<RadioMetadata>() {
                 @Override
                 public RadioMetadata createFromParcel(Parcel in) {
@@ -390,7 +533,6 @@ public final class RadioMetadata implements Parcelable {
          * the METADATA_KEYs defined in this class are used they may only be one
          * of the following:
          * <ul>
-         * <li>{@link #METADATA_KEY_RDS_PI}</li>
          * <li>{@link #METADATA_KEY_RDS_PS}</li>
          * <li>{@link #METADATA_KEY_RDS_RT}</li>
          * <li>{@link #METADATA_KEY_TITLE}</li>
@@ -418,21 +560,18 @@ public final class RadioMetadata implements Parcelable {
          * the METADATA_KEYs defined in this class are used they may only be one
          * of the following:
          * <ul>
+         * <li>{@link #METADATA_KEY_RDS_PI}</li>
          * <li>{@link #METADATA_KEY_RDS_PTY}</li>
          * <li>{@link #METADATA_KEY_RBDS_PTY}</li>
          * </ul>
+         * or any bitmap represented by its identifier.
          *
          * @param key The key for referencing this value
          * @param value The int value to store
          * @return the same Builder instance
          */
         public Builder putInt(String key, int value) {
-            if (!METADATA_KEYS_TYPE.containsKey(key) ||
-                    METADATA_KEYS_TYPE.get(key) != METADATA_TYPE_INT) {
-                throw new IllegalArgumentException("The " + key
-                        + " key cannot be used to put a long");
-            }
-            mBundle.putInt(key, value);
+            RadioMetadata.putInt(mBundle, key, value);
             return this;
         }
 
@@ -503,12 +642,14 @@ public final class RadioMetadata implements Parcelable {
 
     int putIntFromNative(int nativeKey, int value) {
         String key = getKeyFromNativeKey(nativeKey);
-        if (!METADATA_KEYS_TYPE.containsKey(key) ||
-                METADATA_KEYS_TYPE.get(key) != METADATA_TYPE_INT) {
+        try {
+            putInt(mBundle, key, value);
+            // Invalidate mHashCode to force it to be recomputed.
+            mHashCode = null;
+            return 0;
+        } catch (IllegalArgumentException ex) {
             return -1;
         }
-        mBundle.putInt(key, value);
-        return 0;
     }
 
     int putStringFromNative(int nativeKey, String value) {
@@ -518,6 +659,8 @@ public final class RadioMetadata implements Parcelable {
             return -1;
         }
         mBundle.putString(key, value);
+        // Invalidate mHashCode to force it to be recomputed.
+        mHashCode = null;
         return 0;
     }
 
@@ -530,18 +673,18 @@ public final class RadioMetadata implements Parcelable {
         Bitmap bmp = null;
         try {
             bmp = BitmapFactory.decodeByteArray(value, 0, value.length);
-        } catch (Exception e) {
-        } finally {
-            if (bmp == null) {
-                return -1;
+            if (bmp != null) {
+                mBundle.putParcelable(key, bmp);
+                // Invalidate mHashCode to force it to be recomputed.
+                mHashCode = null;
+                return 0;
             }
-            mBundle.putParcelable(key, bmp);
-            return 0;
+        } catch (Exception e) {
         }
+        return -1;
     }
 
     int putClockFromNative(int nativeKey, long utcEpochSeconds, int timezoneOffsetInMinutes) {
-        Log.d(TAG, "putClockFromNative()");
         String key = getKeyFromNativeKey(nativeKey);
         if (!METADATA_KEYS_TYPE.containsKey(key) ||
                 METADATA_KEYS_TYPE.get(key) != METADATA_TYPE_CLOCK) {
@@ -549,6 +692,8 @@ public final class RadioMetadata implements Parcelable {
         }
         mBundle.putParcelable(key, new RadioMetadata.Clock(
             utcEpochSeconds, timezoneOffsetInMinutes));
+        // Invalidate mHashCode to force it to be recomputed.
+        mHashCode = null;
         return 0;
     }
 }

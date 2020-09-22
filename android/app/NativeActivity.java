@@ -16,6 +16,7 @@
 
 package android.app;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
@@ -45,16 +46,8 @@ import java.io.File;
  * is no need to derive from this class; you can simply declare it in your
  * manifest, and use the NDK APIs from there.
  *
- * <p>A typical manifest would look like:
- *
- * {@sample development/ndk/platforms/android-9/samples/native-activity/AndroidManifest.xml
- *      manifest}
- *
- * <p>A very simple example of native code that is run by NativeActivity
- * follows.  This reads input events from the user and uses OpenGLES to
- * draw into the native activity's window.
- *
- * {@sample development/ndk/platforms/android-9/samples/native-activity/jni/main.c all}
+ * <p>A <a href="https://github.com/googlesamples/android-ndk/tree/master/native-activity">sample
+ * native activity</a> is available in the NDK samples.
  */
 public class NativeActivity extends Activity implements SurfaceHolder.Callback2,
         InputQueue.Callback, OnGlobalLayoutListener {
@@ -78,6 +71,7 @@ public class NativeActivity extends Activity implements SurfaceHolder.Callback2,
     private NativeContentView mNativeContentView;
     private InputMethodManager mIMM;
 
+    @UnsupportedAppUsage
     private long mNativeHandle;
     
     private InputQueue mCurInputQueue;
@@ -93,6 +87,7 @@ public class NativeActivity extends Activity implements SurfaceHolder.Callback2,
 
     private boolean mDestroyed;
     
+    @UnsupportedAppUsage
     private native long loadNativeCode(String path, String funcname, MessageQueue queue,
             String internalDataPath, String obbPath, String externalDataPath, int sdkVersion,
             AssetManager assetMgr, byte[] savedState, ClassLoader classLoader, String libraryPath);
@@ -320,18 +315,22 @@ public class NativeActivity extends Activity implements SurfaceHolder.Callback2,
         }
     }
 
+    @UnsupportedAppUsage
     void setWindowFlags(int flags, int mask) {
         getWindow().setFlags(flags, mask);
     }
     
+    @UnsupportedAppUsage
     void setWindowFormat(int format) {
         getWindow().setFormat(format);
     }
 
+    @UnsupportedAppUsage
     void showIme(int mode) {
         mIMM.showSoftInput(mNativeContentView, mode);
     }
 
+    @UnsupportedAppUsage
     void hideIme(int mode) {
         mIMM.hideSoftInputFromWindow(mNativeContentView.getWindowToken(), mode);
     }

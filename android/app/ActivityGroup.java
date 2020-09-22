@@ -16,10 +16,11 @@
 
 package android.app;
 
-import java.util.HashMap;
-
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.os.Bundle;
+
+import java.util.HashMap;
 
 /**
  * A screen that contains and runs multiple embedded activities.
@@ -37,6 +38,7 @@ public class ActivityGroup extends Activity {
      * This field should be made private, so it is hidden from the SDK.
      * {@hide}
      */
+    @UnsupportedAppUsage
     protected LocalActivityManager mLocalActivityManager;
     
     public ActivityGroup() {
@@ -109,7 +111,7 @@ public class ActivityGroup extends Activity {
 
     @Override
     void dispatchActivityResult(String who, int requestCode, int resultCode,
-            Intent data) {
+            Intent data, String reason) {
         if (who != null) {
             Activity act = mLocalActivityManager.getActivity(who);
             /*
@@ -123,7 +125,7 @@ public class ActivityGroup extends Activity {
                 return;
             }
         }
-        super.dispatchActivityResult(who, requestCode, resultCode, data);
+        super.dispatchActivityResult(who, requestCode, resultCode, data, reason);
     }
 }
 

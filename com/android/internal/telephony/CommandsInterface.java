@@ -16,36 +16,34 @@
 
 package com.android.internal.telephony;
 
-import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
-import com.android.internal.telephony.dataconnection.DataProfile;
-import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
-import com.android.internal.telephony.RadioCapability;
-import com.android.internal.telephony.uicc.IccCardStatus;
-
-import android.os.Message;
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.net.KeepalivePacketData;
+import android.net.LinkProperties;
 import android.os.Handler;
-import android.service.carrier.CarrierIdentifier;
+import android.os.Message;
+import android.os.WorkSource;
+import android.telephony.AccessNetworkConstants.AccessNetworkType;
+import android.telephony.CarrierRestrictionRules;
+import android.telephony.ClientRequestStats;
+import android.telephony.ImsiEncryptionInfo;
+import android.telephony.NetworkScanRequest;
+import android.telephony.RadioAccessSpecifier;
+import android.telephony.SignalThresholdInfo;
+import android.telephony.data.DataProfile;
+import android.telephony.emergency.EmergencyNumber;
+
+import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
+import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
+import com.android.internal.telephony.uicc.IccCardStatus;
+import com.android.internal.telephony.uicc.IccCardApplicationStatus.PersoSubState;
 
 import java.util.List;
-
 
 /**
  * {@hide}
  */
 public interface CommandsInterface {
-    enum RadioState {
-        RADIO_OFF,         /* Radio explicitly powered off (eg CFUN=0) */
-        RADIO_UNAVAILABLE, /* Radio unavailable (eg, resetting or not booted) */
-        RADIO_ON;          /* Radio is on */
-
-        public boolean isOn() /* and available...*/ {
-            return this == RADIO_ON;
-        }
-
-        public boolean isAvailable() {
-            return this != RADIO_UNAVAILABLE;
-        }
-    }
 
     //***** Constants
 
@@ -80,6 +78,7 @@ public interface CommandsInterface {
     static final String CB_FACILITY_BA_MT        = "AC";
     static final String CB_FACILITY_BA_SIM       = "SC";
     static final String CB_FACILITY_BA_FD        = "FD";
+    static final String CB_FACILITY_BIC_ACR      = "AR";
 
 
     // Used for various supp services apis
@@ -117,7 +116,12 @@ public interface CommandsInterface {
     static final int CDMA_SMS_FAIL_CAUSE_ENCODING_PROBLEM           = 96;
 
     //***** Methods
-    RadioState getRadioState();
+
+    /**
+     * get latest radio power state from modem
+     * @return
+     */
+    int getRadioState();
 
     /**
      * response.obj.result is an int[2]
@@ -138,11 +142,14 @@ public interface CommandsInterface {
      * on previous invocations of this notification. Instead, use the other
      * registration methods
      */
+    @UnsupportedAppUsage
     void registerForRadioStateChanged(Handler h, int what, Object obj);
     void unregisterForRadioStateChanged(Handler h);
 
     void registerForVoiceRadioTechChanged(Handler h, int what, Object obj);
+    @UnsupportedAppUsage
     void unregisterForVoiceRadioTechChanged(Handler h);
+    @UnsupportedAppUsage
     void registerForImsNetworkStateChanged(Handler h, int what, Object obj);
     void unregisterForImsNetworkStateChanged(Handler h);
 
@@ -152,7 +159,9 @@ public interface CommandsInterface {
      * In general, actions should be idempotent. State may change
      * before event is received.
      */
+    @UnsupportedAppUsage
     void registerForOn(Handler h, int what, Object obj);
+    @UnsupportedAppUsage
     void unregisterForOn(Handler h);
 
     /**
@@ -161,7 +170,9 @@ public interface CommandsInterface {
      * In general, actions should be idempotent. State may change
      * before event is received.
      */
+    @UnsupportedAppUsage
     void registerForAvailable(Handler h, int what, Object obj);
+    @UnsupportedAppUsage
     void unregisterForAvailable(Handler h);
 
     /**
@@ -170,6 +181,7 @@ public interface CommandsInterface {
      * In general, actions should be idempotent. State may change
      * before event is received.
      */
+    @UnsupportedAppUsage
     void registerForNotAvailable(Handler h, int what, Object obj);
     void unregisterForNotAvailable(Handler h);
 
@@ -179,7 +191,9 @@ public interface CommandsInterface {
      * In general, actions should be idempotent. State may change
      * before event is received.
      */
+    @UnsupportedAppUsage
     void registerForOffOrNotAvailable(Handler h, int what, Object obj);
+    @UnsupportedAppUsage
     void unregisterForOffOrNotAvailable(Handler h);
 
     /**
@@ -187,13 +201,21 @@ public interface CommandsInterface {
      */
     void registerForIccStatusChanged(Handler h, int what, Object obj);
     void unregisterForIccStatusChanged(Handler h);
+    /** Register for ICC slot status changed event */
+    void registerForIccSlotStatusChanged(Handler h, int what, Object obj);
+    /** Unregister for ICC slot status changed event */
+    void unregisterForIccSlotStatusChanged(Handler h);
 
     void registerForCallStateChanged(Handler h, int what, Object obj);
     void unregisterForCallStateChanged(Handler h);
-    void registerForVoiceNetworkStateChanged(Handler h, int what, Object obj);
-    void unregisterForVoiceNetworkStateChanged(Handler h);
-    void registerForDataNetworkStateChanged(Handler h, int what, Object obj);
-    void unregisterForDataNetworkStateChanged(Handler h);
+    /** Register for network state changed event */
+    void registerForNetworkStateChanged(Handler h, int what, Object obj);
+    /** Unregister from network state changed event */
+    void unregisterForNetworkStateChanged(Handler h);
+    /** Register for data call list changed event */
+    void registerForDataCallListChanged(Handler h, int what, Object obj);
+    /** Unregister from data call list changed event */
+    void unregisterForDataCallListChanged(Handler h);
 
     /** InCall voice privacy notifications */
     void registerForInCallVoicePrivacyOn(Handler h, int what, Object obj);
@@ -246,6 +268,7 @@ public interface CommandsInterface {
      *
      * AsyncResult.result is a byte array containing the SMS-CB PDU
      */
+    @UnsupportedAppUsage
     void setOnNewGsmBroadcastSms(Handler h, int what, Object obj);
     void unSetOnNewGsmBroadcastSms(Handler h);
 
@@ -254,6 +277,7 @@ public interface CommandsInterface {
      *
      * AsyncResult.result is an int array containing the index of new SMS
      */
+    @UnsupportedAppUsage
     void setOnSmsOnSim(Handler h, int what, Object obj);
     void unSetOnSmsOnSim(Handler h);
 
@@ -262,6 +286,7 @@ public interface CommandsInterface {
      *
      * AsyncResult.result is a String containing the status report PDU
      */
+    @UnsupportedAppUsage
     void setOnSmsStatus(Handler h, int what, Object obj);
     void unSetOnSmsStatus(Handler h);
 
@@ -277,6 +302,7 @@ public interface CommandsInterface {
      * Please note that the delivery of this message may be delayed several
      * seconds on system startup
      */
+    @UnsupportedAppUsage
     void setOnNITZTime(Handler h, int what, Object obj);
     void unSetOnNITZTime(Handler h);
 
@@ -310,6 +336,7 @@ public interface CommandsInterface {
      * as defined in TS 27.007 8.5
      */
 
+    @UnsupportedAppUsage
     void setOnSignalStrengthUpdate(Handler h, int what, Object obj);
     void unSetOnSignalStrengthUpdate(Handler h);
 
@@ -321,6 +348,7 @@ public interface CommandsInterface {
      * @param what User-defined message code.
      * @param obj User object.
      */
+    @UnsupportedAppUsage
     void setOnIccSmsFull(Handler h, int what, Object obj);
     void unSetOnIccSmsFull(Handler h);
 
@@ -331,9 +359,11 @@ public interface CommandsInterface {
      * @param what User-defined message code.
      * @param obj User object.
      */
+    @UnsupportedAppUsage
     void registerForIccRefresh(Handler h, int what, Object obj);
     void unregisterForIccRefresh(Handler h);
 
+    @UnsupportedAppUsage
     void setOnIccRefresh(Handler h, int what, Object obj);
     void unsetOnIccRefresh(Handler h);
 
@@ -345,6 +375,7 @@ public interface CommandsInterface {
      * @param what User-defined message code.
      * @param obj User object.
      */
+    @UnsupportedAppUsage
     void setOnCallRing(Handler h, int what, Object obj);
     void unSetOnCallRing(Handler h);
 
@@ -368,6 +399,7 @@ public interface CommandsInterface {
      * @param what User-defined message code.
      * @param obj User object.
      */
+    @UnsupportedAppUsage
     void setOnSuppServiceNotification(Handler h, int what, Object obj);
     void unSetOnSuppServiceNotification(Handler h);
 
@@ -379,6 +411,7 @@ public interface CommandsInterface {
      * @param what User-defined message code.
      * @param obj User object.
      */
+    @UnsupportedAppUsage
     void setOnCatSessionEnd(Handler h, int what, Object obj);
     void unSetOnCatSessionEnd(Handler h);
 
@@ -390,6 +423,7 @@ public interface CommandsInterface {
      * @param what User-defined message code.
      * @param obj User object.
      */
+    @UnsupportedAppUsage
     void setOnCatProactiveCmd(Handler h, int what, Object obj);
     void unSetOnCatProactiveCmd(Handler h);
 
@@ -401,6 +435,7 @@ public interface CommandsInterface {
      * @param what User-defined message code.
      * @param obj User object.
      */
+    @UnsupportedAppUsage
     void setOnCatEvent(Handler h, int what, Object obj);
     void unSetOnCatEvent(Handler h);
 
@@ -412,6 +447,7 @@ public interface CommandsInterface {
      * @param what User-defined message code.
      * @param obj User object.
      */
+    @UnsupportedAppUsage
     void setOnCatCallSetUp(Handler h, int what, Object obj);
     void unSetOnCatCallSetUp(Handler h);
 
@@ -433,6 +469,7 @@ public interface CommandsInterface {
      * @param what User-defined message code.
      * @param obj User object.
      */
+    @UnsupportedAppUsage
     void setOnCatCcAlphaNotify(Handler h, int what, Object obj);
     void unSetOnCatCcAlphaNotify(Handler h);
 
@@ -447,6 +484,20 @@ public interface CommandsInterface {
      */
     void setOnSs(Handler h, int what, Object obj);
     void unSetOnSs(Handler h);
+
+    /**
+     * Register for unsolicited NATT Keepalive Status Indications
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    default void setOnRegistrationFailed(Handler h, int what, Object obj) {}
+
+    /**
+     * @param h Handler for notification message.
+     */
+    default void unSetOnRegistrationFailed(Handler h) {}
 
     /**
      * Sets the handler for Event Notifications for CDMA Display Info.
@@ -539,12 +590,15 @@ public interface CommandsInterface {
     /**
      * Fires on if Modem enters Emergency Callback mode
      */
+    @UnsupportedAppUsage
     void setEmergencyCallbackMode(Handler h, int what, Object obj);
 
      /**
       * Fires on any CDMA OTA provision status change
       */
+     @UnsupportedAppUsage
      void registerForCdmaOtaProvision(Handler h,int what, Object obj);
+     @UnsupportedAppUsage
      void unregisterForCdmaOtaProvision(Handler h);
 
      /**
@@ -614,8 +668,26 @@ public interface CommandsInterface {
       * @param what User-defined message code.
       * @param obj User object.
       */
+     @UnsupportedAppUsage
      void registerForRilConnected(Handler h, int what, Object obj);
+     @UnsupportedAppUsage
      void unregisterForRilConnected(Handler h);
+
+    /**
+     * Registers the handler for RIL_UNSOL_SIM_DETACH_FROM_NETWORK_CONFIG_CHANGED events.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    default void registerUiccApplicationEnablementChanged(Handler h, int what, Object obj) {};
+
+    /**
+     * Unregisters the handler for RIL_UNSOL_SIM_DETACH_FROM_NETWORK_CONFIG_CHANGED events.
+     *
+     * @param h Handler for notification message.
+     */
+    default void unregisterUiccApplicationEnablementChanged(Handler h) {};
 
     /**
      * Supply the ICC PIN to the ICC card
@@ -632,6 +704,7 @@ public interface CommandsInterface {
      * ar.exception and ar.result are null on success
      */
 
+    @UnsupportedAppUsage
     void supplyIccPin(String pin, Message result);
 
     /**
@@ -774,9 +847,12 @@ public interface CommandsInterface {
     void changeIccPin2(String oldPin2, String newPin2, Message result);
     void changeIccPin2ForApp(String oldPin2, String newPin2, String aidPtr, Message result);
 
+    @UnsupportedAppUsage
     void changeBarringPassword(String facility, String oldPwd, String newPwd, Message result);
 
     void supplyNetworkDepersonalization(String netpin, Message result);
+
+    void supplySimDepersonalization(PersoSubState persoType, String controlKey, Message result);
 
     /**
      *  returned message
@@ -796,6 +872,7 @@ public interface CommandsInterface {
      *  ar.result contains a List of DataCallResponse
      *  @deprecated Do not use.
      */
+    @UnsupportedAppUsage
     @Deprecated
     void getPDPContextList(Message result);
 
@@ -806,6 +883,7 @@ public interface CommandsInterface {
      *  ar.userObject contains the orignal value of result.obj
      *  ar.result contains a List of DataCallResponse
      */
+    @UnsupportedAppUsage
     void getDataCallList(Message result);
 
     /**
@@ -819,7 +897,8 @@ public interface CommandsInterface {
      * CLIR_SUPPRESSION == on "CLIR suppression" (allow CLI presentation)
      * CLIR_INVOCATION  == on "CLIR invocation" (restrict CLI presentation)
      */
-    void dial (String address, int clirMode, Message result);
+    void dial(String address, boolean isEmergencyCall, EmergencyNumber emergencyNumberInfo,
+              boolean hasKnownUserIntentEmergency, int clirMode, Message result);
 
     /**
      *  returned message
@@ -832,7 +911,8 @@ public interface CommandsInterface {
      * CLIR_SUPPRESSION == on "CLIR suppression" (allow CLI presentation)
      * CLIR_INVOCATION  == on "CLIR invocation" (restrict CLI presentation)
      */
-    void dial(String address, int clirMode, UUSInfo uusInfo, Message result);
+    void dial(String address, boolean isEmergencyCall, EmergencyNumber emergencyNumberInfo,
+              boolean hasKnownUserIntentEmergency, int clirMode, UUSInfo uusInfo, Message result);
 
     /**
      *  returned message
@@ -841,6 +921,7 @@ public interface CommandsInterface {
      *  ar.userObject contains the orignal value of result.obj
      *  ar.result is String containing IMSI on success
      */
+    @UnsupportedAppUsage
     void getIMSI(Message result);
 
     /**
@@ -868,6 +949,7 @@ public interface CommandsInterface {
      *  ar.userObject contains the orignal value of result.obj
      *  ar.result is String containing IMEISV on success
      */
+    @UnsupportedAppUsage
     void getIMEISV(Message result);
 
     /**
@@ -913,6 +995,7 @@ public interface CommandsInterface {
      *  ar.userObject contains the orignal value of result.obj
      *  ar.result is null on success and failure
      */
+    @UnsupportedAppUsage
     void switchWaitingOrHoldingAndActive (Message result);
 
     /**
@@ -953,6 +1036,7 @@ public interface CommandsInterface {
      *  ar.userObject contains the orignal value of result.obj
      *  ar.result is null on success and failure
      */
+    @UnsupportedAppUsage
     void acceptCall (Message result);
 
     /**
@@ -991,6 +1075,7 @@ public interface CommandsInterface {
      * section 6.1.3.1.3 or close approximation
      * @deprecated Do not use.
      */
+    @UnsupportedAppUsage
     @Deprecated
     void getLastPdpFailCause (Message result);
 
@@ -998,6 +1083,7 @@ public interface CommandsInterface {
      * The preferred new alternative to getLastPdpFailCause
      * that is also CDMA-compatible.
      */
+    @UnsupportedAppUsage
     void getLastDataCallFailCause (Message result);
 
     void setMute (boolean enableMute, Message response);
@@ -1011,6 +1097,7 @@ public interface CommandsInterface {
      * response.obj.result[1] is  bit error rate (0-7, 99)
      * as defined in TS 27.007 8.5
      */
+    @UnsupportedAppUsage
     void getSignalStrength (Message response);
 
 
@@ -1024,6 +1111,7 @@ public interface CommandsInterface {
      * Please note that registration state 4 ("unknown") is treated
      * as "out of service" above
      */
+    @UnsupportedAppUsage
     void getVoiceRegistrationState (Message response);
 
     /**
@@ -1044,6 +1132,7 @@ public interface CommandsInterface {
      * response.obj.result[1] is short alpha or null if unregistered
      * response.obj.result[2] is numeric or null if unregistered
      */
+    @UnsupportedAppUsage
     void getOperator(Message response);
 
     /**
@@ -1051,6 +1140,7 @@ public interface CommandsInterface {
      *  ar.userObject contains the orignal value of result.obj
      *  ar.result is null on success and failure
      */
+    @UnsupportedAppUsage
     void sendDtmf(char c, Message result);
 
 
@@ -1100,6 +1190,13 @@ public interface CommandsInterface {
     void sendCdmaSms(byte[] pdu, Message response);
 
     /**
+     * Identical to sendCdmaSms, except that more messages are expected to be sent soon
+     * @param pdu is CDMA-SMS in internal pseudo-PDU format
+     * @param response response sent when operation completed
+     */
+    void sendCdmaSMSExpectMore(byte[] pdu, Message response);
+
+    /**
      * send SMS over IMS with 3GPP/GSM SMS format
      * @param smscPDU is smsc address in PDU form GSM BCD format prefixed
      *      by a length byte (as expected by TS 27.005) or NULL for default SMSC
@@ -1130,6 +1227,7 @@ public interface CommandsInterface {
      * @param index index of the SMS record to delete
      * @param response sent when operation completes
      */
+    @UnsupportedAppUsage
     void deleteSmsOnSim(int index, Message response);
 
     /**
@@ -1138,6 +1236,7 @@ public interface CommandsInterface {
      * @param index index of the SMS record to delete
      * @param response sent when operation completes
      */
+    @UnsupportedAppUsage
     void deleteSmsOnRuim(int index, Message response);
 
     /**
@@ -1153,14 +1252,48 @@ public interface CommandsInterface {
      *                  response.obj will be an AsyncResult, and will indicate
      *                  any error that may have occurred (eg, out of memory).
      */
+    @UnsupportedAppUsage
     void writeSmsToSim(int status, String smsc, String pdu, Message response);
 
-    void writeSmsToRuim(int status, String pdu, Message response);
+    /**
+     * Writes an SMS message to RUIM memory (EF_SMS).
+     *
+     * @param status status of message on SIM. One of:
+     *                  SmsManger.STATUS_ON_ICC_READ
+     *                  SmsManger.STATUS_ON_ICC_UNREAD
+     *                  SmsManger.STATUS_ON_ICC_SENT
+     *                  SmsManger.STATUS_ON_ICC_UNSENT
+     * @param pdu message PDU, as byte array
+     * @param response sent when operation completes. response.obj will be an AsyncResult, and will
+     *     indicate any error that may have occurred (eg, out of memory).
+     */
+    @UnsupportedAppUsage
+    void writeSmsToRuim(int status, byte[] pdu, Message response);
 
-    void setRadioPower(boolean on, Message response);
+    @UnsupportedAppUsage
+    default void setRadioPower(boolean on, Message response) {
+        setRadioPower(on, false, false, response);
+    }
 
+    /**
+     * Sets the radio power on/off state (off is sometimes
+     * called "airplane mode").
+     *
+     * @param on true means "on", false means "off".
+     * @param forEmergencyCall true means the purpose of turning radio power on is for emergency
+     *                         call. No effect if power is set false.
+     * @param isSelectedPhoneForEmergencyCall true means this phone / modem is selected to place
+     *                                  emergency call after turning power on. No effect if power
+     *                                  or forEmergency is set false.
+     * @param response sent when operation completes.
+     */
+    default void setRadioPower(boolean on, boolean forEmergencyCall,
+            boolean isSelectedPhoneForEmergencyCall, Message response) {}
+
+    @UnsupportedAppUsage
     void acknowledgeLastIncomingGsmSms(boolean success, int cause, Message response);
 
+    @UnsupportedAppUsage
     void acknowledgeLastIncomingCdmaSms(boolean success, int cause, Message response);
 
     /**
@@ -1179,6 +1312,7 @@ public interface CommandsInterface {
      * response.obj will be an AsyncResult
      * response.obj.result will be an IccIoResult on success
      */
+    @UnsupportedAppUsage
     void iccIO (int command, int fileid, String path, int p1, int p2, int p3,
             String data, String pin2, Message response);
 
@@ -1187,6 +1321,7 @@ public interface CommandsInterface {
      * response.obj will be an AsyncResult
      * response.obj.userObj will be a IccIoResult on success
      */
+    @UnsupportedAppUsage
     void iccIOForApp (int command, int fileid, String path, int p1, int p2, int p3,
             String data, String pin2, String aid, Message response);
 
@@ -1233,6 +1368,7 @@ public interface CommandsInterface {
      * @param response is callback message
      */
 
+    @UnsupportedAppUsage
     void queryCallWaiting(int serviceClass, Message response);
 
     /**
@@ -1241,6 +1377,7 @@ public interface CommandsInterface {
      * @param response is callback message
      */
 
+    @UnsupportedAppUsage
     void setCallWaiting(boolean enable, int serviceClass, Message response);
 
     /**
@@ -1248,6 +1385,7 @@ public interface CommandsInterface {
      * @param cfReason is one of CF_REASON_*
      * @param serviceClass is a sum of SERVICE_CLASSS_*
      */
+    @UnsupportedAppUsage
     void setCallForward(int action, int cfReason, int serviceClass,
                 String number, int timeSeconds, Message response);
 
@@ -1259,12 +1397,22 @@ public interface CommandsInterface {
      *
      * An array of length 0 means "disabled for all codes"
      */
+    @UnsupportedAppUsage
     void queryCallForwardStatus(int cfReason, int serviceClass,
             String number, Message response);
 
+    @UnsupportedAppUsage
     void setNetworkSelectionModeAutomatic(Message response);
 
-    void setNetworkSelectionModeManual(String operatorNumeric, Message response);
+    /**
+     * Ask the radio to connect to the input network with specific RadioAccessNetwork
+     * and change selection mode to manual.
+     * @param operatorNumeric PLMN ID of the network to select.
+     * @param ran radio access network type (see {@link AccessNetworkType}).
+     * @param response callback message.
+     */
+    @UnsupportedAppUsage
+    void setNetworkSelectionModeManual(String operatorNumeric, int ran, Message response);
 
     /**
      * Queries whether the current network selection mode is automatic
@@ -1274,17 +1422,36 @@ public interface CommandsInterface {
      * a 0 for automatic selection and a 1 for manual selection
      */
 
+    @UnsupportedAppUsage
     void getNetworkSelectionMode(Message response);
 
     /**
      * Queries the currently available networks
      *
-     * ((AsyncResult)response.obj).result  is a List of NetworkInfo objects
+     * ((AsyncResult)response.obj).result is a List of NetworkInfo objects
      */
     void getAvailableNetworks(Message response);
 
-    void getBasebandVersion (Message response);
+    /**
+     * Starts a radio network scan
+     *
+     * ((AsyncResult)response.obj).result is a NetworkScanResult object
+     */
+    void startNetworkScan(NetworkScanRequest nsr, Message response);
 
+    /**
+     * Stops the ongoing network scan
+     *
+     * ((AsyncResult)response.obj).result is a NetworkScanResult object
+     *
+     */
+    void stopNetworkScan(Message response);
+
+    /**
+     * Gets the baseband version
+     */
+    @UnsupportedAppUsage
+    void getBasebandVersion(Message response);
 
     /**
      * (AsyncResult)response.obj).result will be an Integer representing
@@ -1296,6 +1463,7 @@ public interface CommandsInterface {
      * @param response is callback message
      */
 
+    @UnsupportedAppUsage
     void queryFacilityLock (String facility, String password, int serviceClass,
         Message response);
 
@@ -1321,6 +1489,7 @@ public interface CommandsInterface {
      * @param serviceClass is a sum of SERVICE_CLASS_*
      * @param response is callback message
      */
+    @UnsupportedAppUsage
     void setFacilityLock (String facility, boolean lockState, String password,
         int serviceClass, Message response);
 
@@ -1371,6 +1540,7 @@ public interface CommandsInterface {
      * @param networkType one of  NT_*_TYPE
      * @param response is callback message
      */
+    @UnsupportedAppUsage
     void setPreferredNetworkType(int networkType , Message response);
 
      /**
@@ -1378,14 +1548,8 @@ public interface CommandsInterface {
      *
      * @param response is callback message to report one of  NT_*_TYPE
      */
+    @UnsupportedAppUsage
     void getPreferredNetworkType(Message response);
-
-    /**
-     * Query neighboring cell ids
-     *
-     * @param response s callback message to cell ids
-     */
-    void getNeighboringCids(Message response);
 
     /**
      * Request to enable/disable network state change notifications when
@@ -1401,6 +1565,7 @@ public interface CommandsInterface {
      *
      * @param result Callback message contains the SMSC address.
      */
+    @UnsupportedAppUsage
     void getSmscAddress(Message result);
 
     /**
@@ -1409,6 +1574,7 @@ public interface CommandsInterface {
      * @param address new SMSC address
      * @param result Callback message is empty on completion
      */
+    @UnsupportedAppUsage
     void setSmscAddress(String address, Message result);
 
     /**
@@ -1416,6 +1582,7 @@ public interface CommandsInterface {
      * @param available true if storage is available
      * @param result callback message
      */
+    @UnsupportedAppUsage
     void reportSmsMemoryStatus(boolean available, Message result);
 
     /**
@@ -1424,9 +1591,23 @@ public interface CommandsInterface {
      *
      * @param result callback message
      */
+    @UnsupportedAppUsage
     void reportStkServiceIsRunning(Message result);
 
+    @UnsupportedAppUsage
     void invokeOemRilRequestRaw(byte[] data, Message response);
+
+    /**
+     * Sends carrier specific information to the vendor ril that can be used to
+     * encrypt the IMSI and IMPI.
+     *
+     * @param publicKey the public key of the carrier used to encrypt IMSI/IMPI.
+     * @param keyIdentifier the key identifier is optional information that is carrier
+     *        specific.
+     * @param response callback message
+     */
+    void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo,
+                                         Message response);
 
     void invokeOemRilRequestStrings(String[] strings, Message response);
 
@@ -1445,6 +1626,7 @@ public interface CommandsInterface {
      *                  TS 102 223 for details.
      * @param response  Callback message
      */
+    @UnsupportedAppUsage
     public void sendTerminalResponse(String contents, Message response);
 
     /**
@@ -1456,6 +1638,7 @@ public interface CommandsInterface {
      *                  details.
      * @param response  Callback message
      */
+    @UnsupportedAppUsage
     public void sendEnvelope(String contents, Message response);
 
     /**
@@ -1480,6 +1663,7 @@ public interface CommandsInterface {
      * @param accept   true if the call is to be accepted, false otherwise.
      * @param response Callback message
      */
+    @UnsupportedAppUsage
     public void handleCallSetupRequestFromSim(boolean accept, Message response);
 
     /**
@@ -1529,6 +1713,7 @@ public interface CommandsInterface {
      *       if CDMA subscription is available
      *   [3] is MIN (10 digits, MIN2+MIN1) if CDMA subscription is available
      */
+    @UnsupportedAppUsage
     public void getCDMASubscription(Message response);
 
     /**
@@ -1539,6 +1724,7 @@ public interface CommandsInterface {
     public void sendCDMAFeatureCode(String FeatureCode, Message response);
 
     /** Set the Phone type created */
+    @UnsupportedAppUsage
     void setPhoneType(int phoneType);
 
     /**
@@ -1578,6 +1764,7 @@ public interface CommandsInterface {
      * - {@link com.android.internal.telephony.Phone#TTY_MODE_VCO}
      * @param response is callback message
      */
+    @UnsupportedAppUsage
     void setTTYMode(int ttyMode, Message response);
 
     /**
@@ -1590,35 +1777,32 @@ public interface CommandsInterface {
      * - {@link com.android.internal.telephony.Phone#TTY_MODE_VCO}
      * @param response is callback message
      */
+    @UnsupportedAppUsage
     void queryTTYMode(Message response);
 
     /**
      * Setup a packet data connection On successful completion, the result
-     * message will return a {@link com.android.internal.telephony.dataconnection.DataCallResponse}
-     * object containing the connection information.
+     * message will return a SetupDataResult object containing the connection information.
      *
-     * @param radioTechnology
-     *            Radio technology to use. Values is one of RIL_RADIO_TECHNOLOGY_*
-     * @param profile
-     *            Profile Number. Values is one of DATA_PROFILE_*
-     * @param apn
-     *            the APN to connect to if radio technology is GSM/UMTS.
-     *            Otherwise null for CDMA.
-     * @param user
-     *            the username for APN, or NULL
-     * @param password
-     *            the password for APN, or NULL
-     * @param authType
-     *            the PAP / CHAP auth type. Values is one of SETUP_DATA_AUTH_*
-     * @param protocol
-     *            one of the PDP_type values in TS 27.007 section 10.1.1.
-     *            For example, "IP", "IPV6", "IPV4V6", or "PPP".
+     * @param accessNetworkType
+     *            Access network to use. Values is one of AccessNetworkConstants.AccessNetworkType.
+     * @param dataProfile
+     *            Data profile for data call setup
+     * @param isRoaming
+     *            Device is roaming or not
+     * @param allowRoaming
+     *            Flag indicating data roaming is enabled or not
+     * @param reason
+     *            The reason for data setup
+     * @param linkProperties
+     *            If the reason is for handover, this indicates the link properties of the existing
+     *            data connection
      * @param result
      *            Callback message
      */
-    public void setupDataCall(int radioTechnology, int profile,
-            String apn, String user, String password, int authType,
-            String protocol, Message result);
+    void setupDataCall(int accessNetworkType, DataProfile dataProfile, boolean isRoaming,
+                       boolean allowRoaming, int reason, LinkProperties linkProperties,
+                       Message result);
 
     /**
      * Deactivate packet data connection
@@ -1640,6 +1824,7 @@ public interface CommandsInterface {
      * @param result
      *            Callback message is empty on completion
      */
+    @UnsupportedAppUsage
     public void setCdmaBroadcastActivation(boolean activate, Message result);
 
     /**
@@ -1656,6 +1841,7 @@ public interface CommandsInterface {
      * @param result
      *            Callback message contains the configuration from the modem on completion
      */
+    @UnsupportedAppUsage
     public void getCdmaBroadcastConfig(Message result);
 
     /**
@@ -1664,6 +1850,7 @@ public interface CommandsInterface {
      *
      * @param response callback message
      */
+    @UnsupportedAppUsage
     public void exitEmergencyCallbackMode(Message response);
 
     /**
@@ -1672,7 +1859,24 @@ public interface CommandsInterface {
      * @param result
      *          Callback message containing {@link IccCardStatus} structure for the card.
      */
+    @UnsupportedAppUsage
     public void getIccCardStatus(Message result);
+
+    /**
+     * Request the status of all the physical UICC slots.
+     *
+     * @param result Callback message containing a {@link java.util.ArrayList} of
+     * {@link com.android.internal.telephony.uicc.IccSlotStatus} instances for all the slots.
+     */
+    void getIccSlotsStatus(Message result);
+
+    /**
+     * Set the mapping from logical slots to physical slots.
+     *
+     * @param physicalSlots Mapping from logical slots to physical slots.
+     * @param result Callback message is empty on completion.
+     */
+    void setLogicalToPhysicalSlotMapping(int[] physicalSlots, Message result);
 
     /**
      * Return if the current radio is LTE on CDMA. This
@@ -1683,18 +1887,6 @@ public interface CommandsInterface {
      * or {@link PhoneConstants#LTE_ON_CDMA_TRUE}
      */
     public int getLteOnCdmaMode();
-
-    /**
-     * Request the ISIM application on the UICC to perform the AKA
-     * challenge/response algorithm for IMS authentication. The nonce string
-     * and challenge response are Base64 encoded Strings.
-     *
-     * @param nonce the nonce string to pass with the ISIM authentication request
-     * @param response a callback message with the String response in the obj field
-     * @deprecated
-     * @see requestIccSimAuthentication
-     */
-    public void requestIsimAuthentication(String nonce, Message response);
 
     /**
      * Request the SIM application on the UICC to perform authentication
@@ -1709,6 +1901,7 @@ public interface CommandsInterface {
      *            102.221 8.1 and 101.220 4
      * @param response a callback message with the String response in the obj field
      */
+    @UnsupportedAppUsage
     public void requestIccSimAuthentication(int authContext, String data, String aid, Message response);
 
     /**
@@ -1727,8 +1920,9 @@ public interface CommandsInterface {
      * AsyncResult.result is a of Collection<CellInfo>
      *
      * @param result is sent back to handler and result.obj is a AsyncResult
+     * @param workSource calling WorkSource
      */
-    void getCellInfoList(Message result);
+    default void getCellInfoList(Message result, WorkSource workSource) {}
 
     /**
      * Sets the minimum time in milli-seconds between when RIL_UNSOL_CELL_INFO_LIST
@@ -1744,45 +1938,51 @@ public interface CommandsInterface {
      * @param response.obj is AsyncResult ar when sent to associated handler
      *                        ar.exception carries exception on failure or null on success
      *                        otherwise the error.
+     * @param workSource calling WorkSource
      */
-    void setCellInfoListRate(int rateInMillis, Message response);
+    default void setCellInfoListRate(int rateInMillis, Message response, WorkSource workSource){}
 
     /**
      * Fires when RIL_UNSOL_CELL_INFO_LIST is received from the RIL.
      */
+    @UnsupportedAppUsage
     void registerForCellInfoList(Handler h, int what, Object obj);
     void unregisterForCellInfoList(Handler h);
 
     /**
+     * Fires when a new {@link android.telephony.PhysicalChannelConfig} list is received from the
+     * RIL.
+     */
+    void registerForPhysicalChannelConfiguration(Handler h, int what, Object obj);
+
+    /**
+     * Unregisters the handler for {@link android.telephony.PhysicalChannelConfig} updates.
+     */
+    void unregisterForPhysicalChannelConfiguration(Handler h);
+
+    /**
      * Set Initial Attach Apn
      *
-     * @param apn
-     *            the APN to connect to if radio technology is GSM/UMTS.
-     * @param protocol
-     *            one of the PDP_type values in TS 27.007 section 10.1.1.
-     *            For example, "IP", "IPV6", "IPV4V6", or "PPP".
-     * @param authType
-     *            authentication protocol used for this PDP context
-     *            (None: 0, PAP: 1, CHAP: 2, PAP&CHAP: 3)
-     * @param username
-     *            the username for APN, or NULL
-     * @param password
-     *            the password for APN, or NULL
+     * @param dataProfile
+     *            data profile for initial APN attach
+     * @param isRoaming
+     *            indicating the device is roaming or not
      * @param result
      *            callback message contains the information of SUCCESS/FAILURE
      */
-    public void setInitialAttachApn(String apn, String protocol, int authType, String username,
-            String password, Message result);
+    void setInitialAttachApn(DataProfile dataProfile, boolean isRoaming, Message result);
 
     /**
      * Set data profiles in modem
      *
      * @param dps
      *            Array of the data profiles set to modem
+     * @param isRoaming
+     *            Indicating if the device is roaming or not
      * @param result
      *            callback message contains the information of SUCCESS/FAILURE
      */
-    public void setDataProfile(DataProfile[] dps, Message result);
+    void setDataProfile(DataProfile[] dps, boolean isRoaming, Message result);
 
     /**
      * Notifiy that we are testing an emergency call
@@ -1795,10 +1995,11 @@ public interface CommandsInterface {
      * Input parameters equivalent to TS 27.007 AT+CCHO command.
      *
      * @param AID Application id. See ETSI 102.221 and 101.220.
+     * @param p2 P2 parameter (described in ISO 7816-4).
      * @param response Callback message. response.obj will be an int [1] with
      *            element [0] set to the id of the logical channel.
      */
-    public void iccOpenLogicalChannel(String AID, Message response);
+    public void iccOpenLogicalChannel(String AID, int p2, Message response);
 
     /**
      * Close a previously opened logical channel to the SIM.
@@ -1854,8 +2055,9 @@ public interface CommandsInterface {
      *
      * @param itemID the ID of the item to read
      * @param response callback message with the String response in the obj field
+     * @param workSource calling WorkSource
      */
-    void nvReadItem(int itemID, Message response);
+    default void nvReadItem(int itemID, Message response, WorkSource workSource) {}
 
     /**
      * Write one of the NV items defined in {@link RadioNVItems} / {@code ril_nv_items.h}.
@@ -1864,8 +2066,10 @@ public interface CommandsInterface {
      * @param itemID the ID of the item to read
      * @param itemValue the value to write, as a String
      * @param response Callback message.
+     * @param workSource calling WorkSource
      */
-    void nvWriteItem(int itemID, String itemValue, Message response);
+    default void nvWriteItem(int itemID, String itemValue, Message response,
+            WorkSource workSource) {}
 
     /**
      * Update the CDMA Preferred Roaming List (PRL) in the radio NV storage.
@@ -1915,6 +2119,7 @@ public interface CommandsInterface {
      *          Callback message contains the information of SUCCESS/FAILURE.
      */
     // FIXME Update the doc and consider modifying the request to make more generic.
+    @UnsupportedAppUsage
     public void setUiccSubscription(int slotId, int appIndex, int subId, int subStatus,
             Message result);
 
@@ -1927,6 +2132,7 @@ public interface CommandsInterface {
      *          Callback message contains the information of SUCCESS/FAILURE.
      */
     // FIXME We may need to pass AID and slotid also
+    @UnsupportedAppUsage
     public void setDataAllowed(boolean allowed, Message result);
 
     /**
@@ -1934,6 +2140,7 @@ public interface CommandsInterface {
      *
      * @param result Callback message contains the information of SUCCESS/FAILURE
      */
+    @UnsupportedAppUsage
     public void requestShutdown(Message result);
 
     /**
@@ -2018,29 +2225,33 @@ public interface CommandsInterface {
      * Get modem activity info and stats
      *
      * @param result Callback message contains the modem activity information
+     * @param workSource calling WorkSource
      */
-    public void getModemActivityInfo(Message result);
+    default void getModemActivityInfo(Message result, WorkSource workSource) {}
 
     /**
      * Set allowed carriers
      *
      * @param carriers Allowed carriers
-     * @param result Callback message contains the number of carriers set successfully
+     * @param result Callback message contains the result of the operation
+     * @param workSource calling WorkSource
      */
-    public void setAllowedCarriers(List<CarrierIdentifier> carriers, Message result);
+    default void setAllowedCarriers(CarrierRestrictionRules carrierRestrictionRules,
+            Message result, WorkSource workSource) {}
 
     /**
      * Get allowed carriers
      *
      * @param result Callback message contains the allowed carriers
+     * @param workSource calling WorkSource
      */
-    public void getAllowedCarriers(Message result);
+    default void getAllowedCarriers(Message result, WorkSource workSource) {}
 
     /**
      * Register for unsolicited PCO data.  This information is carrier-specific,
      * opaque binary blobs destined for carrier apps for interpretation.
      *
-     * @param h Handler for notificaiton message.
+     * @param h Handler for notification message.
      * @param what User-defined message code.
      * @param obj User object.
      */
@@ -2052,4 +2263,265 @@ public interface CommandsInterface {
      * @param h handler to be removed
      */
     public void unregisterForPcoData(Handler h);
+
+    /**
+     * Register for modem reset indication.
+     *
+     * @param h  Handler for the notification message
+     * @param what User-defined message code
+     * @param obj User object
+     */
+    void registerForModemReset(Handler h, int what, Object obj);
+
+    /**
+     * Unregister for modem reset
+     *
+     * @param h handler to be removed
+     */
+    void unregisterForModemReset(Handler h);
+
+    /**
+     * Send the updated device state
+     *
+     * @param stateType Device state type
+     * @param state True if enabled, otherwise disabled
+     * @param result callback message contains the information of SUCCESS/FAILURE
+     */
+    void sendDeviceState(int stateType, boolean state, Message result);
+
+    /**
+     * Send the device state to the modem
+     *
+     * @param filter unsolicited response filter. See DeviceStateMonitor.UnsolicitedResponseFilter
+     * @param result callback message contains the information of SUCCESS/FAILURE
+     */
+    void setUnsolResponseFilter(int filter, Message result);
+
+    /**
+     * Sets the signal strength reporting criteria.
+     *
+     * The resulting reporting rules are the AND of all the supplied criteria. For each RAN
+     * The hysteresisDb and thresholds apply to only the following measured quantities:
+     * -GERAN    - RSSI
+     * -CDMA2000 - RSSI
+     * -UTRAN    - RSCP
+     * -EUTRAN   - RSRP/RSRQ/RSSNR
+     * -NGRAN    - SSRSRP/SSRSRQ/SSSINR
+     *
+     * Note: Reporting criteria must be individually set for each RAN. For any unset reporting
+     * criteria, the value is implementation-defined.
+     *
+     * Response callback is
+     * IRadioResponse.setSignalStrengthReportingCriteriaResponse_1_5()
+     *
+     * @param signalThresholdInfo Signal threshold info including the threshold values,
+     *                            hysteresisDb, and hysteresisMs. See @1.5::SignalThresholdInfo
+     *                            for details.
+     * @param ran The type of network for which to apply these thresholds.
+     * @param result callback message contains the information of SUCCESS/FAILURE
+     */
+    void setSignalStrengthReportingCriteria(SignalThresholdInfo signalThresholdInfo, int ran,
+            Message result);
+
+    /**
+     * Send the link capacity reporting criteria to the modem
+     *
+     * @param hysteresisMs A hysteresis time in milliseconds. A value of 0 disables hysteresis.
+     * @param hysteresisDlKbps An interval in kbps defining the required magnitude change between DL
+     *     reports. A value of 0 disables hysteresis.
+     * @param hysteresisUlKbps An interval in kbps defining the required magnitude change between UL
+     *     reports. A value of 0 disables hysteresis.
+     * @param thresholdsDlKbps An array of trigger thresholds in kbps for downlink reports. A size
+     *     of 0 disables thresholds.
+     * @param thresholdsUlKbps An array of trigger thresholds in kbps for uplink reports. A size
+     *     of 0 disables thresholds.
+     * @param ran RadioAccessNetwork for which to apply criteria.
+     * @param result callback message contains the information of SUCCESS/FAILURE
+     */
+    void setLinkCapacityReportingCriteria(int hysteresisMs, int hysteresisDlKbps,
+            int hysteresisUlKbps, int[] thresholdsDlKbps, int[] thresholdsUlKbps, int ran,
+            Message result);
+
+    /**
+     * Set SIM card power up or down
+     *
+     * @param state  State of SIM (power down, power up, pass through)
+     * - {@link android.telephony.TelephonyManager#CARD_POWER_DOWN}
+     * - {@link android.telephony.TelephonyManager#CARD_POWER_UP}
+     * - {@link android.telephony.TelephonyManager#CARD_POWER_UP_PASS_THROUGH}
+     * @param result callback message contains the information of SUCCESS/FAILURE
+     * @param workSource calling WorkSource
+     */
+    default void setSimCardPower(int state, Message result, WorkSource workSource) {}
+
+    /**
+     * Register for unsolicited Carrier Public Key.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    void registerForCarrierInfoForImsiEncryption(Handler h, int what, Object obj);
+
+    /**
+     * DeRegister for unsolicited Carrier Public Key.
+     *
+     * @param h Handler for notification message.
+     */
+    void unregisterForCarrierInfoForImsiEncryption(Handler h);
+
+    /**
+     * Register for unsolicited Network Scan result.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    void registerForNetworkScanResult(Handler h, int what, Object obj);
+
+    /**
+     * DeRegister for unsolicited Network Scan result.
+     *
+     * @param h Handler for notification message.
+     */
+    void unregisterForNetworkScanResult(Handler h);
+
+    /**
+     * Register for unsolicited NATT Keepalive Status Indications
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    void registerForNattKeepaliveStatus(Handler h, int what, Object obj);
+
+    /**
+     * Deregister for unsolicited NATT Keepalive Status Indications.
+     *
+     * @param h Handler for notification message.
+     */
+    void unregisterForNattKeepaliveStatus(Handler h);
+
+    /**
+     * Register for unsolicited Emergency Number List Indications
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    void registerForEmergencyNumberList(Handler h, int what, Object obj);
+
+    /**
+     * Deregister for unsolicited Emergency Number List Indications
+     *
+     * @param h Handler for notification message.
+     */
+    void unregisterForEmergencyNumberList(Handler h);
+
+    /**
+     * Start sending NATT Keepalive packets on a specified data connection
+     *
+     * @param contextId cid that identifies the data connection for this keepalive
+     * @param packetData the keepalive packet data description
+     * @param intervalMillis a time interval in ms between keepalive packet transmissions
+     * @param result a Message to return to the requester
+     */
+    void startNattKeepalive(
+            int contextId, KeepalivePacketData packetData, int intervalMillis, Message result);
+
+    /**
+     * Stop sending NATT Keepalive packets on a specified data connection
+     *
+     * @param sessionHandle the keepalive session handle (from the modem) to stop
+     * @param result a Message to return to the requester
+     */
+    void stopNattKeepalive(int sessionHandle, Message result);
+
+    /**
+     * Enable or disable the logical modem.
+     *
+     * @param enable whether to enable or disable the modem
+     * @param result a Message to return to the requester
+     */
+    default void enableModem(boolean enable, Message result) {};
+
+    /**
+     * Notify CommandsInterface that whether its corresponding slot is active or not. If not,
+     * it means it has no RIL service or logical modem to connect to.
+     *
+     * @param active whether there's a matching active SIM slot.
+     */
+    default void onSlotActiveStatusChange(boolean active) {}
+
+    /**
+     * Query whether logical modem is enabled or disabled
+     *
+     * @param result a Message to return to the requester
+     */
+    default void getModemStatus(Message result) {};
+
+    /**
+     * Enable or disable uicc applications on the SIM.
+     *
+     * @param enable enable or disable UiccApplications on the SIM.
+     * @param onCompleteMessage a Message to return to the requester
+     */
+    default void enableUiccApplications(boolean enable, Message onCompleteMessage) {}
+
+    /**
+     * Specify which bands modem's background scan must act on.
+     * If {@code specifiers} is non-empty, the scan will be restricted to the bands specified.
+     * Otherwise, it scans all bands.
+     *
+     * For example, CBRS is only on LTE band 48. By specifying this band,
+     * modem saves more power.
+     *
+     * @param specifiers which bands to scan.
+     * @param onComplete a message to send when complete.
+     */
+    default void setSystemSelectionChannels(@NonNull List<RadioAccessSpecifier> specifiers,
+            Message onComplete) {}
+
+    /**
+     * Whether uicc applications are enabled or not.
+     *
+     * @param onCompleteMessage a Message to return to the requester
+     */
+    default void areUiccApplicationsEnabled(Message onCompleteMessage) {}
+
+    /**
+     * Whether {@link #enableUiccApplications} is supported, based on IRadio version.
+     */
+    default boolean canToggleUiccApplicationsEnablement() {
+        return false;
+    }
+
+    default List<ClientRequestStats> getClientRequestStats() {
+        return null;
+    }
+
+    /**
+     * Registers the handler for RIL_UNSOL_BARRING_INFO_CHANGED events.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    default void registerForBarringInfoChanged(Handler h, int what, Object obj) {};
+
+    /**
+     * Unregisters the handler for RIL_UNSOL_BARRING_INFO_CHANGED events.
+     *
+     * @param h Handler for notification message.
+     */
+    default void unregisterForBarringInfoChanged(Handler h) {};
+
+    /**
+     * Get all the barring info for the current camped cell applicable to the current user.
+     *
+     * AsyncResult.result is the object of {@link android.telephony.BarringInfo}.
+     *
+     * @param result Message will be sent back to handler and result.obj will be the AsycResult.
+     */
+    default void getBarringInfo(Message result) {};
 }

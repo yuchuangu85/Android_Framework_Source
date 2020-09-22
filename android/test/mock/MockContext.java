@@ -16,13 +16,16 @@
 
 package android.test.mock;
 
+import android.annotation.NonNull;
 import android.annotation.SystemApi;
+import android.app.IApplicationThread;
+import android.app.IServiceConnection;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.BroadcastReceiver;
 import android.content.IntentSender;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
@@ -41,8 +44,8 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.UserHandle;
-import android.view.DisplayAdjustments;
 import android.view.Display;
+import android.view.DisplayAdjustments;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -50,6 +53,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.Executor;
 
 /**
  * A mock {@link android.content.Context} class.  All methods are non-functional and throw
@@ -80,6 +84,11 @@ public class MockContext extends Context {
 
     @Override
     public Looper getMainLooper() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Executor getMainExecutor() {
         throw new UnsupportedOperationException();
     }
 
@@ -146,6 +155,12 @@ public class MockContext extends Context {
         throw new UnsupportedOperationException();
     }
 
+    /** @hide */
+    @Override
+    public void reloadSharedPreferences() {
+        throw new UnsupportedOperationException();
+    }
+
     @Override
     public boolean moveSharedPreferencesFrom(Context sourceContext, String name) {
         throw new UnsupportedOperationException();
@@ -194,6 +209,15 @@ public class MockContext extends Context {
 
     @Override
     public File getFilesDir() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * {@inheritDoc Context#getCrateDir()}
+     * @hide
+     */
+    @Override
+    public File getCrateDir(@NonNull String crateId) {
         throw new UnsupportedOperationException();
     }
 
@@ -350,6 +374,13 @@ public class MockContext extends Context {
     }
 
     /** @hide */
+    @Override
+    public void sendBroadcastAsUserMultiplePermissions(Intent intent, UserHandle user,
+            String[] receiverPermissions) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
     @SystemApi
     @Override
     public void sendBroadcast(Intent intent, String receiverPermission, Bundle options) {
@@ -404,6 +435,14 @@ public class MockContext extends Context {
     }
 
     /** @hide */
+    @SystemApi
+    @Override
+    public void sendBroadcastAsUser(Intent intent, UserHandle user,
+            String receiverPermission, Bundle options) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
     @Override
     public void sendBroadcastAsUser(Intent intent, UserHandle user,
             String receiverPermission, int appOp) {
@@ -430,6 +469,21 @@ public class MockContext extends Context {
     public void sendOrderedBroadcastAsUser(Intent intent, UserHandle user,
             String receiverPermission, int appOp, Bundle options, BroadcastReceiver resultReceiver,
             Handler scheduler, int initialCode, String initialData, Bundle initialExtras) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void sendOrderedBroadcast(Intent intent, String receiverPermission,
+            String receiverAppOp, BroadcastReceiver resultReceiver, Handler scheduler,
+            int initialCode, String initialData, Bundle initialExtras) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public void sendOrderedBroadcast(Intent intent, int initialCode, String receiverPermission,
+            String receiverAppOp, BroadcastReceiver resultReceiver, Handler scheduler,
+            String initialData, Bundle initialExtras, Bundle options) {
         throw new UnsupportedOperationException();
     }
 
@@ -481,7 +535,27 @@ public class MockContext extends Context {
 
     @Override
     public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter,
+            int flags) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter,
             String broadcastPermission, Handler scheduler) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter,
+            String broadcastPermission, Handler scheduler, int flags) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    @SystemApi
+    public Intent registerReceiverForAllUsers(BroadcastReceiver receiver,
+            IntentFilter filter, String broadcastPermission, Handler scheduler) {
         throw new UnsupportedOperationException();
     }
 
@@ -503,6 +577,11 @@ public class MockContext extends Context {
     }
 
     @Override
+    public ComponentName startForegroundService(Intent service) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public boolean stopService(Intent service) {
         throw new UnsupportedOperationException();
     }
@@ -510,6 +589,12 @@ public class MockContext extends Context {
     /** @hide */
     @Override
     public ComponentName startServiceAsUser(Intent service, UserHandle user) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public ComponentName startForegroundServiceAsUser(Intent service, UserHandle user) {
         throw new UnsupportedOperationException();
     }
 
@@ -524,10 +609,27 @@ public class MockContext extends Context {
         throw new UnsupportedOperationException();
     }
 
+    @Override
+    public boolean bindService(Intent service, int flags, Executor executor,
+            ServiceConnection conn) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean bindIsolatedService(Intent service, int flags, String instanceName,
+            Executor executor, ServiceConnection conn) {
+        throw new UnsupportedOperationException();
+    }
+
     /** @hide */
     @Override
     public boolean bindServiceAsUser(Intent service, ServiceConnection conn, int flags,
             UserHandle user) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void updateServiceGroup(ServiceConnection conn, int group, int importance) {
         throw new UnsupportedOperationException();
     }
 
@@ -605,6 +707,11 @@ public class MockContext extends Context {
     }
 
     @Override
+    public void revokeUriPermission(String targetPackage, Uri uri, int modeFlags) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public int checkUriPermission(Uri uri, int pid, int uid, int modeFlags) {
         throw new UnsupportedOperationException();
     }
@@ -668,10 +775,23 @@ public class MockContext extends Context {
         return null;
     }
 
+    /** @hide */
+    @Override
+    public Context createContextForSplit(String splitName)
+            throws PackageManager.NameNotFoundException {
+        throw new UnsupportedOperationException();
+    }
+
     /** {@hide} */
     @Override
     public Context createPackageContextAsUser(String packageName, int flags, UserHandle user)
             throws PackageManager.NameNotFoundException {
+        throw new UnsupportedOperationException();
+    }
+
+    /** {@hide} */
+    @Override
+    public Context createContextAsUser(UserHandle user, @CreatePackageOptions int flags) {
         throw new UnsupportedOperationException();
     }
 
@@ -692,6 +812,11 @@ public class MockContext extends Context {
     }
 
     @Override
+    public @NonNull Context createWindowContext(int type, Bundle options) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public boolean isRestricted() {
         throw new UnsupportedOperationException();
     }
@@ -702,9 +827,26 @@ public class MockContext extends Context {
         throw new UnsupportedOperationException();
     }
 
-    /** @hide */
     @Override
     public Display getDisplay() {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public Display getDisplayNoVerify() {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public int getDisplayId() {
+        throw new UnsupportedOperationException();
+    }
+
+    /** @hide */
+    @Override
+    public void updateDisplay(int displayId) {
         throw new UnsupportedOperationException();
     }
 
@@ -728,6 +870,10 @@ public class MockContext extends Context {
         throw new UnsupportedOperationException();
     }
 
+    /** @hide **/
+    @Override
+    public File getPreloadsFileCache() { throw new UnsupportedOperationException(); }
+
     @Override
     public Context createDeviceProtectedStorageContext() {
         throw new UnsupportedOperationException();
@@ -749,6 +895,43 @@ public class MockContext extends Context {
     @SystemApi
     @Override
     public boolean isCredentialProtectedStorage() {
+        throw new UnsupportedOperationException();
+    }
+
+    /** {@hide} */
+    @Override
+    public boolean canLoadUnsafeResources() {
+        throw new UnsupportedOperationException();
+    }
+
+    /** {@hide} */
+    @Override
+    public IBinder getActivityToken() {
+        throw new UnsupportedOperationException();
+    }
+
+    /** {@hide} */
+    @Override
+    public IServiceConnection getServiceDispatcher(ServiceConnection conn, Handler handler,
+            int flags) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** {@hide} */
+    @Override
+    public IApplicationThread getIApplicationThread() {
+        throw new UnsupportedOperationException();
+    }
+
+    /** {@hide} */
+    @Override
+    public Handler getMainThreadHandler() {
+        throw new UnsupportedOperationException();
+    }
+
+    /** {@hide} */
+    @Override
+    public boolean isUiContext() {
         throw new UnsupportedOperationException();
     }
 }

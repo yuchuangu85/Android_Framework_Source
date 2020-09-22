@@ -16,19 +16,38 @@
 
 package com.android.server.wifi;
 
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.util.Log;
 
 import com.android.server.SystemService;
+import com.android.server.wifi.util.WifiAsyncChannel;
 
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Service implementing Wi-Fi functionality. Delegates actual interface
+ * implementation to WifiServiceImpl.
+ */
 public final class WifiService extends SystemService {
 
     private static final String TAG = "WifiService";
-    final WifiServiceImpl mImpl;
+    // Notification channels used by the wifi service.
+    public static final String NOTIFICATION_NETWORK_STATUS = "NETWORK_STATUS";
+    public static final String NOTIFICATION_NETWORK_ALERTS = "NETWORK_ALERTS";
+    public static final String NOTIFICATION_NETWORK_AVAILABLE = "NETWORK_AVAILABLE";
 
-    public WifiService(Context context) {
-        super(context);
-        mImpl = new WifiServiceImpl(context);
+    private final WifiServiceImpl mImpl;
+    private final WifiContext mWifiContext;
+
+    public WifiService(Context contextBase) {
+        super(contextBase);
+        mWifiContext = new WifiContext(contextBase);
+        WifiInjector injector = new WifiInjector(mWifiContext);
+        WifiAsyncChannel channel =  new WifiAsyncChannel(TAG);
+        mImpl = new WifiServiceImpl(mWifiContext, injector, channel);
     }
 
     @Override
@@ -40,12 +59,55 @@ public final class WifiService extends SystemService {
     @Override
     public void onBootPhase(int phase) {
         if (phase == SystemService.PHASE_SYSTEM_SERVICES_READY) {
+            createNotificationChannels(mWifiContext);
             mImpl.checkAndStartWifi();
+        } else if (phase == SystemService.PHASE_BOOT_COMPLETED) {
+            mImpl.handleBootCompleted();
         }
     }
 
     @Override
-    public void onSwitchUser(int userId) {
-        mImpl.handleUserSwitch(userId);
+    public void onUserSwitching(TargetUser from, TargetUser to) {
+        mImpl.handleUserSwitch(to.getUserHandle().getIdentifier());
+    }
+
+    @Override
+    public void onUserUnlocking(TargetUser user) {
+        mImpl.handleUserUnlock(user.getUserHandle().getIdentifier());
+    }
+
+    @Override
+    public void onUserStopping(TargetUser user) {
+        mImpl.handleUserStop(user.getUserHandle().getIdentifier());
+    }
+
+    // Create notification channels used by wifi.
+    private static void createNotificationChannels(Context ctx) {
+        final NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+        List<NotificationChannel> channelsList = new ArrayList<>();
+        final NotificationChannel networkStatusChannel = new NotificationChannel(
+                NOTIFICATION_NETWORK_STATUS,
+                ctx.getResources().getString(
+                        com.android.wifi.resources.R.string.notification_channel_network_status),
+                NotificationManager.IMPORTANCE_LOW);
+        channelsList.add(networkStatusChannel);
+
+        final NotificationChannel networkAlertsChannel = new NotificationChannel(
+                NOTIFICATION_NETWORK_ALERTS,
+                ctx.getResources().getString(
+                        com.android.wifi.resources.R.string.notification_channel_network_alerts),
+                NotificationManager.IMPORTANCE_HIGH);
+        networkAlertsChannel.setBlockable(true);
+        channelsList.add(networkAlertsChannel);
+
+        final NotificationChannel networkAvailable = new NotificationChannel(
+                NOTIFICATION_NETWORK_AVAILABLE,
+                ctx.getResources().getString(
+                        com.android.wifi.resources.R.string.notification_channel_network_available),
+                NotificationManager.IMPORTANCE_LOW);
+        networkAvailable.setBlockable(true);
+        channelsList.add(networkAvailable);
+
+        nm.createNotificationChannels(channelsList);
     }
 }

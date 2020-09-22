@@ -84,6 +84,18 @@ public class VCardEntry {
                 Im.PROTOCOL_GOOGLE_TALK);
     }
 
+    /**
+     * Whether to insert this VCardEntry as RawContacts.STARRED
+     */
+    private boolean mStarred = false;
+
+    public void setStarred(boolean val) {
+        mStarred = val;
+    }
+    public boolean getStarred() {
+        return mStarred;
+    }
+
     public enum EntryLabel {
         NAME,
         PHONE,
@@ -1789,7 +1801,7 @@ public class VCardEntry {
                 } else if (ch == 'w' || ch == 'W') {
                     builder.append(PhoneNumberUtils.WAIT);
                     hasPauseOrWait = true;
-                } else if (('0' <= ch && ch <= '9') || (i == 0 && ch == '+')) {
+                } else if (PhoneNumberUtils.is12Key(ch) || (i == 0 && ch == '+')) {
                     builder.append(ch);
                 }
             }
@@ -2561,6 +2573,10 @@ public class VCardEntry {
         } else {
             builder.withValue(RawContacts.ACCOUNT_NAME, null);
             builder.withValue(RawContacts.ACCOUNT_TYPE, null);
+        }
+        // contacts favorites
+        if (getStarred()) {
+            builder.withValue(RawContacts.STARRED, 1);
         }
         operationList.add(builder.build());
 

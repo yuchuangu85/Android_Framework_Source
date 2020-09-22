@@ -16,14 +16,23 @@
 
 package android.widget;
 
-import com.android.internal.R;
-
 import android.annotation.IdRes;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
+import android.text.TextUtils;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewStructure;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.autofill.AutofillManager;
+import android.view.autofill.AutofillValue;
+
+import com.android.internal.R;
 
 
 /**
@@ -39,26 +48,34 @@ import android.view.ViewGroup;
  * in the XML layout file.</p>
  *
  * <p><strong>XML Attributes</strong></p>
- * <p>See {@link android.R.styleable#RadioGroup RadioGroup Attributes}, 
+ * <p>See {@link android.R.styleable#RadioGroup RadioGroup Attributes},
  * {@link android.R.styleable#LinearLayout LinearLayout Attributes},
  * {@link android.R.styleable#ViewGroup ViewGroup Attributes},
  * {@link android.R.styleable#View View Attributes}</p>
  * <p>Also see
  * {@link android.widget.LinearLayout.LayoutParams LinearLayout.LayoutParams}
  * for layout attributes.</p>
- * 
+ *
  * @see RadioButton
  *
  */
 public class RadioGroup extends LinearLayout {
+    private static final String LOG_TAG = RadioGroup.class.getSimpleName();
+
     // holds the checked id; the selection is empty by default
     private int mCheckedId = -1;
     // tracks children radio buttons checked state
+    @UnsupportedAppUsage
     private CompoundButton.OnCheckedChangeListener mChildOnCheckedChangeListener;
     // when true, mOnCheckedChangeListener discards events
     private boolean mProtectFromCheckedChange = false;
+    @UnsupportedAppUsage
     private OnCheckedChangeListener mOnCheckedChangeListener;
     private PassThroughHierarchyChangeListener mPassThroughListener;
+
+    // Indicates whether the child was set from resources or dynamically, so it can be used
+    // to sanitize autofill requests.
+    private int mInitialCheckedId = View.NO_ID;
 
     /**
      * {@inheritDoc}
@@ -75,16 +92,24 @@ public class RadioGroup extends LinearLayout {
     public RadioGroup(Context context, AttributeSet attrs) {
         super(context, attrs);
 
+        // RadioGroup is important by default, unless app developer overrode attribute.
+        if (getImportantForAutofill() == IMPORTANT_FOR_AUTOFILL_AUTO) {
+            setImportantForAutofill(IMPORTANT_FOR_AUTOFILL_YES);
+        }
+        setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
+
         // retrieve selected radio button as requested by the user in the
         // XML layout file
         TypedArray attributes = context.obtainStyledAttributes(
                 attrs, com.android.internal.R.styleable.RadioGroup, com.android.internal.R.attr.radioButtonStyle, 0);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.RadioGroup,
+                attrs, attributes, com.android.internal.R.attr.radioButtonStyle, 0);
 
         int value = attributes.getResourceId(R.styleable.RadioGroup_checkedButton, View.NO_ID);
         if (value != View.NO_ID) {
             mCheckedId = value;
+            mInitialCheckedId = value;
         }
-
         final int index = attributes.getInt(com.android.internal.R.styleable.RadioGroup_orientation, VERTICAL);
         setOrientation(index);
 
@@ -168,9 +193,17 @@ public class RadioGroup extends LinearLayout {
     }
 
     private void setCheckedId(@IdRes int id) {
+        boolean changed = id != mCheckedId;
         mCheckedId = id;
+
         if (mOnCheckedChangeListener != null) {
             mOnCheckedChangeListener.onCheckedChanged(this, mCheckedId);
+        }
+        if (changed) {
+            final AutofillManager afm = mContext.getSystemService(AutofillManager.class);
+            if (afm != null) {
+                afm.notifyValueChanged(this);
+            }
         }
     }
 
@@ -310,7 +343,7 @@ public class RadioGroup extends LinearLayout {
             } else {
                 width = WRAP_CONTENT;
             }
-            
+
             if (a.hasValue(heightAttr)) {
                 height = a.getLayoutDimension(heightAttr, "layout_height");
             } else {
@@ -335,6 +368,7 @@ public class RadioGroup extends LinearLayout {
     }
 
     private class CheckedStateTracker implements CompoundButton.OnCheckedChangeListener {
+        @Override
         public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
             // prevents from infinite recursion
             if (mProtectFromCheckedChange) {
@@ -364,6 +398,7 @@ public class RadioGroup extends LinearLayout {
         /**
          * {@inheritDoc}
          */
+        @Override
         public void onChildViewAdded(View parent, View child) {
             if (parent == RadioGroup.this && child instanceof RadioButton) {
                 int id = child.getId();
@@ -384,6 +419,7 @@ public class RadioGroup extends LinearLayout {
         /**
          * {@inheritDoc}
          */
+        @Override
         public void onChildViewRemoved(View parent, View child) {
             if (parent == RadioGroup.this && child instanceof RadioButton) {
                 ((RadioButton) child).setOnCheckedChangeWidgetListener(null);
@@ -393,5 +429,104 @@ public class RadioGroup extends LinearLayout {
                 mOnHierarchyChangeListener.onChildViewRemoved(parent, child);
             }
         }
+    }
+
+    /** @hide */
+    @Override
+    protected void onProvideStructure(@NonNull ViewStructure structure,
+            @ViewStructureType int viewFor, int flags) {
+        super.onProvideStructure(structure, viewFor, flags);
+
+        if (viewFor == VIEW_STRUCTURE_FOR_AUTOFILL) {
+            structure.setDataIsSensitive(mCheckedId != mInitialCheckedId);
+        }
+    }
+
+    @Override
+    public void autofill(AutofillValue value) {
+        if (!isEnabled()) return;
+
+        if (!value.isList()) {
+            Log.w(LOG_TAG, value + " could not be autofilled into " + this);
+            return;
+        }
+
+        final int index = value.getListValue();
+        final View child = getChildAt(index);
+        if (child == null) {
+            Log.w(VIEW_LOG_TAG, "RadioGroup.autoFill(): no child with index " + index);
+            return;
+        }
+
+        check(child.getId());
+    }
+
+    @Override
+    public @AutofillType int getAutofillType() {
+        return isEnabled() ? AUTOFILL_TYPE_LIST : AUTOFILL_TYPE_NONE;
+    }
+
+    @Override
+    public AutofillValue getAutofillValue() {
+        if (!isEnabled()) return null;
+
+        final int count = getChildCount();
+        for (int i = 0; i < count; i++) {
+            final View child = getChildAt(i);
+            if (child.getId() == mCheckedId) {
+                return AutofillValue.forList(i);
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+        super.onInitializeAccessibilityNodeInfo(info);
+        if (this.getOrientation() == HORIZONTAL) {
+            info.setCollectionInfo(AccessibilityNodeInfo.CollectionInfo.obtain(1,
+                    getVisibleChildWithTextCount(), false,
+                    AccessibilityNodeInfo.CollectionInfo.SELECTION_MODE_SINGLE));
+        } else {
+            info.setCollectionInfo(
+                    AccessibilityNodeInfo.CollectionInfo.obtain(getVisibleChildWithTextCount(),
+                    1, false,
+                    AccessibilityNodeInfo.CollectionInfo.SELECTION_MODE_SINGLE));
+        }
+    }
+
+    private int getVisibleChildWithTextCount() {
+        int count = 0;
+        for (int i = 0; i < getChildCount(); i++) {
+            if (this.getChildAt(i) instanceof RadioButton) {
+                if (isVisibleWithText((RadioButton) this.getChildAt(i))) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    int getIndexWithinVisibleButtons(@Nullable View child) {
+        if (!(child instanceof RadioButton)) {
+            return -1;
+        }
+        int index = 0;
+        for (int i = 0; i < getChildCount(); i++) {
+            if (this.getChildAt(i) instanceof RadioButton) {
+                RadioButton button = (RadioButton) this.getChildAt(i);
+                if (button == child) {
+                    return index;
+                }
+                if (isVisibleWithText(button)) {
+                    index++;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private boolean isVisibleWithText(RadioButton button) {
+        return button.getVisibility() == VISIBLE && !TextUtils.isEmpty(button.getText());
     }
 }

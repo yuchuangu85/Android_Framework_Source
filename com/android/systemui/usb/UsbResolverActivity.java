@@ -16,6 +16,8 @@
 
 package com.android.systemui.usb;
 
+import static com.android.internal.app.IntentForwarderActivity.FORWARD_INTENT_TO_MANAGED_PROFILE;
+
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.ResolveInfo;
@@ -33,18 +35,27 @@ import android.util.Log;
 import android.widget.CheckBox;
 
 import com.android.internal.app.ResolverActivity;
+import com.android.internal.app.chooser.TargetInfo;
 import com.android.systemui.R;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 
 /* Activity for choosing an application for a USB device or accessory */
 public class UsbResolverActivity extends ResolverActivity {
     public static final String TAG = "UsbResolverActivity";
     public static final String EXTRA_RESOLVE_INFOS = "rlist";
+    public static final String EXTRA_RESOLVE_INFO = "rinfo";
 
     private UsbDevice mDevice;
     private UsbAccessory mAccessory;
     private UsbDisconnectedReceiver mDisconnectedReceiver;
+
+    /** Resolve info that switches user profiles */
+    private ResolveInfo mForwardResolveInfo;
+
+    /** The intent that should be started when the profile is switched */
+    private Intent mOtherProfileIntent;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,23 +67,30 @@ public class UsbResolverActivity extends ResolverActivity {
             return;
         }
         Intent target = (Intent)targetParcelable;
-        ArrayList<ResolveInfo> rList = intent.getParcelableArrayListExtra(EXTRA_RESOLVE_INFOS);
-        CharSequence title = getResources().getText(com.android.internal.R.string.chooseUsbActivity);
-        super.onCreate(savedInstanceState, target, title, null, rList,
-                true /* Set alwaysUseOption to true to enable "always use this app" checkbox. */ );
+        ArrayList<ResolveInfo> rList = new ArrayList<>(
+                intent.getParcelableArrayListExtra(EXTRA_RESOLVE_INFOS));
 
-        CheckBox alwaysUse = (CheckBox)findViewById(com.android.internal.R.id.alwaysUse);
-        if (alwaysUse != null) {
-            if (mDevice == null) {
-                alwaysUse.setText(R.string.always_use_accessory);
-            } else {
-                alwaysUse.setText(R.string.always_use_device);
+        // The rList contains the apps for all profiles of this users. Separate those. We currently
+        // only support two profiles, i.e. one forward resolve info.
+        ArrayList<ResolveInfo> rListOtherProfile = new ArrayList<>();
+        mForwardResolveInfo = null;
+        for (Iterator<ResolveInfo> iterator = rList.iterator(); iterator.hasNext();) {
+            ResolveInfo ri = iterator.next();
+
+            if (ri.getComponentInfo().name.equals(FORWARD_INTENT_TO_MANAGED_PROFILE)) {
+                mForwardResolveInfo = ri;
+            } else if (UserHandle.getUserId(ri.activityInfo.applicationInfo.uid)
+                    != UserHandle.myUserId()) {
+                iterator.remove();
+                rListOtherProfile.add(ri);
             }
         }
 
         mDevice = (UsbDevice)target.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+        boolean hasAudioCapture = false;
         if (mDevice != null) {
             mDisconnectedReceiver = new UsbDisconnectedReceiver(this, mDevice);
+            hasAudioCapture = mDevice.getHasAudioCapture();
         } else {
             mAccessory = (UsbAccessory)target.getParcelableExtra(UsbManager.EXTRA_ACCESSORY);
             if (mAccessory == null) {
@@ -81,6 +99,41 @@ public class UsbResolverActivity extends ResolverActivity {
                 return;
             }
             mDisconnectedReceiver = new UsbDisconnectedReceiver(this, mAccessory);
+        }
+
+        // Create intent that will be used when switching to other profile. Emulate the behavior of
+        // UsbProfileGroupSettingsManager#resolveActivity
+        if (mForwardResolveInfo != null) {
+            if (rListOtherProfile.size() > 1) {
+                mOtherProfileIntent = new Intent(intent);
+                mOtherProfileIntent.putParcelableArrayListExtra(EXTRA_RESOLVE_INFOS,
+                        rListOtherProfile);
+            } else {
+                mOtherProfileIntent = new Intent(this, UsbConfirmActivity.class);
+                mOtherProfileIntent.putExtra(EXTRA_RESOLVE_INFO, rListOtherProfile.get(0));
+
+                if (mDevice != null) {
+                    mOtherProfileIntent.putExtra(UsbManager.EXTRA_DEVICE, mDevice);
+                }
+
+                if (mAccessory != null) {
+                    mOtherProfileIntent.putExtra(UsbManager.EXTRA_ACCESSORY, mAccessory);
+                }
+            }
+        }
+        getIntent().putExtra(
+                ResolverActivity.EXTRA_IS_AUDIO_CAPTURE_DEVICE, hasAudioCapture);
+
+        CharSequence title = getResources().getText(com.android.internal.R.string.chooseUsbActivity);
+        super.onCreate(savedInstanceState, target, title, null, rList, true);
+
+        CheckBox alwaysUse = (CheckBox)findViewById(com.android.internal.R.id.alwaysUse);
+        if (alwaysUse != null) {
+            if (mDevice == null) {
+                alwaysUse.setText(R.string.always_use_accessory);
+            } else {
+                alwaysUse.setText(R.string.always_use_device);
+            }
         }
     }
 
@@ -95,6 +148,12 @@ public class UsbResolverActivity extends ResolverActivity {
     @Override
     protected boolean onTargetSelected(TargetInfo target, boolean alwaysCheck) {
         final ResolveInfo ri = target.getResolveInfo();
+        if (ri == mForwardResolveInfo) {
+            startActivityAsUser(mOtherProfileIntent, null,
+                    UserHandle.of(mForwardResolveInfo.targetUserId));
+            return true;
+        }
+
         try {
             IBinder b = ServiceManager.getService(USB_SERVICE);
             IUsbManager service = IUsbManager.Stub.asInterface(b);
@@ -122,7 +181,7 @@ public class UsbResolverActivity extends ResolverActivity {
             }
 
             try {
-                target.startAsUser(this, null, new UserHandle(userId));
+                target.startAsUser(this, null, UserHandle.of(userId));
             } catch (ActivityNotFoundException e) {
                 Log.e(TAG, "startActivity failed", e);
             }
@@ -130,5 +189,10 @@ public class UsbResolverActivity extends ResolverActivity {
             Log.e(TAG, "onIntentSelected failed", e);
         }
         return true;
+    }
+
+    @Override
+    protected boolean shouldShowTabs() {
+        return false;
     }
 }

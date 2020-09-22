@@ -16,14 +16,11 @@
 
 package android.widget;
 
-import com.android.internal.R;
-import com.android.internal.widget.ViewPager;
-import com.android.internal.widget.ViewPager.OnPageChangeListener;
-
 import android.annotation.Nullable;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
+import android.graphics.Rect;
 import android.icu.util.Calendar;
 import android.util.AttributeSet;
 import android.util.MathUtils;
@@ -32,9 +29,13 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityManager;
 
-import java.util.Locale;
+import com.android.internal.R;
+import com.android.internal.widget.ViewPager;
+import com.android.internal.widget.ViewPager.OnPageChangeListener;
 
 import libcore.icu.LocaleData;
+
+import java.util.Locale;
 
 class DayPickerView extends ViewGroup {
     private static final int DEFAULT_LAYOUT = R.layout.day_picker_content_material;
@@ -81,6 +82,8 @@ class DayPickerView extends ViewGroup {
 
         final TypedArray a = context.obtainStyledAttributes(attrs,
                 R.styleable.CalendarView, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.CalendarView,
+                attrs, a, defStyleAttr, defStyleRes);
 
         final int firstDayOfWeek = a.getInt(R.styleable.CalendarView_firstDayOfWeek,
                 LocaleData.get(Locale.getDefault()).firstDayOfWeek);
@@ -121,13 +124,13 @@ class DayPickerView extends ViewGroup {
             addView(child);
         }
 
-        mPrevButton = (ImageButton) findViewById(R.id.prev);
+        mPrevButton = findViewById(R.id.prev);
         mPrevButton.setOnClickListener(mOnClickListener);
 
-        mNextButton = (ImageButton) findViewById(R.id.next);
+        mNextButton = findViewById(R.id.next);
         mNextButton.setOnClickListener(mOnClickListener);
 
-        mViewPager = (ViewPager) findViewById(R.id.day_picker_view_pager);
+        mViewPager = findViewById(R.id.day_picker_view_pager);
         mViewPager.setAdapter(mAdapter);
         mViewPager.setOnPageChangeListener(mOnPageChangedListener);
 
@@ -292,7 +295,19 @@ class DayPickerView extends ViewGroup {
      * @param setSelected whether to set the specified day as selected
      */
     private void setDate(long timeInMillis, boolean animate, boolean setSelected) {
-        if (setSelected) {
+        boolean dateClamped = false;
+        // Clamp the target day in milliseconds to the min or max if outside the range.
+        if (timeInMillis < mMinDate.getTimeInMillis()) {
+            timeInMillis = mMinDate.getTimeInMillis();
+            dateClamped = true;
+        } else if (timeInMillis > mMaxDate.getTimeInMillis()) {
+            timeInMillis = mMaxDate.getTimeInMillis();
+            dateClamped = true;
+        }
+
+        getTempCalendarForTime(timeInMillis);
+
+        if (setSelected || dateClamped) {
             mSelectedDay.setTimeInMillis(timeInMillis);
         }
 
@@ -301,12 +316,21 @@ class DayPickerView extends ViewGroup {
             mViewPager.setCurrentItem(position, animate);
         }
 
-        mTempCalendar.setTimeInMillis(timeInMillis);
         mAdapter.setSelectedDay(mTempCalendar);
     }
 
     public long getDate() {
         return mSelectedDay.getTimeInMillis();
+    }
+
+    public boolean getBoundsForDate(long timeInMillis, Rect outBounds) {
+        final int position = getPositionFromDay(timeInMillis);
+        if (position != mViewPager.getCurrentItem()) {
+            return false;
+        }
+
+        mTempCalendar.setTimeInMillis(timeInMillis);
+        return mAdapter.getBoundsForDate(mTempCalendar, outBounds);
     }
 
     public void setFirstDayOfWeek(int firstDayOfWeek) {

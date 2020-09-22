@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 
 /**
  * Class for errors in the Result object.
@@ -27,6 +29,7 @@ public class ResultException extends CatException {
     private int mAdditionalInfo;
     private String mExplanation;
 
+    @UnsupportedAppUsage
     public ResultException(ResultCode result) {
         super();
 

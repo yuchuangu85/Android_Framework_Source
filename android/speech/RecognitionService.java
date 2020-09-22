@@ -16,11 +16,13 @@
 
 package android.speech;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.app.Service;
 import android.content.Intent;
-import android.content.pm.PackageManager;
+import android.content.PermissionChecker;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
@@ -28,6 +30,8 @@ import android.os.IBinder;
 import android.os.Message;
 import android.os.RemoteException;
 import android.util.Log;
+
+import com.android.internal.util.Preconditions;
 
 import java.lang.ref.WeakReference;
 
@@ -170,13 +174,27 @@ public abstract class RecognitionService extends Service {
      * Checks whether the caller has sufficient permissions
      * 
      * @param listener to send the error message to in case of error
+     * @param forDataDelivery If the permission check is for delivering the sensitive data.
+     * @param packageName the package name of the caller
+     * @param featureId The feature in the package
      * @return {@code true} if the caller has enough permissions, {@code false} otherwise
      */
-    private boolean checkPermissions(IRecognitionListener listener) {
+    private boolean checkPermissions(IRecognitionListener listener, boolean forDataDelivery,
+            @NonNull String packageName, @Nullable String featureId) {
         if (DBG) Log.d(TAG, "checkPermissions");
-        if (RecognitionService.this.checkCallingOrSelfPermission(android.Manifest.permission.
-                RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            return true;
+        if (forDataDelivery) {
+            if (PermissionChecker.checkCallingPermissionForDataDelivery(this,
+                    android.Manifest.permission.RECORD_AUDIO, packageName, featureId,
+                    null /*message*/)
+                             == PermissionChecker.PERMISSION_GRANTED) {
+                return true;
+            }
+        } else {
+            if (PermissionChecker.checkCallingOrSelfPermissionForPreflight(this,
+                    android.Manifest.permission.RECORD_AUDIO)
+                            == PermissionChecker.PERMISSION_GRANTED) {
+                return true;
+            }
         }
         try {
             Log.e(TAG, "call for recognition service without RECORD_AUDIO permissions");
@@ -339,10 +357,14 @@ public abstract class RecognitionService extends Service {
         }
 
         @Override
-        public void startListening(Intent recognizerIntent, IRecognitionListener listener) {
+        public void startListening(Intent recognizerIntent, IRecognitionListener listener,
+                String packageName, String featureId) {
+            Preconditions.checkNotNull(packageName);
+
             if (DBG) Log.d(TAG, "startListening called by:" + listener.asBinder());
             final RecognitionService service = mServiceRef.get();
-            if (service != null && service.checkPermissions(listener)) {
+            if (service != null && service.checkPermissions(listener, true /*forDataDelivery*/,
+                    packageName, featureId)) {
                 service.mHandler.sendMessage(Message.obtain(service.mHandler,
                         MSG_START_LISTENING, service.new StartListeningArgs(
                                 recognizerIntent, listener, Binder.getCallingUid())));
@@ -350,20 +372,28 @@ public abstract class RecognitionService extends Service {
         }
 
         @Override
-        public void stopListening(IRecognitionListener listener) {
+        public void stopListening(IRecognitionListener listener, String packageName,
+                String featureId) {
+            Preconditions.checkNotNull(packageName);
+
             if (DBG) Log.d(TAG, "stopListening called by:" + listener.asBinder());
             final RecognitionService service = mServiceRef.get();
-            if (service != null && service.checkPermissions(listener)) {
+            if (service != null && service.checkPermissions(listener, false /*forDataDelivery*/,
+                    packageName, featureId)) {
                 service.mHandler.sendMessage(Message.obtain(service.mHandler,
                         MSG_STOP_LISTENING, listener));
             }
         }
 
         @Override
-        public void cancel(IRecognitionListener listener) {
+        public void cancel(IRecognitionListener listener, String packageName,
+                String featureId) {
+            Preconditions.checkNotNull(packageName);
+
             if (DBG) Log.d(TAG, "cancel called by:" + listener.asBinder());
             final RecognitionService service = mServiceRef.get();
-            if (service != null && service.checkPermissions(listener)) {
+            if (service != null && service.checkPermissions(listener, false /*forDataDelivery*/,
+                    packageName, featureId)) {
                 service.mHandler.sendMessage(Message.obtain(service.mHandler,
                         MSG_CANCEL, listener));
             }

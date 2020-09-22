@@ -19,12 +19,14 @@ import android.app.ActivityManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.provider.Settings;
-import android.support.v14.preference.SwitchPreference;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 
+import androidx.preference.SwitchPreference;
+
 import com.android.internal.logging.MetricsLogger;
-import com.android.internal.logging.MetricsProto.MetricsEvent;
+import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.systemui.Dependency;
 import com.android.systemui.statusbar.phone.StatusBarIconController;
 import com.android.systemui.tuner.TunerService.Tunable;
 
@@ -41,12 +43,12 @@ public class StatusBarSwitch extends SwitchPreference implements Tunable {
     @Override
     public void onAttached() {
         super.onAttached();
-        TunerService.get(getContext()).addTunable(this, StatusBarIconController.ICON_BLACKLIST);
+        Dependency.get(TunerService.class).addTunable(this, StatusBarIconController.ICON_BLACKLIST);
     }
 
     @Override
     public void onDetached() {
-        TunerService.get(getContext()).removeTunable(this);
+        Dependency.get(TunerService.class).removeTunable(this);
         super.onDetached();
     }
 
@@ -55,7 +57,7 @@ public class StatusBarSwitch extends SwitchPreference implements Tunable {
         if (!StatusBarIconController.ICON_BLACKLIST.equals(key)) {
             return;
         }
-        mBlacklist = StatusBarIconController.getIconBlacklist(newValue);
+        mBlacklist = StatusBarIconController.getIconBlacklist(getContext(), newValue);
         setChecked(!mBlacklist.contains(getKey()));
     }
 

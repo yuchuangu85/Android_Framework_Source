@@ -16,9 +16,10 @@
 
 package android.widget;
 
-import com.android.internal.R;
-
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.app.LocalActivityManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.TypedArray;
@@ -33,6 +34,9 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.Window;
+
+import com.android.internal.R;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,7 +46,11 @@ import java.util.List;
  * page. The individual elements are typically controlled using this container object, rather than
  * setting values on the child elements themselves.
  *
+ * @deprecated new applications should use fragment APIs instead of this class:
+ * Use <a href="{@docRoot}guide/navigation/navigation-swipe-view">TabLayout and ViewPager</a>
+ * instead.
  */
+@Deprecated
 public class TabHost extends FrameLayout implements ViewTreeObserver.OnTouchModeChangeListener {
 
     private static final int TABWIDGET_LOCATION_LEFT = 0;
@@ -51,11 +59,21 @@ public class TabHost extends FrameLayout implements ViewTreeObserver.OnTouchMode
     private static final int TABWIDGET_LOCATION_BOTTOM = 3;
     private TabWidget mTabWidget;
     private FrameLayout mTabContent;
+    @UnsupportedAppUsage(trackingBug = 137825207, maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@code androidx.viewpager.widget.ViewPager} and "
+                    + "{@code com.google.android.material.tabs.TabLayout} instead.\n"
+                    + "See <a href=\"{@docRoot}guide/navigation/navigation-swipe-view"
+                    + "\">TabLayout and ViewPager</a>")
     private List<TabSpec> mTabSpecs = new ArrayList<TabSpec>(2);
     /**
      * This field should be made private, so it is hidden from the SDK.
      * {@hide}
      */
+    @UnsupportedAppUsage(trackingBug = 137825207, maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@code androidx.viewpager.widget.ViewPager} and "
+                    + "{@code com.google.android.material.tabs.TabLayout} instead.\n"
+                    + "See <a href=\"{@docRoot}guide/navigation/navigation-swipe-view"
+                    + "\">TabLayout and ViewPager</a>")
     protected int mCurrentTab = -1;
     private View mCurrentView = null;
     /**
@@ -63,6 +81,11 @@ public class TabHost extends FrameLayout implements ViewTreeObserver.OnTouchMode
      * {@hide}
      */
     protected LocalActivityManager mLocalActivityManager = null;
+    @UnsupportedAppUsage(trackingBug = 137825207, maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "Use {@code androidx.viewpager.widget.ViewPager} and "
+                    + "{@code com.google.android.material.tabs.TabLayout} instead.\n"
+                    + "See <a href=\"{@docRoot}guide/navigation/navigation-swipe-view"
+                    + "\">TabLayout and ViewPager</a>")
     private OnTabChangeListener mOnTabChangeListener;
     private OnKeyListener mTabKeyListener;
 
@@ -86,6 +109,8 @@ public class TabHost extends FrameLayout implements ViewTreeObserver.OnTouchMode
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, com.android.internal.R.styleable.TabWidget, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.TabWidget,
+                attrs, a, defStyleAttr, defStyleRes);
 
         mTabLayoutId = a.getResourceId(R.styleable.TabWidget_tabLayout, 0);
         a.recycle();
@@ -108,10 +133,16 @@ public class TabHost extends FrameLayout implements ViewTreeObserver.OnTouchMode
     }
 
     /**
-     * Get a new {@link TabSpec} associated with this tab host.
-     * @param tag required tag of tab.
+     * Creates a new {@link TabSpec} associated with this tab host.
+     *
+     * @param tag tag for the tab specification, must be non-null
+     * @throws IllegalArgumentException If the passed tag is null
      */
-    public TabSpec newTabSpec(String tag) {
+    @NonNull
+    public TabSpec newTabSpec(@NonNull String tag) {
+        if (tag == null) {
+            throw new IllegalArgumentException("tag must be non-null");
+        }
         return new TabSpec(tag);
     }
 
@@ -127,7 +158,7 @@ mTabHost.setup();
 mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
       */
     public void setup() {
-        mTabWidget = (TabWidget) findViewById(com.android.internal.R.id.tabs);
+        mTabWidget = findViewById(com.android.internal.R.id.tabs);
         if (mTabWidget == null) {
             throw new RuntimeException(
                     "Your TabHost must have a TabWidget whose id attribute is 'android.R.id.tabs'");
@@ -137,12 +168,17 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
         // and relays them to the tab content.
         mTabKeyListener = new OnKeyListener() {
             public boolean onKey(View v, int keyCode, KeyEvent event) {
+                if (KeyEvent.isModifierKey(keyCode)) {
+                    return false;
+                }
                 switch (keyCode) {
                     case KeyEvent.KEYCODE_DPAD_CENTER:
                     case KeyEvent.KEYCODE_DPAD_LEFT:
                     case KeyEvent.KEYCODE_DPAD_RIGHT:
                     case KeyEvent.KEYCODE_DPAD_UP:
                     case KeyEvent.KEYCODE_DPAD_DOWN:
+                    case KeyEvent.KEYCODE_TAB:
+                    case KeyEvent.KEYCODE_SPACE:
                     case KeyEvent.KEYCODE_ENTER:
                         return false;
 
@@ -162,7 +198,7 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
             }
         });
 
-        mTabContent = (FrameLayout) findViewById(com.android.internal.R.id.tabcontent);
+        mTabContent = findViewById(com.android.internal.R.id.tabcontent);
         if (mTabContent == null) {
             throw new RuntimeException(
                     "Your TabHost must have a FrameLayout whose id attribute is "
@@ -196,6 +232,8 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
     /**
      * Add a tab.
      * @param tabSpec Specifies how to create the indicator and content.
+     * @throws IllegalArgumentException If the passed tab spec has null indicator strategy and / or
+     *      null content strategy.
      */
     public void addTab(TabSpec tabSpec) {
 
@@ -240,10 +278,23 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
         return mTabWidget;
     }
 
+    /**
+     * Returns the current tab.
+     *
+     * @return the current tab, may be {@code null} if no tab is set as current
+     */
+    @Nullable
     public int getCurrentTab() {
         return mCurrentTab;
     }
 
+    /**
+     * Returns the tag for the current tab.
+     *
+     * @return the tag for the current tab, may be {@code null} if no tab is
+     *         set as current
+     */
+    @Nullable
     public String getCurrentTabTag() {
         if (mCurrentTab >= 0 && mCurrentTab < mTabSpecs.size()) {
             return mTabSpecs.get(mCurrentTab).getTag();
@@ -251,6 +302,13 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
         return null;
     }
 
+    /**
+     * Returns the view for the current tab.
+     *
+     * @return the view for the current tab, may be {@code null} if no tab is
+     *         set as current
+     */
+    @Nullable
     public View getCurrentTabView() {
         if (mCurrentTab >= 0 && mCurrentTab < mTabSpecs.size()) {
             return mTabWidget.getChildTabViewAt(mCurrentTab);
@@ -262,9 +320,13 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
         return mCurrentView;
     }
 
+    /**
+     * Sets the current tab based on its tag.
+     *
+     * @param tag the tag for the tab to set as current
+     */
     public void setCurrentTabByTag(String tag) {
-        int i;
-        for (i = 0; i < mTabSpecs.size(); i++) {
+        for (int i = 0, count = mTabSpecs.size(); i < count; i++) {
             if (mTabSpecs.get(i).getTag().equals(tag)) {
                 setCurrentTab(i);
                 break;
@@ -462,12 +524,27 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
      */
     public class TabSpec {
 
-        private String mTag;
+        private final @NonNull String mTag;
 
+        @UnsupportedAppUsage(trackingBug = 137825207, maxTargetSdk = Build.VERSION_CODES.Q,
+                publicAlternatives = "Use {@code androidx.viewpager.widget.ViewPager} and "
+                        + "{@code com.google.android.material.tabs.TabLayout} instead.\n"
+                        + "See <a href=\"{@docRoot}guide/navigation/navigation-swipe-view"
+                        + "\">TabLayout and ViewPager</a>")
         private IndicatorStrategy mIndicatorStrategy;
+        @UnsupportedAppUsage(trackingBug = 137825207, maxTargetSdk = Build.VERSION_CODES.Q,
+                publicAlternatives = "Use {@code androidx.viewpager.widget.ViewPager} and "
+                        + "{@code com.google.android.material.tabs.TabLayout} instead.\n"
+                        + "See <a href=\"{@docRoot}guide/navigation/navigation-swipe-view"
+                        + "\">TabLayout and ViewPager</a>")
         private ContentStrategy mContentStrategy;
 
-        private TabSpec(String tag) {
+        /**
+         * Constructs a new tab specification with the specified tag.
+         *
+         * @param tag the tag for the tag specification, must be non-null
+         */
+        private TabSpec(@NonNull String tag) {
             mTag = tag;
         }
 
@@ -521,7 +598,12 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
             return this;
         }
 
-
+        /**
+         * Returns the tag for this tab specification.
+         *
+         * @return the tag for this tab specification
+         */
+        @NonNull
         public String getTag() {
             return mTag;
         }
@@ -574,7 +656,7 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
                     mTabWidget, // tab widget is the parent
                     false); // no inflate params
 
-            final TextView tv = (TextView) tabIndicator.findViewById(R.id.title);
+            final TextView tv = tabIndicator.findViewById(R.id.title);
             tv.setText(mLabel);
 
             if (context.getApplicationInfo().targetSdkVersion <= Build.VERSION_CODES.DONUT) {
@@ -608,8 +690,8 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
                     mTabWidget, // tab widget is the parent
                     false); // no inflate params
 
-            final TextView tv = (TextView) tabIndicator.findViewById(R.id.title);
-            final ImageView iconView = (ImageView) tabIndicator.findViewById(R.id.icon);
+            final TextView tv = tabIndicator.findViewById(R.id.title);
+            final ImageView iconView = tabIndicator.findViewById(R.id.icon);
 
             // when icon is gone by default, we're in exclusive mode
             final boolean exclusive = iconView.getVisibility() == View.GONE;
@@ -717,6 +799,11 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
             mIntent = intent;
         }
 
+        @UnsupportedAppUsage(trackingBug = 137825207, maxTargetSdk = Build.VERSION_CODES.Q,
+                publicAlternatives = "Use {@code androidx.viewpager.widget.ViewPager} and "
+                        + "{@code com.google.android.material.tabs.TabLayout} instead.\n"
+                        + "See <a href=\"{@docRoot}guide/navigation/navigation-swipe-view"
+                        + "\">TabLayout and ViewPager</a>")
         public View getContentView() {
             if (mLocalActivityManager == null) {
                 throw new IllegalStateException("Did you forget to call 'public void setup(LocalActivityManager activityGroup)'?");
@@ -746,6 +833,11 @@ mTabHost.addTab(TAB_TAG_1, "Hello, world!", "Tab 1");
             return mLaunchedView;
         }
 
+        @UnsupportedAppUsage(trackingBug = 137825207, maxTargetSdk = Build.VERSION_CODES.Q,
+                publicAlternatives = "Use {@code androidx.viewpager.widget.ViewPager} and "
+                        + "{@code com.google.android.material.tabs.TabLayout} instead.\n"
+                        + "See <a href=\"{@docRoot}guide/navigation/navigation-swipe-view"
+                        + "\">TabLayout and ViewPager</a>")
         public void tabClosed() {
             if (mLaunchedView != null) {
                 mLaunchedView.setVisibility(View.GONE);

@@ -16,146 +16,55 @@
 
 package com.android.server.location;
 
-import android.location.ILocationManager;
+import static com.android.internal.util.ConcurrentUtils.DIRECT_EXECUTOR;
+
+import android.annotation.Nullable;
 import android.location.Location;
-import android.location.LocationProvider;
 import android.os.Bundle;
-import android.os.RemoteException;
-import android.os.WorkSource;
-import android.util.Log;
-import android.util.PrintWriterPrinter;
-
-
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
 
 import com.android.internal.location.ProviderProperties;
 import com.android.internal.location.ProviderRequest;
+
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+import java.util.Collections;
 
 /**
  * A mock location provider used by LocationManagerService to implement test providers.
  *
  * {@hide}
  */
-public class MockProvider implements LocationProviderInterface {
-    private final String mName;
-    private final ProviderProperties mProperties;
-    private final ILocationManager mLocationManager;
+public class MockProvider extends AbstractLocationProvider {
 
-    private final Location mLocation;
-    private final Bundle mExtras = new Bundle();
+    @Nullable private Location mLocation;
 
-    private int mStatus;
-    private long mStatusUpdateTime;
-    private boolean mHasLocation;
-    private boolean mHasStatus;
-    private boolean mEnabled;
+    public MockProvider(ProviderProperties properties) {
+        // using a direct executor is ok because this class has no locks that could deadlock
+        super(DIRECT_EXECUTOR, Collections.emptySet());
+        setProperties(properties);
+    }
 
-    private static final String TAG = "MockProvider";
+    /** Sets the allowed state of this mock provider. */
+    public void setProviderAllowed(boolean allowed) {
+        setAllowed(allowed);
+    }
 
-    public MockProvider(String name, ILocationManager locationManager,
-            ProviderProperties properties) {
-        if (properties == null) throw new NullPointerException("properties is null");
-
-        mName = name;
-        mLocationManager = locationManager;
-        mProperties = properties;
-        mLocation = new Location(name);
+    /** Sets the location to report for this mock provider. */
+    public void setProviderLocation(Location l) {
+        Location location = new Location(l);
+        location.setIsFromMockProvider(true);
+        mLocation = location;
+        reportLocation(location);
     }
 
     @Override
-    public String getName() {
-        return mName;
-    }
+    public void onSetRequest(ProviderRequest request) {}
 
     @Override
-    public ProviderProperties getProperties() {
-        return mProperties;
-    }
-
-    @Override
-    public void disable() {
-        mEnabled = false;
-    }
-
-    @Override
-    public void enable() {
-        mEnabled = true;
-    }
-
-    @Override
-    public boolean isEnabled() {
-        return mEnabled;
-    }
-
-    @Override
-    public int getStatus(Bundle extras) {
-        if (mHasStatus) {
-            extras.clear();
-            extras.putAll(mExtras);
-            return mStatus;
-        } else {
-            return LocationProvider.AVAILABLE;
-        }
-    }
-
-    @Override
-    public long getStatusUpdateTime() {
-        return mStatusUpdateTime;
-    }
-
-    public void setLocation(Location l) {
-        mLocation.set(l);
-        mHasLocation = true;
-        if (mEnabled) {
-            try {
-                mLocationManager.reportLocation(mLocation, false);
-            } catch (RemoteException e) {
-                Log.e(TAG, "RemoteException calling reportLocation");
-            }
-        }
-    }
-
-    public void clearLocation() {
-        mHasLocation = false;
-    }
-
-    public void setStatus(int status, Bundle extras, long updateTime) {
-        mStatus = status;
-        mStatusUpdateTime = updateTime;
-        mExtras.clear();
-        if (extras != null) {
-            mExtras.putAll(extras);
-        }
-        mHasStatus = true;
-    }
-
-    public void clearStatus() {
-        mHasStatus = false;
-        mStatusUpdateTime = 0;
-    }
+    protected void onExtraCommand(int uid, int pid, String command, Bundle extras) {}
 
     @Override
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        dump(pw, "");
-    }
-
-    public void dump(PrintWriter pw, String prefix) {
-        pw.println(prefix + mName);
-        pw.println(prefix + "mHasLocation=" + mHasLocation);
-        pw.println(prefix + "mLocation:");
-        mLocation.dump(new PrintWriterPrinter(pw), prefix + "  ");
-        pw.println(prefix + "mHasStatus=" + mHasStatus);
-        pw.println(prefix + "mStatus=" + mStatus);
-        pw.println(prefix + "mStatusUpdateTime=" + mStatusUpdateTime);
-        pw.println(prefix + "mExtras=" + mExtras);
-    }
-
-    @Override
-    public void setRequest(ProviderRequest request, WorkSource source) { }
-
-    @Override
-    public boolean sendExtraCommand(String command, Bundle extras) {
-        return false;
+        pw.println("last mock location=" + mLocation);
     }
 }

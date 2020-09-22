@@ -20,11 +20,13 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.Trace;
 import android.util.FloatProperty;
-import android.util.IntProperty;
 import android.util.Slog;
 import android.view.Choreographer;
 import android.view.Display;
+
+import com.android.internal.BrightnessSynchronizer;
 
 import java.io.PrintWriter;
 
@@ -49,6 +51,7 @@ final class DisplayPowerState {
     private static final String TAG = "DisplayPowerState";
 
     private static boolean DEBUG = false;
+    private static String COUNTER_COLOR_FADE = "ColorFadeLevel";
 
     private final Handler mHandler;
     private final Choreographer mChoreographer;
@@ -57,7 +60,7 @@ final class DisplayPowerState {
     private final PhotonicModulator mPhotonicModulator;
 
     private int mScreenState;
-    private int mScreenBrightness;
+    private float mScreenBrightness;
     private boolean mScreenReady;
     private boolean mScreenUpdatePending;
 
@@ -83,7 +86,7 @@ final class DisplayPowerState {
         // will reset the brightness to a new level immediately before the changes
         // actually have a chance to be applied.
         mScreenState = Display.STATE_ON;
-        mScreenBrightness = PowerManager.BRIGHTNESS_ON;
+        mScreenBrightness = PowerManager.BRIGHTNESS_MAX;
         scheduleScreenUpdate();
 
         mColorFadePrepared = false;
@@ -104,18 +107,19 @@ final class DisplayPowerState {
         }
     };
 
-    public static final IntProperty<DisplayPowerState> SCREEN_BRIGHTNESS =
-            new IntProperty<DisplayPowerState>("screenBrightness") {
-        @Override
-        public void setValue(DisplayPowerState object, int value) {
-            object.setScreenBrightness(value);
-        }
 
-        @Override
-        public Integer get(DisplayPowerState object) {
-            return object.getScreenBrightness();
-        }
-    };
+    public static final FloatProperty<DisplayPowerState> SCREEN_BRIGHTNESS_FLOAT =
+            new FloatProperty<DisplayPowerState>("screenBrightnessFloat") {
+                @Override
+                public void setValue(DisplayPowerState object, float value) {
+                    object.setScreenBrightness(value);
+                }
+
+                @Override
+                public Float get(DisplayPowerState object) {
+                    return object.getScreenBrightness();
+                }
+            };
 
     /**
      * Sets whether the screen is on, off, or dozing.
@@ -142,9 +146,9 @@ final class DisplayPowerState {
     /**
      * Sets the display brightness.
      *
-     * @param brightness The brightness, ranges from 0 (minimum / off) to 255 (brightest).
+     * @param brightness The brightness, ranges from 0.0f (minimum / off) to 1.0f (brightest).
      */
-    public void setScreenBrightness(int brightness) {
+    public void setScreenBrightness(float brightness) {
         if (mScreenBrightness != brightness) {
             if (DEBUG) {
                 Slog.d(TAG, "setScreenBrightness: brightness=" + brightness);
@@ -161,7 +165,7 @@ final class DisplayPowerState {
     /**
      * Gets the screen brightness.
      */
-    public int getScreenBrightness() {
+    public float getScreenBrightness() {
         return mScreenBrightness;
     }
 
@@ -174,7 +178,7 @@ final class DisplayPowerState {
      * @return True if the electron beam was prepared.
      */
     public boolean prepareColorFade(Context context, int mode) {
-        if (!mColorFade.prepare(context, mode)) {
+        if (mColorFade == null || !mColorFade.prepare(context, mode)) {
             mColorFadePrepared = false;
             mColorFadeReady = true;
             return false;
@@ -190,7 +194,8 @@ final class DisplayPowerState {
      * Dismisses the color fade surface.
      */
     public void dismissColorFade() {
-        mColorFade.dismiss();
+        Trace.traceCounter(Trace.TRACE_TAG_POWER, COUNTER_COLOR_FADE, 100);
+        if (mColorFade != null) mColorFade.dismiss();
         mColorFadePrepared = false;
         mColorFadeReady = true;
     }
@@ -199,7 +204,7 @@ final class DisplayPowerState {
      * Dismisses the color fade resources.
      */
     public void dismissColorFadeResources() {
-        mColorFade.dismissResources();
+        if (mColorFade != null) mColorFade.dismissResources();
     }
 
     /**
@@ -269,7 +274,7 @@ final class DisplayPowerState {
         pw.println("  mColorFadeDrawPending=" + mColorFadeDrawPending);
 
         mPhotonicModulator.dump(pw);
-        mColorFade.dump(pw);
+        if (mColorFade != null) mColorFade.dump(pw);
     }
 
     private void scheduleScreenUpdate() {
@@ -305,9 +310,9 @@ final class DisplayPowerState {
         public void run() {
             mScreenUpdatePending = false;
 
-            int brightness = mScreenState != Display.STATE_OFF
-                    && mColorFadeLevel > 0f ? mScreenBrightness : 0;
-            if (mPhotonicModulator.setState(mScreenState, brightness)) {
+            float brightnessState = mScreenState != Display.STATE_OFF
+                    && mColorFadeLevel > 0f ? mScreenBrightness : PowerManager.BRIGHTNESS_OFF_FLOAT;
+            if (mPhotonicModulator.setState(mScreenState, brightnessState)) {
                 if (DEBUG) {
                     Slog.d(TAG, "Screen ready");
                 }
@@ -328,6 +333,8 @@ final class DisplayPowerState {
 
             if (mColorFadePrepared) {
                 mColorFade.draw(mColorFadeLevel);
+                Trace.traceCounter(Trace.TRACE_TAG_POWER,
+                        COUNTER_COLOR_FADE, Math.round(mColorFadeLevel * 100));
             }
 
             mColorFadeReady = true;
@@ -340,14 +347,14 @@ final class DisplayPowerState {
      */
     private final class PhotonicModulator extends Thread {
         private static final int INITIAL_SCREEN_STATE = Display.STATE_OFF; // unknown, assume off
-        private static final int INITIAL_BACKLIGHT = -1; // unknown
+        private static final float INITIAL_BACKLIGHT_FLOAT = PowerManager.BRIGHTNESS_INVALID_FLOAT;
 
         private final Object mLock = new Object();
 
         private int mPendingState = INITIAL_SCREEN_STATE;
-        private int mPendingBacklight = INITIAL_BACKLIGHT;
+        private float mPendingBacklight = INITIAL_BACKLIGHT_FLOAT;
         private int mActualState = INITIAL_SCREEN_STATE;
-        private int mActualBacklight = INITIAL_BACKLIGHT;
+        private float mActualBacklight = INITIAL_BACKLIGHT_FLOAT;
         private boolean mStateChangeInProgress;
         private boolean mBacklightChangeInProgress;
 
@@ -355,22 +362,22 @@ final class DisplayPowerState {
             super("PhotonicModulator");
         }
 
-        public boolean setState(int state, int backlight) {
+        public boolean setState(int state, float brightnessState) {
             synchronized (mLock) {
                 boolean stateChanged = state != mPendingState;
-                boolean backlightChanged = backlight != mPendingBacklight;
+                boolean backlightChanged = !BrightnessSynchronizer.floatEquals(
+                        brightnessState, mPendingBacklight);
                 if (stateChanged || backlightChanged) {
                     if (DEBUG) {
                         Slog.d(TAG, "Requesting new screen state: state="
-                                + Display.stateToString(state) + ", backlight=" + backlight);
+                                + Display.stateToString(state) + ", backlight=" + brightnessState);
                     }
 
                     mPendingState = state;
-                    mPendingBacklight = backlight;
-
+                    mPendingBacklight = brightnessState;
                     boolean changeInProgress = mStateChangeInProgress || mBacklightChangeInProgress;
-                    mStateChangeInProgress = stateChanged;
-                    mBacklightChangeInProgress = backlightChanged;
+                    mStateChangeInProgress = stateChanged || mStateChangeInProgress;
+                    mBacklightChangeInProgress = backlightChanged || mBacklightChangeInProgress;
 
                     if (!changeInProgress) {
                         mLock.notifyAll();
@@ -399,13 +406,14 @@ final class DisplayPowerState {
                 // Get pending change.
                 final int state;
                 final boolean stateChanged;
-                final int backlight;
+                final float brightnessState;
                 final boolean backlightChanged;
                 synchronized (mLock) {
                     state = mPendingState;
                     stateChanged = (state != mActualState);
-                    backlight = mPendingBacklight;
-                    backlightChanged = (backlight != mActualBacklight);
+                    brightnessState = mPendingBacklight;
+                    backlightChanged = !BrightnessSynchronizer.floatEquals(
+                            brightnessState, mActualBacklight);
                     if (!stateChanged) {
                         // State changed applied, notify outer class.
                         postScreenUpdateThreadSafe();
@@ -421,15 +429,15 @@ final class DisplayPowerState {
                         continue;
                     }
                     mActualState = state;
-                    mActualBacklight = backlight;
+                    mActualBacklight = brightnessState;
                 }
 
                 // Apply pending change.
                 if (DEBUG) {
                     Slog.d(TAG, "Updating screen state: state="
-                            + Display.stateToString(state) + ", backlight=" + backlight);
+                            + Display.stateToString(state) + ", backlight=" + brightnessState);
                 }
-                mBlanker.requestDisplayState(state, backlight);
+                mBlanker.requestDisplayState(state, brightnessState);
             }
         }
     }

@@ -16,110 +16,145 @@
 
 package android.graphics;
 
+import android.annotation.ColorInt;
+import android.annotation.ColorLong;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 
 public class RadialGradient extends Shader {
-
-    private static final int TYPE_COLORS_AND_POSITIONS = 1;
-    private static final int TYPE_COLOR_CENTER_AND_COLOR_EDGE = 2;
-
-    /**
-     * Type of the RadialGradient: can be either TYPE_COLORS_AND_POSITIONS or
-     * TYPE_COLOR_CENTER_AND_COLOR_EDGE.
-     */
-    private int mType;
-
+    @UnsupportedAppUsage
     private float mX;
+    @UnsupportedAppUsage
     private float mY;
+    @UnsupportedAppUsage
     private float mRadius;
-    private int[] mColors;
+    @UnsupportedAppUsage
     private float[] mPositions;
-    private int mCenterColor;
-    private int mEdgeColor;
-
+    @UnsupportedAppUsage
     private TileMode mTileMode;
 
-    /** Create a shader that draws a radial gradient given the center and radius.
-        @param centerX  The x-coordinate of the center of the radius
-        @param centerY  The y-coordinate of the center of the radius
-        @param radius   Must be positive. The radius of the circle for this gradient.
-        @param colors   The colors to be distributed between the center and edge of the circle
-        @param stops    May be <code>null</code>. Valid values are between <code>0.0f</code> and
-                        <code>1.0f</code>. The relative position of each corresponding color in
-                        the colors array. If <code>null</code>, colors are distributed evenly
-                        between the center and edge of the circle.
-        @param tileMode The Shader tiling mode
-    */
+    // @ColorInts are replaced by @ColorLongs, but these remain due to @UnsupportedAppUsage.
+    @UnsupportedAppUsage
+    @ColorInt
+    private int[] mColors;
+    @UnsupportedAppUsage
+    @ColorInt
+    private int mCenterColor;
+    @UnsupportedAppUsage
+    @ColorInt
+    private int mEdgeColor;
+
+    @ColorLong
+    private final long[] mColorLongs;
+
+    /**
+     * Create a shader that draws a radial gradient given the center and radius.
+     *
+     * @param centerX  The x-coordinate of the center of the radius
+     * @param centerY  The y-coordinate of the center of the radius
+     * @param radius   Must be positive. The radius of the circle for this gradient.
+     * @param colors   The sRGB colors to be distributed between the center and edge of the circle
+     * @param stops    May be <code>null</code>. Valid values are between <code>0.0f</code> and
+     *                 <code>1.0f</code>. The relative position of each corresponding color in
+     *                 the colors array. If <code>null</code>, colors are distributed evenly
+     *                 between the center and edge of the circle.
+     * @param tileMode The Shader tiling mode
+     */
     public RadialGradient(float centerX, float centerY, float radius,
-               @NonNull int colors[], @Nullable float stops[], @NonNull TileMode tileMode) {
+            @NonNull @ColorInt int[] colors, @Nullable float[] stops,
+            @NonNull TileMode tileMode) {
+        this(centerX, centerY, radius, convertColors(colors), stops, tileMode,
+                ColorSpace.get(ColorSpace.Named.SRGB));
+    }
+
+    /**
+     * Create a shader that draws a radial gradient given the center and radius.
+     *
+     * @param centerX  The x-coordinate of the center of the radius
+     * @param centerY  The y-coordinate of the center of the radius
+     * @param radius   Must be positive. The radius of the circle for this gradient.
+     * @param colors   The colors to be distributed between the center and edge of the circle
+     * @param stops    May be <code>null</code>. Valid values are between <code>0.0f</code> and
+     *                 <code>1.0f</code>. The relative position of each corresponding color in
+     *                 the colors array. If <code>null</code>, colors are distributed evenly
+     *                 between the center and edge of the circle.
+     * @param tileMode The Shader tiling mode
+     *
+     * @throws IllegalArgumentException if there are less than two colors, the colors do
+     *      not share the same {@link ColorSpace} or do not use a valid one, or {@code stops}
+     *      is not {@code null} and has a different length from {@code colors}.
+     */
+    public RadialGradient(float centerX, float centerY, float radius,
+            @NonNull @ColorLong long[] colors, @Nullable float[] stops,
+            @NonNull TileMode tileMode) {
+        this(centerX, centerY, radius, colors.clone(), stops, tileMode, detectColorSpace(colors));
+    }
+
+    /**
+     * Base constructor. Assumes @param colors is a copy that this object can hold onto,
+     * and all colors share @param colorSpace.
+     */
+    private RadialGradient(float centerX, float centerY, float radius,
+            @NonNull @ColorLong long[] colors, @Nullable float[] stops,
+            @NonNull TileMode tileMode, ColorSpace colorSpace) {
+        super(colorSpace);
+
         if (radius <= 0) {
             throw new IllegalArgumentException("radius must be > 0");
-        }
-        if (colors.length < 2) {
-            throw new IllegalArgumentException("needs >= 2 number of colors");
         }
         if (stops != null && colors.length != stops.length) {
             throw new IllegalArgumentException("color and position arrays must be of equal length");
         }
-        mType = TYPE_COLORS_AND_POSITIONS;
         mX = centerX;
         mY = centerY;
         mRadius = radius;
-        mColors = colors;
-        mPositions = stops;
+        mColorLongs = colors;
+        mPositions = stops != null ? stops.clone() : null;
         mTileMode = tileMode;
-        init(nativeCreate1(centerX, centerY, radius, colors, stops, tileMode.nativeInt));
-    }
-
-    /** Create a shader that draws a radial gradient given the center and radius.
-        @param centerX     The x-coordinate of the center of the radius
-        @param centerY     The y-coordinate of the center of the radius
-        @param radius      Must be positive. The radius of the circle for this gradient
-        @param centerColor The color at the center of the circle.
-        @param edgeColor   The color at the edge of the circle.
-        @param tileMode    The Shader tiling mode
-    */
-    public RadialGradient(float centerX, float centerY, float radius,
-            int centerColor, int edgeColor, @NonNull TileMode tileMode) {
-        if (radius <= 0) {
-            throw new IllegalArgumentException("radius must be > 0");
-        }
-        mType = TYPE_COLOR_CENTER_AND_COLOR_EDGE;
-        mX = centerX;
-        mY = centerY;
-        mRadius = radius;
-        mCenterColor = centerColor;
-        mEdgeColor = edgeColor;
-        mTileMode = tileMode;
-        init(nativeCreate2(centerX, centerY, radius, centerColor, edgeColor, tileMode.nativeInt));
     }
 
     /**
-     * @hide
+     * Create a shader that draws a radial gradient given the center and radius.
+     *
+     * @param centerX     The x-coordinate of the center of the radius
+     * @param centerY     The y-coordinate of the center of the radius
+     * @param radius      Must be positive. The radius of the circle for this gradient
+     * @param centerColor The sRGB color at the center of the circle.
+     * @param edgeColor   The sRGB color at the edge of the circle.
+     * @param tileMode    The Shader tiling mode
      */
-    @Override
-    protected Shader copy() {
-        final RadialGradient copy;
-        switch (mType) {
-            case TYPE_COLORS_AND_POSITIONS:
-                copy = new RadialGradient(mX, mY, mRadius, mColors.clone(),
-                        mPositions != null ? mPositions.clone() : null, mTileMode);
-                break;
-            case TYPE_COLOR_CENTER_AND_COLOR_EDGE:
-                copy = new RadialGradient(mX, mY, mRadius, mCenterColor, mEdgeColor, mTileMode);
-                break;
-            default:
-                throw new IllegalArgumentException("RadialGradient should be created with either " +
-                        "colors and positions or center color and edge color");
-        }
-        copyLocalMatrix(copy);
-        return copy;
+    public RadialGradient(float centerX, float centerY, float radius,
+            @ColorInt int centerColor, @ColorInt int edgeColor, @NonNull TileMode tileMode) {
+        this(centerX, centerY, radius, Color.pack(centerColor), Color.pack(edgeColor), tileMode);
     }
 
-    private static native long nativeCreate1(float x, float y, float radius,
-            int colors[], float positions[], int tileMode);
-    private static native long nativeCreate2(float x, float y, float radius,
-            int color0, int color1, int tileMode);
+    /**
+     * Create a shader that draws a radial gradient given the center and radius.
+     *
+     * @param centerX     The x-coordinate of the center of the radius
+     * @param centerY     The y-coordinate of the center of the radius
+     * @param radius      Must be positive. The radius of the circle for this gradient
+     * @param centerColor The color at the center of the circle.
+     * @param edgeColor   The color at the edge of the circle.
+     * @param tileMode    The Shader tiling mode
+     *
+     * @throws IllegalArgumentException if the colors do
+     *      not share the same {@link ColorSpace} or do not use a valid one.
+     */
+    public RadialGradient(float centerX, float centerY, float radius,
+            @ColorLong long centerColor, @ColorLong long edgeColor, @NonNull TileMode tileMode) {
+        this(centerX, centerY, radius, new long[] {centerColor, edgeColor}, null, tileMode);
+    }
+
+    @Override
+    long createNativeInstance(long nativeMatrix) {
+        return nativeCreate(nativeMatrix, mX, mY, mRadius,
+                mColorLongs, mPositions, mTileMode.nativeInt,
+                colorSpace().getNativeInstance());
+    }
+
+    private static native long nativeCreate(long matrix, float x, float y, float radius,
+            @ColorLong long[] colors, float[] positions, int tileMode, long colorSpaceHandle);
 }
 

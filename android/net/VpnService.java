@@ -19,16 +19,20 @@ package android.net;
 import static android.system.OsConstants.AF_INET;
 import static android.system.OsConstants.AF_INET6;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.app.Activity;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.app.admin.DevicePolicyManager;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
-import android.net.Network;
-import android.net.NetworkUtils;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.Parcel;
@@ -46,6 +50,7 @@ import java.net.InetAddress;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * VpnService is a base class for applications to extend and build their
@@ -98,7 +103,7 @@ import java.util.List;
  *       shut down the tunnel gracefully.</li>
  * </ol>
  *
- * <p>Services extended this class need to be declared with appropriate
+ * <p>Services extending this class need to be declared with an appropriate
  * permission and intent filter. Their access must be secured by
  * {@link android.Manifest.permission#BIND_VPN_SERVICE} permission, and
  * their intent filter must match {@link #SERVICE_INTERFACE} action. Here
@@ -111,6 +116,18 @@ import java.util.List;
  *     &lt;/intent-filter&gt;
  * &lt;/service&gt;</pre>
  *
+ * <p> The Android system starts a VPN in the background by calling
+ * {@link android.content.Context#startService startService()}. In Android 8.0
+ * (API level 26) and higher, the system places VPN apps on the temporary
+ * whitelist for a short period so the app can start in the background. The VPN
+ * app must promote itself to the foreground after it's launched or the system
+ * will shut down the app.
+ *
+ * <h3>Developer's guide</h3>
+ *
+ * <p>To learn more about developing VPN apps, read the
+ * <a href="{@docRoot}guide/topics/connectivity/vpn">VPN developer's guide</a>.
+ *
  * @see Builder
  */
 public class VpnService extends Service {
@@ -121,6 +138,36 @@ public class VpnService extends Service {
      * permission so that other applications cannot abuse it.
      */
     public static final String SERVICE_INTERFACE = VpnConfig.SERVICE_INTERFACE;
+
+    /**
+     * Key for boolean meta-data field indicating whether this VpnService supports always-on mode.
+     *
+     * <p>For a VPN app targeting {@link android.os.Build.VERSION_CODES#N API 24} or above, Android
+     * provides users with the ability to set it as always-on, so that VPN connection is
+     * persisted after device reboot and app upgrade. Always-on VPN can also be enabled by device
+     * owner and profile owner apps through
+     * {@link DevicePolicyManager#setAlwaysOnVpnPackage}.
+     *
+     * <p>VPN apps not supporting this feature should opt out by adding this meta-data field to the
+     * {@code VpnService} component of {@code AndroidManifest.xml}. In case there is more than one
+     * {@code VpnService} component defined in {@code AndroidManifest.xml}, opting out any one of
+     * them will opt out the entire app. For example,
+     * <pre> {@code
+     * <service android:name=".ExampleVpnService"
+     *         android:permission="android.permission.BIND_VPN_SERVICE">
+     *     <intent-filter>
+     *         <action android:name="android.net.VpnService"/>
+     *     </intent-filter>
+     *     <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
+     *             android:value=false/>
+     * </service>
+     * } </pre>
+     *
+     * <p>This meta-data field defaults to {@code true} if absent. It will only have effect on
+     * {@link android.os.Build.VERSION_CODES#O_MR1} or higher.
+     */
+    public static final String SERVICE_META_DATA_SUPPORTS_ALWAYS_ON =
+            "android.net.VpnService.SUPPORTS_ALWAYS_ON";
 
     /**
      * Use IConnectivityManager since those methods are hidden and not
@@ -156,7 +203,7 @@ public class VpnService extends Service {
      */
     public static Intent prepare(Context context) {
         try {
-            if (getService().prepareVpn(context.getPackageName(), null, UserHandle.myUserId())) {
+            if (getService().prepareVpn(context.getPackageName(), null, context.getUserId())) {
                 return null;
             }
         } catch (RemoteException e) {
@@ -177,16 +224,17 @@ public class VpnService extends Service {
      * @hide
      */
     @SystemApi
+    @RequiresPermission(android.Manifest.permission.CONTROL_VPN)
     public static void prepareAndAuthorize(Context context) {
         IConnectivityManager cm = getService();
         String packageName = context.getPackageName();
         try {
             // Only prepare if we're not already prepared.
-            int userId = UserHandle.myUserId();
+            int userId = context.getUserId();
             if (!cm.prepareVpn(packageName, null, userId)) {
                 cm.prepareVpn(null, packageName, userId);
             }
-            cm.setVpnPackageAuthorization(packageName, userId, true);
+            cm.setVpnPackageAuthorization(packageName, userId, VpnManager.TYPE_VPN_SERVICE);
         } catch (RemoteException e) {
             // ignore
         }
@@ -330,6 +378,35 @@ public class VpnService extends Service {
     }
 
     /**
+     * Returns whether the service is running in always-on VPN mode. In this mode the system ensures
+     * that the service is always running by restarting it when necessary, e.g. after reboot.
+     *
+     * @see DevicePolicyManager#setAlwaysOnVpnPackage(ComponentName, String, boolean, Set)
+     */
+    public final boolean isAlwaysOn() {
+        try {
+            return getService().isCallerCurrentAlwaysOnVpnApp();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Returns whether the service is running in always-on VPN lockdown mode. In this mode the
+     * system ensures that the service is always running and that the apps aren't allowed to bypass
+     * the VPN.
+     *
+     * @see DevicePolicyManager#setAlwaysOnVpnPackage(ComponentName, String, boolean, Set)
+     */
+    public final boolean isLockdownEnabled() {
+        try {
+            return getService().isCallerCurrentAlwaysOnVpnLockdownApp();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Return the communication interface to the service. This method returns
      * {@code null} on {@link Intent}s other than {@link #SERVICE_INTERFACE}
      * action. Applications overriding this method must identify the intent
@@ -403,7 +480,9 @@ public class VpnService extends Service {
     public class Builder {
 
         private final VpnConfig mConfig = new VpnConfig();
+        @UnsupportedAppUsage
         private final List<LinkAddress> mAddresses = new ArrayList<LinkAddress>();
+        @UnsupportedAppUsage
         private final List<RouteInfo> mRoutes = new ArrayList<RouteInfo>();
 
         public Builder() {
@@ -415,7 +494,8 @@ public class VpnService extends Service {
          * system-managed dialogs and notifications. This is recommended
          * not required.
          */
-        public Builder setSession(String session) {
+        @NonNull
+        public Builder setSession(@NonNull String session) {
             mConfig.session = session;
             return this;
         }
@@ -425,7 +505,8 @@ public class VpnService extends Service {
          * configure the VPN connection. If it is not set, the button
          * to configure will not be shown in system-managed dialogs.
          */
-        public Builder setConfigureIntent(PendingIntent intent) {
+        @NonNull
+        public Builder setConfigureIntent(@NonNull PendingIntent intent) {
             mConfig.configureIntent = intent;
             return this;
         }
@@ -437,11 +518,22 @@ public class VpnService extends Service {
          *
          * @throws IllegalArgumentException if the value is not positive.
          */
+        @NonNull
         public Builder setMtu(int mtu) {
             if (mtu <= 0) {
                 throw new IllegalArgumentException("Bad mtu");
             }
             mConfig.mtu = mtu;
+            return this;
+        }
+
+        /**
+         * Sets an HTTP proxy for the VPN network. This proxy is only a recommendation
+         * and it is possible that some apps will ignore it.
+         */
+        @NonNull
+        public Builder setHttpProxy(@NonNull ProxyInfo proxyInfo) {
+            mConfig.proxyInfo = proxyInfo;
             return this;
         }
 
@@ -455,7 +547,8 @@ public class VpnService extends Service {
          *
          * @throws IllegalArgumentException if the address is invalid.
          */
-        public Builder addAddress(InetAddress address, int prefixLength) {
+        @NonNull
+        public Builder addAddress(@NonNull InetAddress address, int prefixLength) {
             check(address, prefixLength);
 
             if (address.isAnyLocalAddress()) {
@@ -477,7 +570,8 @@ public class VpnService extends Service {
          * @throws IllegalArgumentException if the address is invalid.
          * @see #addAddress(InetAddress, int)
          */
-        public Builder addAddress(String address, int prefixLength) {
+        @NonNull
+        public Builder addAddress(@NonNull String address, int prefixLength) {
             return addAddress(InetAddress.parseNumericAddress(address), prefixLength);
         }
 
@@ -490,7 +584,8 @@ public class VpnService extends Service {
          *
          * @throws IllegalArgumentException if the route is invalid.
          */
-        public Builder addRoute(InetAddress address, int prefixLength) {
+        @NonNull
+        public Builder addRoute(@NonNull InetAddress address, int prefixLength) {
             check(address, prefixLength);
 
             int offset = prefixLength / 8;
@@ -518,7 +613,8 @@ public class VpnService extends Service {
          * @throws IllegalArgumentException if the route is invalid.
          * @see #addRoute(InetAddress, int)
          */
-        public Builder addRoute(String address, int prefixLength) {
+        @NonNull
+        public Builder addRoute(@NonNull String address, int prefixLength) {
             return addRoute(InetAddress.parseNumericAddress(address), prefixLength);
         }
 
@@ -532,7 +628,8 @@ public class VpnService extends Service {
          *
          * @throws IllegalArgumentException if the address is invalid.
          */
-        public Builder addDnsServer(InetAddress address) {
+        @NonNull
+        public Builder addDnsServer(@NonNull InetAddress address) {
             if (address.isLoopbackAddress() || address.isAnyLocalAddress()) {
                 throw new IllegalArgumentException("Bad address");
             }
@@ -554,14 +651,16 @@ public class VpnService extends Service {
          * @throws IllegalArgumentException if the address is invalid.
          * @see #addDnsServer(InetAddress)
          */
-        public Builder addDnsServer(String address) {
+        @NonNull
+        public Builder addDnsServer(@NonNull String address) {
             return addDnsServer(InetAddress.parseNumericAddress(address));
         }
 
         /**
          * Add a search domain to the DNS resolver.
          */
-        public Builder addSearchDomain(String domain) {
+        @NonNull
+        public Builder addSearchDomain(@NonNull String domain) {
             if (mConfig.searchDomains == null) {
                 mConfig.searchDomains = new ArrayList<String>();
             }
@@ -587,6 +686,7 @@ public class VpnService extends Service {
          *
          * @return this {@link Builder} object to facilitate chaining of method calls.
          */
+        @NonNull
         public Builder allowFamily(int family) {
             if (family == AF_INET) {
                 mConfig.allowIPv4 = true;
@@ -630,7 +730,8 @@ public class VpnService extends Service {
          *
          * @return this {@link Builder} object to facilitate chaining method calls.
          */
-        public Builder addAllowedApplication(String packageName)
+        @NonNull
+        public Builder addAllowedApplication(@NonNull String packageName)
                 throws PackageManager.NameNotFoundException {
             if (mConfig.disallowedApplications != null) {
                 throw new UnsupportedOperationException("addDisallowedApplication already called");
@@ -662,7 +763,8 @@ public class VpnService extends Service {
          *
          * @return this {@link Builder} object to facilitate chaining method calls.
          */
-        public Builder addDisallowedApplication(String packageName)
+        @NonNull
+        public Builder addDisallowedApplication(@NonNull String packageName)
                 throws PackageManager.NameNotFoundException {
             if (mConfig.allowedApplications != null) {
                 throw new UnsupportedOperationException("addAllowedApplication already called");
@@ -685,6 +787,7 @@ public class VpnService extends Service {
          *
          * @return this {@link Builder} object to facilitate chaining of method calls.
          */
+        @NonNull
         public Builder allowBypass() {
             mConfig.allowBypass = true;
             return this;
@@ -699,6 +802,7 @@ public class VpnService extends Service {
          *
          * @return this {@link Builder} object to facilitate chaining method calls.
          */
+        @NonNull
         public Builder setBlocking(boolean blocking) {
             mConfig.blocking = blocking;
             return this;
@@ -713,8 +817,31 @@ public class VpnService extends Service {
          *
          * @return this {@link Builder} object to facilitate chaining method calls.
          */
-        public Builder setUnderlyingNetworks(Network[] networks) {
+        @NonNull
+        public Builder setUnderlyingNetworks(@Nullable Network[] networks) {
             mConfig.underlyingNetworks = networks != null ? networks.clone() : null;
+            return this;
+        }
+
+        /**
+         * Marks the VPN network as metered. A VPN network is classified as metered when the user is
+         * sensitive to heavy data usage due to monetary costs and/or data limitations. In such
+         * cases, you should set this to {@code true} so that apps on the system can avoid doing
+         * large data transfers. Otherwise, set this to {@code false}. Doing so would cause VPN
+         * network to inherit its meteredness from its underlying networks.
+         *
+         * <p>VPN apps targeting {@link android.os.Build.VERSION_CODES#Q} or above will be
+         * considered metered by default.
+         *
+         * @param isMetered {@code true} if VPN network should be treated as metered regardless of
+         *     underlying network meteredness
+         * @return this {@link Builder} object to facilitate chaining method calls
+         * @see #setUnderlyingNetworks(Network[])
+         * @see ConnectivityManager#isActiveNetworkMetered()
+         */
+        @NonNull
+        public Builder setMetered(boolean isMetered) {
+            mConfig.isMetered = isMetered;
             return this;
         }
 
@@ -761,6 +888,7 @@ public class VpnService extends Service {
          *         in {@code AndroidManifest.xml}.
          * @see VpnService
          */
+        @Nullable
         public ParcelFileDescriptor establish() {
             mConfig.addresses = mAddresses;
             mConfig.routes = mRoutes;

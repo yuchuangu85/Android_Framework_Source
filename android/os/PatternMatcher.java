@@ -16,7 +16,7 @@
 
 package android.os;
 
-import android.util.Log;
+import android.util.proto.ProtoOutputStream;
 
 import java.util.Arrays;
 
@@ -56,10 +56,8 @@ public class PatternMatcher implements Parcelable {
      * with full support for character ranges and the not ({@code ^}) modifier.
      * Supported modifiers include star ({@code *}) for zero-or-more, plus ({@code +})
      * for one-or-more and full range ({@code {...}}) support. This is a simple
-     * evaulation implementation in which matching is done against the pattern in
-     * realtime with no backtracking support.
-     *
-     * {@hide} Pending approval for public API
+     * evaluation implementation in which matching is done against the pattern in
+     * real time with no backtracking support.
      */
     public static final int PATTERN_ADVANCED_GLOB = 3;
 
@@ -133,7 +131,17 @@ public class PatternMatcher implements Parcelable {
         }
         return "PatternMatcher{" + type + mPattern + "}";
     }
-    
+
+    /** @hide */
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
+        long token = proto.start(fieldId);
+        proto.write(PatternMatcherProto.PATTERN, mPattern);
+        proto.write(PatternMatcherProto.TYPE, mType);
+        // PatternMatcherProto.PARSED_PATTERN is too much to dump, but the field is reserved to
+        // match the current data structure.
+        proto.end(token);
+    }
+
     public int describeContents() {
         return 0;
     }
@@ -143,14 +151,14 @@ public class PatternMatcher implements Parcelable {
         dest.writeInt(mType);
         dest.writeIntArray(mParsedPattern);
     }
-    
+
     public PatternMatcher(Parcel src) {
         mPattern = src.readString();
         mType = src.readInt();
         mParsedPattern = src.createIntArray();
     }
     
-    public static final Parcelable.Creator<PatternMatcher> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<PatternMatcher> CREATOR
             = new Parcelable.Creator<PatternMatcher>() {
         public PatternMatcher createFromParcel(Parcel source) {
             return new PatternMatcher(source);

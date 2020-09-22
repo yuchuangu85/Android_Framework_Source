@@ -23,6 +23,7 @@ import android.util.AttributeSet;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.ListAdapter;
+
 import com.android.systemui.R;
 
 /**
@@ -37,6 +38,7 @@ public class AutoSizingList extends LinearLayout {
 
     private ListAdapter mAdapter;
     private int mCount;
+    private boolean mEnableAutoSizing;
 
     public AutoSizingList(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
@@ -44,6 +46,8 @@ public class AutoSizingList extends LinearLayout {
         mHandler = new Handler();
         TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.AutoSizingList);
         mItemSize = a.getDimensionPixelSize(R.styleable.AutoSizingList_itemHeight, 0);
+        mEnableAutoSizing = a.getBoolean(R.styleable.AutoSizingList_enableAutoSizing, true);
+        a.recycle();
     }
 
     public void setAdapter(ListAdapter adapter) {
@@ -60,13 +64,19 @@ public class AutoSizingList extends LinearLayout {
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int requestedHeight = MeasureSpec.getSize(heightMeasureSpec);
         if (requestedHeight != 0) {
-            int count = Math.min(requestedHeight / mItemSize, getDesiredCount());
+            int count = getItemCount(requestedHeight);
             if (mCount != count) {
                 postRebindChildren();
                 mCount = count;
             }
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+    }
+
+    private int getItemCount(int requestedHeight) {
+        int desiredCount = getDesiredCount();
+        return mEnableAutoSizing ? Math.min(requestedHeight / mItemSize, desiredCount)
+                : desiredCount;
     }
 
     private int getDesiredCount() {

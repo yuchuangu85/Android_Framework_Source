@@ -17,8 +17,10 @@
 package android.view;
 
 import android.animation.Animator;
-import android.animation.ValueAnimator;
 import android.animation.TimeInterpolator;
+import android.animation.ValueAnimator;
+import android.graphics.RenderNode;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Set;
@@ -42,7 +44,7 @@ import java.util.Set;
  * <p>This class is not constructed by the caller, but rather by the View whose properties
  * it will animate. Calls to {@link android.view.View#animate()} will return a reference
  * to the appropriate ViewPropertyAnimator object for that View.</p>
- * 
+ *
  */
 public class ViewPropertyAnimator {
 
@@ -106,11 +108,6 @@ public class ViewPropertyAnimator {
      * (duration, start delay, interpolator, etc.).
      */
     private ValueAnimator mTempValueAnimator;
-
-    /**
-     * A RenderThread-driven backend that may intercept startAnimation
-     */
-    private ViewPropertyAnimatorRT mRTBackend;
 
     /**
      * This listener is the mechanism by which the underlying Animator causes changes to the
@@ -332,7 +329,7 @@ public class ViewPropertyAnimator {
      * Sets the interpolator for the underlying animator that animates the requested properties.
      * By default, the animator uses the default interpolator for ValueAnimator. Calling this method
      * will cause the declared object to be used instead.
-     * 
+     *
      * @param interpolator The TimeInterpolator to be used for ensuing property animations. A value
      * of <code>null</code> will result in linear interpolation.
      * @return This object, allowing calls to methods in this class to be chained.
@@ -433,9 +430,6 @@ public class ViewPropertyAnimator {
         mPendingOnStartAction = null;
         mPendingOnEndAction = null;
         mView.removeCallbacks(mAnimationStarter);
-        if (mRTBackend != null) {
-            mRTBackend.cancelAll();
-        }
     }
 
     /**
@@ -858,9 +852,6 @@ public class ViewPropertyAnimator {
      * value accordingly.
      */
     private void startAnimation() {
-        if (mRTBackend != null && mRTBackend.startAnimation(this)) {
-            return;
-        }
         mView.setHasTransientState(true);
         ValueAnimator animator = ValueAnimator.ofFloat(1.0f);
         ArrayList<NameValuesHolder> nameValueList =
@@ -981,7 +972,6 @@ public class ViewPropertyAnimator {
      * @param value The value to set the property to
      */
     private void setValue(int propertyConstant, float value) {
-        final View.TransformationInfo info = mView.mTransformationInfo;
         final RenderNode renderNode = mView.mRenderNode;
         switch (propertyConstant) {
             case TRANSLATION_X:
@@ -994,7 +984,7 @@ public class ViewPropertyAnimator {
                 renderNode.setTranslationZ(value);
                 break;
             case ROTATION:
-                renderNode.setRotation(value);
+                renderNode.setRotationZ(value);
                 break;
             case ROTATION_X:
                 renderNode.setRotationX(value);
@@ -1018,7 +1008,7 @@ public class ViewPropertyAnimator {
                 renderNode.setTranslationZ(value - renderNode.getElevation());
                 break;
             case ALPHA:
-                info.mAlpha = value;
+                mView.setAlphaInternal(value);
                 renderNode.setAlpha(value);
                 break;
         }
@@ -1040,7 +1030,7 @@ public class ViewPropertyAnimator {
             case TRANSLATION_Z:
                 return node.getTranslationZ();
             case ROTATION:
-                return node.getRotation();
+                return node.getRotationZ();
             case ROTATION_X:
                 return node.getRotationX();
             case ROTATION_Y:
@@ -1056,7 +1046,7 @@ public class ViewPropertyAnimator {
             case Z:
                 return node.getElevation() + node.getTranslationZ();
             case ALPHA:
-                return mView.mTransformationInfo.mAlpha;
+                return mView.getAlpha();
         }
         return 0;
     }

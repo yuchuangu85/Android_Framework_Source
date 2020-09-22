@@ -16,6 +16,8 @@
 
 package android.net;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -64,10 +66,10 @@ public class WifiKey implements Parcelable {
      * @throws IllegalArgumentException if either the SSID or BSSID is invalid.
      */
     public WifiKey(String ssid, String bssid) {
-        if (!SSID_PATTERN.matcher(ssid).matches()) {
+        if (ssid == null || !SSID_PATTERN.matcher(ssid).matches()) {
             throw new IllegalArgumentException("Invalid ssid: " + ssid);
         }
-        if (!BSSID_PATTERN.matcher(bssid).matches()) {
+        if (bssid == null || !BSSID_PATTERN.matcher(bssid).matches()) {
             throw new IllegalArgumentException("Invalid bssid: " + bssid);
         }
         this.ssid = ssid;
@@ -91,7 +93,7 @@ public class WifiKey implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
@@ -105,12 +107,13 @@ public class WifiKey implements Parcelable {
         return Objects.hash(ssid, bssid);
     }
 
+    @NonNull
     @Override
     public String toString() {
         return "WifiKey[SSID=" + ssid + ",BSSID=" + bssid + "]";
     }
 
-    public static final Creator<WifiKey> CREATOR =
+    public static final @android.annotation.NonNull Creator<WifiKey> CREATOR =
             new Creator<WifiKey>() {
                 @Override
                 public WifiKey createFromParcel(Parcel in) {

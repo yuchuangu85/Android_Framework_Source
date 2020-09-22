@@ -21,21 +21,30 @@ import android.graphics.drawable.Drawable;
 import android.provider.Settings;
 import android.util.Pair;
 
-import com.android.internal.logging.MetricsProto.MetricsEvent;
-import com.android.systemui.qs.QSTile;
+import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+import com.android.systemui.plugins.qs.DetailAdapter;
+import com.android.systemui.plugins.qs.QSTile;
+import com.android.systemui.plugins.qs.QSTile.State;
+import com.android.systemui.qs.QSHost;
+import com.android.systemui.qs.tileimpl.QSTileImpl;
 import com.android.systemui.statusbar.policy.UserInfoController;
 import com.android.systemui.statusbar.policy.UserSwitcherController;
 
-public class UserTile extends QSTile<QSTile.State> implements UserInfoController.OnUserInfoChangedListener {
+import javax.inject.Inject;
+
+public class UserTile extends QSTileImpl<State> implements UserInfoController.OnUserInfoChangedListener {
 
     private final UserSwitcherController mUserSwitcherController;
     private final UserInfoController mUserInfoController;
     private Pair<String, Drawable> mLastUpdate;
 
-    public UserTile(Host host) {
+    @Inject
+    public UserTile(QSHost host, UserSwitcherController userSwitcherController,
+            UserInfoController userInfoController) {
         super(host);
-        mUserSwitcherController = host.getUserSwitcherController();
-        mUserInfoController = host.getUserInfoController();
+        mUserSwitcherController = userSwitcherController;
+        mUserInfoController = userInfoController;
+        mUserInfoController.observe(getLifecycle(), this);
     }
 
     @Override
@@ -64,15 +73,6 @@ public class UserTile extends QSTile<QSTile.State> implements UserInfoController
     }
 
     @Override
-    public void setListening(boolean listening) {
-        if (listening) {
-            mUserInfoController.addListener(this);
-        } else {
-            mUserInfoController.remListener(this);
-        }
-    }
-
-    @Override
     public CharSequence getTileLabel() {
         return getState().label;
     }
@@ -96,7 +96,7 @@ public class UserTile extends QSTile<QSTile.State> implements UserInfoController
     }
 
     @Override
-    public void onUserInfoChanged(String name, Drawable picture) {
+    public void onUserInfoChanged(String name, Drawable picture, String userAccount) {
         mLastUpdate = new Pair<>(name, picture);
         refreshState(mLastUpdate);
     }

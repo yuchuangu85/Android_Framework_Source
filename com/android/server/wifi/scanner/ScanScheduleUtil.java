@@ -175,6 +175,8 @@ public class ScanScheduleUtil {
                                 scanData.getBucketsScanned())) {
                     filteredScanDatas.add(new ScanData(scanData.getId(),
                                     scanData.getFlags(),
+                                    0,
+                                    scanData.getBandScanned(),
                                     filteredResults.toArray(
                                             new ScanResult[filteredResults.size()])));
                 }

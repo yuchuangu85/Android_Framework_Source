@@ -17,20 +17,22 @@
 package com.android.internal.app;
 
 import android.app.AlertDialog;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.location.LocationManagerInternal;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.widget.Toast;
 import android.util.Log;
-import android.location.LocationManager;
+import android.widget.Toast;
 
 import com.android.internal.R;
 import com.android.internal.location.GpsNetInitiatedHandler;
+import com.android.server.LocalServices;
 
 /**
  * This activity is shown to the user for him/her to accept or deny network-initiated
@@ -67,14 +69,14 @@ public class NetInitiatedActivity extends AlertActivity implements DialogInterfa
     private final Handler mHandler = new Handler() {
         public void handleMessage(Message msg) {
             switch (msg.what) {
-            case GPS_NO_RESPONSE_TIME_OUT: {
-                if (notificationId != -1) {
-                    sendUserResponse(default_response);
+                case GPS_NO_RESPONSE_TIME_OUT: {
+                    if (notificationId != -1) {
+                        sendUserResponse(default_response);
+                    }
+                    finish();
                 }
-                finish();
-            }
-            break;
-            default:
+                break;
+                default:
             }
         }
     };
@@ -136,11 +138,11 @@ public class NetInitiatedActivity extends AlertActivity implements DialogInterfa
     // Respond to NI Handler under GnssLocationProvider, 1 = accept, 2 = deny
     private void sendUserResponse(int response) {
         if (DEBUG) Log.d(TAG, "sendUserResponse, response: " + response);
-        LocationManager locationManager = (LocationManager)
-            this.getSystemService(Context.LOCATION_SERVICE);
-        locationManager.sendNiResponse(notificationId, response);
+        LocationManagerInternal lm = LocalServices.getService(LocationManagerInternal.class);
+        lm.sendNiResponse(notificationId, response);
     }
 
+    @UnsupportedAppUsage
     private void handleNIVerify(Intent intent) {
         int notifId = intent.getIntExtra(GpsNetInitiatedHandler.NI_INTENT_KEY_NOTIF_ID, -1);
         notificationId = notifId;

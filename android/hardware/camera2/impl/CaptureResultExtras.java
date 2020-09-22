@@ -29,8 +29,12 @@ public class CaptureResultExtras implements Parcelable {
     private long frameNumber;
     private int partialResultCount;
     private int errorStreamId;
+    private String errorPhysicalCameraId;
+    private long lastCompletedRegularFrameNumber;
+    private long lastCompletedReprocessFrameNumber;
+    private long lastCompletedZslFrameNumber;
 
-    public static final Parcelable.Creator<CaptureResultExtras> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<CaptureResultExtras> CREATOR =
             new Parcelable.Creator<CaptureResultExtras>() {
         @Override
         public CaptureResultExtras createFromParcel(Parcel in) {
@@ -49,7 +53,10 @@ public class CaptureResultExtras implements Parcelable {
 
     public CaptureResultExtras(int requestId, int subsequenceId, int afTriggerId,
                                int precaptureTriggerId, long frameNumber,
-                               int partialResultCount, int errorStreamId) {
+                               int partialResultCount, int errorStreamId,
+                               String errorPhysicalCameraId, long lastCompletedRegularFrameNumber,
+                               long lastCompletedReprocessFrameNumber,
+                               long lastCompletedZslFrameNumber) {
         this.requestId = requestId;
         this.subsequenceId = subsequenceId;
         this.afTriggerId = afTriggerId;
@@ -57,6 +64,10 @@ public class CaptureResultExtras implements Parcelable {
         this.frameNumber = frameNumber;
         this.partialResultCount = partialResultCount;
         this.errorStreamId = errorStreamId;
+        this.errorPhysicalCameraId = errorPhysicalCameraId;
+        this.lastCompletedRegularFrameNumber = lastCompletedRegularFrameNumber;
+        this.lastCompletedReprocessFrameNumber = lastCompletedReprocessFrameNumber;
+        this.lastCompletedZslFrameNumber = lastCompletedZslFrameNumber;
     }
 
     @Override
@@ -73,6 +84,15 @@ public class CaptureResultExtras implements Parcelable {
         dest.writeLong(frameNumber);
         dest.writeInt(partialResultCount);
         dest.writeInt(errorStreamId);
+        if ((errorPhysicalCameraId != null) && !errorPhysicalCameraId.isEmpty()) {
+            dest.writeBoolean(true);
+            dest.writeString(errorPhysicalCameraId);
+        } else {
+            dest.writeBoolean(false);
+        }
+        dest.writeLong(lastCompletedRegularFrameNumber);
+        dest.writeLong(lastCompletedReprocessFrameNumber);
+        dest.writeLong(lastCompletedZslFrameNumber);
     }
 
     public void readFromParcel(Parcel in) {
@@ -83,6 +103,17 @@ public class CaptureResultExtras implements Parcelable {
         frameNumber = in.readLong();
         partialResultCount = in.readInt();
         errorStreamId = in.readInt();
+        boolean errorPhysicalCameraIdPresent = in.readBoolean();
+        if (errorPhysicalCameraIdPresent) {
+            errorPhysicalCameraId = in.readString();
+        }
+        lastCompletedRegularFrameNumber = in.readLong();
+        lastCompletedReprocessFrameNumber = in.readLong();
+        lastCompletedZslFrameNumber = in.readLong();
+    }
+
+    public String getErrorPhysicalCameraId() {
+        return errorPhysicalCameraId;
     }
 
     public int getRequestId() {
@@ -111,5 +142,17 @@ public class CaptureResultExtras implements Parcelable {
 
     public int getErrorStreamId() {
         return errorStreamId;
+    }
+
+    public long getLastCompletedRegularFrameNumber() {
+        return lastCompletedRegularFrameNumber;
+    }
+
+    public long getLastCompletedReprocessFrameNumber() {
+        return lastCompletedReprocessFrameNumber;
+    }
+
+    public long getLastCompletedZslFrameNumber() {
+        return lastCompletedZslFrameNumber;
     }
 }

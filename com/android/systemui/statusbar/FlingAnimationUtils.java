@@ -17,45 +17,85 @@
 package com.android.systemui.statusbar;
 
 import android.animation.Animator;
-import android.content.Context;
+import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.ViewPropertyAnimator;
 import android.view.animation.Interpolator;
 import android.view.animation.PathInterpolator;
 
 import com.android.systemui.Interpolators;
+import com.android.systemui.statusbar.notification.NotificationUtils;
+
+import javax.inject.Inject;
 
 /**
  * Utility class to calculate general fling animation when the finger is released.
  */
 public class FlingAnimationUtils {
 
+    private static final String TAG = "FlingAnimationUtils";
+
     private static final float LINEAR_OUT_SLOW_IN_X2 = 0.35f;
+    private static final float LINEAR_OUT_SLOW_IN_X2_MAX = 0.68f;
     private static final float LINEAR_OUT_FASTER_IN_X2 = 0.5f;
     private static final float LINEAR_OUT_FASTER_IN_Y2_MIN = 0.4f;
     private static final float LINEAR_OUT_FASTER_IN_Y2_MAX = 0.5f;
     private static final float MIN_VELOCITY_DP_PER_SECOND = 250;
     private static final float HIGH_VELOCITY_DP_PER_SECOND = 3000;
 
-    /**
-     * Crazy math. http://en.wikipedia.org/wiki/B%C3%A9zier_curve
-     */
-    private static final float LINEAR_OUT_SLOW_IN_START_GRADIENT = 1.0f / LINEAR_OUT_SLOW_IN_X2;
-
-    private Interpolator mLinearOutSlowIn;
+    private static final float LINEAR_OUT_SLOW_IN_START_GRADIENT = 0.75f;
+    private final float mSpeedUpFactor;
+    private final float mY2;
 
     private float mMinVelocityPxPerSecond;
     private float mMaxLengthSeconds;
     private float mHighVelocityPxPerSecond;
+    private float mLinearOutSlowInX2;
 
     private AnimatorProperties mAnimatorProperties = new AnimatorProperties();
+    private PathInterpolator mInterpolator;
+    private float mCachedStartGradient = -1;
+    private float mCachedVelocityFactor = -1;
 
-    public FlingAnimationUtils(Context ctx, float maxLengthSeconds) {
+    public FlingAnimationUtils(DisplayMetrics displayMetrics, float maxLengthSeconds) {
+        this(displayMetrics, maxLengthSeconds, 0.0f);
+    }
+
+    /**
+     * @param maxLengthSeconds the longest duration an animation can become in seconds
+     * @param speedUpFactor a factor from 0 to 1 how much the slow down should be shifted towards
+     *                      the end of the animation. 0 means it's at the beginning and no
+     *                      acceleration will take place.
+     */
+    public FlingAnimationUtils(DisplayMetrics displayMetrics, float maxLengthSeconds,
+            float speedUpFactor) {
+        this(displayMetrics, maxLengthSeconds, speedUpFactor, -1.0f, 1.0f);
+    }
+
+    /**
+     * @param maxLengthSeconds the longest duration an animation can become in seconds
+     * @param speedUpFactor a factor from 0 to 1 how much the slow down should be shifted towards
+     *                      the end of the animation. 0 means it's at the beginning and no
+     *                      acceleration will take place.
+     * @param x2 the x value to take for the second point of the bezier spline. If a value below 0
+     *           is provided, the value is automatically calculated.
+     * @param y2 the y value to take for the second point of the bezier spline
+     */
+    public FlingAnimationUtils(DisplayMetrics displayMetrics, float maxLengthSeconds,
+            float speedUpFactor, float x2, float y2) {
         mMaxLengthSeconds = maxLengthSeconds;
-        mLinearOutSlowIn = new PathInterpolator(0, 0, LINEAR_OUT_SLOW_IN_X2, 1);
-        mMinVelocityPxPerSecond
-                = MIN_VELOCITY_DP_PER_SECOND * ctx.getResources().getDisplayMetrics().density;
-        mHighVelocityPxPerSecond
-                = HIGH_VELOCITY_DP_PER_SECOND * ctx.getResources().getDisplayMetrics().density;
+        mSpeedUpFactor = speedUpFactor;
+        if (x2 < 0) {
+            mLinearOutSlowInX2 = NotificationUtils.interpolate(LINEAR_OUT_SLOW_IN_X2,
+                    LINEAR_OUT_SLOW_IN_X2_MAX,
+                    mSpeedUpFactor);
+        } else {
+            mLinearOutSlowInX2 = x2;
+        }
+        mY2 = y2;
+
+        mMinVelocityPxPerSecond = MIN_VELOCITY_DP_PER_SECOND * displayMetrics.density;
+        mHighVelocityPxPerSecond = HIGH_VELOCITY_DP_PER_SECOND * displayMetrics.density;
     }
 
     /**
@@ -129,9 +169,14 @@ public class FlingAnimationUtils {
                 * Math.sqrt(Math.abs(endValue - currValue) / maxDistance));
         float diff = Math.abs(endValue - currValue);
         float velAbs = Math.abs(velocity);
-        float durationSeconds = LINEAR_OUT_SLOW_IN_START_GRADIENT * diff / velAbs;
+        float velocityFactor = mSpeedUpFactor == 0.0f
+                ? 1.0f : Math.min(velAbs / HIGH_VELOCITY_DP_PER_SECOND, 1.0f);
+        float startGradient = NotificationUtils.interpolate(LINEAR_OUT_SLOW_IN_START_GRADIENT,
+                mY2 / mLinearOutSlowInX2, velocityFactor);
+        float durationSeconds = startGradient * diff / velAbs;
+        Interpolator slowInInterpolator = getInterpolator(startGradient, velocityFactor);
         if (durationSeconds <= maxLengthSeconds) {
-            mAnimatorProperties.interpolator = mLinearOutSlowIn;
+            mAnimatorProperties.interpolator = slowInInterpolator;
         } else if (velAbs >= mMinVelocityPxPerSecond) {
 
             // Cross fade between fast-out-slow-in and linear interpolator with current velocity.
@@ -139,7 +184,7 @@ public class FlingAnimationUtils {
             VelocityInterpolator velocityInterpolator
                     = new VelocityInterpolator(durationSeconds, velAbs, diff);
             InterpolatorInterpolator superInterpolator = new InterpolatorInterpolator(
-                    velocityInterpolator, mLinearOutSlowIn, mLinearOutSlowIn);
+                    velocityInterpolator, slowInInterpolator, Interpolators.LINEAR_OUT_SLOW_IN);
             mAnimatorProperties.interpolator = superInterpolator;
         } else {
 
@@ -149,6 +194,30 @@ public class FlingAnimationUtils {
         }
         mAnimatorProperties.duration = (long) (durationSeconds * 1000);
         return mAnimatorProperties;
+    }
+
+    private Interpolator getInterpolator(float startGradient, float velocityFactor) {
+        if (Float.isNaN(velocityFactor)) {
+            Log.e(TAG, "Invalid velocity factor", new Throwable());
+            return Interpolators.LINEAR_OUT_SLOW_IN;
+        }
+        if (startGradient != mCachedStartGradient
+                || velocityFactor != mCachedVelocityFactor) {
+            float speedup = mSpeedUpFactor * (1.0f - velocityFactor);
+            float x1 = speedup;
+            float y1 = speedup * startGradient;
+            float x2 = mLinearOutSlowInX2;
+            float y2 = mY2;
+            try {
+                mInterpolator = new PathInterpolator(x1, y1, x2, y2);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Illegal path with "
+                        + "x1=" + x1 + " y1=" + y1 + " x2=" + x2 + " y2=" + y2, e);
+            }
+            mCachedStartGradient = startGradient;
+            mCachedVelocityFactor = velocityFactor;
+        }
+        return mInterpolator;
     }
 
     /**
@@ -212,7 +281,7 @@ public class FlingAnimationUtils {
             VelocityInterpolator velocityInterpolator
                     = new VelocityInterpolator(durationSeconds, velAbs, diff);
             InterpolatorInterpolator superInterpolator = new InterpolatorInterpolator(
-                    velocityInterpolator, mLinearOutFasterIn, mLinearOutSlowIn);
+                    velocityInterpolator, mLinearOutFasterIn, Interpolators.LINEAR_OUT_SLOW_IN);
             mAnimatorProperties.interpolator = superInterpolator;
         } else {
 
@@ -296,4 +365,51 @@ public class FlingAnimationUtils {
         long duration;
     }
 
+    public static class Builder {
+        private final DisplayMetrics mDisplayMetrics;
+        float mMaxLengthSeconds;
+        float mSpeedUpFactor;
+        float mX2;
+        float mY2;
+
+        @Inject
+        public Builder(DisplayMetrics displayMetrics) {
+            mDisplayMetrics = displayMetrics;
+            reset();
+        }
+
+        public Builder setMaxLengthSeconds(float maxLengthSeconds) {
+            mMaxLengthSeconds = maxLengthSeconds;
+            return this;
+        }
+
+        public Builder setSpeedUpFactor(float speedUpFactor) {
+            mSpeedUpFactor = speedUpFactor;
+            return this;
+        }
+
+        public Builder setX2(float x2) {
+            mX2 = x2;
+            return this;
+        }
+
+        public Builder setY2(float y2) {
+            mY2 = y2;
+            return this;
+        }
+
+        public Builder reset() {
+            mMaxLengthSeconds = 0;
+            mSpeedUpFactor = 0.0f;
+            mX2 = -1.0f;
+            mY2 = 1.0f;
+
+            return this;
+        }
+
+        public FlingAnimationUtils build() {
+            return new FlingAnimationUtils(mDisplayMetrics, mMaxLengthSeconds, mSpeedUpFactor,
+                    mX2, mY2);
+        }
+    }
 }

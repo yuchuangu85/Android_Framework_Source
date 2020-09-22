@@ -16,7 +16,10 @@
 
 package android.nfc;
 
+import android.annotation.SystemService;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
+import android.os.Build;
 
 /**
  * High level manager used to obtain an instance of an {@link NfcAdapter}.
@@ -34,15 +37,16 @@ import android.content.Context;
  * <a href="{@docRoot}guide/topics/nfc/index.html">Near Field Communication</a> developer guide.</p>
  * </div>
  *
- * @see Context#getSystemService
  * @see NfcAdapter#getDefaultAdapter(android.content.Context)
  */
+@SystemService(Context.NFC_SERVICE)
 public final class NfcManager {
     private final NfcAdapter mAdapter;
 
     /**
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public NfcManager(Context context) {
         NfcAdapter adapter;
         context = context.getApplicationContext();

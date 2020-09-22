@@ -16,27 +16,27 @@
 
 package com.android.commands.content;
 
-import android.app.ActivityManagerNative;
+import android.app.ActivityManager;
+import android.app.ContentProviderHolder;
 import android.app.IActivityManager;
-import android.app.IActivityManager.ContentProviderHolder;
+import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.IContentProvider;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
+import android.os.FileUtils;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.UserHandle;
 import android.text.TextUtils;
+import android.util.Pair;
 
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-
-import libcore.io.IoUtils;
+import java.io.FileDescriptor;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * This class is a command line utility for manipulating content. A client
@@ -72,59 +72,67 @@ import libcore.io.IoUtils;
 public class Content {
 
     private static final String USAGE =
-        "usage: adb shell content [subcommand] [options]\n"
-        + "\n"
-        + "usage: adb shell content insert --uri <URI> [--user <USER_ID>]"
-                + " --bind <BINDING> [--bind <BINDING>...]\n"
-        + "  <URI> a content provider URI.\n"
-        + "  <BINDING> binds a typed value to a column and is formatted:\n"
-        + "  <COLUMN_NAME>:<TYPE>:<COLUMN_VALUE> where:\n"
-        + "  <TYPE> specifies data type such as:\n"
-        + "  b - boolean, s - string, i - integer, l - long, f - float, d - double\n"
-        + "  Note: Omit the value for passing an empty string, e.g column:s:\n"
-        + "  Example:\n"
-        + "  # Add \"new_setting\" secure setting with value \"new_value\".\n"
-        + "  adb shell content insert --uri content://settings/secure --bind name:s:new_setting"
-                + " --bind value:s:new_value\n"
-        + "\n"
-        + "usage: adb shell content update --uri <URI> [--user <USER_ID>] [--where <WHERE>]\n"
-        + "  <WHERE> is a SQL style where clause in quotes (You have to escape single quotes"
-                + " - see example below).\n"
-        + "  Example:\n"
-        + "  # Change \"new_setting\" secure setting to \"newer_value\".\n"
-        + "  adb shell content update --uri content://settings/secure --bind"
-                + " value:s:newer_value --where \"name=\'new_setting\'\"\n"
-        + "\n"
-        + "usage: adb shell content delete --uri <URI> [--user <USER_ID>] --bind <BINDING>"
-                + " [--bind <BINDING>...] [--where <WHERE>]\n"
-        + "  Example:\n"
-        + "  # Remove \"new_setting\" secure setting.\n"
-        + "  adb shell content delete --uri content://settings/secure "
-                + "--where \"name=\'new_setting\'\"\n"
-        + "\n"
-        + "usage: adb shell content query --uri <URI> [--user <USER_ID>]"
-                + " [--projection <PROJECTION>] [--where <WHERE>] [--sort <SORT_ORDER>]\n"
-        + "  <PROJECTION> is a list of colon separated column names and is formatted:\n"
-        + "  <COLUMN_NAME>[:<COLUMN_NAME>...]\n"
-        + "  <SORT_ORDER> is the order in which rows in the result should be sorted.\n"
-        + "  Example:\n"
-        + "  # Select \"name\" and \"value\" columns from secure settings where \"name\" is "
-                + "equal to \"new_setting\" and sort the result by name in ascending order.\n"
-        + "  adb shell content query --uri content://settings/secure --projection name:value"
-                + " --where \"name=\'new_setting\'\" --sort \"name ASC\"\n"
-        + "\n"
-        + "usage: adb shell content call --uri <URI> --method <METHOD> [--arg <ARG>]\n"
-        + "       [--extra <BINDING> ...]\n"
-        + "  <METHOD> is the name of a provider-defined method\n"
-        + "  <ARG> is an optional string argument\n"
-        + "  <BINDING> is like --bind above, typed data of the form <KEY>:{b,s,i,l,f,d}:<VAL>\n"
-        + "\n"
-        + "usage: adb shell content read --uri <URI> [--user <USER_ID>]\n"
-        + "  Example:\n"
-        + "  # cat default ringtone to a file, then pull to host\n"
-        + "  adb shell 'content read --uri content://settings/system/ringtone >"
-                + " /mnt/sdcard/tmp.ogg' && adb pull /mnt/sdcard/tmp.ogg\n"
-        + "\n";
+            "usage: adb shell content [subcommand] [options]\n"
+                    + "\n"
+                    + "usage: adb shell content insert --uri <URI> [--user <USER_ID>]"
+                    + " --bind <BINDING> [--bind <BINDING>...] [--extra <BINDING>...]\n"
+                    + "  <URI> a content provider URI.\n"
+                    + "  <BINDING> binds a typed value to a column and is formatted:\n"
+                    + "  <COLUMN_NAME>:<TYPE>:<COLUMN_VALUE> where:\n"
+                    + "  <TYPE> specifies data type such as:\n"
+                    + "  b - boolean, s - string, i - integer, l - long, f - float, d - double, n - null\n"
+                    + "  Note: Omit the value for passing an empty string, e.g column:s:\n"
+                    + "  Example:\n"
+                    + "  # Add \"new_setting\" secure setting with value \"new_value\".\n"
+                    + "  adb shell content insert --uri content://settings/secure --bind name:s:new_setting"
+                    + " --bind value:s:new_value\n"
+                    + "\n"
+                    + "usage: adb shell content update --uri <URI> [--user <USER_ID>]"
+                    + " [--where <WHERE>] [--extra <BINDING>...]\n"
+                    + "  <WHERE> is a SQL style where clause in quotes (You have to escape single quotes"
+                    + " - see example below).\n"
+                    + "  Example:\n"
+                    + "  # Change \"new_setting\" secure setting to \"newer_value\".\n"
+                    + "  adb shell content update --uri content://settings/secure --bind"
+                    + " value:s:newer_value --where \"name=\'new_setting\'\"\n"
+                    + "\n"
+                    + "usage: adb shell content delete --uri <URI> [--user <USER_ID>] --bind <BINDING>"
+                    + " [--bind <BINDING>...] [--where <WHERE>] [--extra <BINDING>...]\n"
+                    + "  Example:\n"
+                    + "  # Remove \"new_setting\" secure setting.\n"
+                    + "  adb shell content delete --uri content://settings/secure "
+                    + "--where \"name=\'new_setting\'\"\n"
+                    + "\n"
+                    + "usage: adb shell content query --uri <URI> [--user <USER_ID>]"
+                    + " [--projection <PROJECTION>] [--where <WHERE>] [--sort <SORT_ORDER>]"
+                    + " [--extra <BINDING>...]\n"
+                    + "  <PROJECTION> is a list of colon separated column names and is formatted:\n"
+                    + "  <COLUMN_NAME>[:<COLUMN_NAME>...]\n"
+                    + "  <SORT_ORDER> is the order in which rows in the result should be sorted.\n"
+                    + "  Example:\n"
+                    + "  # Select \"name\" and \"value\" columns from secure settings where \"name\" is "
+                    + "equal to \"new_setting\" and sort the result by name in ascending order.\n"
+                    + "  adb shell content query --uri content://settings/secure --projection name:value"
+                    + " --where \"name=\'new_setting\'\" --sort \"name ASC\"\n"
+                    + "\n"
+                    + "usage: adb shell content call --uri <URI> --method <METHOD> [--arg <ARG>]\n"
+                    + "       [--extra <BINDING> ...]\n"
+                    + "  <METHOD> is the name of a provider-defined method\n"
+                    + "  <ARG> is an optional string argument\n"
+                    + "  <BINDING> is like --bind above, typed data of the form <KEY>:{b,s,i,l,f,d}:<VAL>\n"
+                    + "\n"
+                    + "usage: adb shell content read --uri <URI> [--user <USER_ID>]\n"
+                    + "  Example:\n"
+                    + "  adb shell 'content read --uri content://settings/system/ringtone_cache' > host.ogg\n"
+                    + "\n"
+                    + "usage: adb shell content write --uri <URI> [--user <USER_ID>]\n"
+                    + "  Example:\n"
+                    + "  adb shell 'content write --uri content://settings/system/ringtone_cache' < host.ogg\n"
+                    + "\n"
+                    + "usage: adb shell content gettype --uri <URI> [--user <USER_ID>]\n"
+                    + "  Example:\n"
+                    + "  adb shell content gettype --uri content://media/internal/audio/media/\n"
+                    + "\n";
 
     private static class Parser {
         private static final String ARGUMENT_INSERT = "insert";
@@ -133,6 +141,8 @@ public class Content {
         private static final String ARGUMENT_QUERY = "query";
         private static final String ARGUMENT_CALL = "call";
         private static final String ARGUMENT_READ = "read";
+        private static final String ARGUMENT_WRITE = "write";
+        private static final String ARGUMENT_GET_TYPE = "gettype";
         private static final String ARGUMENT_WHERE = "--where";
         private static final String ARGUMENT_BIND = "--bind";
         private static final String ARGUMENT_URI = "--uri";
@@ -148,6 +158,7 @@ public class Content {
         private static final String TYPE_LONG = "l";
         private static final String TYPE_FLOAT = "f";
         private static final String TYPE_DOUBLE = "d";
+        private static final String TYPE_NULL = "n";
         private static final String COLON = ":";
         private static final String ARGUMENT_PREFIX = "--";
 
@@ -172,6 +183,10 @@ public class Content {
                     return parseCallCommand();
                 } else if (ARGUMENT_READ.equals(operation)) {
                     return parseReadCommand();
+                } else if (ARGUMENT_WRITE.equals(operation)) {
+                    return parseWriteCommand();
+                } else if (ARGUMENT_GET_TYPE.equals(operation)) {
+                    return parseGetTypeCommand();
                 } else {
                     throw new IllegalArgumentException("Unsupported operation: " + operation);
                 }
@@ -186,6 +201,7 @@ public class Content {
             Uri uri = null;
             int userId = UserHandle.USER_SYSTEM;
             ContentValues values = new ContentValues();
+            Bundle extras = new Bundle();
             for (String argument; (argument = mTokenizer.nextArg()) != null;) {
                 if (ARGUMENT_URI.equals(argument)) {
                     uri = Uri.parse(argumentValueRequired(argument));
@@ -193,6 +209,8 @@ public class Content {
                     userId = Integer.parseInt(argumentValueRequired(argument));
                 } else if (ARGUMENT_BIND.equals(argument)) {
                     parseBindValue(values);
+                } else if (ARGUMENT_EXTRA.equals(argument)) {
+                    parseBindValue(extras);
                 } else {
                     throw new IllegalArgumentException("Unsupported argument: " + argument);
                 }
@@ -205,20 +223,23 @@ public class Content {
                 throw new IllegalArgumentException("Bindings not specified."
                         + " Did you specify --bind argument(s)?");
             }
-            return new InsertCommand(uri, userId, values);
+            return new InsertCommand(uri, userId, values, extras);
         }
 
         private DeleteCommand parseDeleteCommand() {
             Uri uri = null;
             int userId = UserHandle.USER_SYSTEM;
-            String where = null;
+            Bundle extras = new Bundle();
             for (String argument; (argument = mTokenizer.nextArg())!= null;) {
                 if (ARGUMENT_URI.equals(argument)) {
                     uri = Uri.parse(argumentValueRequired(argument));
                 } else if (ARGUMENT_USER.equals(argument)) {
                     userId = Integer.parseInt(argumentValueRequired(argument));
                 } else if (ARGUMENT_WHERE.equals(argument)) {
-                    where = argumentValueRequired(argument);
+                    extras.putString(ContentResolver.QUERY_ARG_SQL_SELECTION,
+                            argumentValueRequired(argument));
+                } else if (ARGUMENT_EXTRA.equals(argument)) {
+                    parseBindValue(extras);
                 } else {
                     throw new IllegalArgumentException("Unsupported argument: " + argument);
                 }
@@ -227,23 +248,26 @@ public class Content {
                 throw new IllegalArgumentException("Content provider URI not specified."
                         + " Did you specify --uri argument?");
             }
-            return new DeleteCommand(uri, userId, where);
+            return new DeleteCommand(uri, userId, extras);
         }
 
         private UpdateCommand parseUpdateCommand() {
             Uri uri = null;
             int userId = UserHandle.USER_SYSTEM;
-            String where = null;
             ContentValues values = new ContentValues();
+            Bundle extras = new Bundle();
             for (String argument; (argument = mTokenizer.nextArg())!= null;) {
                 if (ARGUMENT_URI.equals(argument)) {
                     uri = Uri.parse(argumentValueRequired(argument));
                 } else if (ARGUMENT_USER.equals(argument)) {
                     userId = Integer.parseInt(argumentValueRequired(argument));
                 } else if (ARGUMENT_WHERE.equals(argument)) {
-                    where = argumentValueRequired(argument);
+                    extras.putString(ContentResolver.QUERY_ARG_SQL_SELECTION,
+                            argumentValueRequired(argument));
                 } else if (ARGUMENT_BIND.equals(argument)) {
                     parseBindValue(values);
+                } else if (ARGUMENT_EXTRA.equals(argument)) {
+                    parseBindValue(extras);
                 } else {
                     throw new IllegalArgumentException("Unsupported argument: " + argument);
                 }
@@ -256,7 +280,7 @@ public class Content {
                 throw new IllegalArgumentException("Bindings not specified."
                         + " Did you specify --bind argument(s)?");
             }
-            return new UpdateCommand(uri, userId, values, where);
+            return new UpdateCommand(uri, userId, values, extras);
         }
 
         public CallCommand parseCallCommand() {
@@ -264,7 +288,7 @@ public class Content {
             int userId = UserHandle.USER_SYSTEM;
             String arg = null;
             Uri uri = null;
-            ContentValues values = new ContentValues();
+            Bundle extras = new Bundle();
             for (String argument; (argument = mTokenizer.nextArg())!= null;) {
                 if (ARGUMENT_URI.equals(argument)) {
                     uri = Uri.parse(argumentValueRequired(argument));
@@ -275,11 +299,10 @@ public class Content {
                 } else if (ARGUMENT_ARG.equals(argument)) {
                     arg = argumentValueRequired(argument);
                 } else if (ARGUMENT_EXTRA.equals(argument)) {
-                    parseBindValue(values);
+                    parseBindValue(extras);
                 } else {
                     throw new IllegalArgumentException("Unsupported argument: " + argument);
                 }
-
             }
             if (uri == null) {
                 throw new IllegalArgumentException("Content provider URI not specified."
@@ -288,7 +311,27 @@ public class Content {
             if (method == null) {
                 throw new IllegalArgumentException("Content provider method not specified.");
             }
-            return new CallCommand(uri, userId, method, arg, values);
+            return new CallCommand(uri, userId, method, arg, extras);
+        }
+
+        private GetTypeCommand parseGetTypeCommand() {
+            Uri uri = null;
+            int userId = UserHandle.USER_SYSTEM;
+
+            for (String argument; (argument = mTokenizer.nextArg()) != null;) {
+                if (ARGUMENT_URI.equals(argument)) {
+                    uri = Uri.parse(argumentValueRequired(argument));
+                } else if (ARGUMENT_USER.equals(argument)) {
+                    userId = Integer.parseInt(argumentValueRequired(argument));
+                } else {
+                    throw new IllegalArgumentException("Unsupported argument: " + argument);
+                }
+            }
+            if (uri == null) {
+                throw new IllegalArgumentException("Content provider URI not specified."
+                        + " Did you specify --uri argument?");
+            }
+            return new GetTypeCommand(uri, userId);
         }
 
         private ReadCommand parseReadCommand() {
@@ -310,23 +353,14 @@ public class Content {
             return new ReadCommand(uri, userId);
         }
 
-        public QueryCommand parseQueryCommand() {
+        private WriteCommand parseWriteCommand() {
             Uri uri = null;
             int userId = UserHandle.USER_SYSTEM;
-            String[] projection = null;
-            String sort = null;
-            String where = null;
             for (String argument; (argument = mTokenizer.nextArg())!= null;) {
                 if (ARGUMENT_URI.equals(argument)) {
                     uri = Uri.parse(argumentValueRequired(argument));
                 } else if (ARGUMENT_USER.equals(argument)) {
                     userId = Integer.parseInt(argumentValueRequired(argument));
-                } else if (ARGUMENT_WHERE.equals(argument)) {
-                    where = argumentValueRequired(argument);
-                } else if (ARGUMENT_SORT.equals(argument)) {
-                    sort = argumentValueRequired(argument);
-                } else if (ARGUMENT_PROJECTION.equals(argument)) {
-                    projection = argumentValueRequired(argument).split("[\\s]*:[\\s]*");
                 } else {
                     throw new IllegalArgumentException("Unsupported argument: " + argument);
                 }
@@ -335,36 +369,105 @@ public class Content {
                 throw new IllegalArgumentException("Content provider URI not specified."
                         + " Did you specify --uri argument?");
             }
-            return new QueryCommand(uri, userId, projection, where, sort);
+            return new WriteCommand(uri, userId);
         }
 
-        private void parseBindValue(ContentValues values) {
+        public QueryCommand parseQueryCommand() {
+            Uri uri = null;
+            int userId = UserHandle.USER_SYSTEM;
+            String[] projection = null;
+            Bundle extras = new Bundle();
+            for (String argument; (argument = mTokenizer.nextArg())!= null;) {
+                if (ARGUMENT_URI.equals(argument)) {
+                    uri = Uri.parse(argumentValueRequired(argument));
+                } else if (ARGUMENT_USER.equals(argument)) {
+                    userId = Integer.parseInt(argumentValueRequired(argument));
+                } else if (ARGUMENT_WHERE.equals(argument)) {
+                    extras.putString(ContentResolver.QUERY_ARG_SQL_SELECTION,
+                            argumentValueRequired(argument));
+                } else if (ARGUMENT_SORT.equals(argument)) {
+                    extras.putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER,
+                            argumentValueRequired(argument));
+                } else if (ARGUMENT_PROJECTION.equals(argument)) {
+                    projection = argumentValueRequired(argument).split("[\\s]*:[\\s]*");
+                } else if (ARGUMENT_EXTRA.equals(argument)) {
+                    parseBindValue(extras);
+                } else {
+                    throw new IllegalArgumentException("Unsupported argument: " + argument);
+                }
+            }
+            if (uri == null) {
+                throw new IllegalArgumentException("Content provider URI not specified."
+                        + " Did you specify --uri argument?");
+            }
+            return new QueryCommand(uri, userId, projection, extras);
+        }
+
+        private List<String> splitWithEscaping(String argument, char splitChar) {
+            final List<String> res = new ArrayList<>();
+            final StringBuilder cur = new StringBuilder();
+            for (int i = 0; i < argument.length(); i++) {
+                char c = argument.charAt(i);
+                if (c == '\\') {
+                    if (++i == argument.length()) {
+                        throw new IllegalArgumentException("Invalid escaping");
+                    } else {
+                        // Skip escaping char and insert next
+                        c = argument.charAt(i);
+                        cur.append(c);
+                    }
+                } else if (c == splitChar) {
+                    // Splitting char means next string
+                    res.add(cur.toString());
+                    cur.setLength(0);
+                } else {
+                    // Copy non-escaping and non-splitting char
+                    cur.append(c);
+                }
+            }
+            res.add(cur.toString());
+            return res;
+        }
+
+        private Pair<String, Object> parseBindValue() {
             String argument = mTokenizer.nextArg();
             if (TextUtils.isEmpty(argument)) {
                 throw new IllegalArgumentException("Binding not well formed: " + argument);
             }
-            final int firstColonIndex = argument.indexOf(COLON);
-            if (firstColonIndex < 0) {
+            final List<String> split = splitWithEscaping(argument, COLON.charAt(0));
+            if (split.size() != 3) {
                 throw new IllegalArgumentException("Binding not well formed: " + argument);
             }
-            final int secondColonIndex = argument.indexOf(COLON, firstColonIndex + 1);
-            if (secondColonIndex < 0) {
-                throw new IllegalArgumentException("Binding not well formed: " + argument);
-            }
-            String column = argument.substring(0, firstColonIndex);
-            String type = argument.substring(firstColonIndex + 1, secondColonIndex);
-            String value = argument.substring(secondColonIndex + 1);
+            String column = split.get(0);
+            String type = split.get(1);
+            String value = split.get(2);
             if (TYPE_STRING.equals(type)) {
-                values.put(column, value);
+                return Pair.create(column, value);
             } else if (TYPE_BOOLEAN.equalsIgnoreCase(type)) {
-                values.put(column, Boolean.parseBoolean(value));
-            } else if (TYPE_INTEGER.equalsIgnoreCase(type) || TYPE_LONG.equalsIgnoreCase(type)) {
-                values.put(column, Long.parseLong(value));
-            } else if (TYPE_FLOAT.equalsIgnoreCase(type) || TYPE_DOUBLE.equalsIgnoreCase(type)) {
-                values.put(column, Double.parseDouble(value));
+                return Pair.create(column, Boolean.parseBoolean(value));
+            } else if (TYPE_INTEGER.equalsIgnoreCase(type)) {
+                return Pair.create(column, Integer.parseInt(value));
+            } else if (TYPE_LONG.equalsIgnoreCase(type)) {
+                return Pair.create(column, Long.parseLong(value));
+            } else if (TYPE_FLOAT.equalsIgnoreCase(type)) {
+                return Pair.create(column, Float.parseFloat(value));
+            } else if (TYPE_DOUBLE.equalsIgnoreCase(type)) {
+                return Pair.create(column, Double.parseDouble(value));
+            } else if (TYPE_NULL.equalsIgnoreCase(type)) {
+                return Pair.create(column, null);
             } else {
                 throw new IllegalArgumentException("Unsupported type: " + type);
             }
+        }
+
+        private void parseBindValue(ContentValues values) {
+            final Pair<String, Object> columnValue = parseBindValue();
+            values.putObject(columnValue.first, columnValue.second);
+        }
+
+        private void parseBindValue(Bundle extras) {
+            final Pair<String, Object> columnValue = parseBindValue();
+            extras.putObject(columnValue.first, columnValue.second);
         }
 
         private String argumentValueRequired(String argument) {
@@ -405,12 +508,12 @@ public class Content {
         public final void execute() {
             String providerName = mUri.getAuthority();
             try {
-                IActivityManager activityManager = ActivityManagerNative.getDefault();
+                IActivityManager activityManager = ActivityManager.getService();
                 IContentProvider provider = null;
                 IBinder token = new Binder();
                 try {
                     ContentProviderHolder holder = activityManager.getContentProviderExternal(
-                            providerName, mUserId, token);
+                            providerName, mUserId, token, "*cmd*");
                     if (holder == null) {
                         throw new IllegalStateException("Could not find provider: " + providerName);
                     }
@@ -418,7 +521,8 @@ public class Content {
                     onExecute(provider);
                 } finally {
                     if (provider != null) {
-                        activityManager.removeContentProviderExternal(providerName, token);
+                        activityManager.removeContentProviderExternalAsUser(
+                                providerName, token, mUserId);
                     }
                 }
             } catch (Exception e) {
@@ -448,66 +552,64 @@ public class Content {
 
     private static class InsertCommand extends Command {
         final ContentValues mContentValues;
+        final Bundle mExtras;
 
-        public InsertCommand(Uri uri, int userId, ContentValues contentValues) {
+        public InsertCommand(Uri uri, int userId, ContentValues contentValues, Bundle extras) {
             super(uri, userId);
             mContentValues = contentValues;
+            mExtras = extras;
         }
 
         @Override
         public void onExecute(IContentProvider provider) throws Exception {
-            provider.insert(resolveCallingPackage(), mUri, mContentValues);
+            provider.insert(resolveCallingPackage(), null, mUri, mContentValues, mExtras);
         }
     }
 
     private static class DeleteCommand extends Command {
-        final String mWhere;
+        final Bundle mExtras;
 
-        public DeleteCommand(Uri uri, int userId, String where) {
+        public DeleteCommand(Uri uri, int userId, Bundle extras) {
             super(uri, userId);
-            mWhere = where;
+            mExtras = extras;
         }
 
         @Override
         public void onExecute(IContentProvider provider) throws Exception {
-            provider.delete(resolveCallingPackage(), mUri, mWhere, null);
+            provider.delete(resolveCallingPackage(), null, mUri, mExtras);
         }
     }
 
     private static class CallCommand extends Command {
         final String mMethod, mArg;
-        Bundle mExtras = null;
+        final Bundle mExtras;
 
-        public CallCommand(Uri uri, int userId, String method, String arg, ContentValues values) {
+        public CallCommand(Uri uri, int userId, String method, String arg, Bundle extras) {
             super(uri, userId);
             mMethod = method;
             mArg = arg;
-            if (values != null) {
-                mExtras = new Bundle();
-                for (String key : values.keySet()) {
-                    final Object val = values.get(key);
-                    if (val instanceof String) {
-                        mExtras.putString(key, (String) val);
-                    } else if (val instanceof Float) {
-                        mExtras.putFloat(key, (Float) val);
-                    } else if (val instanceof Double) {
-                        mExtras.putDouble(key, (Double) val);
-                    } else if (val instanceof Boolean) {
-                        mExtras.putBoolean(key, (Boolean) val);
-                    } else if (val instanceof Integer) {
-                        mExtras.putInt(key, (Integer) val);
-                    } else if (val instanceof Long) {
-                        mExtras.putLong(key, (Long) val);
-                    }
-                }
-            }
+            mExtras = extras;
         }
 
         @Override
         public void onExecute(IContentProvider provider) throws Exception {
-            Bundle result = provider.call(null, mMethod, mArg, mExtras);
-            final int size = result.size(); // unpack
+            Bundle result = provider.call(null, null, mUri.getAuthority(), mMethod, mArg, mExtras);
+            if (result != null) {
+                result.size(); // unpack
+            }
             System.out.println("Result: " + result);
+        }
+    }
+
+    private static class GetTypeCommand extends Command {
+        public GetTypeCommand(Uri uri, int userId) {
+            super(uri, userId);
+        }
+
+        @Override
+        public void onExecute(IContentProvider provider) throws Exception {
+            String type = provider.getType(mUri);
+            System.out.println("Result: " + type);
         }
     }
 
@@ -518,39 +620,39 @@ public class Content {
 
         @Override
         public void onExecute(IContentProvider provider) throws Exception {
-            final ParcelFileDescriptor fd = provider.openFile(null, mUri, "r", null, null);
-            copy(new FileInputStream(fd.getFileDescriptor()), System.out);
-        }
-
-        private static void copy(InputStream is, OutputStream os) throws IOException {
-            final byte[] buffer = new byte[8 * 1024];
-            int read;
-            try {
-                while ((read = is.read(buffer)) > -1) {
-                    os.write(buffer, 0, read);
-                }
-            } finally {
-                IoUtils.closeQuietly(is);
-                IoUtils.closeQuietly(os);
+            try (ParcelFileDescriptor fd = provider.openFile(null, null, mUri, "r", null, null)) {
+                FileUtils.copy(fd.getFileDescriptor(), FileDescriptor.out);
             }
         }
     }
 
-    private static class QueryCommand extends DeleteCommand {
-        final String[] mProjection;
-        final String mSortOrder;
-
-        public QueryCommand(
-                Uri uri, int userId, String[] projection, String where, String sortOrder) {
-            super(uri, userId, where);
-            mProjection = projection;
-            mSortOrder = sortOrder;
+    private static class WriteCommand extends Command {
+        public WriteCommand(Uri uri, int userId) {
+            super(uri, userId);
         }
 
         @Override
         public void onExecute(IContentProvider provider) throws Exception {
-            Cursor cursor = provider.query(resolveCallingPackage(), mUri, mProjection, mWhere,
-                    null, mSortOrder, null);
+            try (ParcelFileDescriptor fd = provider.openFile(null, null, mUri, "w", null, null)) {
+                FileUtils.copy(FileDescriptor.in, fd.getFileDescriptor());
+            }
+        }
+    }
+
+    private static class QueryCommand extends Command {
+        final String[] mProjection;
+        final Bundle mExtras;
+
+        public QueryCommand(Uri uri, int userId, String[] projection, Bundle extras) {
+            super(uri, userId);
+            mProjection = projection;
+            mExtras = extras;
+        }
+
+        @Override
+        public void onExecute(IContentProvider provider) throws Exception {
+            Cursor cursor = provider.query(resolveCallingPackage(), null, mUri, mProjection,
+                    mExtras, null);
             if (cursor == null) {
                 System.out.println("No result found.");
                 return;
@@ -602,17 +704,19 @@ public class Content {
         }
     }
 
-    private static class UpdateCommand extends InsertCommand {
-        final String mWhere;
+    private static class UpdateCommand extends Command {
+        final ContentValues mValues;
+        final Bundle mExtras;
 
-        public UpdateCommand(Uri uri, int userId, ContentValues contentValues, String where) {
-            super(uri, userId, contentValues);
-            mWhere = where;
+        public UpdateCommand(Uri uri, int userId, ContentValues values, Bundle extras) {
+            super(uri, userId);
+            mValues = values;
+            mExtras = extras;
         }
 
         @Override
         public void onExecute(IContentProvider provider) throws Exception {
-            provider.update(resolveCallingPackage(), mUri, mContentValues, mWhere, null);
+            provider.update(resolveCallingPackage(), null, mUri, mValues, mExtras);
         }
     }
 

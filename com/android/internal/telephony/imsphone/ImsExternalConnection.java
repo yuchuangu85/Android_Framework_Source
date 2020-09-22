@@ -16,7 +16,13 @@
 
 package com.android.internal.telephony.imsphone;
 
-import com.android.internal.R;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.Context;
+import android.net.Uri;
+import android.telecom.PhoneAccount;
+import android.telephony.PhoneNumberUtils;
+import android.telephony.ims.ImsExternalCallState;
+
 import com.android.internal.telephony.Call;
 import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.Connection;
@@ -24,15 +30,7 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.UUSInfo;
 
-import android.content.Context;
-import android.net.Uri;
-import android.telecom.PhoneAccount;
-import android.telephony.PhoneNumberUtils;
-import android.telephony.Rlog;
-import android.util.Log;
-
 import java.util.Collections;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -42,7 +40,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Package.
  *
  * Dialog event package information is received from the IMS framework via
- * {@link com.android.ims.ImsExternalCallState} instances.
+ * {@link ImsExternalCallState} instances.
  *
  * @hide
  */
@@ -129,6 +127,24 @@ public class ImsExternalConnection extends Connection {
     }
 
     @Override
+    public void deflect(String number) throws CallStateException {
+        // Deflect is not supported for external calls.
+        throw new CallStateException ("Deflect is not supported for external calls");
+    }
+
+    @Override
+    public void transfer(String number, boolean isConfirmationRequired) throws CallStateException {
+        // Transfer is not supported for external calls.
+        throw new CallStateException("Transfer is not supported for external calls");
+    }
+
+    @Override
+    public void consultativeTransfer(Connection other) throws CallStateException {
+        // Transfer is not supported for external calls.
+        throw new CallStateException("Transfer is not supported for external calls");
+    }
+
+    @Override
     public void separate() throws CallStateException {
         // No-op - Separate is not supported for external calls.
     }
@@ -185,6 +201,7 @@ public class ImsExternalConnection extends Connection {
     /**
      * Sets this external call as active.
      */
+    @UnsupportedAppUsage
     public void setActive() {
         if (mCall == null) {
             return;
@@ -265,6 +282,7 @@ public class ImsExternalConnection extends Connection {
     /**
      * Rebuilds the connection capabilities.
      */
+    @UnsupportedAppUsage
     private void rebuildCapabilities() {
         int capabilities = Capability.IS_EXTERNAL_CONNECTION;
         if (mIsPullable) {

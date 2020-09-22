@@ -68,7 +68,7 @@ import java.util.function.UnaryOperator;
  *
  * <p>As of the Java 2 platform v1.2, this class was retrofitted to
  * implement the {@link List} interface, making it a member of the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/collections/index.html">
+ * <a href="{@docRoot}/../technotes/guides/collections/index.html">
  * Java Collections Framework</a>.  Unlike the new collection
  * implementations, {@code Vector} is synchronized.  If a thread-safe
  * implementation is not needed, it is recommended to use {@link
@@ -1122,6 +1122,9 @@ public class Vector<E>
      * An optimized version of AbstractList.Itr
      */
     private class Itr implements Iterator<E> {
+        // Android-added: Change CME behavior: Use added limit field, not elementCount.
+        // http://b/27430229 AOSP commit 6e5b758a4438d2c154dd11a5c04d14a5d2fc907c
+        //
         // The "limit" of this iterator. This is the size of the list at the time the
         // iterator was created. Adding & removing elements will invalidate the iteration
         // anyway (and cause next() to throw) so saving this value will guarantee that the
@@ -1134,6 +1137,8 @@ public class Vector<E>
         int expectedModCount = modCount;
 
         public boolean hasNext() {
+            // Android-changed: Change CME behavior: Use added limit field, not elementCount.
+            // return cursor != elementCount;
             return cursor < limit;
         }
 
@@ -1141,6 +1146,8 @@ public class Vector<E>
             synchronized (Vector.this) {
                 checkForComodification();
                 int i = cursor;
+                // Android-changed: Change CME behavior: Use added limit field, not elementCount.
+                // if (i >= elementCount)
                 if (i >= limit)
                     throw new NoSuchElementException();
                 cursor = i + 1;
@@ -1155,6 +1162,7 @@ public class Vector<E>
                 checkForComodification();
                 Vector.this.remove(lastRet);
                 expectedModCount = modCount;
+                // Android-added: Change CME behavior: Use added limit field, not elementCount.
                 limit--;
             }
             cursor = lastRet;
@@ -1165,12 +1173,14 @@ public class Vector<E>
         public void forEachRemaining(Consumer<? super E> action) {
             Objects.requireNonNull(action);
             synchronized (Vector.this) {
+                // Android-changed: Change CME behavior: Use added limit field, not elementCount.
+                // final int size = elementCount;
                 final int size = limit;
                 int i = cursor;
                 if (i >= size) {
                     return;
                 }
-                @SuppressWarnings("unchecked")
+        @SuppressWarnings("unchecked")
                 final E[] elementData = (E[]) Vector.this.elementData;
                 if (i >= elementData.length) {
                     throw new ConcurrentModificationException();
@@ -1238,6 +1248,7 @@ public class Vector<E>
                 checkForComodification();
                 Vector.this.add(i, e);
                 expectedModCount = modCount;
+                // Android-added: Change CME behavior: Use added limit field, not elementCount.
                 limit++;
             }
             cursor = i + 1;
@@ -1260,7 +1271,77 @@ public class Vector<E>
         }
     }
 
- /**
+    @Override
+    @SuppressWarnings("unchecked")
+    public synchronized boolean removeIf(Predicate<? super E> filter) {
+        Objects.requireNonNull(filter);
+        // figure out which elements are to be removed
+        // any exception thrown from the filter predicate at this stage
+        // will leave the collection unmodified
+        int removeCount = 0;
+        final int size = elementCount;
+        final BitSet removeSet = new BitSet(size);
+        final int expectedModCount = modCount;
+        for (int i=0; modCount == expectedModCount && i < size; i++) {
+            @SuppressWarnings("unchecked")
+            final E element = (E) elementData[i];
+            if (filter.test(element)) {
+                removeSet.set(i);
+                removeCount++;
+            }
+        }
+        if (modCount != expectedModCount) {
+            throw new ConcurrentModificationException();
+        }
+
+        // shift surviving elements left over the spaces left by removed elements
+        final boolean anyToRemove = removeCount > 0;
+        if (anyToRemove) {
+            final int newSize = size - removeCount;
+            for (int i=0, j=0; (i < size) && (j < newSize); i++, j++) {
+                i = removeSet.nextClearBit(i);
+                elementData[j] = elementData[i];
+            }
+            for (int k=newSize; k < size; k++) {
+                elementData[k] = null;  // Let gc do its work
+            }
+            elementCount = newSize;
+            if (modCount != expectedModCount) {
+                throw new ConcurrentModificationException();
+            }
+            modCount++;
+        }
+
+        return anyToRemove;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public synchronized void replaceAll(UnaryOperator<E> operator) {
+        Objects.requireNonNull(operator);
+        final int expectedModCount = modCount;
+        final int size = elementCount;
+        for (int i=0; modCount == expectedModCount && i < size; i++) {
+            elementData[i] = operator.apply((E) elementData[i]);
+        }
+        if (modCount != expectedModCount) {
+            throw new ConcurrentModificationException();
+        }
+        modCount++;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public synchronized void sort(Comparator<? super E> c) {
+        final int expectedModCount = modCount;
+        Arrays.sort((E[]) elementData, 0, elementCount, c);
+        if (modCount != expectedModCount) {
+            throw new ConcurrentModificationException();
+        }
+        modCount++;
+    }
+
+    /**
      * Creates a <em><a href="Spliterator.html#binding">late-binding</a></em>
      * and <em>fail-fast</em> {@link Spliterator} over the elements in this
      * list.
@@ -1363,75 +1444,5 @@ public class Vector<E>
         public int characteristics() {
             return Spliterator.ORDERED | Spliterator.SIZED | Spliterator.SUBSIZED;
         }
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public synchronized boolean removeIf(Predicate<? super E> filter) {
-        Objects.requireNonNull(filter);
-        // figure out which elements are to be removed
-        // any exception thrown from the filter predicate at this stage
-        // will leave the collection unmodified
-        int removeCount = 0;
-        final int size = elementCount;
-        final BitSet removeSet = new BitSet(size);
-        final int expectedModCount = modCount;
-        for (int i=0; modCount == expectedModCount && i < size; i++) {
-            @SuppressWarnings("unchecked")
-            final E element = (E) elementData[i];
-            if (filter.test(element)) {
-                removeSet.set(i);
-                removeCount++;
-            }
-        }
-        if (modCount != expectedModCount) {
-            throw new ConcurrentModificationException();
-        }
-
-        // shift surviving elements left over the spaces left by removed elements
-        final boolean anyToRemove = removeCount > 0;
-        if (anyToRemove) {
-            final int newSize = size - removeCount;
-            for (int i=0, j=0; (i < size) && (j < newSize); i++, j++) {
-                i = removeSet.nextClearBit(i);
-                elementData[j] = elementData[i];
-            }
-            for (int k=newSize; k < size; k++) {
-                elementData[k] = null;  // Let gc do its work
-            }
-            elementCount = newSize;
-            if (modCount != expectedModCount) {
-                throw new ConcurrentModificationException();
-            }
-            modCount++;
-        }
-
-        return anyToRemove;
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public synchronized void replaceAll(UnaryOperator<E> operator) {
-        Objects.requireNonNull(operator);
-        final int expectedModCount = modCount;
-        final int size = elementCount;
-        for (int i=0; modCount == expectedModCount && i < size; i++) {
-            elementData[i] = operator.apply((E) elementData[i]);
-        }
-        if (modCount != expectedModCount) {
-            throw new ConcurrentModificationException();
-        }
-        modCount++;
-    }
-
-    @SuppressWarnings("unchecked")
-    @Override
-    public synchronized void sort(Comparator<? super E> c) {
-        final int expectedModCount = modCount;
-        Arrays.sort((E[]) elementData, 0, elementCount, c);
-        if (modCount != expectedModCount) {
-            throw new ConcurrentModificationException();
-        }
-        modCount++;
     }
 }

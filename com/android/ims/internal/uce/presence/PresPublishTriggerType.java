@@ -16,6 +16,7 @@
 
 package com.android.ims.internal.uce.presence;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -46,6 +47,10 @@ public class PresPublishTriggerType implements Parcelable {
     public static final int UCE_PRES_PUBLISH_TRIGGER_MOVE_TO_IWLAN = 8;
     /** Trigger is unknown. */
     public static final int UCE_PRES_PUBLISH_TRIGGER_UNKNOWN = 9;
+    /** Move to 5G NR with VoPS disabled. */
+    public static final int UCE_PRES_PUBLISH_TRIGGER_MOVE_TO_NR5G_VOPS_DISABLED = 10;
+    /** Move to 5G NR with VoPS enabled. */
+    public static final int UCE_PRES_PUBLISH_TRIGGER_MOVE_TO_NR5G_VOPS_ENABLED = 11;
 
 
 
@@ -65,6 +70,7 @@ public class PresPublishTriggerType implements Parcelable {
      * Sets the publish trigger type.
      * @hide
      */
+    @UnsupportedAppUsage
     public void setPublishTrigeerType(int nPublishTriggerType) {
         this.mPublishTriggerType = nPublishTriggerType;
     }
@@ -74,6 +80,7 @@ public class PresPublishTriggerType implements Parcelable {
      * Constructor for the PresPublishTriggerType class.
      * @hide
      */
+    @UnsupportedAppUsage
     public PresPublishTriggerType(){};
 
     /** @hide */

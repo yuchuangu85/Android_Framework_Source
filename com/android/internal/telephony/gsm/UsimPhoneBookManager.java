@@ -16,10 +16,10 @@
 
 package com.android.internal.telephony.gsm;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
-import android.telephony.Rlog;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
 
@@ -28,6 +28,8 @@ import com.android.internal.telephony.uicc.AdnRecordCache;
 import com.android.internal.telephony.uicc.IccConstants;
 import com.android.internal.telephony.uicc.IccFileHandler;
 import com.android.internal.telephony.uicc.IccUtils;
+import com.android.telephony.Rlog;
+
 import java.util.ArrayList;
 
 /**
@@ -41,9 +43,12 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
     private static final boolean DBG = true;
     private ArrayList<PbrRecord> mPbrRecords;
     private Boolean mIsPbrPresent;
+    @UnsupportedAppUsage
     private IccFileHandler mFh;
     private AdnRecordCache mAdnCache;
+    @UnsupportedAppUsage
     private Object mLock = new Object();
+    @UnsupportedAppUsage
     private ArrayList<AdnRecord> mPhoneBookRecords;
     private ArrayList<byte[]> mIapFileRecord;
     private ArrayList<byte[]> mEmailFileRecord;
@@ -119,6 +124,7 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
         mSfiEfidTable = new SparseIntArray();
     }
 
+    @UnsupportedAppUsage
     public void reset() {
         mPhoneBookRecords.clear();
         mIapFileRecord = null;
@@ -131,6 +137,7 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
     }
 
     // Load all phonebook related EFs from the SIM.
+    @UnsupportedAppUsage
     public ArrayList<AdnRecord> loadEfFilesFromUsim() {
         synchronized (mLock) {
             if (!mPhoneBookRecords.isEmpty()) {
@@ -523,6 +530,7 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
 
         switch(msg.what) {
         case EVENT_PBR_LOAD_DONE:
+            log("Loading PBR records done");
             ar = (AsyncResult) msg.obj;
             if (ar.exception == null) {
                 createPbrFile((ArrayList<byte[]>)ar.result);
@@ -659,6 +667,7 @@ public class UsimPhoneBookManager extends Handler implements IccConstants {
         }
     }
 
+    @UnsupportedAppUsage
     private void log(String msg) {
         if(DBG) Rlog.d(LOG_TAG, msg);
     }

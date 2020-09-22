@@ -18,6 +18,7 @@ package com.android.internal.view.menu;
 
 
 import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -37,6 +38,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.SubMenu;
 import android.view.View;
+import android.view.ViewConfiguration;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -63,6 +65,7 @@ public class MenuBuilder implements Menu {
         0, /* SELECTED_ALTERNATIVE */
     };
 
+    @UnsupportedAppUsage
     private final Context mContext;
     private final Resources mResources;
 
@@ -156,7 +159,12 @@ public class MenuBuilder implements Menu {
      * Currently expanded menu item; must be collapsed when we clear.
      */
     private MenuItemImpl mExpandedItem;
-    
+
+    /**
+     * Whether group dividers are enabled.
+     */
+    private boolean mGroupDividerEnabled = false;
+
     /**
      * Called by menu to notify of close and selection changes.
      */
@@ -167,6 +175,7 @@ public class MenuBuilder implements Menu {
          * @param item The menu item that is selected
          * @return whether the menu item selection was handled
          */
+        @UnsupportedAppUsage
         public boolean onMenuItemSelected(MenuBuilder menu, MenuItem item);
         
         /**
@@ -174,6 +183,7 @@ public class MenuBuilder implements Menu {
          * 
          * @param menu the menu that has changed modes
          */
+        @UnsupportedAppUsage
         public void onMenuModeChange(MenuBuilder menu);
     }
 
@@ -184,6 +194,7 @@ public class MenuBuilder implements Menu {
         public boolean invokeItem(MenuItemImpl item);
     }
 
+    @UnsupportedAppUsage
     public MenuBuilder(Context context) {
         mContext = context;
         mResources = context.getResources();
@@ -199,6 +210,7 @@ public class MenuBuilder implements Menu {
         setShortcutsVisibleInner(true);
     }
     
+    @UnsupportedAppUsage
     public MenuBuilder setDefaultShowAsAction(int defaultShowAsAction) {
         mDefaultShowAsAction = defaultShowAsAction;
         return this;
@@ -211,6 +223,7 @@ public class MenuBuilder implements Menu {
      *
      * @param presenter The presenter to add
      */
+    @UnsupportedAppUsage
     public void addMenuPresenter(MenuPresenter presenter) {
         addMenuPresenter(presenter, mContext);
     }
@@ -224,6 +237,7 @@ public class MenuBuilder implements Menu {
      * @param presenter The presenter to add
      * @param menuContext The context used to inflate menu items
      */
+    @UnsupportedAppUsage
     public void addMenuPresenter(MenuPresenter presenter, Context menuContext) {
         mPresenters.add(new WeakReference<MenuPresenter>(presenter));
         presenter.initForMenu(menuContext, this);
@@ -236,6 +250,7 @@ public class MenuBuilder implements Menu {
      *
      * @param presenter The presenter to remove
      */
+    @UnsupportedAppUsage
     public void removeMenuPresenter(MenuPresenter presenter) {
         for (WeakReference<MenuPresenter> ref : mPresenters) {
             final MenuPresenter item = ref.get();
@@ -395,6 +410,7 @@ public class MenuBuilder implements Menu {
         return ACTION_VIEW_STATES_KEY;
     }
 
+    @UnsupportedAppUsage
     public void setCallback(Callback cb) {
         mCallback = cb;
     }
@@ -460,6 +476,15 @@ public class MenuBuilder implements Menu {
 
     public SubMenu addSubMenu(int group, int id, int categoryOrder, int title) {
         return addSubMenu(group, id, categoryOrder, mResources.getString(title));
+    }
+
+    @Override
+    public void setGroupDividerEnabled(boolean groupDividerEnabled) {
+        mGroupDividerEnabled = groupDividerEnabled;
+    }
+
+    public boolean isGroupDividerEnabled() {
+        return mGroupDividerEnabled;
     }
 
     public int addIntentOptions(int group, int id, int categoryOrder, ComponentName caller,
@@ -537,6 +562,7 @@ public class MenuBuilder implements Menu {
         mPreventDispatchingItemsChanged = true;
         clear();
         clearHeader();
+        mPresenters.clear();
         mPreventDispatchingItemsChanged = false;
         mItemsChangedWhileDispatchPrevented = false;
         onItemsChanged(true);
@@ -738,8 +764,7 @@ public class MenuBuilder implements Menu {
     private void setShortcutsVisibleInner(boolean shortcutsVisible) {
         mShortcutsVisible = shortcutsVisible
                 && mResources.getConfiguration().keyboard != Configuration.KEYBOARD_NOKEYS
-                && mResources.getBoolean(
-                        com.android.internal.R.bool.config_showMenuShortcutsWhenKeyboardPresent);
+                && ViewConfiguration.get(mContext).shouldShowMenuShortcutsWhenKeyboardPresent();
     }
 
     /**
@@ -753,6 +778,7 @@ public class MenuBuilder implements Menu {
         return mResources;
     }
     
+    @UnsupportedAppUsage
     public Context getContext() {
         return mContext;
     }
@@ -805,7 +831,7 @@ public class MenuBuilder implements Menu {
      */
     void findItemsWithShortcutForKey(List<MenuItemImpl> items, int keyCode, KeyEvent event) {
         final boolean qwerty = isQwertyMode();
-        final int metaState = event.getMetaState();
+        final int modifierState = event.getModifiers();
         final KeyCharacterMap.KeyData possibleChars = new KeyCharacterMap.KeyData();
         // Get the chars associated with the keyCode (i.e using any chording combo)
         final boolean isKeyCodeMapped = event.getKeyData(possibleChars);
@@ -821,9 +847,13 @@ public class MenuBuilder implements Menu {
             if (item.hasSubMenu()) {
                 ((MenuBuilder)item.getSubMenu()).findItemsWithShortcutForKey(items, keyCode, event);
             }
-            final char shortcutChar = qwerty ? item.getAlphabeticShortcut() : item.getNumericShortcut();
-            if (((metaState & (KeyEvent.META_SHIFT_ON | KeyEvent.META_SYM_ON)) == 0) &&
-                  (shortcutChar != 0) &&
+            final char shortcutChar =
+                    qwerty ? item.getAlphabeticShortcut() : item.getNumericShortcut();
+            final int shortcutModifiers =
+                    qwerty ? item.getAlphabeticModifiers() : item.getNumericModifiers();
+            final boolean isModifiersExactMatch = (modifierState & SUPPORTED_MODIFIERS_MASK)
+                    == (shortcutModifiers & SUPPORTED_MODIFIERS_MASK);
+            if (isModifiersExactMatch && (shortcutChar != 0) &&
                   (shortcutChar == possibleChars.meta[0]
                       || shortcutChar == possibleChars.meta[2]
                       || (qwerty && shortcutChar == '\b' &&
@@ -985,6 +1015,7 @@ public class MenuBuilder implements Menu {
      * {@link #startDispatchingItemsChanged()} is called. Useful when
      * many menu operations are going to be performed as a batch.
      */
+    @UnsupportedAppUsage
     public void stopDispatchingItemsChanged() {
         if (!mPreventDispatchingItemsChanged) {
             mPreventDispatchingItemsChanged = true;
@@ -992,6 +1023,7 @@ public class MenuBuilder implements Menu {
         }
     }
 
+    @UnsupportedAppUsage
     public void startDispatchingItemsChanged() {
         mPreventDispatchingItemsChanged = false;
 
@@ -1022,6 +1054,7 @@ public class MenuBuilder implements Menu {
     }
 
     @NonNull
+    @UnsupportedAppUsage
     public ArrayList<MenuItemImpl> getVisibleItems() {
         if (!mIsVisibleItemsStale) return mVisibleItems;
 
@@ -1112,6 +1145,7 @@ public class MenuBuilder implements Menu {
         return mActionItems;
     }
     
+    @UnsupportedAppUsage
     public ArrayList<MenuItemImpl> getNonActionItems() {
         flagActionItems();
         return mNonActionItems;
@@ -1216,10 +1250,12 @@ public class MenuBuilder implements Menu {
         return this;
     }
     
+    @UnsupportedAppUsage
     public CharSequence getHeaderTitle() {
         return mHeaderTitle;
     }
     
+    @UnsupportedAppUsage
     public Drawable getHeaderIcon() {
         return mHeaderIcon;
     }
@@ -1232,6 +1268,7 @@ public class MenuBuilder implements Menu {
      * Gets the root menu (if this is a submenu, find its root menu).
      * @return The root menu.
      */
+    @UnsupportedAppUsage
     public MenuBuilder getRootMenu() {
         return this;
     }
@@ -1243,10 +1280,12 @@ public class MenuBuilder implements Menu {
      * 
      * @param menuInfo The extra menu information to add.
      */
+    @UnsupportedAppUsage
     public void setCurrentMenuInfo(ContextMenuInfo menuInfo) {
         mCurrentMenuInfo = menuInfo;
     }
 
+    @UnsupportedAppUsage
     void setOptionalIconsVisible(boolean visible) {
         mOptionalIconsVisible = visible;
     }
@@ -1277,6 +1316,7 @@ public class MenuBuilder implements Menu {
         return expanded;
     }
 
+    @UnsupportedAppUsage
     public boolean collapseItemActionView(MenuItemImpl item) {
         if (mPresenters.isEmpty() || mExpandedItem != item) return false;
 

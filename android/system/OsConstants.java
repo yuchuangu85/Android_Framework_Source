@@ -16,12 +16,33 @@
 
 package android.system;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * Constants and helper functions for use with {@link Os}.
  */
 public final class OsConstants {
+    @UnsupportedAppUsage
     private OsConstants() {
     }
+
+    /**
+     * Returns the index of the element in the cap_user_data array that this capability is stored
+     * in.
+     * @hide
+     */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static int CAP_TO_INDEX(int x) { return x >>> 5; }
+
+    /**
+     * Returns the mask for the given capability. This is relative to the capability's cap_user_data
+     * element, the index of which can be retrieved with CAP_TO_INDEX.
+     * @hide
+     */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static int CAP_TO_MASK(int x) { return 1 << (x & 31); }
 
     /**
      * Tests whether the given mode is a block device.
@@ -95,8 +116,8 @@ public final class OsConstants {
 
     public static final int AF_INET = placeholder();
     public static final int AF_INET6 = placeholder();
-    /** @hide */ public static final int AF_NETLINK = placeholder();
-    /** @hide */ public static final int AF_PACKET = placeholder();
+    public static final int AF_NETLINK = placeholder();
+    public static final int AF_PACKET = placeholder();
     public static final int AF_UNIX = placeholder();
     public static final int AF_UNSPEC = placeholder();
     public static final int AI_ADDRCONFIG = placeholder();
@@ -106,8 +127,11 @@ public final class OsConstants {
     public static final int AI_NUMERICSERV = placeholder();
     public static final int AI_PASSIVE = placeholder();
     public static final int AI_V4MAPPED = placeholder();
-    /** @hide */ public static final int ARPHRD_ETHER = placeholder();
-    /** @hide */ public static final int ARPHRD_LOOPBACK = placeholder();
+    public static final int ARPHRD_ETHER = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int ARPHRD_LOOPBACK = placeholder();
     public static final int CAP_AUDIT_CONTROL = placeholder();
     public static final int CAP_AUDIT_WRITE = placeholder();
     public static final int CAP_BLOCK_SUSPEND = placeholder();
@@ -207,7 +231,10 @@ public final class OsConstants {
     public static final int ENOLINK = placeholder();
     public static final int ENOMEM = placeholder();
     public static final int ENOMSG = placeholder();
-    /** @hide */ public static final int ENONET = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int ENONET = placeholder();
     public static final int ENOPROTOOPT = placeholder();
     public static final int ENOSPC = placeholder();
     public static final int ENOSR = placeholder();
@@ -232,14 +259,17 @@ public final class OsConstants {
     public static final int ESPIPE = placeholder();
     public static final int ESRCH = placeholder();
     public static final int ESTALE = placeholder();
-    /** @hide */ public static final int ETH_P_ALL = placeholder();
-    /** @hide */ public static final int ETH_P_ARP = placeholder();
-    /** @hide */ public static final int ETH_P_IP = placeholder();
-    /** @hide */ public static final int ETH_P_IPV6 = placeholder();
+    public static final int ETH_P_ALL = placeholder();
+    public static final int ETH_P_ARP = placeholder();
+    public static final int ETH_P_IP = placeholder();
+    public static final int ETH_P_IPV6 = placeholder();
     public static final int ETIME = placeholder();
     public static final int ETIMEDOUT = placeholder();
     public static final int ETXTBSY = placeholder();
-    /** @hide */ public static final int EUSERS = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int EUSERS = placeholder();
     // On Linux, EWOULDBLOCK == EAGAIN. Use EAGAIN instead, to reduce confusion.
     public static final int EXDEV = placeholder();
     public static final int EXIT_FAILURE = placeholder();
@@ -247,7 +277,7 @@ public final class OsConstants {
     public static final int FD_CLOEXEC = placeholder();
     public static final int FIONREAD = placeholder();
     public static final int F_DUPFD = placeholder();
-    /** @hide */ public static final int F_DUPFD_CLOEXEC = placeholder();
+    public static final int F_DUPFD_CLOEXEC = placeholder();
     public static final int F_GETFD = placeholder();
     public static final int F_GETFL = placeholder();
     public static final int F_GETLK = placeholder();
@@ -264,6 +294,10 @@ public final class OsConstants {
     public static final int F_SETOWN = placeholder();
     public static final int F_UNLCK = placeholder();
     public static final int F_WRLCK = placeholder();
+    public static final int ICMP_ECHO = placeholder();
+    public static final int ICMP_ECHOREPLY = placeholder();
+    public static final int ICMP6_ECHO_REQUEST = placeholder();
+    public static final int ICMP6_ECHO_REPLY = placeholder();
     public static final int IFA_F_DADFAILED = placeholder();
     public static final int IFA_F_DEPRECATED = placeholder();
     public static final int IFA_F_HOMEADDRESS = placeholder();
@@ -309,14 +343,27 @@ public final class OsConstants {
     public static final int IPV6_TCLASS = placeholder();
     public static final int IPV6_UNICAST_HOPS = placeholder();
     public static final int IPV6_V6ONLY = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int IP_MULTICAST_ALL = placeholder();
     public static final int IP_MULTICAST_IF = placeholder();
     public static final int IP_MULTICAST_LOOP = placeholder();
     public static final int IP_MULTICAST_TTL = placeholder();
-    /** @hide */ public static final int IP_RECVTOS = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int IP_RECVTOS = placeholder();
     public static final int IP_TOS = placeholder();
     public static final int IP_TTL = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int _LINUX_CAPABILITY_VERSION_3 = placeholder();
     public static final int MAP_FIXED = placeholder();
-    /** @hide */ public static final int MAP_POPULATE = placeholder();
+    public static final int MAP_ANONYMOUS = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int MAP_POPULATE = placeholder();
     public static final int MAP_PRIVATE = placeholder();
     public static final int MAP_SHARED = placeholder();
     public static final int MCAST_JOIN_GROUP = placeholder();
@@ -327,6 +374,7 @@ public final class OsConstants {
     public static final int MCAST_UNBLOCK_SOURCE = placeholder();
     public static final int MCL_CURRENT = placeholder();
     public static final int MCL_FUTURE = placeholder();
+    public static final int MFD_CLOEXEC = placeholder();
     public static final int MSG_CTRUNC = placeholder();
     public static final int MSG_DONTROUTE = placeholder();
     public static final int MSG_EOR = placeholder();
@@ -337,7 +385,12 @@ public final class OsConstants {
     public static final int MS_ASYNC = placeholder();
     public static final int MS_INVALIDATE = placeholder();
     public static final int MS_SYNC = placeholder();
-    /** @hide */ public static final int NETLINK_ROUTE = placeholder();
+    public static final int NETLINK_NETFILTER = placeholder();
+    public static final int NETLINK_ROUTE = placeholder();
+    /**
+     * SELinux enforces that only system_server and netd may use this netlink socket type.
+     */
+    public static final int NETLINK_INET_DIAG = placeholder();
     public static final int NI_DGRAM = placeholder();
     public static final int NI_NAMEREQD = placeholder();
     public static final int NI_NOFQDN = placeholder();
@@ -345,8 +398,12 @@ public final class OsConstants {
     public static final int NI_NUMERICSERV = placeholder();
     public static final int O_ACCMODE = placeholder();
     public static final int O_APPEND = placeholder();
-    /** @hide */ public static final int O_CLOEXEC = placeholder();
+    public static final int O_CLOEXEC = placeholder();
     public static final int O_CREAT = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int O_DIRECT = placeholder();
     public static final int O_EXCL = placeholder();
     public static final int O_NOCTTY = placeholder();
     public static final int O_NOFOLLOW = placeholder();
@@ -354,7 +411,7 @@ public final class OsConstants {
     public static final int O_RDONLY = placeholder();
     public static final int O_RDWR = placeholder();
     public static final int O_SYNC = placeholder();
-    /** @hide */ public static final int O_DSYNC = placeholder();
+    public static final int O_DSYNC = placeholder();
     public static final int O_TRUNC = placeholder();
     public static final int O_WRONLY = placeholder();
     public static final int POLLERR = placeholder();
@@ -367,6 +424,14 @@ public final class OsConstants {
     public static final int POLLRDNORM = placeholder();
     public static final int POLLWRBAND = placeholder();
     public static final int POLLWRNORM = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int PR_CAP_AMBIENT = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int PR_CAP_AMBIENT_RAISE = placeholder();
     public static final int PR_GET_DUMPABLE = placeholder();
     public static final int PR_SET_DUMPABLE = placeholder();
     public static final int PR_SET_NO_NEW_PRIVS = placeholder();
@@ -375,24 +440,53 @@ public final class OsConstants {
     public static final int PROT_READ = placeholder();
     public static final int PROT_WRITE = placeholder();
     public static final int R_OK = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int RLIMIT_NOFILE = placeholder();
     public static final int RT_SCOPE_HOST = placeholder();
     public static final int RT_SCOPE_LINK = placeholder();
     public static final int RT_SCOPE_NOWHERE = placeholder();
     public static final int RT_SCOPE_SITE = placeholder();
     public static final int RT_SCOPE_UNIVERSE = placeholder();
-    /** @hide */ public static final int RTMGRP_IPV4_IFADDR = placeholder();
-    /** @hide */ public static final int RTMGRP_IPV4_MROUTE = placeholder();
-    /** @hide */ public static final int RTMGRP_IPV4_ROUTE = placeholder();
-    /** @hide */ public static final int RTMGRP_IPV4_RULE = placeholder();
-    /** @hide */ public static final int RTMGRP_IPV6_IFADDR = placeholder();
-    /** @hide */ public static final int RTMGRP_IPV6_IFINFO = placeholder();
-    /** @hide */ public static final int RTMGRP_IPV6_MROUTE = placeholder();
-    /** @hide */ public static final int RTMGRP_IPV6_PREFIX = placeholder();
-    /** @hide */ public static final int RTMGRP_IPV6_ROUTE = placeholder();
-    /** @hide */ public static final int RTMGRP_LINK = placeholder();
-    /** @hide */ public static final int RTMGRP_NEIGH = placeholder();
-    /** @hide */ public static final int RTMGRP_NOTIFY = placeholder();
-    /** @hide */ public static final int RTMGRP_TC = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int RTMGRP_IPV4_IFADDR = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int RTMGRP_IPV4_MROUTE = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int RTMGRP_IPV4_ROUTE = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int RTMGRP_IPV4_RULE = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int RTMGRP_IPV6_IFADDR = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int RTMGRP_IPV6_IFINFO = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int RTMGRP_IPV6_MROUTE = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int RTMGRP_IPV6_PREFIX = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int RTMGRP_IPV6_ROUTE = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int RTMGRP_LINK = placeholder();
+    public static final int RTMGRP_NEIGH = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int RTMGRP_NOTIFY = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int RTMGRP_TC = placeholder();
     public static final int SEEK_CUR = placeholder();
     public static final int SEEK_END = placeholder();
     public static final int SEEK_SET = placeholder();
@@ -436,7 +530,32 @@ public final class OsConstants {
     public static final int SIOCGIFBRDADDR = placeholder();
     public static final int SIOCGIFDSTADDR = placeholder();
     public static final int SIOCGIFNETMASK = placeholder();
+
+    /**
+     * Set the close-on-exec ({@code FD_CLOEXEC}) flag on the new file
+     * descriptor created by {@link Os#socket(int,int,int)} or
+     * {@link Os#socketpair(int,int,int,java.io.FileDescriptor,java.io.FileDescriptor)}.
+     * See the description of the O_CLOEXEC flag in
+     * <a href="http://man7.org/linux/man-pages/man2/open.2.html">open(2)</a>
+     * for reasons why this may be useful.
+     *
+     * <p>Applications wishing to make use of this flag on older API versions
+     * may use {@link #O_CLOEXEC} instead. On Android, {@code O_CLOEXEC} and
+     * {@code SOCK_CLOEXEC} are the same value.
+     */
+    public static final int SOCK_CLOEXEC = placeholder();
     public static final int SOCK_DGRAM = placeholder();
+
+    /**
+     * Set the O_NONBLOCK file status flag on the file descriptor
+     * created by {@link Os#socket(int,int,int)} or
+     * {@link Os#socketpair(int,int,int,java.io.FileDescriptor,java.io.FileDescriptor)}.
+     *
+     * <p>Applications wishing to make use of this flag on older API versions
+     * may use {@link #O_NONBLOCK} instead. On Android, {@code O_NONBLOCK}
+     * and {@code SOCK_NONBLOCK} are the same value.
+     */
+    public static final int SOCK_NONBLOCK = placeholder();
     public static final int SOCK_RAW = placeholder();
     public static final int SOCK_SEQPACKET = placeholder();
     public static final int SOCK_STREAM = placeholder();
@@ -444,6 +563,9 @@ public final class OsConstants {
     public static final int SO_BINDTODEVICE = placeholder();
     public static final int SO_BROADCAST = placeholder();
     public static final int SO_DEBUG = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int SO_DOMAIN = placeholder();
     public static final int SO_DONTROUTE = placeholder();
     public static final int SO_ERROR = placeholder();
     public static final int SO_KEEPALIVE = placeholder();
@@ -451,6 +573,9 @@ public final class OsConstants {
     public static final int SO_OOBINLINE = placeholder();
     public static final int SO_PASSCRED = placeholder();
     public static final int SO_PEERCRED = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int SO_PROTOCOL = placeholder();
     public static final int SO_RCVBUF = placeholder();
     public static final int SO_RCVLOWAT = placeholder();
     public static final int SO_RCVTIMEO = placeholder();
@@ -459,6 +584,17 @@ public final class OsConstants {
     public static final int SO_SNDLOWAT = placeholder();
     public static final int SO_SNDTIMEO = placeholder();
     public static final int SO_TYPE = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int SPLICE_F_MOVE = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int SPLICE_F_NONBLOCK = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int SPLICE_F_MORE = placeholder();
     public static final int STDERR_FILENO = placeholder();
     public static final int STDIN_FILENO = placeholder();
     public static final int STDOUT_FILENO = placeholder();
@@ -495,8 +631,25 @@ public final class OsConstants {
     public static final int S_IXOTH = placeholder();
     public static final int S_IXUSR = placeholder();
     public static final int TCP_NODELAY = placeholder();
-    /** @hide */ public static final int TIOCOUTQ = placeholder();
-    /** @hide */ public static final int UNIX_PATH_MAX = placeholder();
+    public static final int TCP_USER_TIMEOUT = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int TIOCOUTQ = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int UDP_ENCAP = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int UDP_ENCAP_ESPINUDP_NON_IKE = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int UDP_ENCAP_ESPINUDP = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int UNIX_PATH_MAX = placeholder();
     public static final int WCONTINUED = placeholder();
     public static final int WEXITED = placeholder();
     public static final int WNOHANG = placeholder();
@@ -504,8 +657,13 @@ public final class OsConstants {
     public static final int WSTOPPED = placeholder();
     public static final int WUNTRACED = placeholder();
     public static final int W_OK = placeholder();
-    /** @hide */ public static final int XATTR_CREATE = placeholder();
-    /** @hide */ public static final int XATTR_REPLACE = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static final int XATTR_CREATE = placeholder();
+    /** @hide */
+    @UnsupportedAppUsage
+    public static final int XATTR_REPLACE = placeholder();
     public static final int X_OK = placeholder();
     public static final int _SC_2_CHAR_TERM = placeholder();
     public static final int _SC_2_C_BIND = placeholder();
@@ -884,9 +1042,11 @@ public final class OsConstants {
         return null;
     }
 
+    @UnsupportedAppUsage
     private static native void initConstants();
 
     // A hack to avoid these constants being inlined by javac...
+    @UnsupportedAppUsage
     private static int placeholder() { return 0; }
     // ...because we want to initialize them at runtime.
     static {

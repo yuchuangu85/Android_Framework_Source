@@ -16,12 +16,19 @@
 
 package android.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 import java.io.PrintWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
+import java.util.stream.Collectors;
 
 /**
  * <p>Various utilities for debugging and logging.</p>
@@ -108,6 +115,7 @@ public class DebugUtils {
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public static void buildShortClassTag(Object cls, StringBuilder out) {
         if (cls == null) {
             out.append("null");
@@ -219,7 +227,7 @@ public class DebugUtils {
                     && field.getType().equals(int.class) && field.getName().startsWith(prefix)) {
                 try {
                     if (value == field.getInt(null)) {
-                        return field.getName().substring(prefix.length());
+                        return constNameWithoutPrefix(prefix, field);
                     }
                 } catch (IllegalAccessException ignored) {
                 }
@@ -236,6 +244,7 @@ public class DebugUtils {
      */
     public static String flagsToString(Class<?> clazz, String prefix, int flags) {
         final StringBuilder res = new StringBuilder();
+        boolean flagsWasZero = flags == 0;
 
         for (Field field : clazz.getDeclaredFields()) {
             final int modifiers = field.getModifiers();
@@ -243,9 +252,12 @@ public class DebugUtils {
                     && field.getType().equals(int.class) && field.getName().startsWith(prefix)) {
                 try {
                     final int value = field.getInt(null);
-                    if ((flags & value) != 0) {
+                    if (value == 0 && flagsWasZero) {
+                        return constNameWithoutPrefix(prefix, field);
+                    }
+                    if (value != 0 && (flags & value) == value) {
                         flags &= ~value;
-                        res.append(field.getName().substring(prefix.length())).append('|');
+                        res.append(constNameWithoutPrefix(prefix, field)).append('|');
                     }
                 } catch (IllegalAccessException ignored) {
                 }
@@ -257,5 +269,25 @@ public class DebugUtils {
             res.deleteCharAt(res.length() - 1);
         }
         return res.toString();
+    }
+
+    private static String constNameWithoutPrefix(String prefix, Field field) {
+        return field.getName().substring(prefix.length());
+    }
+
+    /**
+     * Returns method names from current stack trace, where {@link StackTraceElement#getClass}
+     * starts with the given classes name
+     *
+     * @hide
+     */
+    public static List<String> callersWithin(Class<?> cls, int offset) {
+        List<String> result = Arrays.stream(Thread.currentThread().getStackTrace())
+                .skip(offset + 3)
+                .filter(st -> st.getClassName().startsWith(cls.getName()))
+                .map(StackTraceElement::getMethodName)
+                .collect(Collectors.toList());
+        Collections.reverse(result);
+        return result;
     }
 }

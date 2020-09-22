@@ -16,14 +16,12 @@
 
 package com.android.server.notification;
 
-import android.annotation.NonNull;
 import android.app.INotificationManager;
 import android.app.NotificationManager;
 import android.content.ComponentName;
-import android.content.ContentResolver;
 import android.content.Context;
+import android.content.pm.IPackageManager;
 import android.net.Uri;
-import android.os.Handler;
 import android.os.IBinder;
 import android.os.IInterface;
 import android.os.RemoteException;
@@ -38,25 +36,33 @@ import android.util.ArraySet;
 import android.util.Slog;
 
 import com.android.internal.R;
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.server.notification.NotificationManagerService.DumpFilter;
 
+import org.xmlpull.v1.XmlSerializer;
+
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 
 public class ConditionProviders extends ManagedServices {
+
+    @VisibleForTesting
+    static final String TAG_ENABLED_DND_APPS = "dnd_apps";
+
     private final ArrayList<ConditionRecord> mRecords = new ArrayList<>();
     private final ArraySet<String> mSystemConditionProviderNames;
     private final ArraySet<SystemConditionProviderService> mSystemConditionProviders
             = new ArraySet<>();
-
     private Callback mCallback;
 
-    public ConditionProviders(Context context, Handler handler, UserProfiles userProfiles) {
-        super(context, handler, new Object(), userProfiles);
+    public ConditionProviders(Context context, UserProfiles userProfiles, IPackageManager pm) {
+        super(context, new Object(), userProfiles, pm);
         mSystemConditionProviderNames = safeSet(PropConfig.getStringArray(mContext,
                 "system.condition.providers",
                 R.array.config_system_condition_providers));
+        mApprovalLevel = APPROVAL_BY_PACKAGE;
     }
 
     public void setCallback(Callback callback) {
@@ -70,11 +76,45 @@ public class ConditionProviders extends ManagedServices {
     public void addSystemProvider(SystemConditionProviderService service) {
         mSystemConditionProviders.add(service);
         service.attachBase(mContext);
-        registerService(service.asInterface(), service.getComponent(), UserHandle.USER_SYSTEM);
+        registerSystemService(
+                service.asInterface(), service.getComponent(), UserHandle.USER_SYSTEM);
     }
 
     public Iterable<SystemConditionProviderService> getSystemProviders() {
         return mSystemConditionProviders;
+    }
+
+    @Override
+    protected ArrayMap<Boolean, ArrayList<ComponentName>>
+            resetComponents(String packageName, int userId) {
+        resetPackage(packageName, userId);
+        ArrayMap<Boolean, ArrayList<ComponentName>> changes = new ArrayMap<>();
+        changes.put(true, new ArrayList<>(0));
+        changes.put(false, new ArrayList<>(0));
+        return changes;
+    }
+
+    /**
+     *  @return true if the passed package is enabled. false otherwise
+     */
+    boolean resetPackage(String packageName, int userId) {
+        boolean isAllowed = super.isPackageOrComponentAllowed(packageName, userId);
+        boolean isDefault = super.isDefaultComponentOrPackage(packageName);
+        if (!isAllowed && isDefault) {
+            setPackageOrComponentEnabled(packageName, userId, true, true);
+        }
+        if (isAllowed && !isDefault) {
+            setPackageOrComponentEnabled(packageName, userId, true, false);
+        }
+        return !isAllowed && isDefault;
+    }
+
+    @Override
+    void writeDefaults(XmlSerializer out) throws IOException {
+        synchronized (mDefaultsLock) {
+            String defaults = String.join(ENABLED_SERVICES_SEPARATOR, mDefaultPackages);
+            out.attribute(null, ATT_DEFAULTS, defaults);
+        }
     }
 
     @Override
@@ -83,6 +123,7 @@ public class ConditionProviders extends ManagedServices {
         c.caption = "condition provider";
         c.serviceInterface = ConditionProviderService.SERVICE_INTERFACE;
         c.secureSettingName = Settings.Secure.ENABLED_NOTIFICATION_POLICY_ACCESS_PACKAGES;
+        c.xmlTag = TAG_ENABLED_DND_APPS;
         c.secondarySettingName = Settings.Secure.ENABLED_NOTIFICATION_LISTENERS;
         c.bindPermission = android.Manifest.permission.BIND_CONDITION_PROVIDER_SERVICE;
         c.settingsAction = Settings.ACTION_CONDITION_PROVIDER_SETTINGS;
@@ -146,10 +187,26 @@ public class ConditionProviders extends ManagedServices {
         try {
             provider.onConnected();
         } catch (RemoteException e) {
+            Slog.e(TAG, "can't connect to service " + info, e);
             // we tried
         }
         if (mCallback != null) {
             mCallback.onServiceAdded(info.component);
+        }
+    }
+
+    @Override
+    protected void loadDefaultsFromConfig() {
+        String defaultDndAccess = mContext.getResources().getString(
+                R.string.config_defaultDndAccessPackages);
+        if (defaultDndAccess != null) {
+            String[] dnds = defaultDndAccess.split(ManagedServices.ENABLED_SERVICES_SEPARATOR);
+            for (int i = 0; i < dnds.length; i++) {
+                if (TextUtils.isEmpty(dnds[i])) {
+                    continue;
+                }
+                addDefaultComponentOrPackage(dnds[i]);
+            }
         }
     }
 
@@ -164,7 +221,7 @@ public class ConditionProviders extends ManagedServices {
     }
 
     @Override
-    public void onPackagesChanged(boolean removingPackage, String[] pkgList) {
+    public void onPackagesChanged(boolean removingPackage, String[] pkgList, int[] uid) {
         if (removingPackage) {
             INotificationManager inm = NotificationManager.getService();
 
@@ -179,7 +236,17 @@ public class ConditionProviders extends ManagedServices {
                 }
             }
         }
-        super.onPackagesChanged(removingPackage, pkgList);
+        super.onPackagesChanged(removingPackage, pkgList, uid);
+    }
+
+    @Override
+    protected boolean isValidEntry(String packageOrComponent, int userId) {
+        return true;
+    }
+
+    @Override
+    protected String getRequiredPermission() {
+        return null;
     }
 
     public ManagedServiceInfo checkServiceToken(IConditionProvider provider) {
@@ -251,7 +318,7 @@ public class ConditionProviders extends ManagedServices {
 
     public IConditionProvider findConditionProvider(ComponentName component) {
         if (component == null) return null;
-        for (ManagedServiceInfo service : mServices) {
+        for (ManagedServiceInfo service : getServices()) {
             if (component.equals(service.component)) {
                 return provider(service);
             }
@@ -269,37 +336,14 @@ public class ConditionProviders extends ManagedServices {
 
     public void ensureRecordExists(ComponentName component, Uri conditionId,
             IConditionProvider provider) {
-        // constructed by convention, make sure the record exists...
-        final ConditionRecord r = getRecordLocked(conditionId, component, true /*create*/);
-        if (r.info == null) {
-            // ... and is associated with the in-process service
-            r.info = checkServiceTokenLocked(provider);
-        }
-    }
-
-    @Override
-    protected @NonNull ArraySet<ComponentName> loadComponentNamesFromSetting(String settingName,
-            int userId) {
-        final ContentResolver cr = mContext.getContentResolver();
-        String settingValue = Settings.Secure.getStringForUser(
-                cr,
-                settingName,
-                userId);
-        if (TextUtils.isEmpty(settingValue))
-            return new ArraySet<>();
-        String[] packages = settingValue.split(ENABLED_SERVICES_SEPARATOR);
-        ArraySet<ComponentName> result = new ArraySet<>(packages.length);
-        for (int i = 0; i < packages.length; i++) {
-            if (!TextUtils.isEmpty(packages[i])) {
-                final ComponentName component = ComponentName.unflattenFromString(packages[i]);
-                if (component != null) {
-                    result.addAll(queryPackageForServices(component.getPackageName(), userId));
-                } else {
-                    result.addAll(queryPackageForServices(packages[i], userId));
-                }
+        synchronized (mMutex) {
+            // constructed by convention, make sure the record exists...
+            final ConditionRecord r = getRecordLocked(conditionId, component, true /*create*/);
+            if (r.info == null) {
+                // ... and is associated with the in-process service
+                r.info = checkServiceTokenLocked(provider);
             }
         }
-        return result;
     }
 
     public boolean subscribeIfNecessary(ComponentName component, Uri conditionId) {

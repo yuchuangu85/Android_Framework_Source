@@ -17,17 +17,28 @@
 package android.view;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.HardwareRenderer;
+import android.graphics.Picture;
+import android.graphics.RecordingCanvas;
 import android.graphics.Rect;
+import android.graphics.RenderNode;
 import android.os.Debug;
 import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
 import android.os.RemoteException;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
+
+import libcore.util.HexEncoding;
 
 import java.io.BufferedOutputStream;
 import java.io.BufferedWriter;
@@ -36,6 +47,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.lang.annotation.Annotation;
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -43,17 +55,22 @@ import java.lang.annotation.Target;
 import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Member;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Function;
+import java.util.stream.Stream;
 
 /**
  * Various debugging/tracing tools related to {@link View} and the view hierarchy.
@@ -107,10 +124,10 @@ public class ViewDebug {
          * these human readable values:
          *
          * <pre>
-         * @ViewDebug.ExportedProperty(mapping = {
-         *     @ViewDebug.IntToString(from = 0, to = "VISIBLE"),
-         *     @ViewDebug.IntToString(from = 4, to = "INVISIBLE"),
-         *     @ViewDebug.IntToString(from = 8, to = "GONE")
+         * {@literal @}ViewDebug.ExportedProperty(mapping = {
+         *     {@literal @}ViewDebug.IntToString(from = 0, to = "VISIBLE"),
+         *     {@literal @}ViewDebug.IntToString(from = 4, to = "INVISIBLE"),
+         *     {@literal @}ViewDebug.IntToString(from = 8, to = "GONE")
          * })
          * public int getVisibility() { ...
          * <pre>
@@ -127,10 +144,10 @@ public class ViewDebug {
          * of an array:
          *
          * <pre>
-         * @ViewDebug.ExportedProperty(indexMapping = {
-         *     @ViewDebug.IntToString(from = 0, to = "INVALID"),
-         *     @ViewDebug.IntToString(from = 1, to = "FIRST"),
-         *     @ViewDebug.IntToString(from = 2, to = "SECOND")
+         * {@literal @}ViewDebug.ExportedProperty(indexMapping = {
+         *     {@literal @}ViewDebug.IntToString(from = 0, to = "INVALID"),
+         *     {@literal @}ViewDebug.IntToString(from = 1, to = "FIRST"),
+         *     {@literal @}ViewDebug.IntToString(from = 2, to = "SECOND")
          * })
          * private int[] mElements;
          * <pre>
@@ -148,9 +165,11 @@ public class ViewDebug {
          * for the flags of an integer:
          *
          * <pre>
-         * @ViewDebug.ExportedProperty(flagMapping = {
-         *     @ViewDebug.FlagToString(mask = ENABLED_MASK, equals = ENABLED, name = "ENABLED"),
-         *     @ViewDebug.FlagToString(mask = ENABLED_MASK, equals = DISABLED, name = "DISABLED"),
+         * {@literal @}ViewDebug.ExportedProperty(flagMapping = {
+         *     {@literal @}ViewDebug.FlagToString(mask = ENABLED_MASK, equals = ENABLED,
+         *             name = "ENABLED"),
+         *     {@literal @}ViewDebug.FlagToString(mask = ENABLED_MASK, equals = DISABLED,
+         *             name = "DISABLED"),
          * })
          * private int mFlags;
          * <pre>
@@ -315,24 +334,101 @@ public class ViewDebug {
         public View findHierarchyView(String className, int hashCode);
     }
 
-    private static HashMap<Class<?>, Method[]> mCapturedViewMethodsForClasses = null;
-    private static HashMap<Class<?>, Field[]> mCapturedViewFieldsForClasses = null;
+    private abstract static class PropertyInfo<T extends Annotation,
+            R extends AccessibleObject & Member> {
+
+        public final R member;
+        public final T property;
+        public final String name;
+        public final Class<?> returnType;
+
+        public String entrySuffix = "";
+        public String valueSuffix = "";
+
+        PropertyInfo(Class<T> property, R member, Class<?> returnType) {
+            this.member = member;
+            this.name = member.getName();
+            this.property = member.getAnnotation(property);
+            this.returnType = returnType;
+        }
+
+        public abstract Object invoke(Object target) throws Exception;
+
+        static <T extends Annotation> PropertyInfo<T, ?> forMethod(Method method,
+                Class<T> property) {
+            // Ensure the method return and parameter types can be resolved.
+            try {
+                if ((method.getReturnType() == Void.class)
+                        || (method.getParameterTypes().length != 0)) {
+                    return null;
+                }
+            } catch (NoClassDefFoundError e) {
+                return null;
+            }
+            if (!method.isAnnotationPresent(property)) {
+                return null;
+            }
+            method.setAccessible(true);
+
+            PropertyInfo info = new MethodPI(method, property);
+            info.entrySuffix = "()";
+            info.valueSuffix = ";";
+            return info;
+        }
+
+        static <T extends Annotation> PropertyInfo<T, ?> forField(Field field, Class<T> property) {
+            if (!field.isAnnotationPresent(property)) {
+                return null;
+            }
+            field.setAccessible(true);
+            return new FieldPI<>(field, property);
+        }
+    }
+
+    private static class MethodPI<T extends Annotation> extends PropertyInfo<T, Method> {
+
+        MethodPI(Method method, Class<T> property) {
+            super(property, method, method.getReturnType());
+        }
+
+        @Override
+        public Object invoke(Object target) throws Exception {
+            return member.invoke(target);
+        }
+    }
+
+    private static class FieldPI<T extends Annotation> extends PropertyInfo<T, Field> {
+
+        FieldPI(Field field, Class<T> property) {
+            super(property, field, field.getType());
+        }
+
+        @Override
+        public Object invoke(Object target) throws Exception {
+            return member.get(target);
+        }
+    }
 
     // Maximum delay in ms after which we stop trying to capture a View's drawing
-    private static final int CAPTURE_TIMEOUT = 4000;
+    private static final int CAPTURE_TIMEOUT = 6000;
 
     private static final String REMOTE_COMMAND_CAPTURE = "CAPTURE";
     private static final String REMOTE_COMMAND_DUMP = "DUMP";
     private static final String REMOTE_COMMAND_DUMP_THEME = "DUMP_THEME";
+    /**
+     * Similar to REMOTE_COMMAND_DUMP but uses ViewHierarchyEncoder instead of flat text
+     * @hide
+     */
+    public static final String REMOTE_COMMAND_DUMP_ENCODED = "DUMP_ENCODED";
     private static final String REMOTE_COMMAND_INVALIDATE = "INVALIDATE";
     private static final String REMOTE_COMMAND_REQUEST_LAYOUT = "REQUEST_LAYOUT";
     private static final String REMOTE_PROFILE = "PROFILE";
     private static final String REMOTE_COMMAND_CAPTURE_LAYERS = "CAPTURE_LAYERS";
     private static final String REMOTE_COMMAND_OUTPUT_DISPLAYLIST = "OUTPUT_DISPLAYLIST";
 
-    private static HashMap<Class<?>, Field[]> sFieldsForClasses;
-    private static HashMap<Class<?>, Method[]> sMethodsForClasses;
-    private static HashMap<AccessibleObject, ExportedProperty> sAnnotations;
+    private static HashMap<Class<?>, PropertyInfo<ExportedProperty, ?>[]> sExportProperties;
+    private static HashMap<Class<?>, PropertyInfo<CapturedViewProperty, ?>[]>
+            sCapturedViewProperties;
 
     /**
      * @deprecated This enum is now unused
@@ -369,6 +465,7 @@ public class ViewDebug {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static long getViewInstanceCount() {
         return Debug.countInstancesOfClass(View.class);
     }
@@ -380,6 +477,7 @@ public class ViewDebug {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static long getViewRootImplCount() {
         return Debug.countInstancesOfClass(ViewRootImpl.class);
     }
@@ -431,9 +529,9 @@ public class ViewDebug {
     public static void stopHierarchyTracing() {
     }
 
+    @UnsupportedAppUsage
     static void dispatchCommand(View view, String command, String parameters,
             OutputStream clientStream) throws IOException {
-
         // Paranoid but safe...
         view = view.getRootView();
 
@@ -441,6 +539,8 @@ public class ViewDebug {
             dump(view, false, true, clientStream);
         } else if (REMOTE_COMMAND_DUMP_THEME.equalsIgnoreCase(command)) {
             dumpTheme(view, clientStream);
+        } else if (REMOTE_COMMAND_DUMP_ENCODED.equalsIgnoreCase(command)) {
+            dumpEncoded(view, clientStream);
         } else if (REMOTE_COMMAND_CAPTURE_LAYERS.equalsIgnoreCase(command)) {
             captureLayers(view, new DataOutputStream(clientStream));
         } else {
@@ -526,84 +626,22 @@ public class ViewDebug {
     /** @hide */
     public static void profileViewAndChildren(final View view, BufferedWriter out)
             throws IOException {
-        profileViewAndChildren(view, out, true);
+        RenderNode node = RenderNode.create("ViewDebug", null);
+        profileViewAndChildren(view, node, out, true);
     }
 
-    private static void profileViewAndChildren(final View view, BufferedWriter out, boolean root)
-            throws IOException {
-
+    private static void profileViewAndChildren(View view, RenderNode node, BufferedWriter out,
+            boolean root) throws IOException {
         long durationMeasure =
                 (root || (view.mPrivateFlags & View.PFLAG_MEASURED_DIMENSION_SET) != 0)
-                        ? profileViewOperation(view, new ViewOperation<Void>() {
-                    public Void[] pre() {
-                        forceLayout(view);
-                        return null;
-                    }
-
-                    private void forceLayout(View view) {
-                        view.forceLayout();
-                        if (view instanceof ViewGroup) {
-                            ViewGroup group = (ViewGroup) view;
-                            final int count = group.getChildCount();
-                            for (int i = 0; i < count; i++) {
-                                forceLayout(group.getChildAt(i));
-                            }
-                        }
-                    }
-
-                    public void run(Void... data) {
-                        view.measure(view.mOldWidthMeasureSpec, view.mOldHeightMeasureSpec);
-                    }
-
-                    public void post(Void... data) {
-                    }
-                })
-                        : 0;
+                        ? profileViewMeasure(view) : 0;
         long durationLayout =
                 (root || (view.mPrivateFlags & View.PFLAG_LAYOUT_REQUIRED) != 0)
-                        ? profileViewOperation(view, new ViewOperation<Void>() {
-                    public Void[] pre() {
-                        return null;
-                    }
-
-                    public void run(Void... data) {
-                        view.layout(view.mLeft, view.mTop, view.mRight, view.mBottom);
-                    }
-
-                    public void post(Void... data) {
-                    }
-                }) : 0;
+                        ? profileViewLayout(view) : 0;
         long durationDraw =
                 (root || !view.willNotDraw() || (view.mPrivateFlags & View.PFLAG_DRAWN) != 0)
-                        ? profileViewOperation(view, new ViewOperation<Object>() {
-                    public Object[] pre() {
-                        final DisplayMetrics metrics =
-                                (view != null && view.getResources() != null) ?
-                                        view.getResources().getDisplayMetrics() : null;
-                        final Bitmap bitmap = metrics != null ?
-                                Bitmap.createBitmap(metrics, metrics.widthPixels,
-                                        metrics.heightPixels, Bitmap.Config.RGB_565) : null;
-                        final Canvas canvas = bitmap != null ? new Canvas(bitmap) : null;
-                        return new Object[] {
-                                bitmap, canvas
-                        };
-                    }
+                        ? profileViewDraw(view, node) : 0;
 
-                    public void run(Object... data) {
-                        if (data[1] != null) {
-                            view.draw((Canvas) data[1]);
-                        }
-                    }
-
-                    public void post(Object... data) {
-                        if (data[1] != null) {
-                            ((Canvas) data[1]).setBitmap(null);
-                        }
-                        if (data[0] != null) {
-                            ((Bitmap) data[0]).recycle();
-                        }
-                    }
-                }) : 0;
         out.write(String.valueOf(durationMeasure));
         out.write(' ');
         out.write(String.valueOf(durationLayout));
@@ -614,34 +652,86 @@ public class ViewDebug {
             ViewGroup group = (ViewGroup) view;
             final int count = group.getChildCount();
             for (int i = 0; i < count; i++) {
-                profileViewAndChildren(group.getChildAt(i), out, false);
+                profileViewAndChildren(group.getChildAt(i), node, out, false);
             }
         }
     }
 
-    interface ViewOperation<T> {
-        T[] pre();
-        void run(T... data);
-        void post(T... data);
+    private static long profileViewMeasure(final View view) {
+        return profileViewOperation(view, new ViewOperation() {
+            @Override
+            public void pre() {
+                forceLayout(view);
+            }
+
+            private void forceLayout(View view) {
+                view.forceLayout();
+                if (view instanceof ViewGroup) {
+                    ViewGroup group = (ViewGroup) view;
+                    final int count = group.getChildCount();
+                    for (int i = 0; i < count; i++) {
+                        forceLayout(group.getChildAt(i));
+                    }
+                }
+            }
+
+            @Override
+            public void run() {
+                view.measure(view.mOldWidthMeasureSpec, view.mOldHeightMeasureSpec);
+            }
+        });
     }
 
-    private static <T> long profileViewOperation(View view, final ViewOperation<T> operation) {
+    private static long profileViewLayout(View view) {
+        return profileViewOperation(view,
+                () -> view.layout(view.mLeft, view.mTop, view.mRight, view.mBottom));
+    }
+
+    private static long profileViewDraw(View view, RenderNode node) {
+        DisplayMetrics dm = view.getResources().getDisplayMetrics();
+        if (dm == null) {
+            return 0;
+        }
+
+        if (view.isHardwareAccelerated()) {
+            RecordingCanvas canvas = node.beginRecording(dm.widthPixels, dm.heightPixels);
+            try {
+                return profileViewOperation(view, () -> view.draw(canvas));
+            } finally {
+                node.endRecording();
+            }
+        } else {
+            Bitmap bitmap = Bitmap.createBitmap(
+                    dm, dm.widthPixels, dm.heightPixels, Bitmap.Config.RGB_565);
+            Canvas canvas = new Canvas(bitmap);
+            try {
+                return profileViewOperation(view, () -> view.draw(canvas));
+            } finally {
+                canvas.setBitmap(null);
+                bitmap.recycle();
+            }
+        }
+    }
+
+    interface ViewOperation {
+        default void pre() {}
+
+        void run();
+    }
+
+    private static long profileViewOperation(View view, final ViewOperation operation) {
         final CountDownLatch latch = new CountDownLatch(1);
         final long[] duration = new long[1];
 
-        view.post(new Runnable() {
-            public void run() {
-                try {
-                    T[] data = operation.pre();
-                    long start = Debug.threadCpuTimeNanos();
-                    //noinspection unchecked
-                    operation.run(data);
-                    duration[0] = Debug.threadCpuTimeNanos() - start;
-                    //noinspection unchecked
-                    operation.post(data);
-                } finally {
-                    latch.countDown();
-                }
+        view.post(() -> {
+            try {
+                operation.pre();
+                long start = Debug.threadCpuTimeNanos();
+                //noinspection unchecked
+                operation.run();
+                duration[0] = Debug.threadCpuTimeNanos() - start;
+            } finally {
+                latch.countDown();
             }
         });
 
@@ -742,6 +832,263 @@ public class ViewDebug {
         root.getViewRootImpl().outputDisplayList(target);
     }
 
+    private static class PictureCallbackHandler implements AutoCloseable,
+            HardwareRenderer.PictureCapturedCallback, Runnable {
+        private final HardwareRenderer mRenderer;
+        private final Function<Picture, Boolean> mCallback;
+        private final Executor mExecutor;
+        private final ReentrantLock mLock = new ReentrantLock(false);
+        private final ArrayDeque<Picture> mQueue = new ArrayDeque<>(3);
+        private boolean mStopListening;
+        private Thread mRenderThread;
+
+        private PictureCallbackHandler(HardwareRenderer renderer,
+                Function<Picture, Boolean> callback, Executor executor) {
+            mRenderer = renderer;
+            mCallback = callback;
+            mExecutor = executor;
+            mRenderer.setPictureCaptureCallback(this);
+        }
+
+        @Override
+        public void close() {
+            mLock.lock();
+            mStopListening = true;
+            mLock.unlock();
+            mRenderer.setPictureCaptureCallback(null);
+        }
+
+        @Override
+        public void onPictureCaptured(Picture picture) {
+            mLock.lock();
+            if (mStopListening) {
+                mLock.unlock();
+                mRenderer.setPictureCaptureCallback(null);
+                return;
+            }
+            if (mRenderThread == null) {
+                mRenderThread = Thread.currentThread();
+            }
+            Picture toDestroy = null;
+            if (mQueue.size() == 3) {
+                toDestroy = mQueue.removeLast();
+            }
+            mQueue.add(picture);
+            mLock.unlock();
+            if (toDestroy == null) {
+                mExecutor.execute(this);
+            } else {
+                toDestroy.close();
+            }
+        }
+
+        @Override
+        public void run() {
+            mLock.lock();
+            final Picture picture = mQueue.poll();
+            final boolean isStopped = mStopListening;
+            mLock.unlock();
+            if (Thread.currentThread() == mRenderThread) {
+                close();
+                throw new IllegalStateException(
+                        "ViewDebug#startRenderingCommandsCapture must be given an executor that "
+                        + "invokes asynchronously");
+            }
+            if (isStopped) {
+                picture.close();
+                return;
+            }
+            final boolean keepReceiving = mCallback.apply(picture);
+            if (!keepReceiving) {
+                close();
+            }
+        }
+    }
+
+    /**
+     * Begins capturing the entire rendering commands for the view tree referenced by the given
+     * view. The view passed may be any View in the tree as long as it is attached. That is,
+     * {@link View#isAttachedToWindow()} must be true.
+     *
+     * Every time a frame is rendered a Picture will be passed to the given callback via the given
+     * executor. As long as the callback returns 'true' it will continue to receive new frames.
+     * The system will only invoke the callback at a rate that the callback is able to keep up with.
+     * That is, if it takes 48ms for the callback to complete and there is a 60fps animation running
+     * then the callback will only receive 33% of the frames produced.
+     *
+     * This method must be called on the same thread as the View tree.
+     *
+     * @param tree The View tree to capture the rendering commands.
+     * @param callback The callback to invoke on every frame produced. Should return true to
+     *                 continue receiving new frames, false to stop capturing.
+     * @param executor The executor to invoke the callback on. Recommend using a background thread
+     *                 to avoid stalling the UI thread. Must be an asynchronous invoke or an
+     *                 exception will be thrown.
+     * @return a closeable that can be used to stop capturing. May be invoked on any thread. Note
+     * that the callback may continue to receive another frame or two depending on thread timings.
+     * Returns null if the capture stream cannot be started, such as if there's no
+     * HardwareRenderer for the given view tree.
+     * @hide
+     * @deprecated use {@link #startRenderingCommandsCapture(View, Executor, Callable)} instead.
+     */
+    @TestApi
+    @Nullable
+    @Deprecated
+    public static AutoCloseable startRenderingCommandsCapture(View tree, Executor executor,
+            Function<Picture, Boolean> callback) {
+        final View.AttachInfo attachInfo = tree.mAttachInfo;
+        if (attachInfo == null) {
+            throw new IllegalArgumentException("Given view isn't attached");
+        }
+        if (attachInfo.mHandler.getLooper() != Looper.myLooper()) {
+            throw new IllegalStateException("Called on the wrong thread."
+                    + " Must be called on the thread that owns the given View");
+        }
+        final HardwareRenderer renderer = attachInfo.mThreadedRenderer;
+        if (renderer != null) {
+            return new PictureCallbackHandler(renderer, callback, executor);
+        }
+        return null;
+    }
+
+    private static class StreamingPictureCallbackHandler implements AutoCloseable,
+            HardwareRenderer.PictureCapturedCallback, Runnable {
+        private final HardwareRenderer mRenderer;
+        private final Callable<OutputStream> mCallback;
+        private final Executor mExecutor;
+        private final ReentrantLock mLock = new ReentrantLock(false);
+        private final ArrayDeque<byte[]> mQueue = new ArrayDeque<>(3);
+        private final ByteArrayOutputStream mByteStream = new ByteArrayOutputStream();
+        private boolean mStopListening;
+        private Thread mRenderThread;
+
+        private StreamingPictureCallbackHandler(HardwareRenderer renderer,
+                Callable<OutputStream> callback, Executor executor) {
+            mRenderer = renderer;
+            mCallback = callback;
+            mExecutor = executor;
+            mRenderer.setPictureCaptureCallback(this);
+        }
+
+        @Override
+        public void close() {
+            mLock.lock();
+            mStopListening = true;
+            mLock.unlock();
+            mRenderer.setPictureCaptureCallback(null);
+        }
+
+        @Override
+        public void onPictureCaptured(Picture picture) {
+            mLock.lock();
+            if (mStopListening) {
+                mLock.unlock();
+                mRenderer.setPictureCaptureCallback(null);
+                return;
+            }
+            if (mRenderThread == null) {
+                mRenderThread = Thread.currentThread();
+            }
+            boolean needsInvoke = true;
+            if (mQueue.size() == 3) {
+                mQueue.removeLast();
+                needsInvoke = false;
+            }
+            picture.writeToStream(mByteStream);
+            mQueue.add(mByteStream.toByteArray());
+            mByteStream.reset();
+            mLock.unlock();
+
+            if (needsInvoke) {
+                mExecutor.execute(this);
+            }
+        }
+
+        @Override
+        public void run() {
+            mLock.lock();
+            final byte[] picture = mQueue.poll();
+            final boolean isStopped = mStopListening;
+            mLock.unlock();
+            if (Thread.currentThread() == mRenderThread) {
+                close();
+                throw new IllegalStateException(
+                        "ViewDebug#startRenderingCommandsCapture must be given an executor that "
+                        + "invokes asynchronously");
+            }
+            if (isStopped) {
+                return;
+            }
+            OutputStream stream = null;
+            try {
+                stream = mCallback.call();
+            } catch (Exception ex) {
+                Log.w("ViewDebug", "Aborting rendering commands capture "
+                        + "because callback threw exception", ex);
+            }
+            if (stream != null) {
+                try {
+                    stream.write(picture);
+                } catch (IOException ex) {
+                    Log.w("ViewDebug", "Aborting rendering commands capture "
+                            + "due to IOException writing to output stream", ex);
+                }
+            } else {
+                close();
+            }
+        }
+    }
+
+    /**
+     * Begins capturing the entire rendering commands for the view tree referenced by the given
+     * view. The view passed may be any View in the tree as long as it is attached. That is,
+     * {@link View#isAttachedToWindow()} must be true.
+     *
+     * Every time a frame is rendered the callback will be invoked on the given executor to
+     * provide an OutputStream to serialize to. As long as the callback returns a valid
+     * OutputStream the capturing will continue. The system will only invoke the callback at a rate
+     * that the callback & OutputStream is able to keep up with. That is, if it takes 48ms for the
+     * callback & serialization to complete and there is a 60fps animation running
+     * then the callback will only receive 33% of the frames produced.
+     *
+     * This method must be called on the same thread as the View tree.
+     *
+     * @param tree The View tree to capture the rendering commands.
+     * @param callback The callback to invoke on every frame produced. Should return an
+     *                 OutputStream to write the data to. Return null to cancel capture. The
+     *                 same stream may be returned each time as the serialized data contains
+     *                 start & end markers. The callback will not be invoked while a previous
+     *                 serialization is being performed, so if a single continuous stream is being
+     *                 used it is valid for the callback to write its own metadata to that stream
+     *                 in response to callback invocation.
+     * @param executor The executor to invoke the callback on. Recommend using a background thread
+     *                 to avoid stalling the UI thread. Must be an asynchronous invoke or an
+     *                 exception will be thrown.
+     * @return a closeable that can be used to stop capturing. May be invoked on any thread. Note
+     * that the callback may continue to receive another frame or two depending on thread timings.
+     * Returns null if the capture stream cannot be started, such as if there's no
+     * HardwareRenderer for the given view tree.
+     * @hide
+     */
+    @TestApi
+    @Nullable
+    public static AutoCloseable startRenderingCommandsCapture(View tree, Executor executor,
+            Callable<OutputStream> callback) {
+        final View.AttachInfo attachInfo = tree.mAttachInfo;
+        if (attachInfo == null) {
+            throw new IllegalArgumentException("Given view isn't attached");
+        }
+        if (attachInfo.mHandler.getLooper() != Looper.myLooper()) {
+            throw new IllegalStateException("Called on the wrong thread."
+                    + " Must be called on the thread that owns the given View");
+        }
+        final HardwareRenderer renderer = attachInfo.mThreadedRenderer;
+        if (renderer != null) {
+            return new StreamingPictureCallbackHandler(renderer, callback, executor);
+        }
+        return null;
+    }
+
     private static void capture(View root, final OutputStream clientStream, String parameter)
             throws IOException {
 
@@ -780,16 +1127,15 @@ public class ViewDebug {
             final CountDownLatch latch = new CountDownLatch(1);
             final Bitmap[] cache = new Bitmap[1];
 
-            captureView.post(new Runnable() {
-                public void run() {
-                    try {
-                        cache[0] = captureView.createSnapshot(
-                                Bitmap.Config.ARGB_8888, 0, skipChildren);
-                    } catch (OutOfMemoryError e) {
-                        Log.w("View", "Out of memory for bitmap");
-                    } finally {
-                        latch.countDown();
-                    }
+            captureView.post(() -> {
+                try {
+                    CanvasProvider provider = captureView.isHardwareAccelerated()
+                            ? new HardwareCanvasProvider() : new SoftwareCanvasProvider();
+                    cache[0] = captureView.createSnapshot(provider, skipChildren);
+                } catch (OutOfMemoryError e) {
+                    Log.w("View", "Out of memory for bitmap");
+                } finally {
+                    latch.countDown();
                 }
             });
 
@@ -810,6 +1156,8 @@ public class ViewDebug {
      * @deprecated See {@link #dumpv2(View, ByteArrayOutputStream)} below.
      * @hide
      */
+    @Deprecated
+    @UnsupportedAppUsage
     public static void dump(View root, boolean skipChildren, boolean includeProperties,
             OutputStream clientStream) throws IOException {
         BufferedWriter out = null;
@@ -845,6 +1193,8 @@ public class ViewDebug {
         view.post(new Runnable() {
             @Override
             public void run() {
+                encoder.addProperty("window:left", view.mAttachInfo.mWindowLeft);
+                encoder.addProperty("window:top", view.mAttachInfo.mWindowTop);
                 view.encode(encoder);
                 latch.countDown();
             }
@@ -852,6 +1202,19 @@ public class ViewDebug {
 
         latch.await(2, TimeUnit.SECONDS);
         encoder.endStream();
+    }
+
+    private static void dumpEncoded(@NonNull final View view, @NonNull OutputStream out)
+            throws IOException {
+        ByteArrayOutputStream baOut = new ByteArrayOutputStream();
+
+        final ViewHierarchyEncoder encoder = new ViewHierarchyEncoder(baOut);
+        encoder.setUserPropertiesEnabled(false);
+        encoder.addProperty("window:left", view.mAttachInfo.mWindowLeft);
+        encoder.addProperty("window:top", view.mAttachInfo.mWindowTop);
+        view.encode(encoder);
+        encoder.endStream();
+        out.write(baOut.toByteArray());
     }
 
     /**
@@ -965,6 +1328,69 @@ public class ViewDebug {
 
     private static void dumpViewHierarchy(Context context, ViewGroup group,
             BufferedWriter out, int level, boolean skipChildren, boolean includeProperties) {
+        cacheExportedProperties(group.getClass());
+        if (!skipChildren) {
+            cacheExportedPropertiesForChildren(group);
+        }
+        // Try to use the handler provided by the view
+        Handler handler = group.getHandler();
+        // Fall back on using the main thread
+        if (handler == null) {
+            handler = new Handler(Looper.getMainLooper());
+        }
+
+        if (handler.getLooper() == Looper.myLooper()) {
+            dumpViewHierarchyOnUIThread(context, group, out, level, skipChildren,
+                    includeProperties);
+        } else {
+            FutureTask task = new FutureTask(() ->
+                    dumpViewHierarchyOnUIThread(context, group, out, level, skipChildren,
+                            includeProperties), null);
+            Message msg = Message.obtain(handler, task);
+            msg.setAsynchronous(true);
+            handler.sendMessage(msg);
+            while (true) {
+                try {
+                    task.get(CAPTURE_TIMEOUT, java.util.concurrent.TimeUnit.MILLISECONDS);
+                    return;
+                } catch (InterruptedException e) {
+                    // try again
+                } catch (ExecutionException | TimeoutException e) {
+                    // Something unexpected happened.
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+    }
+
+    private static void cacheExportedPropertiesForChildren(ViewGroup group) {
+        final int count = group.getChildCount();
+        for (int i = 0; i < count; i++) {
+            final View view = group.getChildAt(i);
+            cacheExportedProperties(view.getClass());
+            if (view instanceof ViewGroup) {
+                cacheExportedPropertiesForChildren((ViewGroup) view);
+            }
+        }
+    }
+
+    private static void cacheExportedProperties(Class<?> klass) {
+        if (sExportProperties != null && sExportProperties.containsKey(klass)) {
+            return;
+        }
+        do {
+            for (PropertyInfo<ExportedProperty, ?> info : getExportedProperties(klass)) {
+                if (!info.returnType.isPrimitive() && info.property.deepExport()) {
+                    cacheExportedProperties(info.returnType);
+                }
+            }
+            klass = klass.getSuperclass();
+        } while (klass != Object.class);
+    }
+
+
+    private static void dumpViewHierarchyOnUIThread(Context context, ViewGroup group,
+            BufferedWriter out, int level, boolean skipChildren, boolean includeProperties) {
         if (!dumpView(context, group, out, level, includeProperties)) {
             return;
         }
@@ -977,16 +1403,16 @@ public class ViewDebug {
         for (int i = 0; i < count; i++) {
             final View view = group.getChildAt(i);
             if (view instanceof ViewGroup) {
-                dumpViewHierarchy(context, (ViewGroup) view, out, level + 1, skipChildren,
-                        includeProperties);
+                dumpViewHierarchyOnUIThread(context, (ViewGroup) view, out, level + 1,
+                        skipChildren, includeProperties);
             } else {
                 dumpView(context, view, out, level + 1, includeProperties);
             }
             if (view.mOverlay != null) {
                 ViewOverlay overlay = view.getOverlay();
                 ViewGroup overlayContainer = overlay.mOverlayViewGroup;
-                dumpViewHierarchy(context, overlayContainer, out, level + 2, skipChildren,
-                        includeProperties);
+                dumpViewHierarchyOnUIThread(context, overlayContainer, out, level + 2,
+                        skipChildren, includeProperties);
             }
         }
         if (group instanceof HierarchyHandler) {
@@ -1020,81 +1446,28 @@ public class ViewDebug {
         return true;
     }
 
-    private static Field[] getExportedPropertyFields(Class<?> klass) {
-        if (sFieldsForClasses == null) {
-            sFieldsForClasses = new HashMap<Class<?>, Field[]>();
-        }
-        if (sAnnotations == null) {
-            sAnnotations = new HashMap<AccessibleObject, ExportedProperty>(512);
-        }
-
-        final HashMap<Class<?>, Field[]> map = sFieldsForClasses;
-
-        Field[] fields = map.get(klass);
-        if (fields != null) {
-            return fields;
-        }
-
-        try {
-            final Field[] declaredFields = klass.getDeclaredFieldsUnchecked(false);
-            final ArrayList<Field> foundFields = new ArrayList<Field>();
-            for (final Field field : declaredFields) {
-              // Fields which can't be resolved have a null type.
-              if (field.getType() != null && field.isAnnotationPresent(ExportedProperty.class)) {
-                  field.setAccessible(true);
-                  foundFields.add(field);
-                  sAnnotations.put(field, field.getAnnotation(ExportedProperty.class));
-              }
-            }
-            fields = foundFields.toArray(new Field[foundFields.size()]);
-            map.put(klass, fields);
-        } catch (NoClassDefFoundError e) {
-            throw new AssertionError(e);
-        }
-
-        return fields;
+    private static <T extends Annotation> PropertyInfo<T, ?>[] convertToPropertyInfos(
+            Method[] methods, Field[] fields, Class<T> property) {
+        return Stream.of(Arrays.stream(methods).map(m -> PropertyInfo.forMethod(m, property)),
+                Arrays.stream(fields).map(f -> PropertyInfo.forField(f, property)))
+                .flatMap(Function.identity())
+                .filter(i -> i != null)
+                .toArray(PropertyInfo[]::new);
     }
 
-    private static Method[] getExportedPropertyMethods(Class<?> klass) {
-        if (sMethodsForClasses == null) {
-            sMethodsForClasses = new HashMap<Class<?>, Method[]>(100);
+    private static PropertyInfo<ExportedProperty, ?>[] getExportedProperties(Class<?> klass) {
+        if (sExportProperties == null) {
+            sExportProperties = new HashMap<>();
         }
-        if (sAnnotations == null) {
-            sAnnotations = new HashMap<AccessibleObject, ExportedProperty>(512);
+        final HashMap<Class<?>, PropertyInfo<ExportedProperty, ?>[]> map = sExportProperties;
+        PropertyInfo<ExportedProperty, ?>[] properties = sExportProperties.get(klass);
+
+        if (properties == null) {
+            properties = convertToPropertyInfos(klass.getDeclaredMethodsUnchecked(false),
+                    klass.getDeclaredFieldsUnchecked(false), ExportedProperty.class);
+            map.put(klass, properties);
         }
-
-        final HashMap<Class<?>, Method[]> map = sMethodsForClasses;
-
-        Method[] methods = map.get(klass);
-        if (methods != null) {
-            return methods;
-        }
-
-        methods = klass.getDeclaredMethodsUnchecked(false);
-
-        final ArrayList<Method> foundMethods = new ArrayList<Method>();
-        for (final Method method : methods) {
-            // Ensure the method return and parameter types can be resolved.
-            try {
-                method.getReturnType();
-                method.getParameterTypes();
-            } catch (NoClassDefFoundError e) {
-                continue;
-            }
-
-            if (method.getParameterTypes().length == 0 &&
-                    method.isAnnotationPresent(ExportedProperty.class) &&
-                    method.getReturnType() != Void.class) {
-                method.setAccessible(true);
-                foundMethods.add(method);
-                sAnnotations.put(method, method.getAnnotation(ExportedProperty.class));
-            }
-        }
-
-        methods = foundMethods.toArray(new Method[foundMethods.size()]);
-        map.put(klass, methods);
-
-        return methods;
+        return properties;
     }
 
     private static void dumpViewProperties(Context context, Object view,
@@ -1113,232 +1486,97 @@ public class ViewDebug {
 
         Class<?> klass = view.getClass();
         do {
-            exportFields(context, view, out, klass, prefix);
-            exportMethods(context, view, out, klass, prefix);
+            writeExportedProperties(context, view, out, klass, prefix);
             klass = klass.getSuperclass();
         } while (klass != Object.class);
-    }
-
-    private static Object callMethodOnAppropriateTheadBlocking(final Method method,
-            final Object object) throws IllegalAccessException, InvocationTargetException,
-            TimeoutException {
-        if (!(object instanceof View)) {
-            return method.invoke(object, (Object[]) null);
-        }
-
-        final View view = (View) object;
-        Callable<Object> callable = new Callable<Object>() {
-            @Override
-            public Object call() throws IllegalAccessException, InvocationTargetException {
-                return method.invoke(view, (Object[]) null);
-            }
-        };
-        FutureTask<Object> future = new FutureTask<Object>(callable);
-        // Try to use the handler provided by the view
-        Handler handler = view.getHandler();
-        // Fall back on using the main thread
-        if (handler == null) {
-            handler = new Handler(android.os.Looper.getMainLooper());
-        }
-        handler.post(future);
-        while (true) {
-            try {
-                return future.get(CAPTURE_TIMEOUT, java.util.concurrent.TimeUnit.MILLISECONDS);
-            } catch (ExecutionException e) {
-                Throwable t = e.getCause();
-                if (t instanceof IllegalAccessException) {
-                    throw (IllegalAccessException)t;
-                }
-                if (t instanceof InvocationTargetException) {
-                    throw (InvocationTargetException)t;
-                }
-                throw new RuntimeException("Unexpected exception", t);
-            } catch (InterruptedException e) {
-                // Call get again
-            } catch (CancellationException e) {
-                throw new RuntimeException("Unexpected cancellation exception", e);
-            }
-        }
     }
 
     private static String formatIntToHexString(int value) {
         return "0x" + Integer.toHexString(value).toUpperCase();
     }
 
-    private static void exportMethods(Context context, Object view, BufferedWriter out,
+    private static void writeExportedProperties(Context context, Object view, BufferedWriter out,
             Class<?> klass, String prefix) throws IOException {
-
-        final Method[] methods = getExportedPropertyMethods(klass);
-        int count = methods.length;
-        for (int i = 0; i < count; i++) {
-            final Method method = methods[i];
+        for (PropertyInfo<ExportedProperty, ?> info : getExportedProperties(klass)) {
             //noinspection EmptyCatchBlock
+            Object value;
             try {
-                Object methodValue = callMethodOnAppropriateTheadBlocking(method, view);
-                final Class<?> returnType = method.getReturnType();
-                final ExportedProperty property = sAnnotations.get(method);
-                String categoryPrefix =
-                        property.category().length() != 0 ? property.category() + ":" : "";
-
-                if (returnType == int.class) {
-                    if (property.resolveId() && context != null) {
-                        final int id = (Integer) methodValue;
-                        methodValue = resolveId(context, id);
-                    } else {
-                        final FlagToString[] flagsMapping = property.flagMapping();
-                        if (flagsMapping.length > 0) {
-                            final int intValue = (Integer) methodValue;
-                            final String valuePrefix =
-                                    categoryPrefix + prefix + method.getName() + '_';
-                            exportUnrolledFlags(out, flagsMapping, intValue, valuePrefix);
-                        }
-
-                        final IntToString[] mapping = property.mapping();
-                        if (mapping.length > 0) {
-                            final int intValue = (Integer) methodValue;
-                            boolean mapped = false;
-                            int mappingCount = mapping.length;
-                            for (int j = 0; j < mappingCount; j++) {
-                                final IntToString mapper = mapping[j];
-                                if (mapper.from() == intValue) {
-                                    methodValue = mapper.to();
-                                    mapped = true;
-                                    break;
-                                }
-                            }
-
-                            if (!mapped) {
-                                methodValue = intValue;
-                            }
-                        }
-                    }
-                } else if (returnType == int[].class) {
-                    final int[] array = (int[]) methodValue;
-                    final String valuePrefix = categoryPrefix + prefix + method.getName() + '_';
-                    final String suffix = "()";
-
-                    exportUnrolledArray(context, out, property, array, valuePrefix, suffix);
-
-                    continue;
-                } else if (returnType == String[].class) {
-                    final String[] array = (String[]) methodValue;
-                    if (property.hasAdjacentMapping() && array != null) {
-                        for (int j = 0; j < array.length; j += 2) {
-                            if (array[j] != null) {
-                                writeEntry(out, categoryPrefix + prefix, array[j], "()",
-                                        array[j + 1] == null ? "null" : array[j + 1]);
-                            }
-
-                        }
-                    }
-
-                    continue;
-                } else if (!returnType.isPrimitive()) {
-                    if (property.deepExport()) {
-                        dumpViewProperties(context, methodValue, out, prefix + property.prefix());
-                        continue;
-                    }
-                }
-
-                writeEntry(out, categoryPrefix + prefix, method.getName(), "()", methodValue);
-            } catch (IllegalAccessException e) {
-            } catch (InvocationTargetException e) {
-            } catch (TimeoutException e) {
+                value = info.invoke(view);
+            } catch (Exception e) {
+                // ignore
+                continue;
             }
-        }
-    }
 
-    private static void exportFields(Context context, Object view, BufferedWriter out,
-            Class<?> klass, String prefix) throws IOException {
+            String categoryPrefix =
+                    info.property.category().length() != 0 ? info.property.category() + ":" : "";
 
-        final Field[] fields = getExportedPropertyFields(klass);
+            if (info.returnType == int.class || info.returnType == byte.class) {
+                if (info.property.resolveId() && context != null) {
+                    final int id = (Integer) value;
+                    value = resolveId(context, id);
 
-        int count = fields.length;
-        for (int i = 0; i < count; i++) {
-            final Field field = fields[i];
-
-            //noinspection EmptyCatchBlock
-            try {
-                Object fieldValue = null;
-                final Class<?> type = field.getType();
-                final ExportedProperty property = sAnnotations.get(field);
-                String categoryPrefix =
-                        property.category().length() != 0 ? property.category() + ":" : "";
-
-                if (type == int.class || type == byte.class) {
-                    if (property.resolveId() && context != null) {
-                        final int id = field.getInt(view);
-                        fieldValue = resolveId(context, id);
-                    } else {
-                        final FlagToString[] flagsMapping = property.flagMapping();
-                        if (flagsMapping.length > 0) {
-                            final int intValue = field.getInt(view);
-                            final String valuePrefix =
-                                    categoryPrefix + prefix + field.getName() + '_';
-                            exportUnrolledFlags(out, flagsMapping, intValue, valuePrefix);
-                        }
-
-                        final IntToString[] mapping = property.mapping();
-                        if (mapping.length > 0) {
-                            final int intValue = field.getInt(view);
-                            int mappingCount = mapping.length;
-                            for (int j = 0; j < mappingCount; j++) {
-                                final IntToString mapped = mapping[j];
-                                if (mapped.from() == intValue) {
-                                    fieldValue = mapped.to();
-                                    break;
-                                }
-                            }
-
-                            if (fieldValue == null) {
-                                fieldValue = intValue;
-                            }
-                        }
-
-                        if (property.formatToHexString()) {
-                            fieldValue = field.get(view);
-                            if (type == int.class) {
-                                fieldValue = formatIntToHexString((Integer) fieldValue);
-                            } else if (type == byte.class) {
-                                fieldValue = "0x" + Byte.toHexString((Byte) fieldValue, true);
-                            }
-                        }
+                } else if (info.property.formatToHexString()) {
+                    if (info.returnType == int.class) {
+                        value = formatIntToHexString((Integer) value);
+                    } else if (info.returnType == byte.class) {
+                        value = "0x"
+                                + HexEncoding.encodeToString((Byte) value, true);
                     }
-                } else if (type == int[].class) {
-                    final int[] array = (int[]) field.get(view);
-                    final String valuePrefix = categoryPrefix + prefix + field.getName() + '_';
-                    final String suffix = "";
-
-                    exportUnrolledArray(context, out, property, array, valuePrefix, suffix);
-
-                    continue;
-                } else if (type == String[].class) {
-                    final String[] array = (String[]) field.get(view);
-                    if (property.hasAdjacentMapping() && array != null) {
-                        for (int j = 0; j < array.length; j += 2) {
-                            if (array[j] != null) {
-                                writeEntry(out, categoryPrefix + prefix, array[j], "",
-                                        array[j + 1] == null ? "null" : array[j + 1]);
-                            }
-                        }
+                } else {
+                    final ViewDebug.FlagToString[] flagsMapping = info.property.flagMapping();
+                    if (flagsMapping.length > 0) {
+                        final int intValue = (Integer) value;
+                        final String valuePrefix =
+                                categoryPrefix + prefix + info.name + '_';
+                        exportUnrolledFlags(out, flagsMapping, intValue, valuePrefix);
                     }
 
-                    continue;
-                } else if (!type.isPrimitive()) {
-                    if (property.deepExport()) {
-                        dumpViewProperties(context, field.get(view), out, prefix +
-                                property.prefix());
-                        continue;
+                    final ViewDebug.IntToString[] mapping = info.property.mapping();
+                    if (mapping.length > 0) {
+                        final int intValue = (Integer) value;
+                        boolean mapped = false;
+                        int mappingCount = mapping.length;
+                        for (int j = 0; j < mappingCount; j++) {
+                            final ViewDebug.IntToString mapper = mapping[j];
+                            if (mapper.from() == intValue) {
+                                value = mapper.to();
+                                mapped = true;
+                                break;
+                            }
+                        }
+
+                        if (!mapped) {
+                            value = intValue;
+                        }
+                    }
+                }
+            } else if (info.returnType == int[].class) {
+                final int[] array = (int[]) value;
+                final String valuePrefix = categoryPrefix + prefix + info.name + '_';
+                exportUnrolledArray(context, out, info.property, array, valuePrefix,
+                        info.entrySuffix);
+
+                continue;
+            } else if (info.returnType == String[].class) {
+                final String[] array = (String[]) value;
+                if (info.property.hasAdjacentMapping() && array != null) {
+                    for (int j = 0; j < array.length; j += 2) {
+                        if (array[j] != null) {
+                            writeEntry(out, categoryPrefix + prefix, array[j],
+                                    info.entrySuffix, array[j + 1] == null ? "null" : array[j + 1]);
+                        }
                     }
                 }
 
-                if (fieldValue == null) {
-                    fieldValue = field.get(view);
+                continue;
+            } else if (!info.returnType.isPrimitive()) {
+                if (info.property.deepExport()) {
+                    dumpViewProperties(context, value, out, prefix + info.property.prefix());
+                    continue;
                 }
-
-                writeEntry(out, categoryPrefix + prefix, field.getName(), "", fieldValue);
-            } catch (IllegalAccessException e) {
             }
+
+            writeEntry(out, categoryPrefix + prefix, info.name, info.entrySuffix, value);
         }
     }
 
@@ -1367,6 +1605,81 @@ public class ViewDebug {
                 final String value = formatIntToHexString(maskResult);
                 writeEntry(out, prefix, name, "", value);
             }
+        }
+    }
+
+    /**
+     * Converts an integer from a field that is mapped with {@link IntToString} to its string
+     * representation.
+     *
+     * @param clazz The class the field is defined on.
+     * @param field The field on which the {@link ExportedProperty} is defined on.
+     * @param integer The value to convert.
+     * @return The value converted into its string representation.
+     * @hide
+     */
+    public static String intToString(Class<?> clazz, String field, int integer) {
+        final IntToString[] mapping = getMapping(clazz, field);
+        if (mapping == null) {
+            return Integer.toString(integer);
+        }
+        final int count = mapping.length;
+        for (int j = 0; j < count; j++) {
+            final IntToString map = mapping[j];
+            if (map.from() == integer) {
+                return map.to();
+            }
+        }
+        return Integer.toString(integer);
+    }
+
+    /**
+     * Converts a set of flags from a field that is mapped with {@link FlagToString} to its string
+     * representation.
+     *
+     * @param clazz The class the field is defined on.
+     * @param field The field on which the {@link ExportedProperty} is defined on.
+     * @param flags The flags to convert.
+     * @return The flags converted into their string representations.
+     * @hide
+     */
+    public static String flagsToString(Class<?> clazz, String field, int flags) {
+        final FlagToString[] mapping = getFlagMapping(clazz, field);
+        if (mapping == null) {
+            return Integer.toHexString(flags);
+        }
+        final StringBuilder result = new StringBuilder();
+        final int count = mapping.length;
+        for (int j = 0; j < count; j++) {
+            final FlagToString flagMapping = mapping[j];
+            final boolean ifTrue = flagMapping.outputIf();
+            final int maskResult = flags & flagMapping.mask();
+            final boolean test = maskResult == flagMapping.equals();
+            if (test && ifTrue) {
+                final String name = flagMapping.name();
+                result.append(name).append(' ');
+            }
+        }
+        if (result.length() > 0) {
+            result.deleteCharAt(result.length() - 1);
+        }
+        return result.toString();
+    }
+
+    private static FlagToString[] getFlagMapping(Class<?> clazz, String field) {
+        try {
+            return clazz.getDeclaredField(field).getAnnotation(ExportedProperty.class)
+                    .flagMapping();
+        } catch (NoSuchFieldException e) {
+            return null;
+        }
+    }
+
+    private static IntToString[] getMapping(Class<?> clazz, String field) {
+        try {
+            return clazz.getDeclaredField(field).getAnnotation(ExportedProperty.class).mapping();
+        } catch (NoSuchFieldException e) {
+            return null;
         }
     }
 
@@ -1453,91 +1766,40 @@ public class ViewDebug {
         }
     }
 
-    private static Field[] capturedViewGetPropertyFields(Class<?> klass) {
-        if (mCapturedViewFieldsForClasses == null) {
-            mCapturedViewFieldsForClasses = new HashMap<Class<?>, Field[]>();
+    private static PropertyInfo<CapturedViewProperty, ?>[] getCapturedViewProperties(
+            Class<?> klass) {
+        if (sCapturedViewProperties == null) {
+            sCapturedViewProperties = new HashMap<>();
         }
-        final HashMap<Class<?>, Field[]> map = mCapturedViewFieldsForClasses;
+        final HashMap<Class<?>, PropertyInfo<CapturedViewProperty, ?>[]> map =
+                sCapturedViewProperties;
 
-        Field[] fields = map.get(klass);
-        if (fields != null) {
-            return fields;
+        PropertyInfo<CapturedViewProperty, ?>[] infos = map.get(klass);
+        if (infos == null) {
+            infos = convertToPropertyInfos(klass.getMethods(), klass.getFields(),
+                    CapturedViewProperty.class);
+            map.put(klass, infos);
         }
-
-        final ArrayList<Field> foundFields = new ArrayList<Field>();
-        fields = klass.getFields();
-
-        int count = fields.length;
-        for (int i = 0; i < count; i++) {
-            final Field field = fields[i];
-            if (field.isAnnotationPresent(CapturedViewProperty.class)) {
-                field.setAccessible(true);
-                foundFields.add(field);
-            }
-        }
-
-        fields = foundFields.toArray(new Field[foundFields.size()]);
-        map.put(klass, fields);
-
-        return fields;
+        return infos;
     }
 
-    private static Method[] capturedViewGetPropertyMethods(Class<?> klass) {
-        if (mCapturedViewMethodsForClasses == null) {
-            mCapturedViewMethodsForClasses = new HashMap<Class<?>, Method[]>();
-        }
-        final HashMap<Class<?>, Method[]> map = mCapturedViewMethodsForClasses;
-
-        Method[] methods = map.get(klass);
-        if (methods != null) {
-            return methods;
-        }
-
-        final ArrayList<Method> foundMethods = new ArrayList<Method>();
-        methods = klass.getMethods();
-
-        int count = methods.length;
-        for (int i = 0; i < count; i++) {
-            final Method method = methods[i];
-            if (method.getParameterTypes().length == 0 &&
-                    method.isAnnotationPresent(CapturedViewProperty.class) &&
-                    method.getReturnType() != Void.class) {
-                method.setAccessible(true);
-                foundMethods.add(method);
-            }
-        }
-
-        methods = foundMethods.toArray(new Method[foundMethods.size()]);
-        map.put(klass, methods);
-
-        return methods;
-    }
-
-    private static String capturedViewExportMethods(Object obj, Class<?> klass,
-            String prefix) {
-
+    private static String exportCapturedViewProperties(Object obj, Class<?> klass, String prefix) {
         if (obj == null) {
             return "null";
         }
 
         StringBuilder sb = new StringBuilder();
-        final Method[] methods = capturedViewGetPropertyMethods(klass);
 
-        int count = methods.length;
-        for (int i = 0; i < count; i++) {
-            final Method method = methods[i];
+        for (PropertyInfo<CapturedViewProperty, ?> pi : getCapturedViewProperties(klass)) {
             try {
-                Object methodValue = method.invoke(obj, (Object[]) null);
-                final Class<?> returnType = method.getReturnType();
+                Object methodValue = pi.invoke(obj);
 
-                CapturedViewProperty property = method.getAnnotation(CapturedViewProperty.class);
-                if (property.retrieveReturn()) {
+                if (pi.property.retrieveReturn()) {
                     //we are interested in the second level data only
-                    sb.append(capturedViewExportMethods(methodValue, returnType, method.getName() + "#"));
+                    sb.append(exportCapturedViewProperties(methodValue, pi.returnType,
+                            pi.name + "#"));
                 } else {
-                    sb.append(prefix);
-                    sb.append(method.getName());
-                    sb.append("()=");
+                    sb.append(prefix).append(pi.name).append(pi.entrySuffix).append("=");
 
                     if (methodValue != null) {
                         final String value = methodValue.toString().replace("\n", "\\n");
@@ -1545,47 +1807,10 @@ public class ViewDebug {
                     } else {
                         sb.append("null");
                     }
-                    sb.append("; ");
+                    sb.append(pi.valueSuffix).append(" ");
                 }
-            } catch (IllegalAccessException e) {
-                //Exception IllegalAccess, it is OK here
-                //we simply ignore this method
-            } catch (InvocationTargetException e) {
-                //Exception InvocationTarget, it is OK here
-                //we simply ignore this method
-            }
-        }
-        return sb.toString();
-    }
-
-    private static String capturedViewExportFields(Object obj, Class<?> klass, String prefix) {
-        if (obj == null) {
-            return "null";
-        }
-
-        StringBuilder sb = new StringBuilder();
-        final Field[] fields = capturedViewGetPropertyFields(klass);
-
-        int count = fields.length;
-        for (int i = 0; i < count; i++) {
-            final Field field = fields[i];
-            try {
-                Object fieldValue = field.get(obj);
-
-                sb.append(prefix);
-                sb.append(field.getName());
-                sb.append("=");
-
-                if (fieldValue != null) {
-                    final String value = fieldValue.toString().replace("\n", "\\n");
-                    sb.append(value);
-                } else {
-                    sb.append("null");
-                }
-                sb.append(' ');
-            } catch (IllegalAccessException e) {
-                //Exception IllegalAccess, it is OK here
-                //we simply ignore this field
+            } catch (Exception e) {
+                //It is OK here, we simply ignore this property
             }
         }
         return sb.toString();
@@ -1601,8 +1826,7 @@ public class ViewDebug {
     public static void dumpCapturedView(String tag, Object view) {
         Class<?> klass = view.getClass();
         StringBuilder sb = new StringBuilder(klass.getName() + ": ");
-        sb.append(capturedViewExportFields(view, klass, ""));
-        sb.append(capturedViewExportMethods(view, klass, ""));
+        sb.append(exportCapturedViewProperties(view, klass, ""));
         Log.d(tag, sb.toString());
     }
 
@@ -1668,5 +1892,78 @@ public class ViewDebug {
                 view.setLayoutParams(p);
             }
         });
+    }
+
+    /**
+     * @hide
+     */
+    public static class SoftwareCanvasProvider implements CanvasProvider {
+
+        private Canvas mCanvas;
+        private Bitmap mBitmap;
+        private boolean mEnabledHwBitmapsInSwMode;
+
+        @Override
+        public Canvas getCanvas(View view, int width, int height) {
+            mBitmap = Bitmap.createBitmap(view.getResources().getDisplayMetrics(),
+                    width, height, Bitmap.Config.ARGB_8888);
+            if (mBitmap == null) {
+                throw new OutOfMemoryError();
+            }
+            mBitmap.setDensity(view.getResources().getDisplayMetrics().densityDpi);
+
+            if (view.mAttachInfo != null) {
+                mCanvas = view.mAttachInfo.mCanvas;
+            }
+            if (mCanvas == null) {
+                mCanvas = new Canvas();
+            }
+            mEnabledHwBitmapsInSwMode = mCanvas.isHwBitmapsInSwModeEnabled();
+            mCanvas.setBitmap(mBitmap);
+            return mCanvas;
+        }
+
+        @Override
+        public Bitmap createBitmap() {
+            mCanvas.setBitmap(null);
+            mCanvas.setHwBitmapsInSwModeEnabled(mEnabledHwBitmapsInSwMode);
+            return mBitmap;
+        }
+    }
+
+    /**
+     * @hide
+     */
+    public static class HardwareCanvasProvider implements CanvasProvider {
+        private Picture mPicture;
+
+        @Override
+        public Canvas getCanvas(View view, int width, int height) {
+            mPicture = new Picture();
+            return mPicture.beginRecording(width, height);
+        }
+
+        @Override
+        public Bitmap createBitmap() {
+            mPicture.endRecording();
+            return Bitmap.createBitmap(mPicture);
+        }
+    }
+
+    /**
+     * @hide
+     */
+    public interface CanvasProvider {
+
+        /**
+         * Returns a canvas which can be used to draw {@param view}
+         */
+        Canvas getCanvas(View view, int width, int height);
+
+        /**
+         * Creates a bitmap from previously returned canvas
+         * @return
+         */
+        Bitmap createBitmap();
     }
 }

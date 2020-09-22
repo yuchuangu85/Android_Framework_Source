@@ -75,8 +75,8 @@ public class UsbEndpoint implements Parcelable {
      * if the direction is host to device, and
      * {@link UsbConstants#USB_DIR_IN} if the
      * direction is device to host.
-     * @see {@link UsbConstants#USB_DIR_IN}
-     * @see {@link UsbConstants#USB_DIR_OUT}
+     * @see UsbConstants#USB_DIR_IN
+     * @see UsbConstants#USB_DIR_OUT
      *
      * @return the endpoint's direction
      */
@@ -133,7 +133,7 @@ public class UsbEndpoint implements Parcelable {
                 ",mMaxPacketSize=" + mMaxPacketSize + ",mInterval=" + mInterval +"]";
     }
 
-    public static final Parcelable.Creator<UsbEndpoint> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<UsbEndpoint> CREATOR =
         new Parcelable.Creator<UsbEndpoint>() {
         public UsbEndpoint createFromParcel(Parcel in) {
             int address = in.readInt();

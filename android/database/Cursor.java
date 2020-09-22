@@ -16,11 +16,15 @@
 
 package android.database;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.content.ContentResolver;
 import android.net.Uri;
 import android.os.Bundle;
 
 import java.io.Closeable;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * This interface provides random read-write access to the result set returned
@@ -343,11 +347,12 @@ public interface Cursor extends Closeable {
     boolean isNull(int columnIndex);
 
     /**
-     * Deactivates(使失效) the Cursor, making all calls on it fail until {@link #requery} is called.
-     * Inactive(闲置的) Cursors use fewer resources than active(不活跃的) Cursors.
+     * Deactivates the Cursor, making all calls on it fail until {@link #requery} is called.
+     * Inactive Cursors use fewer resources than active Cursors.
      * Calling {@link #requery} will make the cursor active again.
-     * @deprecated Since {@link #requery()} is deprecated(弃用), so too is this.
+     * @deprecated Since {@link #requery()} is deprecated, so too is this.
      */
+    @Deprecated
     void deactivate();
 
     /**
@@ -420,12 +425,33 @@ public interface Cursor extends Closeable {
     /**
      * Register to watch a content URI for changes. This can be the URI of a specific data row (for 
      * example, "content://my_provider_type/23"), or a a generic URI for a content type.
-     * 
+     *
+     * <p>Calling this overrides any previous call to
+     * {@link #setNotificationUris(ContentResolver, List)}.
+     *
      * @param cr The content resolver from the caller's context. The listener attached to 
      * this resolver will be notified.
      * @param uri The content URI to watch.
      */
     void setNotificationUri(ContentResolver cr, Uri uri);
+
+    /**
+     * Similar to {@link #setNotificationUri(ContentResolver, Uri)}, except this version allows
+     * to watch multiple content URIs for changes.
+     *
+     * <p>If this is not implemented, this is equivalent to calling
+     * {@link #setNotificationUri(ContentResolver, Uri)} with the first URI in {@code uris}.
+     *
+     * <p>Calling this overrides any previous call to
+     * {@link #setNotificationUri(ContentResolver, Uri)}.
+     *
+     * @param cr The content resolver from the caller's context. The listener attached to
+     * this resolver will be notified.
+     * @param uris The content URIs to watch.
+     */
+    default void setNotificationUris(@NonNull ContentResolver cr, @NonNull List<Uri> uris) {
+        setNotificationUri(cr, uris.get(0));
+    }
 
     /**
      * Return the URI at which notifications of changes in this Cursor's data
@@ -436,6 +462,22 @@ public interface Cursor extends Closeable {
      * data.  May be null if no notification URI has been set.
      */
     Uri getNotificationUri();
+
+    /**
+     * Return the URIs at which notifications of changes in this Cursor's data
+     * will be delivered, as previously set by {@link #setNotificationUris}.
+     *
+     * <p>If this is not implemented, this is equivalent to calling {@link #getNotificationUri()}.
+     *
+     * @return Returns URIs that can be used with
+     * {@link ContentResolver#registerContentObserver(android.net.Uri, boolean, ContentObserver)
+     * ContentResolver.registerContentObserver} to find out about changes to this Cursor's
+     * data. May be null if no notification URI has been set.
+     */
+    default @Nullable List<Uri> getNotificationUris() {
+        final Uri notifyUri = getNotificationUri();
+        return notifyUri == null ? null : Arrays.asList(notifyUri);
+    }
 
     /**
      * onMove() will only be called across processes if this method returns true.

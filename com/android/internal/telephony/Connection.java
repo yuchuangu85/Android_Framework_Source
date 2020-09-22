@@ -16,15 +16,22 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.SystemClock;
-import android.telecom.ConferenceParticipant;
 import android.telephony.DisconnectCause;
-import android.telephony.Rlog;
+import android.telephony.ServiceState;
+import android.telephony.ServiceState.RilRadioTechnology;
+import android.telephony.emergency.EmergencyNumber;
 import android.util.Log;
 
-import java.lang.Override;
+import com.android.ims.internal.ConferenceParticipant;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.emergency.EmergencyNumberTracker;
+import com.android.internal.telephony.util.TelephonyUtils;
+import com.android.telephony.Rlog;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -34,6 +41,9 @@ import java.util.concurrent.CopyOnWriteArraySet;
  * {@hide}
  */
 public abstract class Connection {
+    private static final String TAG = "Connection";
+
+    public static final String ADHOC_CONFERENCE_ADDRESS = "tel:conf-factory";
 
     public interface PostDialListener {
         void onPostDialWait();
@@ -88,7 +98,7 @@ public abstract class Connection {
     public interface Listener {
         public void onVideoStateChanged(int videoState);
         public void onConnectionCapabilitiesChanged(int capability);
-        public void onWifiChanged(boolean isWifi);
+        public void onCallRadioTechChanged(@RilRadioTechnology int vrat);
         public void onVideoProviderChanged(
                 android.telecom.Connection.VideoProvider videoProvider);
         public void onAudioQualityChanged(int audioQuality);
@@ -101,6 +111,13 @@ public abstract class Connection {
         public void onCallPullFailed(Connection externalConnection);
         public void onHandoverToWifiFailed();
         public void onConnectionEvent(String event, Bundle extras);
+        public void onRttModifyRequestReceived();
+        public void onRttModifyResponseReceived(int status);
+        public void onDisconnect(int cause);
+        public void onRttInitiated();
+        public void onRttTerminated();
+        public void onOriginalConnectionReplaced(Connection newConnection);
+        public void onIsNetworkEmergencyCallChanged(boolean isEmergencyCall);
     }
 
     /**
@@ -112,7 +129,7 @@ public abstract class Connection {
         @Override
         public void onConnectionCapabilitiesChanged(int capability) {}
         @Override
-        public void onWifiChanged(boolean isWifi) {}
+        public void onCallRadioTechChanged(@RilRadioTechnology int vrat) {}
         @Override
         public void onVideoProviderChanged(
                 android.telecom.Connection.VideoProvider videoProvider) {}
@@ -136,6 +153,20 @@ public abstract class Connection {
         public void onHandoverToWifiFailed() {}
         @Override
         public void onConnectionEvent(String event, Bundle extras) {}
+        @Override
+        public void onRttModifyRequestReceived() {}
+        @Override
+        public void onRttModifyResponseReceived(int status) {}
+        @Override
+        public void onDisconnect(int cause) {}
+        @Override
+        public void onRttInitiated() {}
+        @Override
+        public void onRttTerminated() {}
+        @Override
+        public void onOriginalConnectionReplaced(Connection newConnection) {}
+        @Override
+        public void onIsNetworkEmergencyCallChanged(boolean isEmergencyCall) {}
     }
 
     public static final int AUDIO_QUALITY_STANDARD = 1;
@@ -148,11 +179,23 @@ public abstract class Connection {
     private String mTelecomCallId;
 
     //Caller Name Display
+    @UnsupportedAppUsage
     protected String mCnapName;
+    @UnsupportedAppUsage
     protected int mCnapNamePresentation  = PhoneConstants.PRESENTATION_ALLOWED;
+    @UnsupportedAppUsage
     protected String mAddress;     // MAY BE NULL!!!
+    // The VERSTAT number verification status; defaults to not verified.
+    protected @android.telecom.Connection.VerificationStatus int mNumberVerificationStatus =
+            android.telecom.Connection.VERIFICATION_STATUS_NOT_VERIFIED;
+
+    @UnsupportedAppUsage
     protected String mDialString;          // outgoing calls only
+    protected String[] mParticipantsToDial;// outgoing calls only
+    protected boolean mIsAdhocConference;
+    @UnsupportedAppUsage
     protected int mNumberPresentation = PhoneConstants.PRESENTATION_ALLOWED;
+    @UnsupportedAppUsage
     protected boolean mIsIncoming;
     /*
      * These time/timespan values are based on System.currentTimeMillis(),
@@ -166,6 +209,7 @@ public abstract class Connection {
      * calculating deltas.
      */
     protected long mConnectTimeReal;
+    @UnsupportedAppUsage
     protected long mDuration;
     protected long mHoldingStartTime;  // The time when the Connection last transitioned
                             // into HOLDING
@@ -182,12 +226,23 @@ public abstract class Connection {
     protected int mCause = DisconnectCause.NOT_DISCONNECTED;
     protected PostDialState mPostDialState = PostDialState.NOT_STARTED;
 
+    // Store the current audio code
+    protected int mAudioCodec;
+
+    @UnsupportedAppUsage
     private static String LOG_TAG = "Connection";
 
     Object mUserData;
     private int mVideoState;
     private int mConnectionCapabilities;
-    private boolean mIsWifi;
+    /**
+     * Determines the call radio technology for current connection.
+     *
+     * This is used to propagate the call radio technology to upper layer.
+     */
+    private @RilRadioTechnology int mCallRadioTech =
+            ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN;
+    private boolean mAudioModeIsVoip;
     private int mAudioQuality;
     private int mCallSubstate;
     private android.telecom.Connection.VideoProvider mVideoProvider;
@@ -196,6 +251,26 @@ public abstract class Connection {
     private int mPhoneType;
     private boolean mAnsweringDisconnectsActiveCall;
     private boolean mAllowAddCallDuringVideoCall;
+    private boolean mAllowHoldingVideoCall;
+
+    private boolean mIsEmergencyCall;
+
+    /**
+     * The emergency number information, only valid if {@link #isEmergencyCall} returns
+     * {@code true}.
+     */
+    private EmergencyNumber mEmergencyNumberInfo;
+
+    /**
+     * Whether the call is from emergency dialer, only valid if {@link #isEmergencyCall} returns
+     * {@code true}.
+     */
+    private boolean mHasKnownUserIntentEmergency;
+
+    /**
+     * When {@code true}, the network has indicated that this is an emergency call.
+     */
+    private boolean mIsNetworkIdentifiedEmergencyCall;
 
     /**
      * Used to indicate that this originated from pulling a {@link android.telecom.Connection} with
@@ -210,6 +285,7 @@ public abstract class Connection {
      */
     private int mPulledDialogId;
 
+    @UnsupportedAppUsage
     protected Connection(int phoneType) {
         mPhoneType = phoneType;
     }
@@ -240,8 +316,23 @@ public abstract class Connection {
      * @return address or null if unavailable
      */
 
+    @UnsupportedAppUsage
     public String getAddress() {
         return mAddress;
+    }
+
+    /**
+     * Gets the participants address (e.g. phone number) associated with connection.
+     *
+     * @return address or null if unavailable
+     */
+    public String[] getParticipantsToDial() {
+        return mParticipantsToDial;
+    }
+
+    // return whether connection is AdhocConference or not
+    public boolean isAdhocConference() {
+        return mIsAdhocConference;
     }
 
     /**
@@ -261,6 +352,15 @@ public abstract class Connection {
     }
 
     /**
+     * Get the number, as set by {@link #restoreDialedNumberAfterConversion(String)}.
+     * @return The converted number.
+     */
+    @VisibleForTesting
+    public String getConvertedNumber() {
+        return mConvertedNumber;
+    }
+
+    /**
      * Gets CNAP presentation associated with connection.
      * @return cnap name or null if unavailable
      */
@@ -272,6 +372,7 @@ public abstract class Connection {
     /**
      * @return Call that owns this Connection, or null if none
      */
+    @UnsupportedAppUsage
     public abstract Call getCall();
 
     /**
@@ -280,6 +381,7 @@ public abstract class Connection {
      * Effectively, when an incoming call starts ringing or an
      * outgoing call starts dialing
      */
+    @UnsupportedAppUsage
     public long getCreateTime() {
         return mCreateTime;
     }
@@ -290,6 +392,7 @@ public abstract class Connection {
      * For incoming calls: Begins at (INCOMING|WAITING) -> ACTIVE transition.
      * Returns 0 before then.
      */
+    @UnsupportedAppUsage
     public long getConnectTime() {
         return mConnectTime;
     }
@@ -301,6 +404,15 @@ public abstract class Connection {
      */
     public void setConnectTime(long connectTime) {
         mConnectTime = connectTime;
+    }
+
+    /**
+     * Sets the Connection connect time in {@link SystemClock#elapsedRealtime()} format.
+     *
+     * @param connectTimeReal the new connect time.
+     */
+    public void setConnectTimeReal(long connectTimeReal) {
+        mConnectTimeReal = connectTimeReal;
     }
 
     /**
@@ -318,6 +430,7 @@ public abstract class Connection {
      * The time when this Connection makes a transition into ENDED or FAIL.
      * Returns 0 before then.
      */
+    @UnsupportedAppUsage
     public abstract long getDisconnectTime();
 
     /**
@@ -326,6 +439,7 @@ public abstract class Connection {
      * If the call is still connected, then returns the elapsed
      * time since connect.
      */
+    @UnsupportedAppUsage
     public long getDurationMillis() {
         if (mConnectTimeReal == 0) {
             return 0;
@@ -358,6 +472,7 @@ public abstract class Connection {
      * {@link android.telephony.DisconnectCause}. If the call is not yet
      * disconnected, NOT_DISCONNECTED is returned.
      */
+    @UnsupportedAppUsage
     public int getDisconnectCause() {
         return mCause;
     }
@@ -376,8 +491,95 @@ public abstract class Connection {
      * ("MT" or mobile terminated; another party called this terminal)
      * or false if this call originated here (MO or mobile originated).
      */
+    @UnsupportedAppUsage
     public boolean isIncoming() {
         return mIsIncoming;
+    }
+
+    /**
+     * Sets whether this call is an incoming call or not.
+     * @param isIncoming {@code true} if the call is an incoming call, {@code false} if it is an
+     *                               outgoing call.
+     */
+    public void setIsIncoming(boolean isIncoming) {
+        mIsIncoming = isIncoming;
+    }
+
+    /**
+     * Checks if the connection is for an emergency call.
+     *
+     * @return {@code true} if the call is an emergency call
+     *         or {@code false} otherwise.
+     */
+    public boolean isEmergencyCall() {
+        return mIsEmergencyCall;
+    }
+
+    /**
+     * Get the emergency number info. The value is valid only if {@link #isEmergencyCall()}
+     * returns {@code true}.
+     *
+     * @return the emergency number info
+     */
+    public EmergencyNumber getEmergencyNumberInfo() {
+        return mEmergencyNumberInfo;
+    }
+
+    /**
+     * Checks if we have known the user's intent for the call is emergency.
+     *
+     * This is only used to specify when the dialed number is ambiguous, identified as both
+     * emergency number and any other non-emergency number; e.g. in some situation, 611 could
+     * be both an emergency number in a country and a non-emergency number of a carrier's
+     * customer service hotline.
+     *
+     * @return whether the call is from emergency dialer
+     */
+    public boolean hasKnownUserIntentEmergency() {
+        return mHasKnownUserIntentEmergency;
+    }
+
+    /**
+     * Set the emergency number information if it is an emergency call.
+     *
+     * @hide
+     */
+    public void setEmergencyCallInfo(CallTracker ct) {
+        if (ct != null) {
+            Phone phone = ct.getPhone();
+            if (phone != null) {
+                EmergencyNumberTracker tracker = phone.getEmergencyNumberTracker();
+                if (tracker != null) {
+                    EmergencyNumber num = tracker.getEmergencyNumber(mAddress);
+                    if (num != null) {
+                        mIsEmergencyCall = true;
+                        mEmergencyNumberInfo = num;
+                    } else {
+                        Rlog.e(TAG, "setEmergencyCallInfo: emergency number is null");
+                    }
+                } else {
+                    Rlog.e(TAG, "setEmergencyCallInfo: emergency number tracker is null");
+                }
+            } else {
+                Rlog.e(TAG, "setEmergencyCallInfo: phone is null");
+            }
+        } else {
+            Rlog.e(TAG, "setEmergencyCallInfo: call tracker is null");
+        }
+    }
+
+    /**
+     * Set if we have known the user's intent for the call is emergency.
+     *
+     * This is only used to specify when the dialed number is ambiguous, identified as both
+     * emergency number and any other non-emergency number; e.g. in some situation, 611 could
+     * be both an emergency number in a country and a non-emergency number of a carrier's
+     * customer service hotline.
+     *
+     * @hide
+     */
+    public void setHasKnownUserIntentEmergency(boolean hasKnownUserIntentEmergency) {
+        mHasKnownUserIntentEmergency = hasKnownUserIntentEmergency;
     }
 
     /**
@@ -387,6 +589,7 @@ public abstract class Connection {
      * Returns getCall().getState() or Call.State.IDLE if not
      * connected
      */
+    @UnsupportedAppUsage
     public Call.State getState() {
         Call c;
 
@@ -429,6 +632,7 @@ public abstract class Connection {
      * @return true if the connection isn't disconnected
      * (could be active, holding, ringing, dialing, etc)
      */
+    @UnsupportedAppUsage
     public boolean
     isAlive() {
         return getState().isAlive();
@@ -446,6 +650,7 @@ public abstract class Connection {
      *
      * @return the userdata set in setUserData()
      */
+    @UnsupportedAppUsage
     public Object getUserData() {
         return mUserData;
     }
@@ -459,8 +664,25 @@ public abstract class Connection {
     }
 
     /**
+     * Deflect individual Connection
+     */
+    public abstract void deflect(String number) throws CallStateException;
+
+    /**
+     * Transfer individual Connection
+     */
+    public abstract void transfer(String number, boolean isConfirmationRequired)
+            throws CallStateException;
+
+    /**
+     * Transfer individual Connection for consultative transfer
+     */
+    public abstract void consultativeTransfer(Connection other) throws CallStateException;
+
+    /**
      * Hangup individual Connection
      */
+    @UnsupportedAppUsage
     public abstract void hangup() throws CallStateException;
 
     /**
@@ -471,15 +693,21 @@ public abstract class Connection {
     public abstract void separate() throws CallStateException;
 
     public enum PostDialState {
+        @UnsupportedAppUsage
         NOT_STARTED,    /* The post dial string playback hasn't
                            been started, or this call is not yet
                            connected, or this is an incoming call */
+        @UnsupportedAppUsage
         STARTED,        /* The post dial string playback has begun */
+        @UnsupportedAppUsage
         WAIT,           /* The post dial string playback is waiting for a
                            call to proceedAfterWaitChar() */
+        @UnsupportedAppUsage
         WILD,           /* The post dial string playback is waiting for a
                            call to proceedAfterWildChar() */
+        @UnsupportedAppUsage
         COMPLETE,       /* The post dial string playback is complete */
+        @UnsupportedAppUsage
         CANCELLED,       /* The post dial string playback was cancelled
                            with cancelPostDial() */
         PAUSE           /* The post dial string playback is pausing for a
@@ -490,7 +718,7 @@ public abstract class Connection {
         mUserData = null;
     }
 
-    public final void addPostDialListener(PostDialListener listener) {
+    public void addPostDialListener(PostDialListener listener) {
         if (!mPostDialListeners.contains(listener)) {
             mPostDialListeners.add(listener);
         }
@@ -501,7 +729,9 @@ public abstract class Connection {
     }
 
     protected final void clearPostDialListeners() {
-        mPostDialListeners.clear();
+        if (mPostDialListeners != null) {
+            mPostDialListeners.clear();
+        }
     }
 
     protected final void notifyPostDialListeners() {
@@ -624,6 +854,12 @@ public abstract class Connection {
         mOrigConnection = c.getOrigConnection();
         mPostDialString = c.mPostDialString;
         mNextPostDialChar = c.mNextPostDialChar;
+        mPostDialState = c.mPostDialState;
+
+        // Migrate Emergency call parameters
+        mIsEmergencyCall = c.isEmergencyCall();
+        mEmergencyNumberInfo = c.getEmergencyNumberInfo();
+        mHasKnownUserIntentEmergency = c.hasKnownUserIntentEmergency();
     }
 
     /**
@@ -631,7 +867,7 @@ public abstract class Connection {
      *
      * @param listener A listener.
      */
-    public final void addListener(Listener listener) {
+    public void addListener(Listener listener) {
         mListeners.add(listener);
     }
 
@@ -696,7 +932,26 @@ public abstract class Connection {
      * @return {@code True} if the connection is using a wifi network.
      */
     public boolean isWifi() {
-        return mIsWifi;
+        return getCallRadioTech() == ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN;
+    }
+
+    /**
+     * Returns radio technology is used for the connection.
+     *
+     * @return the RIL Voice Radio Technology used for current connection,
+     *         see {@code RIL_RADIO_TECHNOLOGY_*} in {@link android.telephony.ServiceState}.
+     */
+    public @RilRadioTechnology int getCallRadioTech() {
+        return mCallRadioTech;
+    }
+
+    /**
+     * Returns whether the connection uses voip audio mode
+     *
+     * @return {@code True} if the connection uses voip audio mode
+     */
+    public boolean getAudioModeIsVoip() {
+        return mAudioModeIsVoip;
     }
 
     /**
@@ -734,6 +989,7 @@ public abstract class Connection {
      *
      * @return The video state.
      */
+    @UnsupportedAppUsage
     public void setVideoState(int videoState) {
         mVideoState = videoState;
         for (Listener l : mListeners) {
@@ -758,15 +1014,28 @@ public abstract class Connection {
     }
 
     /**
-     * Sets whether a wifi network is used for the connection.
+     * Sets RIL voice radio technology used for current connection.
      *
-     * @param isWifi {@code True} if wifi is being used.
+     * @param vrat the RIL voice radio technology for current connection,
+     *             see {@code RIL_RADIO_TECHNOLOGY_*} in {@link android.telephony.ServiceState}.
      */
-    public void setWifi(boolean isWifi) {
-        mIsWifi = isWifi;
-        for (Listener l : mListeners) {
-            l.onWifiChanged(mIsWifi);
+    public void setCallRadioTech(@RilRadioTechnology int vrat) {
+        if (mCallRadioTech == vrat) {
+            return;
         }
+        mCallRadioTech = vrat;
+        for (Listener l : mListeners) {
+            l.onCallRadioTechChanged(vrat);
+        }
+    }
+
+    /**
+     * Set the voip audio mode for the connection
+     *
+     * @param isVoip {@code True} if voip audio mode is being used.
+     */
+    public void setAudioModeIsVoip(boolean isVoip) {
+        mAudioModeIsVoip = isVoip;
     }
 
     /**
@@ -790,6 +1059,16 @@ public abstract class Connection {
     public void setConnectionExtras(Bundle extras) {
         if (extras != null) {
             mExtras = new Bundle(extras);
+
+            int previousCount = mExtras.size();
+            // Prevent vendors from passing in extras other than primitive types and android API
+            // parcelables.
+            mExtras = TelephonyUtils.filterValues(mExtras);
+            int filteredCount = mExtras.size();
+            if (filteredCount != previousCount) {
+                Rlog.i(TAG, "setConnectionExtras: filtering " + (previousCount - filteredCount)
+                        + " invalid extras.");
+            }
         } else {
             mExtras = null;
         }
@@ -833,6 +1112,14 @@ public abstract class Connection {
 
     public void setAllowAddCallDuringVideoCall(boolean allowAddCallDuringVideoCall) {
         mAllowAddCallDuringVideoCall = allowAddCallDuringVideoCall;
+    }
+
+    public boolean shouldAllowHoldingVideoCall() {
+        return mAllowHoldingVideoCall;
+    }
+
+    public void setAllowHoldingVideoCall(boolean allowHoldingVideoCall) {
+        mAllowHoldingVideoCall = allowHoldingVideoCall;
     }
 
     /**
@@ -890,11 +1177,38 @@ public abstract class Connection {
         }
     }
 
-    public void setConverted(String oriNumber) {
+    /**
+     * {@link CallTracker#convertNumberIfNecessary(Phone, String)} can be used to convert a dialed
+     * number to another number based on carrier config.  This is used where a carrier wishes to
+     * redirect certain short codes such as *55 to another number (e.g. a 1-800 service number).
+     * The {@link CallTracker} sub-classes call
+     * {@link CallTracker#convertNumberIfNecessary(Phone, String)} to retrieve the newly converted
+     * number and instantiate the {@link Connection} instance using the converted number so that the
+     * system will dial out the substitution number instead of the originally dialed one.  This gem
+     * of a method is called after the dialing process to restore the originally dialed number and
+     * keep track of the fact that a converted number was used to place the call.
+     * @param oriNumber The original number prior to conversion.
+     */
+    public void restoreDialedNumberAfterConversion(String oriNumber) {
         mNumberConverted = true;
         mConvertedNumber = mAddress;
         mAddress = oriNumber;
         mDialString = oriNumber;
+    }
+
+    /**
+     * Changes the address and presentation for this call.
+     * @param newAddress The new address.
+     * @param numberPresentation The number presentation for the address.
+     */
+    public void setAddress(String newAddress, int numberPresentation) {
+        Rlog.i(TAG, "setAddress = " + newAddress);
+        mAddress = newAddress;
+        mNumberPresentation = numberPresentation;
+    }
+
+    public void setDialString(String newDialString) {
+        mDialString = newDialString;
     }
 
     /**
@@ -951,6 +1265,11 @@ public abstract class Connection {
         }
     }
 
+    public void onOriginalConnectionReplaced(Connection newConnection) {
+        for (Listener l : mListeners) {
+            l.onOriginalConnectionReplaced(newConnection);
+        }
+    }
     /**
      * Notifies the connection that there was a failure while handing over to WIFI.
      */
@@ -985,11 +1304,77 @@ public abstract class Connection {
     public void pullExternalCall() {
     }
 
+    public void onRttModifyRequestReceived() {
+        for (Listener l : mListeners) {
+            l.onRttModifyRequestReceived();
+        }
+    }
+
+    public void onRttModifyResponseReceived(int status) {
+        for (Listener l : mListeners) {
+            l.onRttModifyResponseReceived(status);
+        }
+    }
+
+    public void onRttInitiated() {
+        for (Listener l : mListeners) {
+            l.onRttInitiated();
+        }
+    }
+
+    public void onRttTerminated() {
+        for (Listener l : mListeners) {
+            l.onRttTerminated();
+        }
+    }
+    /**
+     * Notify interested parties that this connection disconnected.
+     * {@code TelephonyConnection}, for example, uses this.
+     * @param reason the disconnect code, per {@link DisconnectCause}.
+     */
+    protected void notifyDisconnect(int reason) {
+        Rlog.i(TAG, "notifyDisconnect: callId=" + getTelecomCallId() + ", reason=" + reason);
+        for (Listener l : mListeners) {
+            l.onDisconnect(reason);
+        }
+    }
+
     /**
      *
      */
     public int getPhoneType() {
         return mPhoneType;
+    }
+
+    /**
+     * Reset the Connection time and Duration
+     */
+    public void resetConnectionTime() {
+        if (mPhoneType == PhoneConstants.PHONE_TYPE_CDMA_LTE ||
+                mPhoneType == PhoneConstants.PHONE_TYPE_CDMA) {
+            mConnectTime = System.currentTimeMillis();
+            mConnectTimeReal = SystemClock.elapsedRealtime();
+            mDuration = 0;
+        }
+    }
+
+    /**
+     * Sets whether this {@link Connection} has been identified by the network as an emergency call.
+     * @param isNetworkIdentifiedEmergencyCall {@code true} if ecall, {@code false} otherwise.
+     */
+    public void setIsNetworkIdentifiedEmergencyCall(boolean isNetworkIdentifiedEmergencyCall) {
+        mIsNetworkIdentifiedEmergencyCall = isNetworkIdentifiedEmergencyCall;
+        for (Listener l : mListeners) {
+            l.onIsNetworkEmergencyCallChanged(isNetworkIdentifiedEmergencyCall);
+        }
+    }
+
+    /**
+     * @return Whether this {@link Connection} has been identified by the network as an emergency
+     * call.
+     */
+    public boolean isNetworkIdentifiedEmergencyCall() {
+        return mIsNetworkIdentifiedEmergencyCall;
     }
 
     /**
@@ -1015,5 +1400,29 @@ public abstract class Connection {
                 .append(" state: " + getState())
                 .append(" post dial state: " + getPostDialState());
         return str.toString();
+    }
+
+    /**
+     * Get current audio codec.
+     * @return current audio codec.
+     */
+    public int getAudioCodec() {
+        return mAudioCodec;
+    }
+
+    /**
+     * @return The number verification status; only applicable for IMS calls.
+     */
+    public @android.telecom.Connection.VerificationStatus int getNumberVerificationStatus() {
+        return mNumberVerificationStatus;
+    }
+
+    /**
+     * Sets the number verification status.
+     * @param verificationStatus The new verification status
+     */
+    public void setNumberVerificationStatus(
+            @android.telecom.Connection.VerificationStatus int verificationStatus) {
+        mNumberVerificationStatus = verificationStatus;
     }
 }

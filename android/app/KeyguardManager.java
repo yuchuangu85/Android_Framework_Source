@@ -17,33 +17,60 @@
 package android.app;
 
 import android.Manifest;
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.RequiresFeature;
 import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
+import android.annotation.SystemService;
+import android.app.admin.DevicePolicyManager;
+import android.app.admin.DevicePolicyManager.PasswordComplexity;
+import android.app.admin.PasswordMetrics;
 import android.app.trust.ITrustManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.UserInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.os.Binder;
-import android.os.RemoteException;
+import android.os.Build;
 import android.os.IBinder;
-import android.os.IUserManager;
+import android.os.RemoteException;
 import android.os.ServiceManager;
-import android.os.UserHandle;
-import android.os.UserManager;
-import android.view.IWindowManager;
+import android.os.ServiceManager.ServiceNotFoundException;
+import android.provider.Settings;
+import android.service.persistentdata.IPersistentDataBlockService;
+import android.util.Log;
 import android.view.IOnKeyguardExitResult;
+import android.view.IWindowManager;
+import android.view.WindowManager.LayoutParams;
 import android.view.WindowManagerGlobal;
 
+import com.android.internal.policy.IKeyguardDismissCallback;
+import com.android.internal.widget.LockPatternUtils;
+import com.android.internal.widget.LockPatternView;
+import com.android.internal.widget.LockscreenCredential;
+
+import java.nio.charset.Charset;
+import java.util.Arrays;
+import java.util.List;
+
 /**
- * Class that can be used to lock and unlock the keyboard. Get an instance of this
- * class by calling {@link android.content.Context#getSystemService(java.lang.String)}
- * with argument {@link android.content.Context#KEYGUARD_SERVICE}. The
- * actual class to control the keyboard locking is
+ * Class that can be used to lock and unlock the keyguard. The
+ * actual class to control the keyguard locking is
  * {@link android.app.KeyguardManager.KeyguardLock}.
  */
+@SystemService(Context.KEYGUARD_SERVICE)
 public class KeyguardManager {
-    private IWindowManager mWM;
-    private ITrustManager mTrustManager;
-    private IUserManager mUserManager;
+
+    private static final String TAG = "KeyguardManager";
+
+    private final Context mContext;
+    private final IWindowManager mWM;
+    private final IActivityManager mAm;
+    private final ITrustManager mTrustManager;
+    private final INotificationManager mNotificationManager;
 
     /**
      * Intent used to prompt user for device credentials.
@@ -60,6 +87,13 @@ public class KeyguardManager {
             "android.app.action.CONFIRM_DEVICE_CREDENTIAL_WITH_USER";
 
     /**
+     * Intent used to prompt user for factory reset credentials.
+     * @hide
+     */
+    public static final String ACTION_CONFIRM_FRP_CREDENTIAL =
+            "android.app.action.CONFIRM_FRP_CREDENTIAL";
+
+    /**
      * A CharSequence dialog title to show to the user when used with a
      * {@link #ACTION_CONFIRM_DEVICE_CREDENTIAL}.
      * @hide
@@ -74,20 +108,52 @@ public class KeyguardManager {
     public static final String EXTRA_DESCRIPTION = "android.app.extra.DESCRIPTION";
 
     /**
-     * Get an intent to prompt the user to confirm credentials (pin, pattern or password)
-     * for the current user of the device. The caller is expected to launch this activity using
-     * {@link android.app.Activity#startActivityForResult(Intent, int)} and check for
+     * A CharSequence description to show to the user on the alternate button when used with
+     * {@link #ACTION_CONFIRM_FRP_CREDENTIAL}.
+     * @hide
+     */
+    public static final String EXTRA_ALTERNATE_BUTTON_LABEL =
+            "android.app.extra.ALTERNATE_BUTTON_LABEL";
+
+    /**
+     * Result code returned by the activity started by
+     * {@link #createConfirmFactoryResetCredentialIntent} indicating that the user clicked the
+     * alternate button.
+     *
+     * @hide
+     */
+    public static final int RESULT_ALTERNATE = 1;
+
+    /**
+     *
+     * If this is set, check device policy for allowed biometrics when the user is authenticating.
+     * This should only be used in the context of managed profiles.
+     *
+     * @hide
+     */
+    public static final String EXTRA_DISALLOW_BIOMETRICS_IF_POLICY_EXISTS = "check_dpm";
+
+
+    /**
+     * Get an intent to prompt the user to confirm credentials (pin, pattern, password or biometrics
+     * if enrolled) for the current user of the device. The caller is expected to launch this
+     * activity using {@link android.app.Activity#startActivityForResult(Intent, int)} and check for
      * {@link android.app.Activity#RESULT_OK} if the user successfully completes the challenge.
      *
      * @return the intent for launching the activity or null if no password is required.
-     **/
-    public Intent createConfirmDeviceCredentialIntent(CharSequence title, CharSequence description) {
+     * @deprecated see BiometricPrompt.Builder#setDeviceCredentialAllowed(boolean)
+     */
+    @Deprecated
+    @RequiresFeature(PackageManager.FEATURE_SECURE_LOCK_SCREEN)
+    public Intent createConfirmDeviceCredentialIntent(CharSequence title,
+            CharSequence description) {
         if (!isDeviceSecure()) return null;
         Intent intent = new Intent(ACTION_CONFIRM_DEVICE_CREDENTIAL);
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_DESCRIPTION, description);
-        // For security reasons, only allow this to come from system settings.
-        intent.setPackage("com.android.settings");
+
+        // explicitly set the package for security
+        intent.setPackage(getSettingsPackageForIntent(intent));
         return intent;
     }
 
@@ -108,21 +174,159 @@ public class KeyguardManager {
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_DESCRIPTION, description);
         intent.putExtra(Intent.EXTRA_USER_ID, userId);
-        // For security reasons, only allow this to come from system settings.
-        intent.setPackage("com.android.settings");
+
+        // explicitly set the package for security
+        intent.setPackage(getSettingsPackageForIntent(intent));
+
         return intent;
     }
 
     /**
-     * @deprecated Use {@link android.view.WindowManager.LayoutParams#FLAG_DISMISS_KEYGUARD}
-     * and/or {@link android.view.WindowManager.LayoutParams#FLAG_SHOW_WHEN_LOCKED}
+     * Get an intent to prompt the user to confirm credentials (pin, pattern or password)
+     * for the given user. The caller is expected to launch this activity using
+     * {@link android.app.Activity#startActivityForResult(Intent, int)} and check for
+     * {@link android.app.Activity#RESULT_OK} if the user successfully completes the challenge.
+     *
+     * @param disallowBiometricsIfPolicyExists If true check if the Device Policy Manager has
+     * disabled biometrics on the device. If biometrics are disabled, fall back to PIN/pattern/pass.
+     *
+     * @return the intent for launching the activity or null if no password is required.
+     *
+     * @hide
+     */
+    public Intent createConfirmDeviceCredentialIntent(
+            CharSequence title, CharSequence description, int userId,
+            boolean disallowBiometricsIfPolicyExists) {
+        Intent intent = this.createConfirmDeviceCredentialIntent(title, description, userId);
+        intent.putExtra(EXTRA_DISALLOW_BIOMETRICS_IF_POLICY_EXISTS,
+                disallowBiometricsIfPolicyExists);
+        return intent;
+    }
+
+    /**
+     * Get an intent to prompt the user to confirm credentials (pin, pattern or password)
+     * for the previous owner of the device. The caller is expected to launch this activity using
+     * {@link android.app.Activity#startActivityForResult(Intent, int)} and check for
+     * {@link android.app.Activity#RESULT_OK} if the user successfully completes the challenge.
+     *
+     * @param alternateButtonLabel if not empty, a button is provided with the given label. Upon
+     *                             clicking this button, the activity returns
+     *                             {@link #RESULT_ALTERNATE}
+     *
+     * @return the intent for launching the activity or null if the previous owner of the device
+     *         did not set a credential.
+     * @throws UnsupportedOperationException if the device does not support factory reset
+     *                                       credentials
+     * @throws IllegalStateException if the device has already been provisioned
+     * @hide
+     */
+    @RequiresFeature(PackageManager.FEATURE_SECURE_LOCK_SCREEN)
+    @SystemApi
+    public Intent createConfirmFactoryResetCredentialIntent(
+            CharSequence title, CharSequence description, CharSequence alternateButtonLabel) {
+        if (!LockPatternUtils.frpCredentialEnabled(mContext)) {
+            Log.w(TAG, "Factory reset credentials not supported.");
+            throw new UnsupportedOperationException("not supported on this device");
+        }
+
+        // Cannot verify credential if the device is provisioned
+        if (Settings.Global.getInt(mContext.getContentResolver(),
+                Settings.Global.DEVICE_PROVISIONED, 0) != 0) {
+            Log.e(TAG, "Factory reset credential cannot be verified after provisioning.");
+            throw new IllegalStateException("must not be provisioned yet");
+        }
+
+        // Make sure we have a credential
+        try {
+            IPersistentDataBlockService pdb = IPersistentDataBlockService.Stub.asInterface(
+                    ServiceManager.getService(Context.PERSISTENT_DATA_BLOCK_SERVICE));
+            if (pdb == null) {
+                Log.e(TAG, "No persistent data block service");
+                throw new UnsupportedOperationException("not supported on this device");
+            }
+            // The following will throw an UnsupportedOperationException if the device does not
+            // support factory reset credentials (or something went wrong retrieving it).
+            if (!pdb.hasFrpCredentialHandle()) {
+                Log.i(TAG, "The persistent data block does not have a factory reset credential.");
+                return null;
+            }
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+
+        Intent intent = new Intent(ACTION_CONFIRM_FRP_CREDENTIAL);
+        intent.putExtra(EXTRA_TITLE, title);
+        intent.putExtra(EXTRA_DESCRIPTION, description);
+        intent.putExtra(EXTRA_ALTERNATE_BUTTON_LABEL, alternateButtonLabel);
+
+        // explicitly set the package for security
+        intent.setPackage(getSettingsPackageForIntent(intent));
+
+        return intent;
+    }
+
+    /**
+     * Controls whether notifications can be shown atop a securely locked screen in their full
+     * private form (same as when the device is unlocked).
+     *
+     * <p>Other sources like the DevicePolicyManger and Settings app can modify this configuration.
+     * The result is that private notifications are only shown if all sources allow it.
+     *
+     * @param allow secure notifications can be shown if {@code true},
+     * secure notifications cannot be shown if {@code false}
+     * @hide
+     */
+    @RequiresFeature(PackageManager.FEATURE_SECURE_LOCK_SCREEN)
+    @RequiresPermission(Manifest.permission.CONTROL_KEYGUARD_SECURE_NOTIFICATIONS)
+    @SystemApi
+    public void setPrivateNotificationsAllowed(boolean allow) {
+        try {
+            mNotificationManager.setPrivateNotificationsAllowed(allow);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Returns whether notifications can be shown atop a securely locked screen in their full
+     * private form (same as when the device is unlocked).
+     *
+     * @return {@code true} if secure notifications can be shown, {@code false} otherwise.
+     * By default, private notifications are allowed.
+     * @hide
+     */
+    @RequiresFeature(PackageManager.FEATURE_SECURE_LOCK_SCREEN)
+    @RequiresPermission(Manifest.permission.CONTROL_KEYGUARD_SECURE_NOTIFICATIONS)
+    @SystemApi
+    public boolean getPrivateNotificationsAllowed() {
+        try {
+            return mNotificationManager.getPrivateNotificationsAllowed();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    private String getSettingsPackageForIntent(Intent intent) {
+        List<ResolveInfo> resolveInfos = mContext.getPackageManager()
+                .queryIntentActivities(intent, PackageManager.MATCH_SYSTEM_ONLY);
+        for (int i = 0; i < resolveInfos.size(); i++) {
+            return resolveInfos.get(i).activityInfo.packageName;
+        }
+
+        return "com.android.settings";
+    }
+
+    /**
+     * Handle returned by {@link KeyguardManager#newKeyguardLock} that allows
+     * you to disable / reenable the keyguard.
+     *
+     * @deprecated Use {@link LayoutParams#FLAG_DISMISS_KEYGUARD}
+     * and/or {@link LayoutParams#FLAG_SHOW_WHEN_LOCKED}
      * instead; this allows you to seamlessly hide the keyguard as your application
      * moves in and out of the foreground and does not require that any special
      * permissions be requested.
-     *
-     * Handle returned by {@link KeyguardManager#newKeyguardLock} that allows
-     * you to disable / reenable the keyguard.
      */
+    @Deprecated
     public class KeyguardLock {
         private final IBinder mToken = new Binder();
         private final String mTag;
@@ -141,15 +345,12 @@ public class KeyguardManager {
          * Note: This call has no effect while any {@link android.app.admin.DevicePolicyManager}
          * is enabled that requires a password.
          *
-         * <p>This method requires the caller to hold the permission
-         * {@link android.Manifest.permission#DISABLE_KEYGUARD}.
-         *
          * @see #reenableKeyguard()
          */
         @RequiresPermission(Manifest.permission.DISABLE_KEYGUARD)
         public void disableKeyguard() {
             try {
-                mWM.disableKeyguard(mToken, mTag);
+                mWM.disableKeyguard(mToken, mTag, mContext.getUserId());
             } catch (RemoteException ex) {
             }
         }
@@ -163,15 +364,12 @@ public class KeyguardManager {
          * Note: This call has no effect while any {@link android.app.admin.DevicePolicyManager}
          * is enabled that requires a password.
          *
-         * <p>This method requires the caller to hold the permission
-         * {@link android.Manifest.permission#DISABLE_KEYGUARD}.
-         *
          * @see #disableKeyguard()
          */
         @RequiresPermission(Manifest.permission.DISABLE_KEYGUARD)
         public void reenableKeyguard() {
             try {
-                mWM.reenableKeyguard(mToken);
+                mWM.reenableKeyguard(mToken, mContext.getUserId());
             } catch (RemoteException ex) {
             }
         }
@@ -180,7 +378,10 @@ public class KeyguardManager {
     /**
      * Callback passed to {@link KeyguardManager#exitKeyguardSecurely} to notify
      * caller of result.
+     *
+     * @deprecated Use {@link KeyguardDismissCallback}
      */
+    @Deprecated
     public interface OnKeyguardExitResult {
 
         /**
@@ -190,30 +391,57 @@ public class KeyguardManager {
         void onKeyguardExitResult(boolean success);
     }
 
+    /**
+     * Callback passed to
+     * {@link KeyguardManager#requestDismissKeyguard(Activity, KeyguardDismissCallback)}
+     * to notify caller of result.
+     */
+    public static abstract class KeyguardDismissCallback {
 
-    KeyguardManager() {
+        /**
+         * Called when dismissing Keyguard is currently not feasible, i.e. when Keyguard is not
+         * available, not showing or when the activity requesting the Keyguard dismissal isn't
+         * showing or isn't showing behind Keyguard.
+         */
+        public void onDismissError() { }
+
+        /**
+         * Called when dismissing Keyguard has succeeded and the device is now unlocked.
+         */
+        public void onDismissSucceeded() { }
+
+        /**
+         * Called when dismissing Keyguard has been cancelled, i.e. when the user cancelled the
+         * operation or the bouncer was hidden for some other reason.
+         */
+        public void onDismissCancelled() { }
+    }
+
+    KeyguardManager(Context context) throws ServiceNotFoundException {
+        mContext = context;
         mWM = WindowManagerGlobal.getWindowManagerService();
+        mAm = ActivityManager.getService();
         mTrustManager = ITrustManager.Stub.asInterface(
-                ServiceManager.getService(Context.TRUST_SERVICE));
-        mUserManager = IUserManager.Stub.asInterface(
-                ServiceManager.getService(Context.USER_SERVICE));
+                ServiceManager.getServiceOrThrow(Context.TRUST_SERVICE));
+        mNotificationManager = INotificationManager.Stub.asInterface(
+                ServiceManager.getServiceOrThrow(Context.NOTIFICATION_SERVICE));
     }
 
     /**
-     * @deprecated Use {@link android.view.WindowManager.LayoutParams#FLAG_DISMISS_KEYGUARD}
-     * and/or {@link android.view.WindowManager.LayoutParams#FLAG_SHOW_WHEN_LOCKED}
-     * instead; this allows you to seamlessly hide the keyguard as your application
-     * moves in and out of the foreground and does not require that any special
-     * permissions be requested.
-     *
-     * Enables you to lock or unlock the keyboard. Get an instance of this class by
+     * Enables you to lock or unlock the keyguard. Get an instance of this class by
      * calling {@link android.content.Context#getSystemService(java.lang.String) Context.getSystemService()}.
      * This class is wrapped by {@link android.app.KeyguardManager KeyguardManager}.
      * @param tag A tag that informally identifies who you are (for debugging who
-     *   is disabling he keyguard).
+     *   is disabling the keyguard).
      *
      * @return A {@link KeyguardLock} handle to use to disable and reenable the
      *   keyguard.
+     *
+     * @deprecated Use {@link LayoutParams#FLAG_DISMISS_KEYGUARD}
+     *   and/or {@link LayoutParams#FLAG_SHOW_WHEN_LOCKED}
+     *   instead; this allows you to seamlessly hide the keyguard as your application
+     *   moves in and out of the foreground and does not require that any special
+     *   permissions be requested.
      */
     @Deprecated
     public KeyguardLock newKeyguardLock(String tag) {
@@ -243,7 +471,7 @@ public class KeyguardManager {
      */
     public boolean isKeyguardSecure() {
         try {
-            return mWM.isKeyguardSecure();
+            return mWM.isKeyguardSecure(mContext.getUserId());
         } catch (RemoteException ex) {
             return false;
         }
@@ -255,15 +483,10 @@ public class KeyguardManager {
      * such as the Home key and the right soft keys, don't work.
      *
      * @return true if in keyguard restricted input mode.
-     *
-     * @see android.view.WindowManagerPolicy#inKeyguardRestrictedKeyInputMode
+     * @deprecated Use {@link #isKeyguardLocked()} instead.
      */
     public boolean inKeyguardRestrictedInputMode() {
-        try {
-            return mWM.inKeyguardRestrictedInputMode();
-        } catch (RemoteException ex) {
-            return false;
-        }
+        return isKeyguardLocked();
     }
 
     /**
@@ -274,7 +497,7 @@ public class KeyguardManager {
      * password.
      */
     public boolean isDeviceLocked() {
-        return isDeviceLocked(UserHandle.getCallingUserId());
+        return isDeviceLocked(mContext.getUserId());
     }
 
     /**
@@ -282,10 +505,10 @@ public class KeyguardManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public boolean isDeviceLocked(int userId) {
-        ITrustManager trustManager = getTrustManager();
         try {
-            return trustManager.isDeviceLocked(userId);
+            return mTrustManager.isDeviceLocked(userId);
         } catch (RemoteException e) {
             return false;
         }
@@ -300,7 +523,7 @@ public class KeyguardManager {
      * @return true if a PIN, pattern or password was set.
      */
     public boolean isDeviceSecure() {
-        return isDeviceSecure(UserHandle.getCallingUserId());
+        return isDeviceSecure(mContext.getUserId());
     }
 
     /**
@@ -308,30 +531,103 @@ public class KeyguardManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean isDeviceSecure(int userId) {
-        ITrustManager trustManager = getTrustManager();
         try {
-            return trustManager.isDeviceSecure(userId);
+            return mTrustManager.isDeviceSecure(userId);
         } catch (RemoteException e) {
             return false;
         }
     }
 
-    private synchronized ITrustManager getTrustManager() {
-        if (mTrustManager == null) {
-            mTrustManager = ITrustManager.Stub.asInterface(
-                    ServiceManager.getService(Context.TRUST_SERVICE));
-        }
-        return mTrustManager;
+    /**
+     * If the device is currently locked (see {@link #isKeyguardLocked()}, requests the Keyguard to
+     * be dismissed.
+     * <p>
+     * If the Keyguard is not secure or the device is currently in a trusted state, calling this
+     * method will immediately dismiss the Keyguard without any user interaction.
+     * <p>
+     * If the Keyguard is secure and the device is not in a trusted state, this will bring up the
+     * UI so the user can enter their credentials.
+     * <p>
+     * If the value set for the {@link Activity} attr {@link android.R.attr#turnScreenOn} is true,
+     * the screen will turn on when the keyguard is dismissed.
+     *
+     * @param activity The activity requesting the dismissal. The activity must be either visible
+     *                 by using {@link LayoutParams#FLAG_SHOW_WHEN_LOCKED} or must be in a state in
+     *                 which it would be visible if Keyguard would not be hiding it. If that's not
+     *                 the case, the request will fail immediately and
+     *                 {@link KeyguardDismissCallback#onDismissError} will be invoked.
+     * @param callback The callback to be called if the request to dismiss Keyguard was successful
+     *                 or {@code null} if the caller isn't interested in knowing the result. The
+     *                 callback will not be invoked if the activity was destroyed before the
+     *                 callback was received.
+     */
+    public void requestDismissKeyguard(@NonNull Activity activity,
+            @Nullable KeyguardDismissCallback callback) {
+        requestDismissKeyguard(activity, null /* message */, callback);
     }
 
     /**
-     * @deprecated Use {@link android.view.WindowManager.LayoutParams#FLAG_DISMISS_KEYGUARD}
-     * and/or {@link android.view.WindowManager.LayoutParams#FLAG_SHOW_WHEN_LOCKED}
-     * instead; this allows you to seamlessly hide the keyguard as your application
-     * moves in and out of the foreground and does not require that any special
-     * permissions be requested.
+     * If the device is currently locked (see {@link #isKeyguardLocked()}, requests the Keyguard to
+     * be dismissed.
+     * <p>
+     * If the Keyguard is not secure or the device is currently in a trusted state, calling this
+     * method will immediately dismiss the Keyguard without any user interaction.
+     * <p>
+     * If the Keyguard is secure and the device is not in a trusted state, this will bring up the
+     * UI so the user can enter their credentials.
+     * <p>
+     * If the value set for the {@link Activity} attr {@link android.R.attr#turnScreenOn} is true,
+     * the screen will turn on when the keyguard is dismissed.
      *
+     * @param activity The activity requesting the dismissal. The activity must be either visible
+     *                 by using {@link LayoutParams#FLAG_SHOW_WHEN_LOCKED} or must be in a state in
+     *                 which it would be visible if Keyguard would not be hiding it. If that's not
+     *                 the case, the request will fail immediately and
+     *                 {@link KeyguardDismissCallback#onDismissError} will be invoked.
+     * @param message  A message that will be shown in the keyguard explaining why the user
+     *                 would want to dismiss it.
+     * @param callback The callback to be called if the request to dismiss Keyguard was successful
+     *                 or {@code null} if the caller isn't interested in knowing the result. The
+     *                 callback will not be invoked if the activity was destroyed before the
+     *                 callback was received.
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.SHOW_KEYGUARD_MESSAGE)
+    @SystemApi
+    public void requestDismissKeyguard(@NonNull Activity activity, @Nullable CharSequence message,
+            @Nullable KeyguardDismissCallback callback) {
+        try {
+            ActivityTaskManager.getService().dismissKeyguard(
+                    activity.getActivityToken(), new IKeyguardDismissCallback.Stub() {
+                @Override
+                public void onDismissError() throws RemoteException {
+                    if (callback != null && !activity.isDestroyed()) {
+                        activity.mHandler.post(callback::onDismissError);
+                    }
+                }
+
+                @Override
+                public void onDismissSucceeded() throws RemoteException {
+                    if (callback != null && !activity.isDestroyed()) {
+                        activity.mHandler.post(callback::onDismissSucceeded);
+                    }
+                }
+
+                @Override
+                public void onDismissCancelled() throws RemoteException {
+                    if (callback != null && !activity.isDestroyed()) {
+                        activity.mHandler.post(callback::onDismissCancelled);
+                    }
+                }
+            }, message);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Exit the keyguard securely.  The use case for this api is that, after
      * disabling the keyguard, your app, which was granted permission to
      * disable the keyguard and show a limited amount of information deemed
@@ -341,12 +637,15 @@ public class KeyguardManager {
      * This will, if the keyguard is secure, bring up the unlock screen of
      * the keyguard.
      *
-     * <p>This method requires the caller to hold the permission
-     * {@link android.Manifest.permission#DISABLE_KEYGUARD}.
-     *
-     * @param callback Let's you know whether the operation was succesful and
+     * @param callback Lets you know whether the operation was successful and
      *   it is safe to launch anything that would normally be considered safe
      *   once the user has gotten past the keyguard.
+
+     * @deprecated Use {@link LayoutParams#FLAG_DISMISS_KEYGUARD}
+     *   and/or {@link LayoutParams#FLAG_SHOW_WHEN_LOCKED}
+     *   instead; this allows you to seamlessly hide the keyguard as your application
+     *   moves in and out of the foreground and does not require that any special
+     *   permissions be requested.
      */
     @Deprecated
     @RequiresPermission(Manifest.permission.DISABLE_KEYGUARD)
@@ -362,5 +661,157 @@ public class KeyguardManager {
         } catch (RemoteException e) {
 
         }
+    }
+
+    private boolean checkInitialLockMethodUsage() {
+        if (mContext.checkCallingOrSelfPermission(Manifest.permission.SET_INITIAL_LOCK)
+                != PackageManager.PERMISSION_GRANTED) {
+            throw new SecurityException("Requires SET_INITIAL_LOCK permission.");
+        }
+        if (!mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+    * Determine if a given password is valid based off its lock type and expected complexity level.
+    *
+    * @param lockType - type of lock as specified in {@link LockTypes}
+    * @param password - password to validate; this has the same encoding
+    *        as the output of String#getBytes
+    * @param complexity - complexity level imposed by the requester
+    *        as defined in {@code DevicePolicyManager.PasswordComplexity}
+    * @return true if the password is valid, false otherwise
+    * @hide
+    */
+    @RequiresPermission(Manifest.permission.SET_INITIAL_LOCK)
+    @SystemApi
+    public boolean isValidLockPasswordComplexity(@LockTypes int lockType, @NonNull byte[] password,
+            @PasswordComplexity int complexity) {
+        if (!checkInitialLockMethodUsage()) {
+            return false;
+        }
+        complexity = PasswordMetrics.sanitizeComplexityLevel(complexity);
+        // TODO: b/131755827 add devicePolicyManager support for Auto
+        DevicePolicyManager devicePolicyManager =
+                (DevicePolicyManager) mContext.getSystemService(Context.DEVICE_POLICY_SERVICE);
+        PasswordMetrics adminMetrics =
+                devicePolicyManager.getPasswordMinimumMetrics(mContext.getUserId());
+        // Check if the password fits the mold of a pin or pattern.
+        boolean isPinOrPattern = lockType != LockTypes.PASSWORD;
+
+        return PasswordMetrics.validatePassword(
+                adminMetrics, complexity, isPinOrPattern, password).size() == 0;
+    }
+
+    /**
+    * Determine the minimum allowable length for a lock type for a given complexity level.
+    *
+    * @param isPin - whether this is a PIN-type password (only digits)
+    * @param complexity - complexity level imposed by the requester
+    *        as defined in {@code DevicePolicyManager.PasswordComplexity}
+    * @return minimum allowable password length
+    * @hide
+    */
+    @RequiresPermission(Manifest.permission.SET_INITIAL_LOCK)
+    @SystemApi
+    public int getMinLockLength(boolean isPin, @PasswordComplexity int complexity) {
+        if (!checkInitialLockMethodUsage()) {
+            return -1;
+        }
+        complexity = PasswordMetrics.sanitizeComplexityLevel(complexity);
+        // TODO: b/131755827 add devicePolicyManager support for Auto
+        DevicePolicyManager devicePolicyManager =
+                (DevicePolicyManager) mContext.getSystemService(Context.DEVICE_POLICY_SERVICE);
+        PasswordMetrics adminMetrics =
+                devicePolicyManager.getPasswordMinimumMetrics(mContext.getUserId());
+        PasswordMetrics minMetrics =
+                PasswordMetrics.applyComplexity(adminMetrics, isPin, complexity);
+        return minMetrics.length;
+    }
+
+    /**
+    * Set the lockscreen password after validating against its expected complexity level.
+    *
+    * @param lockType - type of lock as specified in {@link LockTypes}
+    * @param password - password to validate; this has the same encoding
+    *        as the output of String#getBytes
+    * @param complexity - complexity level imposed by the requester
+    *        as defined in {@code DevicePolicyManager.PasswordComplexity}
+    * @return true if the lock is successfully set, false otherwise
+    * @hide
+    */
+    @RequiresPermission(Manifest.permission.SET_INITIAL_LOCK)
+    @SystemApi
+    public boolean setLock(@LockTypes int lockType, @NonNull byte[] password,
+            @PasswordComplexity int complexity) {
+        if (!checkInitialLockMethodUsage()) {
+            return false;
+        }
+
+        LockPatternUtils lockPatternUtils = new LockPatternUtils(mContext);
+        int userId = mContext.getUserId();
+        if (isDeviceSecure(userId)) {
+            Log.e(TAG, "Password already set, rejecting call to setLock");
+            return false;
+        }
+        if (!isValidLockPasswordComplexity(lockType, password, complexity)) {
+            Log.e(TAG, "Password is not valid, rejecting call to setLock");
+            return false;
+        }
+        boolean success = false;
+        try {
+            switch (lockType) {
+                case LockTypes.PASSWORD:
+                    CharSequence passwordStr = new String(password, Charset.forName("UTF-8"));
+                    lockPatternUtils.setLockCredential(
+                            LockscreenCredential.createPassword(passwordStr),
+                            /* savedPassword= */ LockscreenCredential.createNone(),
+                            userId);
+                    success = true;
+                    break;
+                case LockTypes.PIN:
+                    CharSequence pinStr = new String(password);
+                    lockPatternUtils.setLockCredential(
+                            LockscreenCredential.createPin(pinStr),
+                            /* savedPassword= */ LockscreenCredential.createNone(),
+                            userId);
+                    success = true;
+                    break;
+                case LockTypes.PATTERN:
+                    List<LockPatternView.Cell> pattern =
+                            LockPatternUtils.byteArrayToPattern(password);
+                    lockPatternUtils.setLockCredential(
+                            LockscreenCredential.createPattern(pattern),
+                            /* savedPassword= */ LockscreenCredential.createNone(),
+                            userId);
+                    pattern.clear();
+                    success = true;
+                    break;
+                default:
+                    Log.e(TAG, "Unknown lock type, returning a failure");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Save lock exception", e);
+            success = false;
+        } finally {
+            Arrays.fill(password, (byte) 0);
+        }
+        return success;
+    }
+
+    /**
+    * Available lock types
+    */
+    @IntDef({
+            LockTypes.PASSWORD,
+            LockTypes.PIN,
+            LockTypes.PATTERN
+    })
+    @interface LockTypes {
+        int PASSWORD = 0;
+        int PIN = 1;
+        int PATTERN = 2;
     }
 }

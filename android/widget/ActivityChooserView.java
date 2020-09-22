@@ -16,10 +16,8 @@
 
 package android.widget;
 
-import com.android.internal.R;
-import com.android.internal.view.menu.ShowableListMenu;
-
 import android.annotation.StringRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -27,6 +25,8 @@ import android.content.pm.ResolveInfo;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.database.DataSetObserver;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -38,6 +38,9 @@ import android.view.ViewTreeObserver;
 import android.view.ViewTreeObserver.OnGlobalLayoutListener;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.ActivityChooserModel.ActivityChooserModelClient;
+
+import com.android.internal.R;
+import com.android.internal.view.menu.ShowableListMenu;
 
 /**
  * This class is a view for choosing an activity for handling a given {@link Intent}.
@@ -229,6 +232,8 @@ public class ActivityChooserView extends ViewGroup implements ActivityChooserMod
 
         TypedArray attributesArray = context.obtainStyledAttributes(attrs,
                 R.styleable.ActivityChooserView, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.ActivityChooserView, attrs,
+                attributesArray, defStyleAttr, defStyleRes);
 
         mInitialActivityCount = attributesArray.getInt(
                 R.styleable.ActivityChooserView_initialActivityCount,
@@ -250,7 +255,7 @@ public class ActivityChooserView extends ViewGroup implements ActivityChooserMod
         mDefaultActivityButton = (FrameLayout) findViewById(R.id.default_activity_button);
         mDefaultActivityButton.setOnClickListener(mCallbacks);
         mDefaultActivityButton.setOnLongClickListener(mCallbacks);
-        mDefaultActivityButtonImage = (ImageView) mDefaultActivityButton.findViewById(R.id.image);
+        mDefaultActivityButtonImage = mDefaultActivityButton.findViewById(R.id.image);
 
         final FrameLayout expandButton = (FrameLayout) findViewById(R.id.expand_activities_button);
         expandButton.setOnClickListener(mCallbacks);
@@ -282,7 +287,7 @@ public class ActivityChooserView extends ViewGroup implements ActivityChooserMod
         mExpandActivityOverflowButton = expandButton;
 
         mExpandActivityOverflowButtonImage =
-            (ImageView) expandButton.findViewById(R.id.image);
+            expandButton.findViewById(R.id.image);
         mExpandActivityOverflowButtonImage.setImageDrawable(expandActivityOverflowButtonDrawable);
 
         mAdapter = new ActivityChooserViewAdapter();
@@ -321,6 +326,7 @@ public class ActivityChooserView extends ViewGroup implements ActivityChooserMod
      *
      * @param drawable The drawable.
      */
+    @UnsupportedAppUsage
     public void setExpandActivityOverflowButtonDrawable(Drawable drawable) {
         mExpandActivityOverflowButtonImage.setImageDrawable(drawable);
     }
@@ -403,6 +409,7 @@ public class ActivityChooserView extends ViewGroup implements ActivityChooserMod
             }
             popupWindow.getListView().setContentDescription(mContext.getString(
                     R.string.activitychooserview_choose_application));
+            popupWindow.getListView().setSelector(new ColorDrawable(Color.TRANSPARENT));
         }
     }
 
@@ -760,7 +767,7 @@ public class ActivityChooserView extends ViewGroup implements ActivityChooserMod
                         convertView = LayoutInflater.from(getContext()).inflate(
                                 R.layout.activity_chooser_view_list_item, parent, false);
                         convertView.setId(ITEM_VIEW_TYPE_FOOTER);
-                        TextView titleView = (TextView) convertView.findViewById(R.id.title);
+                        TextView titleView = convertView.findViewById(R.id.title);
                         titleView.setText(mContext.getString(
                                 R.string.activity_chooser_view_see_all));
                     }
@@ -772,11 +779,11 @@ public class ActivityChooserView extends ViewGroup implements ActivityChooserMod
                     }
                     PackageManager packageManager = mContext.getPackageManager();
                     // Set the icon
-                    ImageView iconView = (ImageView) convertView.findViewById(R.id.icon);
+                    ImageView iconView = convertView.findViewById(R.id.icon);
                     ResolveInfo activity = (ResolveInfo) getItem(position);
                     iconView.setImageDrawable(activity.loadIcon(packageManager));
                     // Set the title.
-                    TextView titleView = (TextView) convertView.findViewById(R.id.title);
+                    TextView titleView = convertView.findViewById(R.id.title);
                     titleView.setText(activity.loadLabel(packageManager));
                     // Highlight the default.
                     if (mShowDefaultActivity && position == 0 && mHighlightDefaultActivity) {

@@ -16,6 +16,7 @@
 
 package com.android.providers.settings;
 
+import android.annotation.UserIdInt;
 import android.app.backup.BackupAgentHelper;
 import android.app.backup.BackupDataInput;
 import android.app.backup.BackupDataOutput;
@@ -27,48 +28,51 @@ import android.database.Cursor;
 import android.net.NetworkPolicy;
 import android.net.NetworkPolicyManager;
 import android.net.Uri;
-import android.net.wifi.WifiConfiguration;
-import android.net.wifi.WifiConfiguration.KeyMgmt;
+import android.net.wifi.SoftApConfiguration;
 import android.net.wifi.WifiManager;
-import android.os.FileUtils;
-import android.os.Handler;
+import android.os.Build;
 import android.os.ParcelFileDescriptor;
-import android.os.Process;
 import android.os.UserHandle;
 import android.provider.Settings;
+import android.provider.settings.backup.DeviceSpecificSettings;
+import android.provider.settings.backup.GlobalSettings;
+import android.provider.settings.backup.SecureSettings;
+import android.provider.settings.backup.SystemSettings;
+import android.provider.settings.validators.GlobalSettingsValidators;
+import android.provider.settings.validators.SecureSettingsValidators;
+import android.provider.settings.validators.SystemSettingsValidators;
+import android.provider.settings.validators.Validator;
+import android.util.ArrayMap;
+import android.util.ArraySet;
 import android.util.BackupUtils;
+import android.util.FeatureFlagUtils;
 import android.util.Log;
+import android.util.Slog;
+import android.view.Display;
 
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.ArrayUtils;
 import com.android.internal.widget.LockPatternUtils;
-
-import libcore.io.IoUtils;
+import com.android.settingslib.display.DisplayDensityConfiguration;
 
 import java.io.BufferedOutputStream;
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.CharArrayReader;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.Writer;
-import java.util.ArrayList;
-import java.util.BitSet;
-import java.util.HashMap;
+import java.time.DateTimeException;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.CRC32;
 
 /**
@@ -79,6 +83,9 @@ public class SettingsBackupAgent extends BackupAgentHelper {
     private static final boolean DEBUG = false;
     private static final boolean DEBUG_BACKUP = DEBUG || false;
 
+    private static final byte[] NULL_VALUE = new byte[0];
+    private static final int NULL_SIZE = -1;
+
     private static final String KEY_SYSTEM = "system";
     private static final String KEY_SECURE = "secure";
     private static final String KEY_GLOBAL = "global";
@@ -86,10 +93,12 @@ public class SettingsBackupAgent extends BackupAgentHelper {
     private static final String KEY_LOCK_SETTINGS = "lock_settings";
     private static final String KEY_SOFTAP_CONFIG = "softap_config";
     private static final String KEY_NETWORK_POLICIES = "network_policies";
+    private static final String KEY_WIFI_NEW_CONFIG = "wifi_new_config";
+    private static final String KEY_DEVICE_SPECIFIC_CONFIG = "device_specific_config";
 
     // Versioning of the state file.  Increment this version
     // number any time the set of state items is altered.
-    private static final int STATE_VERSION = 6;
+    private static final int STATE_VERSION = 8;
 
     // Versioning of the Network Policies backup payload.
     private static final int NETWORK_POLICIES_BACKUP_VERSION = 1;
@@ -106,8 +115,10 @@ public class SettingsBackupAgent extends BackupAgentHelper {
     private static final int STATE_LOCK_SETTINGS    = 6;
     private static final int STATE_SOFTAP_CONFIG    = 7;
     private static final int STATE_NETWORK_POLICIES = 8;
+    private static final int STATE_WIFI_NEW_CONFIG  = 9;
+    private static final int STATE_DEVICE_CONFIG    = 10;
 
-    private static final int STATE_SIZE             = 9; // The current number of state items
+    private static final int STATE_SIZE             = 11; // The current number of state items
 
     // Number of entries in the checksum array at various version numbers
     private static final int STATE_SIZES[] = {
@@ -117,16 +128,20 @@ public class SettingsBackupAgent extends BackupAgentHelper {
             6,              // version 3 added STATE_GLOBAL
             7,              // version 4 added STATE_LOCK_SETTINGS
             8,              // version 5 added STATE_SOFTAP_CONFIG
-            STATE_SIZE      // version 6 added STATE_NETWORK_POLICIES
+            9,              // version 6 added STATE_NETWORK_POLICIES
+            10,             // version 7 added STATE_WIFI_NEW_CONFIG
+            STATE_SIZE      // version 8 added STATE_DEVICE_CONFIG
     };
 
-    // Versioning of the 'full backup' format
-    // Increment this version any time a new item is added
-    private static final int FULL_BACKUP_VERSION = 5;
     private static final int FULL_BACKUP_ADDED_GLOBAL = 2;  // added the "global" entry
     private static final int FULL_BACKUP_ADDED_LOCK_SETTINGS = 3; // added the "lock_settings" entry
     private static final int FULL_BACKUP_ADDED_SOFTAP_CONF = 4; //added the "softap_config" entry
     private static final int FULL_BACKUP_ADDED_NETWORK_POLICIES = 5; //added "network_policies"
+    private static final int FULL_BACKUP_ADDED_WIFI_NEW = 6; // added "wifi_new_config" entry
+    private static final int FULL_BACKUP_ADDED_DEVICE_SPECIFIC = 7; // added "device specific" entry
+    // Versioning of the 'full backup' format
+    // Increment this version any time a new item is added
+    private static final int FULL_BACKUP_VERSION = FULL_BACKUP_ADDED_DEVICE_SPECIFIC;
 
     private static final int INTEGER_BYTE_COUNT = Integer.SIZE / Byte.SIZE;
 
@@ -134,14 +149,16 @@ public class SettingsBackupAgent extends BackupAgentHelper {
 
     private static final String TAG = "SettingsBackupAgent";
 
-    private static final String[] PROJECTION = {
+    @VisibleForTesting
+    static final String[] PROJECTION = {
             Settings.NameValueTable.NAME,
             Settings.NameValueTable.VALUE
     };
 
-    private static final String FILE_WIFI_SUPPLICANT = "/data/misc/wifi/wpa_supplicant.conf";
-    private static final String FILE_WIFI_SUPPLICANT_TEMPLATE =
-            "/system/etc/wifi/wpa_supplicant.conf";
+    // Versioning of the 'device specific' section of a backup
+    // Increment this any time the format is changed or data added.
+    @VisibleForTesting
+    static final int DEVICE_SPECIFIC_VERSION = 1;
 
     // the key to store the WIFI data under, should be sorted as last, so restore happens last.
     // use very late unicode character to quasi-guarantee last sort position.
@@ -151,264 +168,41 @@ public class SettingsBackupAgent extends BackupAgentHelper {
     // Keys within the lock settings section
     private static final String KEY_LOCK_SETTINGS_OWNER_INFO_ENABLED = "owner_info_enabled";
     private static final String KEY_LOCK_SETTINGS_OWNER_INFO = "owner_info";
+    private static final String KEY_LOCK_SETTINGS_VISIBLE_PATTERN_ENABLED =
+            "visible_pattern_enabled";
+    private static final String KEY_LOCK_SETTINGS_POWER_BUTTON_INSTANTLY_LOCKS =
+            "power_button_instantly_locks";
 
     // Name of the temporary file we use during full backup/restore.  This is
     // stored in the full-backup tarfile as well, so should not be changed.
     private static final String STAGE_FILE = "flattened-data";
 
-    // Delay in milliseconds between the restore operation and when we will bounce
-    // wifi in order to rewrite the supplicant config etc.
-    private static final long WIFI_BOUNCE_DELAY_MILLIS = 60 * 1000; // one minute
+    // List of keys that support restore to lower version of the SDK, introduced in Android P
+    private static final ArraySet<String> RESTORE_FROM_HIGHER_SDK_INT_SUPPORTED_KEYS =
+            new ArraySet<String>(Arrays.asList(new String[] {
+                KEY_NETWORK_POLICIES,
+                KEY_WIFI_NEW_CONFIG,
+                KEY_SYSTEM,
+                KEY_SECURE,
+                KEY_GLOBAL,
+            }));
 
-    private SettingsHelper mSettingsHelper;
-    private WifiManager mWfm;
-    private String mWifiConfigFile;
+    @VisibleForTesting
+    SettingsHelper mSettingsHelper;
 
-    // Chain of asynchronous operations used when rewriting the wifi supplicant config file
-    WifiDisableRunnable mWifiDisable = null;
-    WifiRestoreRunnable mWifiRestore = null;
-    int mRetainedWifiState; // used only during config file rewrite
+    private WifiManager mWifiManager;
 
-    // Class for capturing a network definition from the wifi supplicant config file
-    static class Network {
-        String ssid = "";  // equals() and hashCode() need these to be non-null
-        String key_mgmt = "";
-        boolean certUsed = false;
-        boolean hasWepKey = false;
-        boolean isEap = false;
-        final ArrayList<String> rawLines = new ArrayList<String>();
-
-        public static Network readFromStream(BufferedReader in) {
-            final Network n = new Network();
-            String line;
-            try {
-                while (in.ready()) {
-                    line = in.readLine();
-                    if (line == null || line.startsWith("}")) {
-                        break;
-                    }
-                    n.rememberLine(line);
-                }
-            } catch (IOException e) {
-                return null;
-            }
-            return n;
-        }
-
-        void rememberLine(String line) {
-            // can't rely on particular whitespace patterns so strip leading/trailing
-            line = line.trim();
-            if (line.isEmpty()) return; // only whitespace; drop the line
-            rawLines.add(line);
-
-            // remember the ssid and key_mgmt lines for duplicate culling
-            if (line.startsWith("ssid=")) {
-                ssid = line;
-            } else if (line.startsWith("key_mgmt=")) {
-                key_mgmt = line;
-                if (line.contains("EAP")) {
-                    isEap = true;
-                }
-            } else if (line.startsWith("client_cert=")) {
-                certUsed = true;
-            } else if (line.startsWith("ca_cert=")) {
-                certUsed = true;
-            } else if (line.startsWith("ca_path=")) {
-                certUsed = true;
-            } else if (line.startsWith("wep_")) {
-                hasWepKey = true;
-            } else if (line.startsWith("eap=")) {
-                isEap = true;
-            }
-        }
-
-        public void write(Writer w) throws IOException {
-            w.write("\nnetwork={\n");
-            for (String line : rawLines) {
-                w.write("\t" + line + "\n");
-            }
-            w.write("}\n");
-        }
-
-        public void dump() {
-            Log.v(TAG, "network={");
-            for (String line : rawLines) {
-                Log.v(TAG, "   " + line);
-            }
-            Log.v(TAG, "}");
-        }
-
-        // Calculate the equivalent of WifiConfiguration's configKey()
-        public String configKey() {
-            if (ssid == null) {
-                // No SSID => malformed network definition
-                return null;
-            }
-
-            final String bareSsid = ssid.substring(ssid.indexOf('=') + 1);
-
-            final BitSet types = new BitSet();
-            if (key_mgmt == null) {
-                // no key_mgmt specified; this is defined as equivalent to "WPA-PSK WPA-EAP"
-                types.set(KeyMgmt.WPA_PSK);
-                types.set(KeyMgmt.WPA_EAP);
-            } else {
-                // Need to parse the key_mgmt line
-                final String bareKeyMgmt = key_mgmt.substring(key_mgmt.indexOf('=') + 1);
-                String[] typeStrings = bareKeyMgmt.split("\\s+");
-
-                // Parse out all the key management regimes permitted for this network.  The literal
-                // strings here are the standard values permitted in wpa_supplicant.conf.
-                for (int i = 0; i < typeStrings.length; i++) {
-                    final String ktype = typeStrings[i];
-                    if (ktype.equals("WPA-PSK")) {
-                        Log.v(TAG, "  + setting WPA_PSK bit");
-                        types.set(KeyMgmt.WPA_PSK);
-                    } else if (ktype.equals("WPA-EAP")) {
-                        Log.v(TAG, "  + setting WPA_EAP bit");
-                        types.set(KeyMgmt.WPA_EAP);
-                    } else if (ktype.equals("IEEE8021X")) {
-                        Log.v(TAG, "  + setting IEEE8021X bit");
-                        types.set(KeyMgmt.IEEE8021X);
-                    }
-                }
-            }
-
-            // Now build the canonical config key paralleling the WifiConfiguration semantics
-            final String key;
-            if (types.get(KeyMgmt.WPA_PSK)) {
-                key = bareSsid + KeyMgmt.strings[KeyMgmt.WPA_PSK];
-            } else if (types.get(KeyMgmt.WPA_EAP) || types.get(KeyMgmt.IEEE8021X)) {
-                key = bareSsid + KeyMgmt.strings[KeyMgmt.WPA_EAP];
-            } else if (hasWepKey) {
-                key = bareSsid + "WEP";  // hardcoded this way in WifiConfiguration
-            } else {
-                key = bareSsid + KeyMgmt.strings[KeyMgmt.NONE];
-            }
-            return key;
-        }
-
-        // Same approach as Pair.equals() and Pair.hashCode()
-        @Override
-        public boolean equals(Object o) {
-            if (o == this) return true;
-            if (!(o instanceof Network)) return false;
-            final Network other;
-            try {
-                other = (Network) o;
-            } catch (ClassCastException e) {
-                return false;
-            }
-            return ssid.equals(other.ssid) && key_mgmt.equals(other.key_mgmt);
-        }
-
-        @Override
-        public int hashCode() {
-            int result = 17;
-            result = 31 * result + ssid.hashCode();
-            result = 31 * result + key_mgmt.hashCode();
-            return result;
-        }
-    }
-
-    boolean networkInWhitelist(Network net, List<WifiConfiguration> whitelist) {
-        final String netConfigKey = net.configKey();
-        final int N = whitelist.size();
-        for (int i = 0; i < N; i++) {
-            if (Objects.equals(netConfigKey, whitelist.get(i).configKey(true))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Ingest multiple wifi config file fragments, looking for network={} blocks
-    // and eliminating duplicates
-    class WifiNetworkSettings {
-        // One for fast lookup, one for maintaining ordering
-        final HashSet<Network> mKnownNetworks = new HashSet<Network>();
-        final ArrayList<Network> mNetworks = new ArrayList<Network>(8);
-
-        public void readNetworks(BufferedReader in, List<WifiConfiguration> whitelist,
-                boolean acceptEapNetworks) {
-            try {
-                String line;
-                while (in.ready()) {
-                    line = in.readLine();
-                    if (line != null) {
-                        // Parse out 'network=' decls so we can ignore duplicates
-                        if (line.startsWith("network")) {
-                            Network net = Network.readFromStream(in);
-                            if (whitelist != null) {
-                                if (!networkInWhitelist(net, whitelist)) {
-                                    if (DEBUG_BACKUP) {
-                                        Log.v(TAG, "Network not in whitelist, skipping: "
-                                                + net.ssid + " / " + net.key_mgmt);
-                                    }
-                                    continue;
-                                }
-                            }
-                            // Don't propagate EAP network definitions
-                            if (net.isEap && !acceptEapNetworks) {
-                                if (DEBUG_BACKUP) {
-                                    Log.v(TAG, "Skipping EAP network " + net.ssid + " / " + net.key_mgmt);
-                                }
-                                continue;
-                            }
-                            if (!mKnownNetworks.contains(net)) {
-                                if (DEBUG_BACKUP) {
-                                    Log.v(TAG, "Adding " + net.ssid + " / " + net.key_mgmt);
-                                }
-                                mKnownNetworks.add(net);
-                                mNetworks.add(net);
-                            } else {
-                                if (DEBUG_BACKUP) {
-                                    Log.v(TAG, "Dupe; skipped " + net.ssid + " / " + net.key_mgmt);
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (IOException e) {
-                // whatever happened, we're done now
-            }
-        }
-
-        public void write(Writer w) throws IOException {
-            for (Network net : mNetworks) {
-                if (net.certUsed) {
-                    // Networks that use certificates for authentication can't be restored
-                    // because the certificates they need don't get restored (because they
-                    // are stored in keystore, and can't be restored)
-                    continue;
-                }
-
-                if (net.isEap) {
-                    // Similarly, omit EAP network definitions to avoid propagating
-                    // controlled enterprise network definitions.
-                    continue;
-                }
-
-                net.write(w);
-            }
-        }
-
-        public void dump() {
-            for (Network net : mNetworks) {
-                net.dump();
-            }
-        }
-    }
+    // Version of the SDK that com.android.providers.settings package has been restored from.
+    // Populated in onRestore().
+    private int mRestoredFromSdkInt;
 
     @Override
     public void onCreate() {
         if (DEBUG_BACKUP) Log.d(TAG, "onCreate() invoked");
 
         mSettingsHelper = new SettingsHelper(this);
+        mWifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
         super.onCreate();
-
-        WifiManager mWfm = (WifiManager) getSystemService(Context.WIFI_SERVICE);
-        if (mWfm != null) mWifiConfigFile = mWfm.getConfigFile();
     }
 
     @Override
@@ -418,12 +212,12 @@ public class SettingsBackupAgent extends BackupAgentHelper {
         byte[] systemSettingsData = getSystemSettings();
         byte[] secureSettingsData = getSecureSettings();
         byte[] globalSettingsData = getGlobalSettings();
-        byte[] lockSettingsData   = getLockSettings();
+        byte[] lockSettingsData   = getLockSettings(UserHandle.myUserId());
         byte[] locale = mSettingsHelper.getLocaleData();
-        byte[] wifiSupplicantData = getWifiSupplicant(FILE_WIFI_SUPPLICANT);
-        byte[] wifiConfigData = getFileData(mWifiConfigFile);
         byte[] softApConfigData = getSoftAPConfiguration();
         byte[] netPoliciesData = getNetworkPolicies();
+        byte[] wifiFullConfigData = getNewWifiConfigData();
+        byte[] deviceSpecificInformation = getDeviceSpecificConfiguration();
 
         long[] stateChecksums = readOldChecksums(oldState);
 
@@ -435,12 +229,8 @@ public class SettingsBackupAgent extends BackupAgentHelper {
                 writeIfChanged(stateChecksums[STATE_GLOBAL], KEY_GLOBAL, globalSettingsData, data);
         stateChecksums[STATE_LOCALE] =
                 writeIfChanged(stateChecksums[STATE_LOCALE], KEY_LOCALE, locale, data);
-        stateChecksums[STATE_WIFI_SUPPLICANT] =
-                writeIfChanged(stateChecksums[STATE_WIFI_SUPPLICANT], KEY_WIFI_SUPPLICANT,
-                        wifiSupplicantData, data);
-        stateChecksums[STATE_WIFI_CONFIG] =
-                writeIfChanged(stateChecksums[STATE_WIFI_CONFIG], KEY_WIFI_CONFIG, wifiConfigData,
-                        data);
+        stateChecksums[STATE_WIFI_SUPPLICANT] = 0;
+        stateChecksums[STATE_WIFI_CONFIG] = 0;
         stateChecksums[STATE_LOCK_SETTINGS] =
                 writeIfChanged(stateChecksums[STATE_LOCK_SETTINGS], KEY_LOCK_SETTINGS,
                         lockSettingsData, data);
@@ -450,140 +240,107 @@ public class SettingsBackupAgent extends BackupAgentHelper {
         stateChecksums[STATE_NETWORK_POLICIES] =
                 writeIfChanged(stateChecksums[STATE_NETWORK_POLICIES], KEY_NETWORK_POLICIES,
                         netPoliciesData, data);
+        stateChecksums[STATE_WIFI_NEW_CONFIG] =
+                writeIfChanged(stateChecksums[STATE_WIFI_NEW_CONFIG], KEY_WIFI_NEW_CONFIG,
+                        wifiFullConfigData, data);
+        stateChecksums[STATE_DEVICE_CONFIG] =
+                writeIfChanged(stateChecksums[STATE_DEVICE_CONFIG], KEY_DEVICE_SPECIFIC_CONFIG,
+                        deviceSpecificInformation, data);
 
         writeNewChecksums(stateChecksums, newState);
     }
 
-    class WifiDisableRunnable implements Runnable {
-        final WifiRestoreRunnable mNextPhase;
-
-        public WifiDisableRunnable(WifiRestoreRunnable next) {
-            mNextPhase = next;
-        }
-
-        @Override
-        public void run() {
-            if (DEBUG_BACKUP) {
-                Log.v(TAG, "Disabling wifi during restore");
-            }
-            final ContentResolver cr = getContentResolver();
-            final int scanAlways = Settings.Global.getInt(cr,
-                    Settings.Global.WIFI_SCAN_ALWAYS_AVAILABLE, 0);
-            final int retainedWifiState = enableWifi(false);
-            if (scanAlways != 0) {
-                Settings.Global.putInt(cr,
-                        Settings.Global.WIFI_SCAN_ALWAYS_AVAILABLE, 0);
-            }
-
-            // Tell the final stage how to clean up after itself
-            mNextPhase.setPriorState(retainedWifiState, scanAlways);
-
-            // And run it after a modest pause to give broadcasts and content
-            // observers time an opportunity to run on this looper thread, so
-            // that the wifi stack actually goes all the way down.
-            new Handler(getMainLooper()).postDelayed(mNextPhase, 2500);
-        }
-    }
-
-    class WifiRestoreRunnable implements Runnable {
-        private byte[] restoredSupplicantData;
-        private byte[] restoredWifiConfigFile;
-        private int retainedWifiState;  // provided by disable stage
-        private int scanAlways; // provided by disable stage
-
-        void setPriorState(int retainedState, int always) {
-            retainedWifiState = retainedState;
-            scanAlways = always;
-        }
-
-        void incorporateWifiSupplicant(BackupDataInput data) {
-            restoredSupplicantData = new byte[data.getDataSize()];
-            if (restoredSupplicantData.length <= 0) return;
-            try {
-                data.readEntityData(restoredSupplicantData, 0, data.getDataSize());
-            } catch (IOException e) {
-                Log.w(TAG, "Unable to read supplicant data");
-                restoredSupplicantData = null;
-            }
-        }
-
-        void incorporateWifiConfigFile(BackupDataInput data) {
-            restoredWifiConfigFile = new byte[data.getDataSize()];
-            if (restoredWifiConfigFile.length <= 0) return;
-            try {
-                data.readEntityData(restoredWifiConfigFile, 0, data.getDataSize());
-            } catch (IOException e) {
-                Log.w(TAG, "Unable to read config file");
-                restoredWifiConfigFile = null;
-            }
-        }
-
-        @Override
-        public void run() {
-            if (restoredSupplicantData != null || restoredWifiConfigFile != null) {
-                if (DEBUG_BACKUP) {
-                    Log.v(TAG, "Applying restored wifi data");
-                }
-                if (restoredSupplicantData != null) {
-                    restoreWifiSupplicant(FILE_WIFI_SUPPLICANT,
-                            restoredSupplicantData, restoredSupplicantData.length);
-                    FileUtils.setPermissions(FILE_WIFI_SUPPLICANT,
-                            FileUtils.S_IRUSR | FileUtils.S_IWUSR
-                            | FileUtils.S_IRGRP | FileUtils.S_IWGRP,
-                            Process.myUid(), Process.WIFI_UID);
-                }
-                if (restoredWifiConfigFile != null) {
-                    restoreFileData(mWifiConfigFile,
-                            restoredWifiConfigFile, restoredWifiConfigFile.length);
-                }
-                // restore the previous WIFI state.
-                if (scanAlways != 0) {
-                    Settings.Global.putInt(getContentResolver(),
-                            Settings.Global.WIFI_SCAN_ALWAYS_AVAILABLE, scanAlways);
-                }
-                enableWifi(retainedWifiState == WifiManager.WIFI_STATE_ENABLED
-                        || retainedWifiState == WifiManager.WIFI_STATE_ENABLING);
-            }
-        }
-    }
-
-    // Instantiate the wifi-config restore runnable, scheduling it for execution
-    // a minute hence
-    void initWifiRestoreIfNecessary() {
-        if (mWifiRestore == null) {
-            mWifiRestore = new WifiRestoreRunnable();
-            mWifiDisable = new WifiDisableRunnable(mWifiRestore);
-        }
+    @Override
+    public void onRestore(BackupDataInput data, int appVersionCode,
+            ParcelFileDescriptor newState) {
+        throw new RuntimeException("SettingsBackupAgent has been migrated to use key exclusion");
     }
 
     @Override
-    public void onRestore(BackupDataInput data, int appVersionCode,
-            ParcelFileDescriptor newState) throws IOException {
+    public void onRestore(BackupDataInput data, long appVersionCode,
+            ParcelFileDescriptor newState, Set<String> dynamicBlockList) throws IOException {
+
+        if (DEBUG) {
+            Log.d(TAG, "onRestore(): appVersionCode: " + appVersionCode
+                    + "; Build.VERSION.SDK_INT: " + Build.VERSION.SDK_INT);
+        }
+
+        boolean overrideRestoreAnyVersion = Settings.Global.getInt(getContentResolver(),
+                Settings.Global.OVERRIDE_SETTINGS_PROVIDER_RESTORE_ANY_VERSION, 0) == 1;
+        if ((appVersionCode > Build.VERSION.SDK_INT) && overrideRestoreAnyVersion) {
+            Log.w(TAG, "Ignoring restore from API" + appVersionCode + " to API"
+                    + Build.VERSION.SDK_INT + " due to settings flag override.");
+            return;
+        }
+
+        // versionCode of com.android.providers.settings corresponds to SDK_INT
+        mRestoredFromSdkInt = (int) appVersionCode;
 
         HashSet<String> movedToGlobal = new HashSet<String>();
         Settings.System.getMovedToGlobalSettings(movedToGlobal);
         Settings.Secure.getMovedToGlobalSettings(movedToGlobal);
+        Set<String> movedToSecure = getMovedToSecureSettings();
+
+        Set<String> preservedGlobalSettings = getSettingsToPreserveInRestore(
+                Settings.Global.CONTENT_URI);
+        Set<String> preservedSecureSettings = getSettingsToPreserveInRestore(
+                Settings.Secure.CONTENT_URI);
+        Set<String> preservedSystemSettings = getSettingsToPreserveInRestore(
+                Settings.System.CONTENT_URI);
+        Set<String> preservedSettings = new HashSet<>(preservedGlobalSettings);
+        preservedSettings.addAll(preservedSecureSettings);
+        preservedSettings.addAll(preservedSystemSettings);
+
+        byte[] restoredWifiSupplicantData = null;
+        byte[] restoredWifiIpConfigData = null;
 
         while (data.readNextHeader()) {
             final String key = data.getKey();
             final int size = data.getDataSize();
+
+            // bail out of restoring from higher SDK_INT version for unsupported keys
+            if (appVersionCode > Build.VERSION.SDK_INT
+                    && !RESTORE_FROM_HIGHER_SDK_INT_SUPPORTED_KEYS.contains(key)) {
+                Log.w(TAG, "Not restoring unrecognized key '"
+                        + key + "' from future version " + appVersionCode);
+                data.skipEntityData();
+                continue;
+            }
+
             switch (key) {
                 case KEY_SYSTEM :
-                    restoreSettings(data, Settings.System.CONTENT_URI, movedToGlobal);
+                    restoreSettings(data, Settings.System.CONTENT_URI, movedToGlobal,
+                            movedToSecure, R.array.restore_blocked_system_settings,
+                            dynamicBlockList,
+                            preservedSystemSettings);
                     mSettingsHelper.applyAudioSettings();
                     break;
 
                 case KEY_SECURE :
-                    restoreSettings(data, Settings.Secure.CONTENT_URI, movedToGlobal);
+                    restoreSettings(
+                            data,
+                            Settings.Secure.CONTENT_URI,
+                            movedToGlobal,
+                            null,
+                            R.array.restore_blocked_secure_settings,
+                            dynamicBlockList,
+                            preservedSecureSettings);
                     break;
 
                 case KEY_GLOBAL :
-                    restoreSettings(data, Settings.Global.CONTENT_URI, null);
+                    restoreSettings(
+                            data,
+                            Settings.Global.CONTENT_URI,
+                            null,
+                            movedToSecure,
+                            R.array.restore_blocked_global_settings,
+                            dynamicBlockList,
+                            preservedGlobalSettings);
                     break;
 
                 case KEY_WIFI_SUPPLICANT :
-                    initWifiRestoreIfNecessary();
-                    mWifiRestore.incorporateWifiSupplicant(data);
+                    restoredWifiSupplicantData = new byte[size];
+                    data.readEntityData(restoredWifiSupplicantData, 0, size);
                     break;
 
                 case KEY_LOCALE :
@@ -593,12 +350,12 @@ public class SettingsBackupAgent extends BackupAgentHelper {
                     break;
 
                 case KEY_WIFI_CONFIG :
-                    initWifiRestoreIfNecessary();
-                    mWifiRestore.incorporateWifiConfigFile(data);
+                    restoredWifiIpConfigData = new byte[size];
+                    data.readEntityData(restoredWifiIpConfigData, 0, size);
                     break;
 
                 case KEY_LOCK_SETTINGS :
-                    restoreLockSettings(data);
+                    restoreLockSettings(UserHandle.myUserId(), data);
                     break;
 
                 case KEY_SOFTAP_CONFIG :
@@ -613,91 +370,40 @@ public class SettingsBackupAgent extends BackupAgentHelper {
                     restoreNetworkPolicies(netPoliciesData);
                     break;
 
+                case KEY_WIFI_NEW_CONFIG:
+                    byte[] restoredWifiNewConfigData = new byte[size];
+                    data.readEntityData(restoredWifiNewConfigData, 0, size);
+                    restoreNewWifiConfigData(restoredWifiNewConfigData);
+                    break;
+
+                case KEY_DEVICE_SPECIFIC_CONFIG:
+                    byte[] restoredDeviceSpecificConfig = new byte[size];
+                    data.readEntityData(restoredDeviceSpecificConfig, 0, size);
+                    restoreDeviceSpecificConfig(
+                            restoredDeviceSpecificConfig,
+                            R.array.restore_blocked_device_specific_settings,
+                            dynamicBlockList,
+                            preservedSettings);
+                    break;
+
                 default :
                     data.skipEntityData();
 
             }
         }
 
-        // If we have wifi data to restore, post a runnable to perform the
-        // bounce-and-update operation a little ways in the future.  The
-        // 'disable' runnable brings down the stack and remembers its state,
-        // and in turn schedules the 'restore' runnable to do the rewrite
-        // and cleanup operations.
-        if (mWifiRestore != null) {
-            long wifiBounceDelayMillis = Settings.Global.getLong(
-                    getContentResolver(),
-                    Settings.Global.WIFI_BOUNCE_DELAY_OVERRIDE_MS,
-                    WIFI_BOUNCE_DELAY_MILLIS);
-            new Handler(getMainLooper()).postDelayed(mWifiDisable, wifiBounceDelayMillis);
+        // Do this at the end so that we also pull in the ipconfig data.
+        if (restoredWifiSupplicantData != null) {
+            restoreSupplicantWifiConfigData(
+                    restoredWifiSupplicantData, restoredWifiIpConfigData);
         }
     }
 
     @Override
     public void onFullBackup(FullBackupDataOutput data)  throws IOException {
-        byte[] systemSettingsData = getSystemSettings();
-        byte[] secureSettingsData = getSecureSettings();
-        byte[] globalSettingsData = getGlobalSettings();
-        byte[] lockSettingsData   = getLockSettings();
-        byte[] locale = mSettingsHelper.getLocaleData();
-        byte[] wifiSupplicantData = getWifiSupplicant(FILE_WIFI_SUPPLICANT);
-        byte[] wifiConfigData = getFileData(mWifiConfigFile);
-        byte[] softApConfigData = getSoftAPConfiguration();
-        byte[] netPoliciesData = getNetworkPolicies();
-
-        // Write the data to the staging file, then emit that as our tarfile
-        // representation of the backed-up settings.
-        String root = getFilesDir().getAbsolutePath();
-        File stage = new File(root, STAGE_FILE);
-        try {
-            FileOutputStream filestream = new FileOutputStream(stage);
-            BufferedOutputStream bufstream = new BufferedOutputStream(filestream);
-            DataOutputStream out = new DataOutputStream(bufstream);
-
-            if (DEBUG_BACKUP) Log.d(TAG, "Writing flattened data version " + FULL_BACKUP_VERSION);
-            out.writeInt(FULL_BACKUP_VERSION);
-
-            if (DEBUG_BACKUP) Log.d(TAG, systemSettingsData.length + " bytes of settings data");
-            out.writeInt(systemSettingsData.length);
-            out.write(systemSettingsData);
-            if (DEBUG_BACKUP) {
-                Log.d(TAG, secureSettingsData.length + " bytes of secure settings data");
-            }
-            out.writeInt(secureSettingsData.length);
-            out.write(secureSettingsData);
-            if (DEBUG_BACKUP) {
-                Log.d(TAG, globalSettingsData.length + " bytes of global settings data");
-            }
-            out.writeInt(globalSettingsData.length);
-            out.write(globalSettingsData);
-            if (DEBUG_BACKUP) Log.d(TAG, locale.length + " bytes of locale data");
-            out.writeInt(locale.length);
-            out.write(locale);
-            if (DEBUG_BACKUP) {
-                Log.d(TAG, wifiSupplicantData.length + " bytes of wifi supplicant data");
-            }
-            out.writeInt(wifiSupplicantData.length);
-            out.write(wifiSupplicantData);
-            if (DEBUG_BACKUP) Log.d(TAG, wifiConfigData.length + " bytes of wifi config data");
-            out.writeInt(wifiConfigData.length);
-            out.write(wifiConfigData);
-            if (DEBUG_BACKUP) Log.d(TAG, lockSettingsData.length + " bytes of lock settings data");
-            out.writeInt(lockSettingsData.length);
-            out.write(lockSettingsData);
-            if (DEBUG_BACKUP) Log.d(TAG, softApConfigData.length + " bytes of softap config data");
-            out.writeInt(softApConfigData.length);
-            out.write(softApConfigData);
-            if (DEBUG_BACKUP) Log.d(TAG, netPoliciesData.length + " bytes of net policies data");
-            out.writeInt(netPoliciesData.length);
-            out.write(netPoliciesData);
-
-            out.flush();    // also flushes downstream
-
-            // now we're set to emit the tar stream
-            fullBackupFile(stage, data);
-        } finally {
-            stage.delete();
-        }
+        // Full backup of SettingsBackupAgent support was removed in Android P. If you want to adb
+        // backup com.android.providers.settings package use \"-keyvalue\" flag.
+        // Full restore of SettingsBackupAgent is still available for backwards compatibility.
     }
 
     @Override
@@ -718,20 +424,30 @@ public class SettingsBackupAgent extends BackupAgentHelper {
             HashSet<String> movedToGlobal = new HashSet<String>();
             Settings.System.getMovedToGlobalSettings(movedToGlobal);
             Settings.Secure.getMovedToGlobalSettings(movedToGlobal);
+            Set<String> movedToSecure = getMovedToSecureSettings();
 
             // system settings data first
             int nBytes = in.readInt();
             if (DEBUG_BACKUP) Log.d(TAG, nBytes + " bytes of settings data");
             byte[] buffer = new byte[nBytes];
             in.readFully(buffer, 0, nBytes);
-            restoreSettings(buffer, nBytes, Settings.System.CONTENT_URI, movedToGlobal);
+            restoreSettings(buffer, nBytes, Settings.System.CONTENT_URI, movedToGlobal,
+                    movedToSecure, R.array.restore_blocked_system_settings,
+                    Collections.emptySet(), Collections.emptySet());
 
             // secure settings
             nBytes = in.readInt();
             if (DEBUG_BACKUP) Log.d(TAG, nBytes + " bytes of secure settings data");
             if (nBytes > buffer.length) buffer = new byte[nBytes];
             in.readFully(buffer, 0, nBytes);
-            restoreSettings(buffer, nBytes, Settings.Secure.CONTENT_URI, movedToGlobal);
+            restoreSettings(
+                    buffer,
+                    nBytes,
+                    Settings.Secure.CONTENT_URI,
+                    movedToGlobal,
+                    null,
+                    R.array.restore_blocked_secure_settings,
+                    Collections.emptySet(), Collections.emptySet());
 
             // Global only if sufficiently new
             if (version >= FULL_BACKUP_ADDED_GLOBAL) {
@@ -740,7 +456,9 @@ public class SettingsBackupAgent extends BackupAgentHelper {
                 if (nBytes > buffer.length) buffer = new byte[nBytes];
                 in.readFully(buffer, 0, nBytes);
                 movedToGlobal.clear();  // no redirection; this *is* the global namespace
-                restoreSettings(buffer, nBytes, Settings.Global.CONTENT_URI, movedToGlobal);
+                restoreSettings(buffer, nBytes, Settings.Global.CONTENT_URI, movedToGlobal,
+                        movedToSecure, R.array.restore_blocked_global_settings,
+                        Collections.emptySet(), Collections.emptySet());
             }
 
             // locale
@@ -750,27 +468,21 @@ public class SettingsBackupAgent extends BackupAgentHelper {
             in.readFully(buffer, 0, nBytes);
             mSettingsHelper.setLocaleData(buffer, nBytes);
 
-            // wifi supplicant
-            nBytes = in.readInt();
-            if (DEBUG_BACKUP) Log.d(TAG, nBytes + " bytes of wifi supplicant data");
-            if (nBytes > buffer.length) buffer = new byte[nBytes];
-            in.readFully(buffer, 0, nBytes);
-            int retainedWifiState = enableWifi(false);
-            restoreWifiSupplicant(FILE_WIFI_SUPPLICANT, buffer, nBytes);
-            FileUtils.setPermissions(FILE_WIFI_SUPPLICANT,
-                    FileUtils.S_IRUSR | FileUtils.S_IWUSR
-                    | FileUtils.S_IRGRP | FileUtils.S_IWGRP,
-                    Process.myUid(), Process.WIFI_UID);
-            // retain the previous WIFI state.
-            enableWifi(retainedWifiState == WifiManager.WIFI_STATE_ENABLED
-                    || retainedWifiState == WifiManager.WIFI_STATE_ENABLING);
+            // Restore older backups performing the necessary migrations.
+            if (version < FULL_BACKUP_ADDED_WIFI_NEW) {
+                // wifi supplicant
+                int supplicant_size = in.readInt();
+                if (DEBUG_BACKUP) Log.d(TAG, supplicant_size + " bytes of wifi supplicant data");
+                byte[] supplicant_buffer = new byte[supplicant_size];
+                in.readFully(supplicant_buffer, 0, supplicant_size);
 
-            // wifi config
-            nBytes = in.readInt();
-            if (DEBUG_BACKUP) Log.d(TAG, nBytes + " bytes of wifi config data");
-            if (nBytes > buffer.length) buffer = new byte[nBytes];
-            in.readFully(buffer, 0, nBytes);
-            restoreFileData(mWifiConfigFile, buffer, nBytes);
+                // ip config
+                int ipconfig_size = in.readInt();
+                if (DEBUG_BACKUP) Log.d(TAG, ipconfig_size + " bytes of ip config data");
+                byte[] ipconfig_buffer = new byte[ipconfig_size];
+                in.readFully(ipconfig_buffer, 0, nBytes);
+                restoreSupplicantWifiConfigData(supplicant_buffer, ipconfig_buffer);
+            }
 
             if (version >= FULL_BACKUP_ADDED_LOCK_SETTINGS) {
                 nBytes = in.readInt();
@@ -778,7 +490,7 @@ public class SettingsBackupAgent extends BackupAgentHelper {
                 if (nBytes > buffer.length) buffer = new byte[nBytes];
                 if (nBytes > 0) {
                     in.readFully(buffer, 0, nBytes);
-                    restoreLockSettings(buffer, nBytes);
+                    restoreLockSettings(UserHandle.myUserId(), buffer, nBytes);
                 }
             }
             // softap config
@@ -801,11 +513,27 @@ public class SettingsBackupAgent extends BackupAgentHelper {
                     restoreNetworkPolicies(buffer);
                 }
             }
+            // Restore full wifi config data
+            if (version >= FULL_BACKUP_ADDED_WIFI_NEW) {
+                nBytes = in.readInt();
+                if (DEBUG_BACKUP) Log.d(TAG, nBytes + " bytes of full wifi config data");
+                if (nBytes > buffer.length) buffer = new byte[nBytes];
+                in.readFully(buffer, 0, nBytes);
+                restoreNewWifiConfigData(buffer);
+            }
+
             if (DEBUG_BACKUP) Log.d(TAG, "Full restore complete.");
         } else {
             data.close();
             throw new IOException("Invalid file schema");
         }
+    }
+
+    private Set<String> getMovedToSecureSettings() {
+        Set<String> movedToSecureSettings = new HashSet<>();
+        Settings.Global.getMovedToSecureSettings(movedToSecureSettings);
+        Settings.System.getMovedToSecureSettings(movedToSecureSettings);
+        return movedToSecureSettings;
     }
 
     private long[] readOldChecksums(ParcelFileDescriptor oldState) throws IOException {
@@ -868,7 +596,7 @@ public class SettingsBackupAgent extends BackupAgentHelper {
         Cursor cursor = getContentResolver().query(Settings.System.CONTENT_URI, PROJECTION, null,
                 null, null);
         try {
-            return extractRelevantValues(cursor, Settings.System.SETTINGS_TO_BACKUP);
+            return extractRelevantValues(cursor, SystemSettings.SETTINGS_TO_BACKUP);
         } finally {
             cursor.close();
         }
@@ -878,7 +606,7 @@ public class SettingsBackupAgent extends BackupAgentHelper {
         Cursor cursor = getContentResolver().query(Settings.Secure.CONTENT_URI, PROJECTION, null,
                 null, null);
         try {
-            return extractRelevantValues(cursor, Settings.Secure.SETTINGS_TO_BACKUP);
+            return extractRelevantValues(cursor, SecureSettings.SETTINGS_TO_BACKUP);
         } finally {
             cursor.close();
         }
@@ -888,19 +616,57 @@ public class SettingsBackupAgent extends BackupAgentHelper {
         Cursor cursor = getContentResolver().query(Settings.Global.CONTENT_URI, PROJECTION, null,
                 null, null);
         try {
-            return extractRelevantValues(cursor, Settings.Global.SETTINGS_TO_BACKUP);
+            return extractRelevantValues(cursor, GlobalSettings.SETTINGS_TO_BACKUP);
         } finally {
             cursor.close();
         }
     }
 
     /**
-     * Serialize the owner info settings
+     * Get names of the settings for which the current value should be preserved during restore.
      */
-    private byte[] getLockSettings() {
+    private Set<String> getSettingsToPreserveInRestore(Uri settingsUri) {
+        if (!FeatureFlagUtils.isEnabled(getBaseContext(),
+                FeatureFlagUtils.SETTINGS_DO_NOT_RESTORE_PRESERVED)) {
+            return Collections.emptySet();
+        }
+
+        Cursor cursor = getContentResolver().query(settingsUri, new String[] {
+                Settings.NameValueTable.NAME, Settings.NameValueTable.IS_PRESERVED_IN_RESTORE },
+                /* selection */ null, /* selectionArgs */ null, /* sortOrder */ null);
+
+        if (!cursor.moveToFirst()) {
+            Slog.i(TAG, "No settings to be preserved in restore");
+            return Collections.emptySet();
+        }
+
+        int nameIndex = cursor.getColumnIndex(Settings.NameValueTable.NAME);
+        int isPreservedIndex = cursor.getColumnIndex(
+                Settings.NameValueTable.IS_PRESERVED_IN_RESTORE);
+
+        Set<String> preservedSettings = new HashSet<>();
+        while (!cursor.isAfterLast()) {
+            if (Boolean.parseBoolean(cursor.getString(isPreservedIndex))) {
+                preservedSettings.add(getQualifiedKeyForSetting(cursor.getString(nameIndex),
+                        settingsUri));
+            }
+            cursor.moveToNext();
+        }
+
+        return preservedSettings;
+    }
+
+    /**
+     * Serialize the owner info and other lock settings
+     */
+    private byte[] getLockSettings(@UserIdInt int userId) {
         final LockPatternUtils lockPatternUtils = new LockPatternUtils(this);
-        final boolean ownerInfoEnabled = lockPatternUtils.isOwnerInfoEnabled(UserHandle.myUserId());
-        final String ownerInfo = lockPatternUtils.getOwnerInfo(UserHandle.myUserId());
+        final boolean ownerInfoEnabled = lockPatternUtils.isOwnerInfoEnabled(userId);
+        final String ownerInfo = lockPatternUtils.getOwnerInfo(userId);
+        final boolean lockPatternEnabled = lockPatternUtils.isLockPatternEnabled(userId);
+        final boolean visiblePatternEnabled = lockPatternUtils.isVisiblePatternEnabled(userId);
+        final boolean powerButtonInstantlyLocks =
+                lockPatternUtils.getPowerButtonInstantlyLocks(userId);
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(baos);
@@ -911,6 +677,14 @@ public class SettingsBackupAgent extends BackupAgentHelper {
                 out.writeUTF(KEY_LOCK_SETTINGS_OWNER_INFO);
                 out.writeUTF(ownerInfo != null ? ownerInfo : "");
             }
+            if (lockPatternUtils.isVisiblePatternEverChosen(userId)) {
+                out.writeUTF(KEY_LOCK_SETTINGS_VISIBLE_PATTERN_ENABLED);
+                out.writeUTF(visiblePatternEnabled ? "1" : "0");
+            }
+            if (lockPatternUtils.isPowerButtonInstantlyLocksEverChosen(userId)) {
+                out.writeUTF(KEY_LOCK_SETTINGS_POWER_BUTTON_INSTANTLY_LOCKS);
+                out.writeUTF(powerButtonInstantlyLocks ? "1" : "0");
+            }
             // End marker
             out.writeUTF("");
             out.flush();
@@ -919,8 +693,14 @@ public class SettingsBackupAgent extends BackupAgentHelper {
         return baos.toByteArray();
     }
 
-    private void restoreSettings(BackupDataInput data, Uri contentUri,
-            HashSet<String> movedToGlobal) {
+    private void restoreSettings(
+            BackupDataInput data,
+            Uri contentUri,
+            HashSet<String> movedToGlobal,
+            Set<String> movedToSecure,
+            int blockedSettingsArrayId,
+            Set<String> dynamicBlockList,
+            Set<String> settingsToPreserve) {
         byte[] settings = new byte[data.getDataSize()];
         try {
             data.readEntityData(settings, 0, settings.length);
@@ -928,66 +708,131 @@ public class SettingsBackupAgent extends BackupAgentHelper {
             Log.e(TAG, "Couldn't read entity data");
             return;
         }
-        restoreSettings(settings, settings.length, contentUri, movedToGlobal);
+        restoreSettings(
+                settings,
+                settings.length,
+                contentUri,
+                movedToGlobal,
+                movedToSecure,
+                blockedSettingsArrayId,
+                dynamicBlockList,
+                settingsToPreserve);
     }
 
-    private void restoreSettings(byte[] settings, int bytes, Uri contentUri,
-            HashSet<String> movedToGlobal) {
+    private void restoreSettings(
+            byte[] settings,
+            int bytes,
+            Uri contentUri,
+            HashSet<String> movedToGlobal,
+            Set<String> movedToSecure,
+            int blockedSettingsArrayId,
+            Set<String> dynamicBlockList,
+            Set<String> settingsToPreserve) {
+        restoreSettings(
+                settings,
+                0,
+                bytes,
+                contentUri,
+                movedToGlobal,
+                movedToSecure,
+                blockedSettingsArrayId,
+                dynamicBlockList,
+                settingsToPreserve);
+    }
+
+    @VisibleForTesting
+    void restoreSettings(
+            byte[] settings,
+            int pos,
+            int bytes,
+            Uri contentUri,
+            HashSet<String> movedToGlobal,
+            Set<String> movedToSecure,
+            int blockedSettingsArrayId,
+            Set<String> dynamicBlockList,
+            Set<String> settingsToPreserve) {
         if (DEBUG) {
             Log.i(TAG, "restoreSettings: " + contentUri);
         }
 
-        // Figure out the white list and redirects to the global table.
-        final String[] whitelist;
-        if (contentUri.equals(Settings.Secure.CONTENT_URI)) {
-            whitelist = Settings.Secure.SETTINGS_TO_BACKUP;
-        } else if (contentUri.equals(Settings.System.CONTENT_URI)) {
-            whitelist = Settings.System.SETTINGS_TO_BACKUP;
-        } else if (contentUri.equals(Settings.Global.CONTENT_URI)) {
-            whitelist = Settings.Global.SETTINGS_TO_BACKUP;
-        } else {
-            throw new IllegalArgumentException("Unknown URI: " + contentUri);
-        }
+        SettingsBackupWhitelist whitelist = getBackupWhitelist(contentUri);
 
         // Restore only the white list data.
-        int pos = 0;
-        Map<String, String> cachedEntries = new HashMap<String, String>();
+        final ArrayMap<String, String> cachedEntries = new ArrayMap<>();
         ContentValues contentValues = new ContentValues(2);
         SettingsHelper settingsHelper = mSettingsHelper;
         ContentResolver cr = getContentResolver();
 
-        final int whiteListSize = whitelist.length;
-        for (int i = 0; i < whiteListSize; i++) {
-            String key = whitelist[i];
-            String value = cachedEntries.remove(key);
+        Set<String> blockedSettings = getBlockedSettings(blockedSettingsArrayId);
 
-            // If the value not cached, let us look it up.
-            if (value == null) {
+        for (String key : whitelist.mSettingsWhitelist) {
+            boolean isBlockedBySystem = blockedSettings != null && blockedSettings.contains(key);
+            if (isBlockedBySystem || isBlockedByDynamicList(dynamicBlockList, contentUri,  key)) {
+                Log.i(
+                        TAG,
+                        "Key "
+                                + key
+                                + " removed from restore by "
+                                + (isBlockedBySystem ? "system" : "dynamic")
+                                + " block list");
+                continue;
+            }
+
+            if (settingsToPreserve.contains(getQualifiedKeyForSetting(key, contentUri))) {
+                Log.i(TAG, "Skipping restore for setting " + key + " as it is marked as "
+                        + "preserved");
+                continue;
+            }
+
+            String value = null;
+            boolean hasValueToRestore = false;
+            if (cachedEntries.indexOfKey(key) >= 0) {
+                value = cachedEntries.remove(key);
+                hasValueToRestore = true;
+            } else {
+                // If the value not cached, let us look it up.
                 while (pos < bytes) {
                     int length = readInt(settings, pos);
                     pos += INTEGER_BYTE_COUNT;
-                    String dataKey = length > 0 ? new String(settings, pos, length) : null;
+                    String dataKey = length >= 0 ? new String(settings, pos, length) : null;
                     pos += length;
                     length = readInt(settings, pos);
                     pos += INTEGER_BYTE_COUNT;
-                    String dataValue = length > 0 ? new String(settings, pos, length) : null;
-                    pos += length;
+                    String dataValue = null;
+                    if (length >= 0) {
+                        dataValue = new String(settings, pos, length);
+                        pos += length;
+                    }
                     if (key.equals(dataKey)) {
                         value = dataValue;
+                        hasValueToRestore = true;
                         break;
                     }
                     cachedEntries.put(dataKey, dataValue);
                 }
             }
 
-            if (value == null) {
+            if (!hasValueToRestore) {
                 continue;
             }
 
-            final Uri destination = (movedToGlobal != null && movedToGlobal.contains(key))
-                    ? Settings.Global.CONTENT_URI
-                    : contentUri;
-            settingsHelper.restoreValue(this, cr, contentValues, destination, key, value);
+            // only restore the settings that have valid values
+            if (!isValidSettingValue(key, value, whitelist.mSettingsValidators)) {
+                Log.w(TAG, "Attempted restore of " + key + " setting, but its value didn't pass"
+                        + " validation, value: " + value);
+                continue;
+            }
+
+            final Uri destination;
+            if (movedToGlobal != null && movedToGlobal.contains(key)) {
+                destination = Settings.Global.CONTENT_URI;
+            } else if (movedToSecure != null && movedToSecure.contains(key)) {
+                destination = Settings.Secure.CONTENT_URI;
+            } else {
+                destination = contentUri;
+            }
+            settingsHelper.restoreValue(this, cr, contentValues, destination, key, value,
+                    mRestoredFromSdkInt);
 
             if (DEBUG) {
                 Log.d(TAG, "Restored setting: " + destination + " : " + key + "=" + value);
@@ -995,13 +840,66 @@ public class SettingsBackupAgent extends BackupAgentHelper {
         }
     }
 
+    @VisibleForTesting
+    SettingsBackupWhitelist getBackupWhitelist(Uri contentUri) {
+        // Figure out the white list and redirects to the global table.  We restore anything
+        // in either the backup whitelist or the legacy-restore whitelist for this table.
+        String[] whitelist;
+        Map<String, Validator> validators = null;
+        if (contentUri.equals(Settings.Secure.CONTENT_URI)) {
+            whitelist = ArrayUtils.concatElements(String.class, SecureSettings.SETTINGS_TO_BACKUP,
+                    Settings.Secure.LEGACY_RESTORE_SETTINGS,
+                    DeviceSpecificSettings.DEVICE_SPECIFIC_SETTINGS_TO_BACKUP);
+            validators = SecureSettingsValidators.VALIDATORS;
+        } else if (contentUri.equals(Settings.System.CONTENT_URI)) {
+            whitelist = ArrayUtils.concatElements(String.class, SystemSettings.SETTINGS_TO_BACKUP,
+                    Settings.System.LEGACY_RESTORE_SETTINGS);
+            validators = SystemSettingsValidators.VALIDATORS;
+        } else if (contentUri.equals(Settings.Global.CONTENT_URI)) {
+            whitelist = ArrayUtils.concatElements(String.class, GlobalSettings.SETTINGS_TO_BACKUP,
+                    Settings.Global.LEGACY_RESTORE_SETTINGS);
+            validators = GlobalSettingsValidators.VALIDATORS;
+        } else {
+            throw new IllegalArgumentException("Unknown URI: " + contentUri);
+        }
+
+        return new SettingsBackupWhitelist(whitelist, validators);
+    }
+
+    private boolean isBlockedByDynamicList(Set<String> dynamicBlockList, Uri areaUri, String key) {
+        String contentKey = Uri.withAppendedPath(areaUri, key).toString();
+        return dynamicBlockList.contains(contentKey);
+    }
+
+    @VisibleForTesting
+    static String getQualifiedKeyForSetting(String settingName, Uri settingUri) {
+        return Uri.withAppendedPath(settingUri, settingName).toString();
+    }
+
+    // There may be other sources of blocked settings, so I'm separating out this
+    // code to make it easy to modify in the future.
+    @VisibleForTesting
+    protected Set<String> getBlockedSettings(int blockedSettingsArrayId) {
+        String[] blockedSettings = getResources().getStringArray(blockedSettingsArrayId);
+        return new HashSet<>(Arrays.asList(blockedSettings));
+    }
+
+    private boolean isValidSettingValue(String key, String value,
+            Map<String, Validator> validators) {
+        if (key == null || validators == null) {
+            return false;
+        }
+        Validator validator = validators.get(key);
+        return (validator != null) && validator.validate(value);
+    }
+
     /**
-     * Restores the owner info enabled and owner info settings in LockSettings.
+     * Restores the owner info enabled and other settings in LockSettings.
      *
      * @param buffer
      * @param nBytes
      */
-    private void restoreLockSettings(byte[] buffer, int nBytes) {
+    private void restoreLockSettings(@UserIdInt int userId, byte[] buffer, int nBytes) {
         final LockPatternUtils lockPatternUtils = new LockPatternUtils(this);
 
         ByteArrayInputStream bais = new ByteArrayInputStream(buffer, 0, nBytes);
@@ -1016,11 +914,17 @@ public class SettingsBackupAgent extends BackupAgentHelper {
                 }
                 switch (key) {
                     case KEY_LOCK_SETTINGS_OWNER_INFO_ENABLED:
-                        lockPatternUtils.setOwnerInfoEnabled("1".equals(value),
-                                UserHandle.myUserId());
+                        lockPatternUtils.setOwnerInfoEnabled("1".equals(value), userId);
                         break;
                     case KEY_LOCK_SETTINGS_OWNER_INFO:
-                        lockPatternUtils.setOwnerInfo(value, UserHandle.myUserId());
+                        lockPatternUtils.setOwnerInfo(value, userId);
+                        break;
+                    case KEY_LOCK_SETTINGS_VISIBLE_PATTERN_ENABLED:
+                        lockPatternUtils.reportPatternWasChosen(userId);
+                        lockPatternUtils.setVisiblePatternEnabled("1".equals(value), userId);
+                        break;
+                    case KEY_LOCK_SETTINGS_POWER_BUTTON_INSTANTLY_LOCKS:
+                        lockPatternUtils.setPowerButtonInstantlyLocks("1".equals(value), userId);
                         break;
                 }
             }
@@ -1029,7 +933,7 @@ public class SettingsBackupAgent extends BackupAgentHelper {
         }
     }
 
-    private void restoreLockSettings(BackupDataInput data) {
+    private void restoreLockSettings(@UserIdInt int userId, BackupDataInput data) {
         final byte[] settings = new byte[data.getDataSize()];
         try {
             data.readEntityData(settings, 0, settings.length);
@@ -1037,7 +941,7 @@ public class SettingsBackupAgent extends BackupAgentHelper {
             Log.e(TAG, "Couldn't read entity data");
             return;
         }
-        restoreLockSettings(settings, settings.length);
+        restoreLockSettings(userId, settings, settings.length);
     }
 
     /**
@@ -1049,50 +953,56 @@ public class SettingsBackupAgent extends BackupAgentHelper {
      * @return The byte array of extracted values.
      */
     private byte[] extractRelevantValues(Cursor cursor, String[] settings) {
-        final int settingsCount = settings.length;
-        byte[][] values = new byte[settingsCount * 2][]; // keys and values
         if (!cursor.moveToFirst()) {
             Log.e(TAG, "Couldn't read from the cursor");
             return new byte[0];
         }
 
+        final int nameColumnIndex = cursor.getColumnIndex(Settings.NameValueTable.NAME);
+        final int valueColumnIndex = cursor.getColumnIndex(Settings.NameValueTable.VALUE);
+
         // Obtain the relevant data in a temporary array.
         int totalSize = 0;
         int backedUpSettingIndex = 0;
-        Map<String, String> cachedEntries = new HashMap<String, String>();
+        final int settingsCount = settings.length;
+        final byte[][] values = new byte[settingsCount * 2][]; // keys and values
+        final ArrayMap<String, String> cachedEntries = new ArrayMap<>();
         for (int i = 0; i < settingsCount; i++) {
-            String key = settings[i];
-            String value = cachedEntries.remove(key);
-
-            final int nameColumnIndex = cursor.getColumnIndex(Settings.NameValueTable.NAME);
-            final int valueColumnIndex = cursor.getColumnIndex(Settings.NameValueTable.VALUE);
+            final String key = settings[i];
 
             // If the value not cached, let us look it up.
-            if (value == null) {
+            String value = null;
+            boolean hasValueToBackup = false;
+            if (cachedEntries.indexOfKey(key) >= 0) {
+                value = cachedEntries.remove(key);
+                hasValueToBackup = true;
+            } else {
                 while (!cursor.isAfterLast()) {
-                    String cursorKey = cursor.getString(nameColumnIndex);
-                    String cursorValue = cursor.getString(valueColumnIndex);
+                    final String cursorKey = cursor.getString(nameColumnIndex);
+                    final String cursorValue = cursor.getString(valueColumnIndex);
                     cursor.moveToNext();
                     if (key.equals(cursorKey)) {
                         value = cursorValue;
+                        hasValueToBackup = true;
                         break;
                     }
                     cachedEntries.put(cursorKey, cursorValue);
                 }
             }
 
+            if (!hasValueToBackup) {
+                continue;
+            }
+
             // Intercept the keys and see if they need special handling
             value = mSettingsHelper.onBackupValue(key, value);
 
-            if (value == null) {
-                continue;
-            }
             // Write the key and value in the intermediary array.
-            byte[] keyBytes = key.getBytes();
+            final byte[] keyBytes = key.getBytes();
             totalSize += INTEGER_BYTE_COUNT + keyBytes.length;
             values[backedUpSettingIndex * 2] = keyBytes;
 
-            byte[] valueBytes = value.getBytes();
+            final byte[] valueBytes = (value != null) ? value.getBytes() : NULL_VALUE;
             totalSize += INTEGER_BYTE_COUNT + valueBytes.length;
             values[backedUpSettingIndex * 2 + 1] = valueBytes;
 
@@ -1108,167 +1018,38 @@ public class SettingsBackupAgent extends BackupAgentHelper {
         int pos = 0;
         final int keyValuePairCount = backedUpSettingIndex * 2;
         for (int i = 0; i < keyValuePairCount; i++) {
-            pos = writeInt(result, pos, values[i].length);
-            pos = writeBytes(result, pos, values[i]);
+            final byte[] value = values[i];
+            if (value != NULL_VALUE) {
+                pos = writeInt(result, pos, value.length);
+                pos = writeBytes(result, pos, value);
+            } else {
+                pos = writeInt(result, pos, NULL_SIZE);
+            }
         }
         return result;
     }
 
-    private byte[] getFileData(String filename) {
-        InputStream is = null;
-        try {
-            File file = new File(filename);
-            is = new FileInputStream(file);
-
-            //Will truncate read on a very long file,
-            //should not happen for a config file
-            byte[] bytes = new byte[(int) file.length()];
-
-            int offset = 0;
-            int numRead = 0;
-            while (offset < bytes.length
-                    && (numRead = is.read(bytes, offset, bytes.length - offset)) >= 0) {
-                offset += numRead;
-            }
-
-            //read failure
-            if (offset < bytes.length) {
-                Log.w(TAG, "Couldn't backup " + filename);
-                return EMPTY_DATA;
-            }
-            return bytes;
-        } catch (IOException ioe) {
-            Log.w(TAG, "Couldn't backup " + filename);
-            return EMPTY_DATA;
-        } finally {
-            if (is != null) {
-                try {
-                    is.close();
-                } catch (IOException e) {
-                }
-            }
+    private void restoreSupplicantWifiConfigData(byte[] supplicant_bytes, byte[] ipconfig_bytes) {
+        if (DEBUG_BACKUP) {
+            Log.v(TAG, "Applying restored supplicant wifi data");
         }
-    }
-
-    private void restoreFileData(String filename, byte[] bytes, int size) {
-        try {
-            File file = new File(filename);
-            if (file.exists()) file.delete();
-
-            OutputStream os = new BufferedOutputStream(new FileOutputStream(filename, true));
-            os.write(bytes, 0, size);
-            os.close();
-        } catch (IOException ioe) {
-            Log.w(TAG, "Couldn't restore " + filename);
-        }
-    }
-
-
-    private byte[] getWifiSupplicant(String filename) {
-        BufferedReader br = null;
-        try {
-            File file = new File(filename);
-            if (!file.exists()) {
-                return EMPTY_DATA;
-            }
-
-            WifiManager wifi = (WifiManager) getSystemService(WIFI_SERVICE);
-            List<WifiConfiguration> configs = wifi.getConfiguredNetworks();
-
-            WifiNetworkSettings fromFile = new WifiNetworkSettings();
-            br = new BufferedReader(new FileReader(file));
-            fromFile.readNetworks(br, configs, false);
-
-            // Write the parsed networks into a packed byte array
-            if (fromFile.mKnownNetworks.size() > 0) {
-                ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                OutputStreamWriter out = new OutputStreamWriter(bos);
-                fromFile.write(out);
-                out.flush();
-                return bos.toByteArray();
-            } else {
-                return EMPTY_DATA;
-            }
-        } catch (IOException ioe) {
-            Log.w(TAG, "Couldn't backup " + filename);
-            return EMPTY_DATA;
-        } finally {
-            IoUtils.closeQuietly(br);
-        }
-    }
-
-    private void restoreWifiSupplicant(String filename, byte[] bytes, int size) {
-        try {
-            WifiNetworkSettings supplicantImage = new WifiNetworkSettings();
-
-            File supplicantFile = new File(FILE_WIFI_SUPPLICANT);
-            if (supplicantFile.exists()) {
-                // Retain the existing APs; we'll append the restored ones to them
-                BufferedReader in = new BufferedReader(new FileReader(FILE_WIFI_SUPPLICANT));
-                supplicantImage.readNetworks(in, null, true);
-                in.close();
-
-                supplicantFile.delete();
-            }
-
-            // Incorporate the restore AP information
-            if (size > 0) {
-                char[] restoredAsBytes = new char[size];
-                for (int i = 0; i < size; i++) restoredAsBytes[i] = (char) bytes[i];
-                BufferedReader in = new BufferedReader(new CharArrayReader(restoredAsBytes));
-                supplicantImage.readNetworks(in, null, false);
-
-                if (DEBUG_BACKUP) {
-                    Log.v(TAG, "Final AP list:");
-                    supplicantImage.dump();
-                }
-            }
-
-            // Install the correct default template
-            BufferedWriter bw = new BufferedWriter(new FileWriter(FILE_WIFI_SUPPLICANT));
-            copyWifiSupplicantTemplate(bw);
-
-            // Write the restored supplicant config and we're done
-            supplicantImage.write(bw);
-            bw.close();
-        } catch (IOException ioe) {
-            Log.w(TAG, "Couldn't restore " + filename);
-        }
-    }
-
-    private void copyWifiSupplicantTemplate(BufferedWriter bw) {
-        try {
-            BufferedReader br = new BufferedReader(new FileReader(FILE_WIFI_SUPPLICANT_TEMPLATE));
-            char[] temp = new char[1024];
-            int size;
-            while ((size = br.read(temp)) > 0) {
-                bw.write(temp, 0, size);
-            }
-            br.close();
-        } catch (IOException ioe) {
-            Log.w(TAG, "Couldn't copy wpa_supplicant file");
-        }
+        mWifiManager.restoreSupplicantBackupData(supplicant_bytes, ipconfig_bytes);
     }
 
     private byte[] getSoftAPConfiguration() {
-        WifiManager wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
-        try {
-            return wifiManager.getWifiApConfiguration().getBytesForBackup();
-        } catch (IOException ioe) {
-            Log.e(TAG, "Failed to marshal SoftAPConfiguration" + ioe.getMessage());
-            return new byte[0];
-        }
+        return mWifiManager.retrieveSoftApBackupData();
     }
 
     private void restoreSoftApConfiguration(byte[] data) {
-        WifiManager wifiManager = (WifiManager) getSystemService(Context.WIFI_SERVICE);
-        try {
-            WifiConfiguration config = WifiConfiguration
-                    .getWifiConfigFromBackup(new DataInputStream(new ByteArrayInputStream(data)));
-            if (DEBUG) Log.d(TAG, "Successfully unMarshaled WifiConfiguration ");
-            wifiManager.setWifiApConfiguration(config);
-        } catch (IOException | BackupUtils.BadVersionException e) {
-            Log.e(TAG, "Failed to unMarshal SoftAPConfiguration " + e.getMessage());
+        SoftApConfiguration configInCloud = mWifiManager.restoreSoftApBackupData(data);
+        if (configInCloud != null) {
+            if (DEBUG) Log.d(TAG, "Successfully unMarshaled SoftApConfiguration ");
+            // Depending on device hardware, we may need to notify the user of a setting change
+            SoftApConfiguration storedConfig = mWifiManager.getSoftApConfiguration();
+            if (!storedConfig.equals(configInCloud)) {
+                Log.d(TAG, "restored ap configuration requires a conversion, notify the user");
+                WifiSoftApConfigChangedNotifier.notifyUserOfConfigConversion(this);
+            }
         }
     }
 
@@ -1283,7 +1064,10 @@ public class SettingsBackupAgent extends BackupAgentHelper {
                 out.writeInt(NETWORK_POLICIES_BACKUP_VERSION);
                 out.writeInt(policies.length);
                 for (NetworkPolicy policy : policies) {
-                    if (policy != null) {
+                    // We purposefully only backup policies that the user has
+                    // defined; any inferred policies might include
+                    // carrier-protected data that we can't export.
+                    if (policy != null && !policy.inferred) {
                         byte[] marshaledPolicy = policy.getBytesForBackup();
                         out.writeByte(BackupUtils.NOT_NULL);
                         out.writeInt(marshaledPolicy.length);
@@ -1298,6 +1082,17 @@ public class SettingsBackupAgent extends BackupAgentHelper {
             }
         }
         return baos.toByteArray();
+    }
+
+    private byte[] getNewWifiConfigData() {
+        return mWifiManager.retrieveBackupData();
+    }
+
+    private void restoreNewWifiConfigData(byte[] bytes) {
+        if (DEBUG_BACKUP) {
+            Log.v(TAG, "Applying restored wifi data");
+        }
+        mWifiManager.restoreBackupData(bytes);
     }
 
     private void restoreNetworkPolicies(byte[] data) {
@@ -1324,11 +1119,168 @@ public class SettingsBackupAgent extends BackupAgentHelper {
                 }
                 // Only set the policies if there was no error in the restore operation
                 networkPolicyManager.setNetworkPolicies(policies);
-            } catch (NullPointerException | IOException | BackupUtils.BadVersionException e) {
+            } catch (NullPointerException | IOException | BackupUtils.BadVersionException
+                    | DateTimeException e) {
                 // NPE can be thrown when trying to instantiate a NetworkPolicy
                 Log.e(TAG, "Failed to convert byte array to NetworkPolicies " + e.getMessage());
             }
         }
+    }
+
+    @VisibleForTesting
+    byte[] getDeviceSpecificConfiguration() throws IOException {
+        try (ByteArrayOutputStream os = new ByteArrayOutputStream()) {
+            writeHeader(os);
+            os.write(getDeviceSpecificSettings());
+            return os.toByteArray();
+        }
+    }
+
+    @VisibleForTesting
+    void writeHeader(OutputStream os) throws IOException {
+        os.write(toByteArray(DEVICE_SPECIFIC_VERSION));
+        os.write(toByteArray(Build.MANUFACTURER));
+        os.write(toByteArray(Build.PRODUCT));
+    }
+
+    private byte[] getDeviceSpecificSettings() {
+        try (Cursor cursor =
+                     getContentResolver()
+                             .query(Settings.Secure.CONTENT_URI, PROJECTION, null, null, null)) {
+            return extractRelevantValues(
+                    cursor, DeviceSpecificSettings.DEVICE_SPECIFIC_SETTINGS_TO_BACKUP);
+        }
+    }
+
+    /**
+     * Restore the device specific settings.
+     *
+     * @param data The byte array holding a backed up version of another devices settings.
+     * @param blockedSettingsArrayId The string array resource holding the settings not to restore.
+     * @param dynamicBlocklist The dynamic list of settings not to restore fed into this agent.
+     * @return true if the restore succeeded, false if it was stopped.
+     */
+    @VisibleForTesting
+    boolean restoreDeviceSpecificConfig(byte[] data, int blockedSettingsArrayId,
+            Set<String> dynamicBlocklist, Set<String> preservedSettings) {
+        // We're using an AtomicInteger to wrap the position int and allow called methods to
+        // modify it.
+        AtomicInteger pos = new AtomicInteger(0);
+        if (!isSourceAcceptable(data, pos)) {
+            return false;
+        }
+
+        Integer originalDensity = getPreviousDensity();
+
+        int dataStart = pos.get();
+        restoreSettings(
+                data,
+                dataStart,
+                data.length,
+                Settings.Secure.CONTENT_URI,
+                null,
+                null,
+                blockedSettingsArrayId,
+                dynamicBlocklist,
+                preservedSettings);
+
+        updateWindowManagerIfNeeded(originalDensity);
+
+        return true;
+    }
+
+    private void updateWindowManagerIfNeeded(Integer previousDensity) {
+        int newDensity;
+        try {
+            newDensity = getForcedDensity();
+        } catch (Settings.SettingNotFoundException e) {
+            // If there's not density setting we can't perform a change.
+            return;
+        }
+
+        if (previousDensity == null || previousDensity != newDensity) {
+            // From nothing to something is a change.
+            DisplayDensityConfiguration.setForcedDisplayDensity(
+                    Display.DEFAULT_DISPLAY, newDensity);
+        }
+    }
+
+    private Integer getPreviousDensity() {
+        try {
+            return getForcedDensity();
+        } catch (Settings.SettingNotFoundException e) {
+            return null;
+        }
+    }
+
+    private int getForcedDensity() throws Settings.SettingNotFoundException {
+        return Settings.Secure.getInt(getContentResolver(), Settings.Secure.DISPLAY_DENSITY_FORCED);
+    }
+
+    @VisibleForTesting
+    boolean isSourceAcceptable(byte[] data, AtomicInteger pos) {
+        int version = readInt(data, pos);
+        if (version > DEVICE_SPECIFIC_VERSION) {
+            Slog.w(TAG, "Unable to restore device specific information; Backup is too new");
+            return false;
+        }
+
+        String sourceManufacturer = readString(data, pos);
+        if (!Objects.equals(Build.MANUFACTURER, sourceManufacturer)) {
+            Log.w(
+                    TAG,
+                    "Unable to restore device specific information; Manufacturer mismatch "
+                            + "(\'"
+                            + Build.MANUFACTURER
+                            + "\' and \'"
+                            + sourceManufacturer
+                            + "\')");
+            return false;
+        }
+
+        String sourceProduct = readString(data, pos);
+        if (!Objects.equals(Build.PRODUCT, sourceProduct)) {
+            Log.w(
+                    TAG,
+                    "Unable to restore device specific information; Product mismatch (\'"
+                            + Build.PRODUCT
+                            + "\' and \'"
+                            + sourceProduct
+                            + "\')");
+            return false;
+        }
+
+        return true;
+    }
+
+    @VisibleForTesting
+    static byte[] toByteArray(String value) {
+        if (value == null) {
+            return toByteArray(NULL_SIZE);
+        }
+
+        byte[] stringBytes = value.getBytes();
+        byte[] sizeAndString = new byte[stringBytes.length + INTEGER_BYTE_COUNT];
+        writeInt(sizeAndString, 0, stringBytes.length);
+        writeBytes(sizeAndString, INTEGER_BYTE_COUNT, stringBytes);
+        return sizeAndString;
+    }
+
+    @VisibleForTesting
+    static byte[] toByteArray(int value) {
+        byte[] result = new byte[INTEGER_BYTE_COUNT];
+        writeInt(result, 0, value);
+        return result;
+    }
+
+    private String readString(byte[] data, AtomicInteger pos) {
+        int byteCount = readInt(data, pos);
+        if (byteCount == NULL_SIZE) {
+            return null;
+        }
+
+        int stringStart = pos.getAndAdd(byteCount);
+        return new String(data, stringStart, byteCount);
     }
 
     /**
@@ -1338,7 +1290,7 @@ public class SettingsBackupAgent extends BackupAgentHelper {
      * @param value integer to write
      * @return the index after adding the size of an int (4) in bytes.
      */
-    private int writeInt(byte[] out, int pos, int value) {
+    private static int writeInt(byte[] out, int pos, int value) {
         out[pos + 0] = (byte) ((value >> 24) & 0xFF);
         out[pos + 1] = (byte) ((value >> 16) & 0xFF);
         out[pos + 2] = (byte) ((value >>  8) & 0xFF);
@@ -1346,9 +1298,13 @@ public class SettingsBackupAgent extends BackupAgentHelper {
         return pos + INTEGER_BYTE_COUNT;
     }
 
-    private int writeBytes(byte[] out, int pos, byte[] value) {
+    private static int writeBytes(byte[] out, int pos, byte[] value) {
         System.arraycopy(value, 0, out, pos, value.length);
         return pos + value.length;
+    }
+
+    private int readInt(byte[] in, AtomicInteger pos) {
+        return readInt(in, pos.getAndAdd(INTEGER_BYTE_COUNT));
     }
 
     private int readInt(byte[] in, int pos) {
@@ -1359,17 +1315,19 @@ public class SettingsBackupAgent extends BackupAgentHelper {
         return result;
     }
 
-    private int enableWifi(boolean enable) {
-        if (mWfm == null) {
-            mWfm = (WifiManager) getSystemService(Context.WIFI_SERVICE);
+    /**
+     * Store the whitelist of settings to be backed up and validators for them.
+     */
+    @VisibleForTesting
+    static class SettingsBackupWhitelist {
+        final String[] mSettingsWhitelist;
+        final Map<String, Validator> mSettingsValidators;
+
+
+        SettingsBackupWhitelist(String[] settingsWhitelist,
+                Map<String, Validator> settingsValidators) {
+            mSettingsWhitelist = settingsWhitelist;
+            mSettingsValidators = settingsValidators;
         }
-        if (mWfm != null) {
-            int state = mWfm.getWifiState();
-            mWfm.setWifiEnabled(enable);
-            return state;
-        } else {
-            Log.e(TAG, "Failed to fetch WifiManager instance");
-        }
-        return WifiManager.WIFI_STATE_UNKNOWN;
     }
 }

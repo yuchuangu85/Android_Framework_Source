@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1995, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -261,14 +261,13 @@ class ThreadGroup implements Thread.UncaughtExceptionHandler {
      * @see        java.lang.ThreadGroup#checkAccess()
      * @since      JDK1.0
      */
-    // Android changed: We clamp the priority to the range [MIN_PRIORITY, MAX_PRIORITY]
-    // before using it.
     public final void setMaxPriority(int pri) {
         int ngroupsSnapshot;
         ThreadGroup[] groupsSnapshot;
         synchronized (this) {
             checkAccess();
-            // Android changed: Clamp to MIN_PRIORITY, MAX_PRIORITY.
+            // BEGIN Android-changed: Clamp to the range [MIN_PRIORITY, MAX_PRIORITY].
+            // This preserves backward compatibility with previous versions of Android.
             // if (pri < Thread.MIN_PRIORITY || pri > Thread.MAX_PRIORITY) {
             //     return;
             // }
@@ -278,6 +277,7 @@ class ThreadGroup implements Thread.UncaughtExceptionHandler {
             if (pri > Thread.MAX_PRIORITY) {
                 pri = Thread.MAX_PRIORITY;
             }
+            // END Android-changed: Clamp to the range [MIN_PRIORITY, MAX_PRIORITY].
 
             maxPriority = (parent != null) ? Math.min(pri, parent.maxPriority) : pri;
             ngroupsSnapshot = ngroups;
@@ -325,6 +325,11 @@ class ThreadGroup implements Thread.UncaughtExceptionHandler {
      * @since      JDK1.0
      */
     public final void checkAccess() {
+        // Android-removed: SecurityManager stubbed out on Android.
+        // SecurityManager security = System.getSecurityManager();
+        // if (security != null) {
+        //     security.checkAccess(this);
+        // }
     }
 
     /**
@@ -681,6 +686,7 @@ class ThreadGroup implements Thread.UncaughtExceptionHandler {
      *     {@link Thread#suspend} for details.
      */
     @Deprecated
+    @SuppressWarnings("deprecation")
     public final void suspend() {
         if (stopOrSuspend(true))
             Thread.currentThread().suspend();
@@ -693,6 +699,7 @@ class ThreadGroup implements Thread.UncaughtExceptionHandler {
      * if (and only if) the current thread is found to be in this thread
      * group or one of its subgroups.
      */
+    @SuppressWarnings("deprecation")
     private boolean stopOrSuspend(boolean suspend) {
         boolean suicide = false;
         Thread us = Thread.currentThread();
@@ -742,6 +749,7 @@ class ThreadGroup implements Thread.UncaughtExceptionHandler {
      *       deadlock-prone.  See {@link Thread#suspend} for details.
      */
     @Deprecated
+    @SuppressWarnings("deprecation")
     public final void resume() {
         int ngroupsSnapshot;
         ThreadGroup[] groupsSnapshot;
@@ -926,9 +934,6 @@ class ThreadGroup implements Thread.UncaughtExceptionHandler {
      *
      * @param  t
      *         the Thread whose start method was invoked
-     *
-     * @param  failed
-     *         true if the thread could not be started successfully
      */
     void threadStartFailed(Thread t) {
         synchronized(this) {

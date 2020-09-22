@@ -16,12 +16,17 @@
 
 package android.text;
 
+import android.annotation.FloatRange;
+import android.annotation.IntRange;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Paint;
+import android.graphics.text.LineBreaker;
+import android.os.Build;
 import android.text.style.LeadingMarginSpan;
 import android.text.style.LeadingMarginSpan.LeadingMarginSpan2;
 import android.text.style.LineHeightSpan;
-import android.text.style.MetricAffectingSpan;
 import android.text.style.TabStopSpan;
 import android.util.Log;
 import android.util.Pools.SynchronizedPool;
@@ -29,9 +34,7 @@ import android.util.Pools.SynchronizedPool;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.GrowingArrayUtils;
 
-import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.Locale;
 
 /**
  * StaticLayout is a Layout for text that will not be edited after it
@@ -44,25 +47,35 @@ import java.util.Locale;
  * Canvas.drawText()} directly.</p>
  */
 public class StaticLayout extends Layout {
+    /*
+     * The break iteration is done in native code. The protocol for using the native code is as
+     * follows.
+     *
+     * First, call nInit to setup native line breaker object. Then, for each paragraph, do the
+     * following:
+     *
+     *   - Create MeasuredParagraph by MeasuredParagraph.buildForStaticLayout which measures in
+     *     native.
+     *   - Run LineBreaker.computeLineBreaks() to obtain line breaks for the paragraph.
+     *
+     * After all paragraphs, call finish() to release expensive buffers.
+     */
 
     static final String TAG = "StaticLayout";
 
     /**
-     * Builder for static layouts. The builder is a newer pattern for constructing
-     * StaticLayout objects and should be preferred over the constructors,
-     * particularly to access newer features. To build a static layout, first
-     * call {@link #obtain} with the required arguments (text, paint, and width),
-     * then call setters for optional parameters, and finally {@link #build}
-     * to build the StaticLayout object. Parameters not explicitly set will get
+     * Builder for static layouts. The builder is the preferred pattern for constructing
+     * StaticLayout objects and should be preferred over the constructors, particularly to access
+     * newer features. To build a static layout, first call {@link #obtain} with the required
+     * arguments (text, paint, and width), then call setters for optional parameters, and finally
+     * {@link #build} to build the StaticLayout object. Parameters not explicitly set will get
      * default values.
      */
     public final static class Builder {
-        private Builder() {
-            mNativePtr = nNewBuilder();
-        }
+        private Builder() {}
 
         /**
-         * Obtain a builder for constructing StaticLayout objects
+         * Obtain a builder for constructing StaticLayout objects.
          *
          * @param source The text to be laid out, optionally with spans
          * @param start The index of the start of the text
@@ -71,8 +84,10 @@ public class StaticLayout extends Layout {
          * @param width The width in pixels
          * @return a builder object used for constructing the StaticLayout
          */
-        public static Builder obtain(CharSequence source, int start, int end, TextPaint paint,
-                int width) {
+        @NonNull
+        public static Builder obtain(@NonNull CharSequence source, @IntRange(from = 0) int start,
+                @IntRange(from = 0) int end, @NonNull TextPaint paint,
+                @IntRange(from = 0) int width) {
             Builder b = sPool.acquire();
             if (b == null) {
                 b = new Builder();
@@ -86,38 +101,37 @@ public class StaticLayout extends Layout {
             b.mWidth = width;
             b.mAlignment = Alignment.ALIGN_NORMAL;
             b.mTextDir = TextDirectionHeuristics.FIRSTSTRONG_LTR;
-            b.mSpacingMult = 1.0f;
-            b.mSpacingAdd = 0.0f;
+            b.mSpacingMult = DEFAULT_LINESPACING_MULTIPLIER;
+            b.mSpacingAdd = DEFAULT_LINESPACING_ADDITION;
             b.mIncludePad = true;
+            b.mFallbackLineSpacing = false;
             b.mEllipsizedWidth = width;
             b.mEllipsize = null;
             b.mMaxLines = Integer.MAX_VALUE;
             b.mBreakStrategy = Layout.BREAK_STRATEGY_SIMPLE;
             b.mHyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE;
-
-            b.mMeasuredText = MeasuredText.obtain();
+            b.mJustificationMode = Layout.JUSTIFICATION_MODE_NONE;
             return b;
         }
 
-        private static void recycle(Builder b) {
+        /**
+         * This method should be called after the layout is finished getting constructed and the
+         * builder needs to be cleaned up and returned to the pool.
+         */
+        private static void recycle(@NonNull Builder b) {
             b.mPaint = null;
             b.mText = null;
-            MeasuredText.recycle(b.mMeasuredText);
-            b.mMeasuredText = null;
             b.mLeftIndents = null;
             b.mRightIndents = null;
-            nFinishBuilder(b.mNativePtr);
             sPool.release(b);
         }
 
         // release any expensive state
         /* package */ void finish() {
-            nFinishBuilder(mNativePtr);
             mText = null;
             mPaint = null;
             mLeftIndents = null;
             mRightIndents = null;
-            mMeasuredText.finish();
         }
 
         public Builder setText(CharSequence source) {
@@ -136,7 +150,8 @@ public class StaticLayout extends Layout {
          *
          * @hide
          */
-        public Builder setText(CharSequence source, int start, int end) {
+        @NonNull
+        public Builder setText(@NonNull CharSequence source, int start, int end) {
             mText = source;
             mStart = start;
             mEnd = end;
@@ -151,7 +166,8 @@ public class StaticLayout extends Layout {
          *
          * @hide
          */
-        public Builder setPaint(TextPaint paint) {
+        @NonNull
+        public Builder setPaint(@NonNull TextPaint paint) {
             mPaint = paint;
             return this;
         }
@@ -164,7 +180,8 @@ public class StaticLayout extends Layout {
          *
          * @hide
          */
-        public Builder setWidth(int width) {
+        @NonNull
+        public Builder setWidth(@IntRange(from = 0) int width) {
             mWidth = width;
             if (mEllipsize == null) {
                 mEllipsizedWidth = width;
@@ -178,34 +195,38 @@ public class StaticLayout extends Layout {
          * @param alignment Alignment for the resulting {@link StaticLayout}
          * @return this builder, useful for chaining
          */
-        public Builder setAlignment(Alignment alignment) {
+        @NonNull
+        public Builder setAlignment(@NonNull Alignment alignment) {
             mAlignment = alignment;
             return this;
         }
 
         /**
          * Set the text direction heuristic. The text direction heuristic is used to
-         * resolve text direction based per-paragraph based on the input text. The default is
+         * resolve text direction per-paragraph based on the input text. The default is
          * {@link TextDirectionHeuristics#FIRSTSTRONG_LTR}.
          *
-         * @param textDir text direction heuristic for resolving BiDi behavior.
+         * @param textDir text direction heuristic for resolving bidi behavior.
          * @return this builder, useful for chaining
          */
-        public Builder setTextDirection(TextDirectionHeuristic textDir) {
+        @NonNull
+        public Builder setTextDirection(@NonNull TextDirectionHeuristic textDir) {
             mTextDir = textDir;
             return this;
         }
 
         /**
-         * Set line spacing parameters. The default is 0.0 for {@code spacingAdd}
-         * and 1.0 for {@code spacingMult}.
+         * Set line spacing parameters. Each line will have its line spacing multiplied by
+         * {@code spacingMult} and then increased by {@code spacingAdd}. The default is 0.0 for
+         * {@code spacingAdd} and 1.0 for {@code spacingMult}.
          *
-         * @param spacingAdd line spacing add
-         * @param spacingMult line spacing multiplier
+         * @param spacingAdd the amount of line spacing addition
+         * @param spacingMult the line spacing multiplier
          * @return this builder, useful for chaining
          * @see android.widget.TextView#setLineSpacing
          */
-        public Builder setLineSpacing(float spacingAdd, float spacingMult) {
+        @NonNull
+        public Builder setLineSpacing(float spacingAdd, @FloatRange(from = 0.0) float spacingMult) {
             mSpacingAdd = spacingAdd;
             mSpacingMult = spacingMult;
             return this;
@@ -220,8 +241,28 @@ public class StaticLayout extends Layout {
          * @return this builder, useful for chaining
          * @see android.widget.TextView#setIncludeFontPadding
          */
+        @NonNull
         public Builder setIncludePad(boolean includePad) {
             mIncludePad = includePad;
+            return this;
+        }
+
+        /**
+         * Set whether to respect the ascent and descent of the fallback fonts that are used in
+         * displaying the text (which is needed to avoid text from consecutive lines running into
+         * each other). If set, fallback fonts that end up getting used can increase the ascent
+         * and descent of the lines that they are used on.
+         *
+         * <p>For backward compatibility reasons, the default is {@code false}, but setting this to
+         * true is strongly recommended. It is required to be true if text could be in languages
+         * like Burmese or Tibetan where text is typically much taller or deeper than Latin text.
+         *
+         * @param useLineSpacingFromFallbacks whether to expand linespacing based on fallback fonts
+         * @return this builder, useful for chaining
+         */
+        @NonNull
+        public Builder setUseLineSpacingFromFallbacks(boolean useLineSpacingFromFallbacks) {
+            mFallbackLineSpacing = useLineSpacingFromFallbacks;
             return this;
         }
 
@@ -234,7 +275,8 @@ public class StaticLayout extends Layout {
          * @return this builder, useful for chaining
          * @see android.widget.TextView#setEllipsize
          */
-        public Builder setEllipsizedWidth(int ellipsizedWidth) {
+        @NonNull
+        public Builder setEllipsizedWidth(@IntRange(from = 0) int ellipsizedWidth) {
             mEllipsizedWidth = ellipsizedWidth;
             return this;
         }
@@ -244,13 +286,13 @@ public class StaticLayout extends Layout {
          * is wide, or exceeding the number of lines (see #setMaxLines) in the case
          * of {@link android.text.TextUtils.TruncateAt#END} or
          * {@link android.text.TextUtils.TruncateAt#MARQUEE}, to be ellipsized instead
-         * of broken. The default is
-         * {@code null}, indicating no ellipsis is to be applied.
+         * of broken. The default is {@code null}, indicating no ellipsis is to be applied.
          *
          * @param ellipsize type of ellipsis behavior
          * @return this builder, useful for chaining
          * @see android.widget.TextView#setEllipsize
          */
+        @NonNull
         public Builder setEllipsize(@Nullable TextUtils.TruncateAt ellipsize) {
             mEllipsize = ellipsize;
             return this;
@@ -265,7 +307,8 @@ public class StaticLayout extends Layout {
          * @return this builder, useful for chaining
          * @see android.widget.TextView#setMaxLines
          */
-        public Builder setMaxLines(int maxLines) {
+        @NonNull
+        public Builder setMaxLines(@IntRange(from = 0) int maxLines) {
             mMaxLines = maxLines;
             return this;
         }
@@ -273,11 +316,19 @@ public class StaticLayout extends Layout {
         /**
          * Set break strategy, useful for selecting high quality or balanced paragraph
          * layout options. The default is {@link Layout#BREAK_STRATEGY_SIMPLE}.
+         * <p/>
+         * Enabling hyphenation with either using {@link Layout#HYPHENATION_FREQUENCY_NORMAL} or
+         * {@link Layout#HYPHENATION_FREQUENCY_FULL} while line breaking is set to one of
+         * {@link Layout#BREAK_STRATEGY_BALANCED}, {@link Layout#BREAK_STRATEGY_HIGH_QUALITY}
+         * improves the structure of text layout however has performance impact and requires more
+         * time to do the text layout.
          *
          * @param breakStrategy break strategy for paragraph layout
          * @return this builder, useful for chaining
          * @see android.widget.TextView#setBreakStrategy
+         * @see #setHyphenationFrequency(int)
          */
+        @NonNull
         public Builder setBreakStrategy(@BreakStrategy int breakStrategy) {
             mBreakStrategy = breakStrategy;
             return this;
@@ -285,12 +336,22 @@ public class StaticLayout extends Layout {
 
         /**
          * Set hyphenation frequency, to control the amount of automatic hyphenation used. The
-         * default is {@link Layout#HYPHENATION_FREQUENCY_NONE}.
+         * possible values are defined in {@link Layout}, by constants named with the pattern
+         * {@code HYPHENATION_FREQUENCY_*}. The default is
+         * {@link Layout#HYPHENATION_FREQUENCY_NONE}.
+         * <p/>
+         * Enabling hyphenation with either using {@link Layout#HYPHENATION_FREQUENCY_NORMAL} or
+         * {@link Layout#HYPHENATION_FREQUENCY_FULL} while line breaking is set to one of
+         * {@link Layout#BREAK_STRATEGY_BALANCED}, {@link Layout#BREAK_STRATEGY_HIGH_QUALITY}
+         * improves the structure of text layout however has performance impact and requires more
+         * time to do the text layout.
          *
          * @param hyphenationFrequency hyphenation frequency for the paragraph
          * @return this builder, useful for chaining
          * @see android.widget.TextView#setHyphenationFrequency
+         * @see #setBreakStrategy(int)
          */
+        @NonNull
         public Builder setHyphenationFrequency(@HyphenationFrequency int hyphenationFrequency) {
             mHyphenationFrequency = hyphenationFrequency;
             return this;
@@ -304,61 +365,41 @@ public class StaticLayout extends Layout {
          * @param rightIndents array of indent values for right margin, in pixels
          * @return this builder, useful for chaining
          */
-        public Builder setIndents(int[] leftIndents, int[] rightIndents) {
+        @NonNull
+        public Builder setIndents(@Nullable int[] leftIndents, @Nullable int[] rightIndents) {
             mLeftIndents = leftIndents;
             mRightIndents = rightIndents;
-            int leftLen = leftIndents == null ? 0 : leftIndents.length;
-            int rightLen = rightIndents == null ? 0 : rightIndents.length;
-            int[] indents = new int[Math.max(leftLen, rightLen)];
-            for (int i = 0; i < indents.length; i++) {
-                int leftMargin = i < leftLen ? leftIndents[i] : 0;
-                int rightMargin = i < rightLen ? rightIndents[i] : 0;
-                indents[i] = leftMargin + rightMargin;
-            }
-            nSetIndents(mNativePtr, indents);
             return this;
         }
 
         /**
-         * Measurement and break iteration is done in native code. The protocol for using
-         * the native code is as follows.
+         * Set paragraph justification mode. The default value is
+         * {@link Layout#JUSTIFICATION_MODE_NONE}. If the last line is too short for justification,
+         * the last line will be displayed with the alignment set by {@link #setAlignment}.
+         * When Justification mode is JUSTIFICATION_MODE_INTER_WORD, wordSpacing on the given
+         * {@link Paint} will be ignored. This behavior also affects Spans which change the
+         * wordSpacing.
          *
-         * For each paragraph, do a nSetupParagraph, which sets paragraph text, line width, tab
-         * stops, break strategy, and hyphenation frequency (and possibly other parameters in the
-         * future).
-         *
-         * Then, for each run within the paragraph:
-         *  - setLocale (this must be done at least for the first run, optional afterwards)
-         *  - one of the following, depending on the type of run:
-         *    + addStyleRun (a text run, to be measured in native code)
-         *    + addMeasuredRun (a run already measured in Java, passed into native code)
-         *    + addReplacementRun (a replacement run, width is given)
-         *
-         * After measurement, nGetWidths() is valid if the widths are needed (eg for ellipsis).
-         * Run nComputeLineBreaks() to obtain line breaks for the paragraph.
-         *
-         * After all paragraphs, call finish() to release expensive buffers.
+         * @param justificationMode justification mode for the paragraph.
+         * @return this builder, useful for chaining.
+         * @see Paint#setWordSpacing(float)
          */
-
-        private void setLocale(Locale locale) {
-            if (!locale.equals(mLocale)) {
-                nSetLocale(mNativePtr, locale.toLanguageTag(),
-                        Hyphenator.get(locale).getNativePtr());
-                mLocale = locale;
-            }
+        @NonNull
+        public Builder setJustificationMode(@JustificationMode int justificationMode) {
+            mJustificationMode = justificationMode;
+            return this;
         }
 
-        /* package */ float addStyleRun(TextPaint paint, int start, int end, boolean isRtl) {
-            return nAddStyleRun(mNativePtr, paint.getNativeInstance(), paint.mNativeTypeface,
-                    start, end, isRtl);
-        }
-
-        /* package */ void addMeasuredRun(int start, int end, float[] widths) {
-            nAddMeasuredRun(mNativePtr, start, end, widths);
-        }
-
-        /* package */ void addReplacementRun(int start, int end, float width) {
-            nAddReplacementRun(mNativePtr, start, end, width);
+        /**
+         * Sets whether the line spacing should be applied for the last line. Default value is
+         * {@code false}.
+         *
+         * @hide
+         */
+        @NonNull
+        /* package */ Builder setAddLastLineLineSpacing(boolean value) {
+            mAddLastLineLineSpacing = value;
+            return this;
         }
 
         /**
@@ -370,51 +411,43 @@ public class StaticLayout extends Layout {
          *
          * @return the newly constructed {@link StaticLayout} object
          */
+        @NonNull
         public StaticLayout build() {
             StaticLayout result = new StaticLayout(this);
             Builder.recycle(this);
             return result;
         }
 
-        @Override
-        protected void finalize() throws Throwable {
-            try {
-                nFreeBuilder(mNativePtr);
-            } finally {
-                super.finalize();
-            }
-        }
+        private CharSequence mText;
+        private int mStart;
+        private int mEnd;
+        private TextPaint mPaint;
+        private int mWidth;
+        private Alignment mAlignment;
+        private TextDirectionHeuristic mTextDir;
+        private float mSpacingMult;
+        private float mSpacingAdd;
+        private boolean mIncludePad;
+        private boolean mFallbackLineSpacing;
+        private int mEllipsizedWidth;
+        private TextUtils.TruncateAt mEllipsize;
+        private int mMaxLines;
+        private int mBreakStrategy;
+        private int mHyphenationFrequency;
+        @Nullable private int[] mLeftIndents;
+        @Nullable private int[] mRightIndents;
+        private int mJustificationMode;
+        private boolean mAddLastLineLineSpacing;
 
-        /* package */ long mNativePtr;
+        private final Paint.FontMetricsInt mFontMetricsInt = new Paint.FontMetricsInt();
 
-        CharSequence mText;
-        int mStart;
-        int mEnd;
-        TextPaint mPaint;
-        int mWidth;
-        Alignment mAlignment;
-        TextDirectionHeuristic mTextDir;
-        float mSpacingMult;
-        float mSpacingAdd;
-        boolean mIncludePad;
-        int mEllipsizedWidth;
-        TextUtils.TruncateAt mEllipsize;
-        int mMaxLines;
-        int mBreakStrategy;
-        int mHyphenationFrequency;
-        int[] mLeftIndents;
-        int[] mRightIndents;
-
-        Paint.FontMetricsInt mFontMetricsInt = new Paint.FontMetricsInt();
-
-        // This will go away and be subsumed by native builder code
-        MeasuredText mMeasuredText;
-
-        Locale mLocale;
-
-        private static final SynchronizedPool<Builder> sPool = new SynchronizedPool<Builder>(3);
+        private static final SynchronizedPool<Builder> sPool = new SynchronizedPool<>(3);
     }
 
+    /**
+     * @deprecated Use {@link Builder} instead.
+     */
+    @Deprecated
     public StaticLayout(CharSequence source, TextPaint paint,
                         int width,
                         Alignment align, float spacingmult, float spacingadd,
@@ -424,16 +457,9 @@ public class StaticLayout extends Layout {
     }
 
     /**
-     * @hide
+     * @deprecated Use {@link Builder} instead.
      */
-    public StaticLayout(CharSequence source, TextPaint paint,
-            int width, Alignment align, TextDirectionHeuristic textDir,
-            float spacingmult, float spacingadd,
-            boolean includepad) {
-        this(source, 0, source.length(), paint, width, align, textDir,
-                spacingmult, spacingadd, includepad);
-    }
-
+    @Deprecated
     public StaticLayout(CharSequence source, int bufstart, int bufend,
                         TextPaint paint, int outerwidth,
                         Alignment align,
@@ -444,17 +470,9 @@ public class StaticLayout extends Layout {
     }
 
     /**
-     * @hide
+     * @deprecated Use {@link Builder} instead.
      */
-    public StaticLayout(CharSequence source, int bufstart, int bufend,
-            TextPaint paint, int outerwidth,
-            Alignment align, TextDirectionHeuristic textDir,
-            float spacingmult, float spacingadd,
-            boolean includepad) {
-        this(source, bufstart, bufend, paint, outerwidth, align, textDir,
-                spacingmult, spacingadd, includepad, null, 0, Integer.MAX_VALUE);
-}
-
+    @Deprecated
     public StaticLayout(CharSequence source, int bufstart, int bufend,
             TextPaint paint, int outerwidth,
             Alignment align,
@@ -468,7 +486,10 @@ public class StaticLayout extends Layout {
 
     /**
      * @hide
+     * @deprecated Use {@link Builder} instead.
      */
+    @Deprecated
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 117521430)
     public StaticLayout(CharSequence source, int bufstart, int bufend,
                         TextPaint paint, int outerwidth,
                         Alignment align, TextDirectionHeuristic textDir,
@@ -491,12 +512,17 @@ public class StaticLayout extends Layout {
             .setEllipsize(ellipsize)
             .setMaxLines(maxLines);
         /*
-         * This is annoying, but we can't refer to the layout until
-         * superclass construction is finished, and the superclass
-         * constructor wants the reference to the display text.
+         * This is annoying, but we can't refer to the layout until superclass construction is
+         * finished, and the superclass constructor wants the reference to the display text.
          *
-         * This will break if the superclass constructor ever actually
-         * cares about the content instead of just holding the reference.
+         * In other words, the two Ellipsizer classes in Layout.java need a (Dynamic|Static)Layout
+         * as a parameter to do their calculations, but the Ellipsizers also need to be the input
+         * to the superclass's constructor (Layout). In order to go around the circular
+         * dependency, we construct the Ellipsizer with only one of the parameters, the text. And
+         * we fill in the rest of the needed information (layout, width, and method) later, here.
+         *
+         * This will break if the superclass constructor ever actually cares about the content
+         * instead of just holding the reference.
          */
         if (ellipsize != null) {
             Ellipsizer e = (Ellipsizer) getText();
@@ -512,8 +538,8 @@ public class StaticLayout extends Layout {
             mEllipsizedWidth = outerwidth;
         }
 
-        mLineDirections = ArrayUtils.newUnpaddedArray(Directions.class, 2 * mColumns);
-        mLines = new int[mLineDirections.length];
+        mLineDirections = ArrayUtils.newUnpaddedArray(Directions.class, 2);
+        mLines  = ArrayUtils.newUnpaddedIntArray(2 * mColumns);
         mMaximumVisibleLineCount = maxLines;
 
         generate(b, b.mIncludePad, b.mIncludePad);
@@ -521,12 +547,15 @@ public class StaticLayout extends Layout {
         Builder.recycle(b);
     }
 
-    /* package */ StaticLayout(CharSequence text) {
+    /**
+     * Used by DynamicLayout.
+     */
+    /* package */ StaticLayout(@Nullable CharSequence text) {
         super(text, null, 0, null, 0, 0);
 
         mColumns = COLUMNS_ELLIPSIZE;
-        mLineDirections = ArrayUtils.newUnpaddedArray(Directions.class, 2 * mColumns);
-        mLines = new int[mLineDirections.length];
+        mLineDirections = ArrayUtils.newUnpaddedArray(Directions.class, 2);
+        mLines  = ArrayUtils.newUnpaddedIntArray(2 * mColumns);
     }
 
     private StaticLayout(Builder b) {
@@ -535,7 +564,7 @@ public class StaticLayout extends Layout {
                 : (b.mText instanceof Spanned)
                     ? new SpannedEllipsizer(b.mText)
                     : new Ellipsizer(b.mText),
-                b.mPaint, b.mWidth, b.mAlignment, b.mSpacingMult, b.mSpacingAdd);
+                b.mPaint, b.mWidth, b.mAlignment, b.mTextDir, b.mSpacingMult, b.mSpacingAdd);
 
         if (b.mEllipsize != null) {
             Ellipsizer e = (Ellipsizer) getText();
@@ -551,36 +580,42 @@ public class StaticLayout extends Layout {
             mEllipsizedWidth = b.mWidth;
         }
 
-        mLineDirections = ArrayUtils.newUnpaddedArray(Directions.class, 2 * mColumns);
-        mLines = new int[mLineDirections.length];
+        mLineDirections = ArrayUtils.newUnpaddedArray(Directions.class, 2);
+        mLines  = ArrayUtils.newUnpaddedIntArray(2 * mColumns);
         mMaximumVisibleLineCount = b.mMaxLines;
 
         mLeftIndents = b.mLeftIndents;
         mRightIndents = b.mRightIndents;
+        setJustificationMode(b.mJustificationMode);
 
         generate(b, b.mIncludePad, b.mIncludePad);
     }
 
     /* package */ void generate(Builder b, boolean includepad, boolean trackpad) {
-        CharSequence source = b.mText;
-        int bufStart = b.mStart;
-        int bufEnd = b.mEnd;
+        final CharSequence source = b.mText;
+        final int bufStart = b.mStart;
+        final int bufEnd = b.mEnd;
         TextPaint paint = b.mPaint;
         int outerWidth = b.mWidth;
         TextDirectionHeuristic textDir = b.mTextDir;
+        final boolean fallbackLineSpacing = b.mFallbackLineSpacing;
         float spacingmult = b.mSpacingMult;
         float spacingadd = b.mSpacingAdd;
         float ellipsizedWidth = b.mEllipsizedWidth;
         TextUtils.TruncateAt ellipsize = b.mEllipsize;
-        LineBreaks lineBreaks = new LineBreaks();  // TODO: move to builder to avoid allocation costs
-        // store span end locations
-        int[] spanEndCache = new int[4];
-        // store fontMetrics per span range
-        // must be a multiple of 4 (and > 0) (store top, bottom, ascent, and descent per range)
-        int[] fmCache = new int[4 * 4];
-        b.setLocale(paint.getTextLocale());  // TODO: also respect LocaleSpan within the text
+        final boolean addLastLineSpacing = b.mAddLastLineLineSpacing;
+
+        int lineBreakCapacity = 0;
+        int[] breaks = null;
+        float[] lineWidths = null;
+        float[] ascents = null;
+        float[] descents = null;
+        boolean[] hasTabs = null;
+        int[] hyphenEdits = null;
 
         mLineCount = 0;
+        mEllipsized = false;
+        mMaxLineHeight = mMaximumVisibleLineCount < 1 ? 0 : DEFAULT_MAX_LINE_HEIGHT;
 
         int v = 0;
         boolean needMultiply = (spacingmult != 1 || spacingadd != 0);
@@ -588,26 +623,77 @@ public class StaticLayout extends Layout {
         Paint.FontMetricsInt fm = b.mFontMetricsInt;
         int[] chooseHtv = null;
 
-        MeasuredText measured = b.mMeasuredText;
+        final int[] indents;
+        if (mLeftIndents != null || mRightIndents != null) {
+            final int leftLen = mLeftIndents == null ? 0 : mLeftIndents.length;
+            final int rightLen = mRightIndents == null ? 0 : mRightIndents.length;
+            final int indentsLen = Math.max(leftLen, rightLen);
+            indents = new int[indentsLen];
+            for (int i = 0; i < leftLen; i++) {
+                indents[i] = mLeftIndents[i];
+            }
+            for (int i = 0; i < rightLen; i++) {
+                indents[i] += mRightIndents[i];
+            }
+        } else {
+            indents = null;
+        }
 
-        Spanned spanned = null;
-        if (source instanceof Spanned)
-            spanned = (Spanned) source;
+        final LineBreaker lineBreaker = new LineBreaker.Builder()
+                .setBreakStrategy(b.mBreakStrategy)
+                .setHyphenationFrequency(b.mHyphenationFrequency)
+                // TODO: Support more justification mode, e.g. letter spacing, stretching.
+                .setJustificationMode(b.mJustificationMode)
+                .setIndents(indents)
+                .build();
 
-        int paraEnd;
-        for (int paraStart = bufStart; paraStart <= bufEnd; paraStart = paraEnd) {
-            paraEnd = TextUtils.indexOf(source, CHAR_NEW_LINE, paraStart, bufEnd);
-            if (paraEnd < 0)
-                paraEnd = bufEnd;
-            else
-                paraEnd++;
+        LineBreaker.ParagraphConstraints constraints =
+                new LineBreaker.ParagraphConstraints();
+
+        PrecomputedText.ParagraphInfo[] paragraphInfo = null;
+        final Spanned spanned = (source instanceof Spanned) ? (Spanned) source : null;
+        if (source instanceof PrecomputedText) {
+            PrecomputedText precomputed = (PrecomputedText) source;
+            final @PrecomputedText.Params.CheckResultUsableResult int checkResult =
+                    precomputed.checkResultUsable(bufStart, bufEnd, textDir, paint,
+                            b.mBreakStrategy, b.mHyphenationFrequency);
+            switch (checkResult) {
+                case PrecomputedText.Params.UNUSABLE:
+                    break;
+                case PrecomputedText.Params.NEED_RECOMPUTE:
+                    final PrecomputedText.Params newParams =
+                            new PrecomputedText.Params.Builder(paint)
+                                .setBreakStrategy(b.mBreakStrategy)
+                                .setHyphenationFrequency(b.mHyphenationFrequency)
+                                .setTextDirection(textDir)
+                                .build();
+                    precomputed = PrecomputedText.create(precomputed, newParams);
+                    paragraphInfo = precomputed.getParagraphInfo();
+                    break;
+                case PrecomputedText.Params.USABLE:
+                    // Some parameters are different from the ones when measured text is created.
+                    paragraphInfo = precomputed.getParagraphInfo();
+                    break;
+            }
+        }
+
+        if (paragraphInfo == null) {
+            final PrecomputedText.Params param = new PrecomputedText.Params(paint, textDir,
+                    b.mBreakStrategy, b.mHyphenationFrequency);
+            paragraphInfo = PrecomputedText.createMeasuredParagraphs(source, param, bufStart,
+                    bufEnd, false /* computeLayout */);
+        }
+
+        for (int paraIndex = 0; paraIndex < paragraphInfo.length; paraIndex++) {
+            final int paraStart = paraIndex == 0
+                    ? bufStart : paragraphInfo[paraIndex - 1].paragraphEnd;
+            final int paraEnd = paragraphInfo[paraIndex].paragraphEnd;
 
             int firstWidthLineCount = 1;
             int firstWidth = outerWidth;
             int restWidth = outerWidth;
 
             LineHeightSpan[] chooseHt = null;
-
             if (spanned != null) {
                 LeadingMarginSpan[] sp = getParagraphSpans(spanned, paraStart, paraEnd,
                         LeadingMarginSpan.class);
@@ -630,8 +716,7 @@ public class StaticLayout extends Layout {
                 if (chooseHt.length == 0) {
                     chooseHt = null; // So that out() would not assume it has any contents
                 } else {
-                    if (chooseHtv == null ||
-                        chooseHtv.length < chooseHt.length) {
+                    if (chooseHtv == null || chooseHtv.length < chooseHt.length) {
                         chooseHtv = ArrayUtils.newUnpaddedIntArray(chooseHt.length);
                     }
 
@@ -651,131 +736,83 @@ public class StaticLayout extends Layout {
                     }
                 }
             }
-
-            measured.setPara(source, paraStart, paraEnd, textDir, b);
-            char[] chs = measured.mChars;
-            float[] widths = measured.mWidths;
-            byte[] chdirs = measured.mLevels;
-            int dir = measured.mDir;
-            boolean easy = measured.mEasy;
-
             // tab stop locations
-            int[] variableTabStops = null;
+            float[] variableTabStops = null;
             if (spanned != null) {
                 TabStopSpan[] spans = getParagraphSpans(spanned, paraStart,
                         paraEnd, TabStopSpan.class);
                 if (spans.length > 0) {
-                    int[] stops = new int[spans.length];
+                    float[] stops = new float[spans.length];
                     for (int i = 0; i < spans.length; i++) {
-                        stops[i] = spans[i].getTabStop();
+                        stops[i] = (float) spans[i].getTabStop();
                     }
                     Arrays.sort(stops, 0, stops.length);
                     variableTabStops = stops;
                 }
             }
 
-            nSetupParagraph(b.mNativePtr, chs, paraEnd - paraStart,
-                    firstWidth, firstWidthLineCount, restWidth,
-                    variableTabStops, TAB_INCREMENT, b.mBreakStrategy, b.mHyphenationFrequency);
-            if (mLeftIndents != null || mRightIndents != null) {
-                // TODO(raph) performance: it would be better to do this once per layout rather
-                // than once per paragraph, but that would require a change to the native
-                // interface.
-                int leftLen = mLeftIndents == null ? 0 : mLeftIndents.length;
-                int rightLen = mRightIndents == null ? 0 : mRightIndents.length;
-                int indentsLen = Math.max(1, Math.max(leftLen, rightLen) - mLineCount);
-                int[] indents = new int[indentsLen];
-                for (int i = 0; i < indentsLen; i++) {
-                    int leftMargin = mLeftIndents == null ? 0 :
-                            mLeftIndents[Math.min(i + mLineCount, leftLen - 1)];
-                    int rightMargin = mRightIndents == null ? 0 :
-                            mRightIndents[Math.min(i + mLineCount, rightLen - 1)];
-                    indents[i] = leftMargin + rightMargin;
-                }
-                nSetIndents(b.mNativePtr, indents);
+            final MeasuredParagraph measuredPara = paragraphInfo[paraIndex].measured;
+            final char[] chs = measuredPara.getChars();
+            final int[] spanEndCache = measuredPara.getSpanEndCache().getRawArray();
+            final int[] fmCache = measuredPara.getFontMetrics().getRawArray();
+
+            constraints.setWidth(restWidth);
+            constraints.setIndent(firstWidth, firstWidthLineCount);
+            constraints.setTabStops(variableTabStops, TAB_INCREMENT);
+
+            LineBreaker.Result res = lineBreaker.computeLineBreaks(
+                    measuredPara.getMeasuredText(), constraints, mLineCount);
+            int breakCount = res.getLineCount();
+            if (lineBreakCapacity < breakCount) {
+                lineBreakCapacity = breakCount;
+                breaks = new int[lineBreakCapacity];
+                lineWidths = new float[lineBreakCapacity];
+                ascents = new float[lineBreakCapacity];
+                descents = new float[lineBreakCapacity];
+                hasTabs = new boolean[lineBreakCapacity];
+                hyphenEdits = new int[lineBreakCapacity];
             }
 
-            // measurement has to be done before performing line breaking
-            // but we don't want to recompute fontmetrics or span ranges the
-            // second time, so we cache those and then use those stored values
-            int fmCacheCount = 0;
-            int spanEndCacheCount = 0;
-            for (int spanStart = paraStart, spanEnd; spanStart < paraEnd; spanStart = spanEnd) {
-                if (fmCacheCount * 4 >= fmCache.length) {
-                    int[] grow = new int[fmCacheCount * 4 * 2];
-                    System.arraycopy(fmCache, 0, grow, 0, fmCacheCount * 4);
-                    fmCache = grow;
-                }
-
-                if (spanEndCacheCount >= spanEndCache.length) {
-                    int[] grow = new int[spanEndCacheCount * 2];
-                    System.arraycopy(spanEndCache, 0, grow, 0, spanEndCacheCount);
-                    spanEndCache = grow;
-                }
-
-                if (spanned == null) {
-                    spanEnd = paraEnd;
-                    int spanLen = spanEnd - spanStart;
-                    measured.addStyleRun(paint, spanLen, fm);
-                } else {
-                    spanEnd = spanned.nextSpanTransition(spanStart, paraEnd,
-                            MetricAffectingSpan.class);
-                    int spanLen = spanEnd - spanStart;
-                    MetricAffectingSpan[] spans =
-                            spanned.getSpans(spanStart, spanEnd, MetricAffectingSpan.class);
-                    spans = TextUtils.removeEmptySpans(spans, spanned, MetricAffectingSpan.class);
-                    measured.addStyleRun(paint, spans, spanLen, fm);
-                }
-
-                // the order of storage here (top, bottom, ascent, descent) has to match the code below
-                // where these values are retrieved
-                fmCache[fmCacheCount * 4 + 0] = fm.top;
-                fmCache[fmCacheCount * 4 + 1] = fm.bottom;
-                fmCache[fmCacheCount * 4 + 2] = fm.ascent;
-                fmCache[fmCacheCount * 4 + 3] = fm.descent;
-                fmCacheCount++;
-
-                spanEndCache[spanEndCacheCount] = spanEnd;
-                spanEndCacheCount++;
+            for (int i = 0; i < breakCount; ++i) {
+                breaks[i] = res.getLineBreakOffset(i);
+                lineWidths[i] = res.getLineWidth(i);
+                ascents[i] = res.getLineAscent(i);
+                descents[i] = res.getLineDescent(i);
+                hasTabs[i] = res.hasLineTab(i);
+                hyphenEdits[i] =
+                    packHyphenEdit(res.getStartLineHyphenEdit(i), res.getEndLineHyphenEdit(i));
             }
-
-            nGetWidths(b.mNativePtr, widths);
-            int breakCount = nComputeLineBreaks(b.mNativePtr, lineBreaks, lineBreaks.breaks,
-                    lineBreaks.widths, lineBreaks.flags, lineBreaks.breaks.length);
-
-            int[] breaks = lineBreaks.breaks;
-            float[] lineWidths = lineBreaks.widths;
-            int[] flags = lineBreaks.flags;
 
             final int remainingLineCount = mMaximumVisibleLineCount - mLineCount;
             final boolean ellipsisMayBeApplied = ellipsize != null
                     && (ellipsize == TextUtils.TruncateAt.END
                         || (mMaximumVisibleLineCount == 1
                                 && ellipsize != TextUtils.TruncateAt.MARQUEE));
-            if (remainingLineCount > 0 && remainingLineCount < breakCount &&
-                    ellipsisMayBeApplied) {
-                // Calculate width and flag.
+            if (0 < remainingLineCount && remainingLineCount < breakCount
+                    && ellipsisMayBeApplied) {
+                // Calculate width
                 float width = 0;
-                int flag = 0;
+                boolean hasTab = false;  // XXX May need to also have starting hyphen edit
                 for (int i = remainingLineCount - 1; i < breakCount; i++) {
                     if (i == breakCount - 1) {
                         width += lineWidths[i];
                     } else {
                         for (int j = (i == 0 ? 0 : breaks[i - 1]); j < breaks[i]; j++) {
-                            width += widths[j];
+                            width += measuredPara.getCharWidthAt(j);
                         }
                     }
-                    flag |= flags[i] & TAB_MASK;
+                    hasTab |= hasTabs[i];
                 }
                 // Treat the last line and overflowed lines as a single line.
                 breaks[remainingLineCount - 1] = breaks[breakCount - 1];
                 lineWidths[remainingLineCount - 1] = width;
-                flags[remainingLineCount - 1] = flag;
+                hasTabs[remainingLineCount - 1] = hasTab;
 
                 breakCount = remainingLineCount;
             }
 
-            // here is the offset of the starting character of the line we are currently measuring
+            // here is the offset of the starting character of the line we are currently
+            // measuring
             int here = paraStart;
 
             int fmTop = 0, fmBottom = 0, fmAscent = 0, fmDescent = 0;
@@ -816,12 +853,20 @@ public class StaticLayout extends Layout {
 
                     boolean moreChars = (endPos < bufEnd);
 
+                    final int ascent = fallbackLineSpacing
+                            ? Math.min(fmAscent, Math.round(ascents[breakIndex]))
+                            : fmAscent;
+                    final int descent = fallbackLineSpacing
+                            ? Math.max(fmDescent, Math.round(descents[breakIndex]))
+                            : fmDescent;
+
                     v = out(source, here, endPos,
-                            fmAscent, fmDescent, fmTop, fmBottom,
-                            v, spacingmult, spacingadd, chooseHt, chooseHtv, fm, flags[breakIndex],
-                            needMultiply, chdirs, dir, easy, bufEnd, includepad, trackpad,
-                            chs, widths, paraStart, ellipsize, ellipsizedWidth,
-                            lineWidths[breakIndex], paint, moreChars);
+                            ascent, descent, fmTop, fmBottom,
+                            v, spacingmult, spacingadd, chooseHt, chooseHtv, fm,
+                            hasTabs[breakIndex], hyphenEdits[breakIndex], needMultiply,
+                            measuredPara, bufEnd, includepad, trackpad, addLastLineSpacing, chs,
+                            paraStart, ellipsize, ellipsizedWidth, lineWidths[breakIndex],
+                            paint, moreChars);
 
                     if (endPos < spanEnd) {
                         // preserve metrics for current span
@@ -836,64 +881,62 @@ public class StaticLayout extends Layout {
                     here = endPos;
                     breakIndex++;
 
-                    if (mLineCount >= mMaximumVisibleLineCount) {
+                    if (mLineCount >= mMaximumVisibleLineCount && mEllipsized) {
                         return;
                     }
                 }
             }
 
-            if (paraEnd == bufEnd)
+            if (paraEnd == bufEnd) {
                 break;
+            }
         }
 
-        if ((bufEnd == bufStart || source.charAt(bufEnd - 1) == CHAR_NEW_LINE) &&
-                mLineCount < mMaximumVisibleLineCount) {
-            // Log.e("text", "output last " + bufEnd);
-
-            measured.setPara(source, bufEnd, bufEnd, textDir, b);
-
+        if ((bufEnd == bufStart || source.charAt(bufEnd - 1) == CHAR_NEW_LINE)
+                && mLineCount < mMaximumVisibleLineCount) {
+            final MeasuredParagraph measuredPara =
+                    MeasuredParagraph.buildForBidi(source, bufEnd, bufEnd, textDir, null);
             paint.getFontMetricsInt(fm);
-
             v = out(source,
                     bufEnd, bufEnd, fm.ascent, fm.descent,
                     fm.top, fm.bottom,
                     v,
                     spacingmult, spacingadd, null,
-                    null, fm, 0,
-                    needMultiply, measured.mLevels, measured.mDir, measured.mEasy, bufEnd,
-                    includepad, trackpad, null,
-                    null, bufStart, ellipsize,
+                    null, fm, false, 0,
+                    needMultiply, measuredPara, bufEnd,
+                    includepad, trackpad, addLastLineSpacing, null,
+                    bufStart, ellipsize,
                     ellipsizedWidth, 0, paint, false);
         }
     }
 
-    private int out(CharSequence text, int start, int end,
-                      int above, int below, int top, int bottom, int v,
-                      float spacingmult, float spacingadd,
-                      LineHeightSpan[] chooseHt, int[] chooseHtv,
-                      Paint.FontMetricsInt fm, int flags,
-                      boolean needMultiply, byte[] chdirs, int dir,
-                      boolean easy, int bufEnd, boolean includePad,
-                      boolean trackPad, char[] chs,
-                      float[] widths, int widthStart, TextUtils.TruncateAt ellipsize,
-                      float ellipsisWidth, float textWidth,
-                      TextPaint paint, boolean moreChars) {
-        int j = mLineCount;
-        int off = j * mColumns;
-        int want = off + mColumns + TOP;
+    private int out(final CharSequence text, final int start, final int end, int above, int below,
+            int top, int bottom, int v, final float spacingmult, final float spacingadd,
+            final LineHeightSpan[] chooseHt, final int[] chooseHtv, final Paint.FontMetricsInt fm,
+            final boolean hasTab, final int hyphenEdit, final boolean needMultiply,
+            @NonNull final MeasuredParagraph measured,
+            final int bufEnd, final boolean includePad, final boolean trackPad,
+            final boolean addLastLineLineSpacing, final char[] chs,
+            final int widthStart, final TextUtils.TruncateAt ellipsize, final float ellipsisWidth,
+            final float textWidth, final TextPaint paint, final boolean moreChars) {
+        final int j = mLineCount;
+        final int off = j * mColumns;
+        final int want = off + mColumns + TOP;
         int[] lines = mLines;
+        final int dir = measured.getParagraphDir();
 
         if (want >= lines.length) {
-            Directions[] grow2 = ArrayUtils.newUnpaddedArray(
-                    Directions.class, GrowingArrayUtils.growSize(want));
-            System.arraycopy(mLineDirections, 0, grow2, 0,
-                             mLineDirections.length);
-            mLineDirections = grow2;
-
-            int[] grow = new int[grow2.length];
+            final int[] grow = ArrayUtils.newUnpaddedIntArray(GrowingArrayUtils.growSize(want));
             System.arraycopy(lines, 0, grow, 0, lines.length);
             mLines = grow;
             lines = grow;
+        }
+
+        if (j >= mLineDirections.length) {
+            final Directions[] grow = ArrayUtils.newUnpaddedArray(Directions.class,
+                    GrowingArrayUtils.growSize(j));
+            System.arraycopy(mLineDirections, 0, grow, 0, mLineDirections.length);
+            mLineDirections = grow;
         }
 
         if (chooseHt != null) {
@@ -904,9 +947,8 @@ public class StaticLayout extends Layout {
 
             for (int i = 0; i < chooseHt.length; i++) {
                 if (chooseHt[i] instanceof LineHeightSpan.WithDensity) {
-                    ((LineHeightSpan.WithDensity) chooseHt[i]).
-                        chooseHeight(text, start, end, chooseHtv[i], v, fm, paint);
-
+                    ((LineHeightSpan.WithDensity) chooseHt[i])
+                            .chooseHeight(text, start, end, chooseHtv[i], v, fm, paint);
                 } else {
                     chooseHt[i].chooseHeight(text, start, end, chooseHtv[i], v, fm);
                 }
@@ -920,7 +962,38 @@ public class StaticLayout extends Layout {
 
         boolean firstLine = (j == 0);
         boolean currentLineIsTheLastVisibleOne = (j + 1 == mMaximumVisibleLineCount);
-        boolean lastLine = currentLineIsTheLastVisibleOne || (end == bufEnd);
+
+        if (ellipsize != null) {
+            // If there is only one line, then do any type of ellipsis except when it is MARQUEE
+            // if there are multiple lines, just allow END ellipsis on the last line
+            boolean forceEllipsis = moreChars && (mLineCount + 1 == mMaximumVisibleLineCount);
+
+            boolean doEllipsis =
+                    (((mMaximumVisibleLineCount == 1 && moreChars) || (firstLine && !moreChars)) &&
+                            ellipsize != TextUtils.TruncateAt.MARQUEE) ||
+                    (!firstLine && (currentLineIsTheLastVisibleOne || !moreChars) &&
+                            ellipsize == TextUtils.TruncateAt.END);
+            if (doEllipsis) {
+                calculateEllipsis(start, end, measured, widthStart,
+                        ellipsisWidth, ellipsize, j,
+                        textWidth, paint, forceEllipsis);
+            }
+        }
+
+        final boolean lastLine;
+        if (mEllipsized) {
+            lastLine = true;
+        } else {
+            final boolean lastCharIsNewLine = widthStart != bufEnd && bufEnd > 0
+                    && text.charAt(bufEnd - 1) == CHAR_NEW_LINE;
+            if (end == bufEnd && !lastCharIsNewLine) {
+                lastLine = true;
+            } else if (start == bufEnd && lastCharIsNewLine) {
+                lastLine = true;
+            } else {
+                lastLine = false;
+            }
+        }
 
         if (firstLine) {
             if (trackPad) {
@@ -944,8 +1017,7 @@ public class StaticLayout extends Layout {
             }
         }
 
-
-        if (needMultiply && !lastLine) {
+        if (needMultiply && (addLastLineLineSpacing || !lastLine)) {
             double ex = (below - above) * (spacingmult - 1) + spacingadd;
             if (ex >= 0) {
                 extra = (int)(ex + EXTRA_ROUNDING);
@@ -959,6 +1031,16 @@ public class StaticLayout extends Layout {
         lines[off + START] = start;
         lines[off + TOP] = v;
         lines[off + DESCENT] = below + extra;
+        lines[off + EXTRA] = extra;
+
+        // special case for non-ellipsized last visible line when maxLines is set
+        // store the height as if it was ellipsized
+        if (!mEllipsized && currentLineIsTheLastVisibleOne) {
+            // below calculation as if it was the last line
+            int maxLineBelow = includePad ? bottom : below;
+            // similar to the calculation of v below, without the extra.
+            mMaxLineHeight = v + (maxLineBelow - above);
+        }
 
         v += (below - above) + extra;
         lines[off + mColumns + START] = end;
@@ -966,47 +1048,21 @@ public class StaticLayout extends Layout {
 
         // TODO: could move TAB to share same column as HYPHEN, simplifying this code and gaining
         // one bit for start field
-        lines[off + TAB] |= flags & TAB_MASK;
-        lines[off + HYPHEN] = flags;
-
+        lines[off + TAB] |= hasTab ? TAB_MASK : 0;
+        lines[off + HYPHEN] = hyphenEdit;
         lines[off + DIR] |= dir << DIR_SHIFT;
-        Directions linedirs = DIRS_ALL_LEFT_TO_RIGHT;
-        // easy means all chars < the first RTL, so no emoji, no nothing
-        // XXX a run with no text or all spaces is easy but might be an empty
-        // RTL paragraph.  Make sure easy is false if this is the case.
-        if (easy) {
-            mLineDirections[j] = linedirs;
-        } else {
-            mLineDirections[j] = AndroidBidi.directions(dir, chdirs, start - widthStart, chs,
-                    start - widthStart, end - start);
-        }
-
-        if (ellipsize != null) {
-            // If there is only one line, then do any type of ellipsis except when it is MARQUEE
-            // if there are multiple lines, just allow END ellipsis on the last line
-            boolean forceEllipsis = moreChars && (mLineCount + 1 == mMaximumVisibleLineCount);
-
-            boolean doEllipsis =
-                        (((mMaximumVisibleLineCount == 1 && moreChars) || (firstLine && !moreChars)) &&
-                                ellipsize != TextUtils.TruncateAt.MARQUEE) ||
-                        (!firstLine && (currentLineIsTheLastVisibleOne || !moreChars) &&
-                                ellipsize == TextUtils.TruncateAt.END);
-            if (doEllipsis) {
-                calculateEllipsis(start, end, widths, widthStart,
-                        ellipsisWidth, ellipsize, j,
-                        textWidth, paint, forceEllipsis);
-            }
-        }
+        mLineDirections[j] = measured.getDirections(start - widthStart, end - widthStart);
 
         mLineCount++;
         return v;
     }
 
     private void calculateEllipsis(int lineStart, int lineEnd,
-                                   float[] widths, int widthStart,
+                                   MeasuredParagraph measured, int widthStart,
                                    float avail, TextUtils.TruncateAt where,
                                    int line, float textWidth, TextPaint paint,
                                    boolean forceEllipsis) {
+        avail -= getTotalInsets(line);
         if (textWidth <= avail && !forceEllipsis) {
             // Everything fits!
             mLines[mColumns * line + ELLIPSIS_START] = 0;
@@ -1014,9 +1070,7 @@ public class StaticLayout extends Layout {
             return;
         }
 
-        float ellipsisWidth = paint.measureText(
-                (where == TextUtils.TruncateAt.END_SMALL) ?
-                        TextUtils.ELLIPSIS_TWO_DOTS : TextUtils.ELLIPSIS_NORMAL, 0, 1);
+        float ellipsisWidth = paint.measureText(TextUtils.getEllipsisString(where));
         int ellipsisStart = 0;
         int ellipsisCount = 0;
         int len = lineEnd - lineStart;
@@ -1028,9 +1082,12 @@ public class StaticLayout extends Layout {
                 int i;
 
                 for (i = len; i > 0; i--) {
-                    float w = widths[i - 1 + lineStart - widthStart];
-
+                    float w = measured.getCharWidthAt(i - 1 + lineStart - widthStart);
                     if (w + sum + ellipsisWidth > avail) {
+                        while (i < len
+                                && measured.getCharWidthAt(i + lineStart - widthStart) == 0.0f) {
+                            i++;
+                        }
                         break;
                     }
 
@@ -1050,7 +1107,7 @@ public class StaticLayout extends Layout {
             int i;
 
             for (i = 0; i < len; i++) {
-                float w = widths[i + lineStart - widthStart];
+                float w = measured.getCharWidthAt(i + lineStart - widthStart);
 
                 if (w + sum + ellipsisWidth > avail) {
                     break;
@@ -1073,18 +1130,22 @@ public class StaticLayout extends Layout {
 
                 float ravail = (avail - ellipsisWidth) / 2;
                 for (right = len; right > 0; right--) {
-                    float w = widths[right - 1 + lineStart - widthStart];
+                    float w = measured.getCharWidthAt(right - 1 + lineStart - widthStart);
 
                     if (w + rsum > ravail) {
+                        while (right < len
+                                && measured.getCharWidthAt(right + lineStart - widthStart)
+                                    == 0.0f) {
+                            right++;
+                        }
                         break;
                     }
-
                     rsum += w;
                 }
 
                 float lavail = avail - ellipsisWidth - rsum;
                 for (left = 0; left < right; left++) {
-                    float w = widths[left + lineStart - widthStart];
+                    float w = measured.getCharWidthAt(left + lineStart - widthStart);
 
                     if (w + lsum > lavail) {
                         break;
@@ -1101,9 +1162,20 @@ public class StaticLayout extends Layout {
                 }
             }
         }
-
+        mEllipsized = true;
         mLines[mColumns * line + ELLIPSIS_START] = ellipsisStart;
         mLines[mColumns * line + ELLIPSIS_COUNT] = ellipsisCount;
+    }
+
+    private float getTotalInsets(int line) {
+        int totalIndent = 0;
+        if (mLeftIndents != null) {
+            totalIndent = mLeftIndents[Math.min(line, mLeftIndents.length - 1)];
+        }
+        if (mRightIndents != null) {
+            totalIndent += mRightIndents[Math.min(line, mRightIndents.length - 1)];
+        }
+        return totalIndent;
     }
 
     // Override the base class so we can directly access our members,
@@ -1141,6 +1213,14 @@ public class StaticLayout extends Layout {
         return mLines[mColumns * line + TOP];
     }
 
+    /**
+     * @hide
+     */
+    @Override
+    public int getLineExtra(int line) {
+        return mLines[mColumns * line + EXTRA];
+    }
+
     @Override
     public int getLineDescent(int line) {
         return mLines[mColumns * line + DESCENT];
@@ -1163,6 +1243,9 @@ public class StaticLayout extends Layout {
 
     @Override
     public final Directions getLineDirections(int line) {
+        if (line > getLineCount()) {
+            throw new ArrayIndexOutOfBoundsException();
+        }
         return mLineDirections[line];
     }
 
@@ -1176,12 +1259,42 @@ public class StaticLayout extends Layout {
         return mBottomPadding;
     }
 
+    // To store into single int field, pack the pair of start and end hyphen edit.
+    static int packHyphenEdit(
+            @Paint.StartHyphenEdit int start, @Paint.EndHyphenEdit int end) {
+        return start << START_HYPHEN_BITS_SHIFT | end;
+    }
+
+    static int unpackStartHyphenEdit(int packedHyphenEdit) {
+        return (packedHyphenEdit & START_HYPHEN_MASK) >> START_HYPHEN_BITS_SHIFT;
+    }
+
+    static int unpackEndHyphenEdit(int packedHyphenEdit) {
+        return packedHyphenEdit & END_HYPHEN_MASK;
+    }
+
     /**
+     * Returns the start hyphen edit value for this line.
+     *
+     * @param lineNumber a line number
+     * @return A start hyphen edit value.
      * @hide
      */
     @Override
-    public int getHyphen(int line) {
-        return mLines[mColumns * line + HYPHEN] & 0xff;
+    public @Paint.StartHyphenEdit int getStartHyphenEdit(int lineNumber) {
+        return unpackStartHyphenEdit(mLines[mColumns * lineNumber + HYPHEN] & HYPHEN_MASK);
+    }
+
+    /**
+     * Returns the packed hyphen edit value for this line.
+     *
+     * @param lineNumber a line number
+     * @return An end hyphen edit value.
+     * @hide
+     */
+    @Override
+    public @Paint.EndHyphenEdit int getEndHyphenEdit(int lineNumber) {
+        return unpackEndHyphenEdit(mLines[mColumns * lineNumber + HYPHEN] & HYPHEN_MASK);
     }
 
     /**
@@ -1239,79 +1352,100 @@ public class StaticLayout extends Layout {
         return mEllipsizedWidth;
     }
 
-    private static native long nNewBuilder();
-    private static native void nFreeBuilder(long nativePtr);
-    private static native void nFinishBuilder(long nativePtr);
+    /**
+     * Return the total height of this layout.
+     *
+     * @param cap if true and max lines is set, returns the height of the layout at the max lines.
+     *
+     * @hide
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+    public int getHeight(boolean cap) {
+        if (cap && mLineCount > mMaximumVisibleLineCount && mMaxLineHeight == -1
+                && Log.isLoggable(TAG, Log.WARN)) {
+            Log.w(TAG, "maxLineHeight should not be -1. "
+                    + " maxLines:" + mMaximumVisibleLineCount
+                    + " lineCount:" + mLineCount);
+        }
 
-    /* package */ static native long nLoadHyphenator(ByteBuffer buf, int offset);
+        return cap && mLineCount > mMaximumVisibleLineCount && mMaxLineHeight != -1
+                ? mMaxLineHeight : super.getHeight();
+    }
 
-    private static native void nSetLocale(long nativePtr, String locale, long nativeHyphenator);
-
-    private static native void nSetIndents(long nativePtr, int[] indents);
-
-    // Set up paragraph text and settings; done as one big method to minimize jni crossings
-    private static native void nSetupParagraph(long nativePtr, char[] text, int length,
-            float firstWidth, int firstWidthLineCount, float restWidth,
-            int[] variableTabStops, int defaultTabStop, int breakStrategy, int hyphenationFrequency);
-
-    private static native float nAddStyleRun(long nativePtr, long nativePaint,
-            long nativeTypeface, int start, int end, boolean isRtl);
-
-    private static native void nAddMeasuredRun(long nativePtr,
-            int start, int end, float[] widths);
-
-    private static native void nAddReplacementRun(long nativePtr, int start, int end, float width);
-
-    private static native void nGetWidths(long nativePtr, float[] widths);
-
-    // populates LineBreaks and returns the number of breaks found
-    //
-    // the arrays inside the LineBreaks objects are passed in as well
-    // to reduce the number of JNI calls in the common case where the
-    // arrays do not have to be resized
-    private static native int nComputeLineBreaks(long nativePtr, LineBreaks recycle,
-            int[] recycleBreaks, float[] recycleWidths, int[] recycleFlags, int recycleLength);
-
+    @UnsupportedAppUsage
     private int mLineCount;
     private int mTopPadding, mBottomPadding;
+    @UnsupportedAppUsage
     private int mColumns;
     private int mEllipsizedWidth;
 
-    private static final int COLUMNS_NORMAL = 4;
-    private static final int COLUMNS_ELLIPSIZE = 6;
+    /**
+     * Keeps track if ellipsize is applied to the text.
+     */
+    private boolean mEllipsized;
+
+    /**
+     * If maxLines is set, ellipsize is not set, and the actual line count of text is greater than
+     * or equal to maxLine, this variable holds the ideal visual height of the maxLine'th line
+     * starting from the top of the layout. If maxLines is not set its value will be -1.
+     *
+     * The value is the same as getLineTop(maxLines) for ellipsized version where structurally no
+     * more than maxLines is contained.
+     */
+    private int mMaxLineHeight = DEFAULT_MAX_LINE_HEIGHT;
+
+    private static final int COLUMNS_NORMAL = 5;
+    private static final int COLUMNS_ELLIPSIZE = 7;
     private static final int START = 0;
     private static final int DIR = START;
     private static final int TAB = START;
     private static final int TOP = 1;
     private static final int DESCENT = 2;
-    private static final int HYPHEN = 3;
-    private static final int ELLIPSIS_START = 4;
-    private static final int ELLIPSIS_COUNT = 5;
+    private static final int EXTRA = 3;
+    private static final int HYPHEN = 4;
+    @UnsupportedAppUsage
+    private static final int ELLIPSIS_START = 5;
+    private static final int ELLIPSIS_COUNT = 6;
 
+    @UnsupportedAppUsage
     private int[] mLines;
+    @UnsupportedAppUsage
     private Directions[] mLineDirections;
+    @UnsupportedAppUsage
     private int mMaximumVisibleLineCount = Integer.MAX_VALUE;
 
     private static final int START_MASK = 0x1FFFFFFF;
     private static final int DIR_SHIFT  = 30;
     private static final int TAB_MASK   = 0x20000000;
+    private static final int HYPHEN_MASK = 0xFF;
+    private static final int START_HYPHEN_BITS_SHIFT = 3;
+    private static final int START_HYPHEN_MASK = 0x18; // 0b11000
+    private static final int END_HYPHEN_MASK = 0x7;  // 0b00111
 
-    private static final int TAB_INCREMENT = 20; // same as Layout, but that's private
+    private static final float TAB_INCREMENT = 20; // same as Layout, but that's private
 
     private static final char CHAR_NEW_LINE = '\n';
 
     private static final double EXTRA_ROUNDING = 0.5;
 
-    // This is used to return three arrays from a single JNI call when
-    // performing line breaking
+    private static final int DEFAULT_MAX_LINE_HEIGHT = -1;
+
+    // Unused, here because of gray list private API accesses.
     /*package*/ static class LineBreaks {
         private static final int INITIAL_SIZE = 16;
+        @UnsupportedAppUsage
         public int[] breaks = new int[INITIAL_SIZE];
+        @UnsupportedAppUsage
         public float[] widths = new float[INITIAL_SIZE];
+        @UnsupportedAppUsage
+        public float[] ascents = new float[INITIAL_SIZE];
+        @UnsupportedAppUsage
+        public float[] descents = new float[INITIAL_SIZE];
+        @UnsupportedAppUsage
         public int[] flags = new int[INITIAL_SIZE]; // hasTab
         // breaks, widths, and flags should all have the same length
     }
 
-    private int[] mLeftIndents;
-    private int[] mRightIndents;
+    @Nullable private int[] mLeftIndents;
+    @Nullable private int[] mRightIndents;
 }

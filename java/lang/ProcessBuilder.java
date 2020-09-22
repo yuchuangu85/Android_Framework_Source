@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,7 +29,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.security.AccessControlException;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
@@ -65,6 +64,65 @@ import java.util.Map;
  * working directory of the current process, usually the directory
  * named by the system property {@code user.dir}.
  *
+ * <li><a name="redirect-input">a source of <i>standard input</i></a>.
+ * By default, the subprocess reads input from a pipe.  Java code
+ * can access this pipe via the output stream returned by
+ * {@link Process#getOutputStream()}.  However, standard input may
+ * be redirected to another source using
+ * {@link #redirectInput(Redirect) redirectInput}.
+ * In this case, {@link Process#getOutputStream()} will return a
+ * <i>null output stream</i>, for which:
+ *
+ * <ul>
+ * <li>the {@link OutputStream#write(int) write} methods always
+ * throw {@code IOException}
+ * <li>the {@link OutputStream#close() close} method does nothing
+ * </ul>
+ *
+ * <li><a name="redirect-output">a destination for <i>standard output</i>
+ * and <i>standard error</i></a>.  By default, the subprocess writes standard
+ * output and standard error to pipes.  Java code can access these pipes
+ * via the input streams returned by {@link Process#getInputStream()} and
+ * {@link Process#getErrorStream()}.  However, standard output and
+ * standard error may be redirected to other destinations using
+ * {@link #redirectOutput(Redirect) redirectOutput} and
+ * {@link #redirectError(Redirect) redirectError}.
+ * In this case, {@link Process#getInputStream()} and/or
+ * {@link Process#getErrorStream()} will return a <i>null input
+ * stream</i>, for which:
+ *
+ * <ul>
+ * <li>the {@link InputStream#read() read} methods always return
+ * {@code -1}
+ * <li>the {@link InputStream#available() available} method always returns
+ * {@code 0}
+ * <li>the {@link InputStream#close() close} method does nothing
+ * </ul>
+ *
+ * <li>a <i>redirectErrorStream</i> property.  Initially, this property
+ * is {@code false}, meaning that the standard output and error
+ * output of a subprocess are sent to two separate streams, which can
+ * be accessed using the {@link Process#getInputStream()} and {@link
+ * Process#getErrorStream()} methods.
+ *
+ * <p>If the value is set to {@code true}, then:
+ *
+ * <ul>
+ * <li>standard error is merged with the standard output and always sent
+ * to the same destination (this makes it easier to correlate error
+ * messages with the corresponding output)
+ * <li>the common destination of standard error and standard output can be
+ * redirected using
+ * {@link #redirectOutput(Redirect) redirectOutput}
+ * <li>any redirection set by the
+ * {@link #redirectError(Redirect) redirectError}
+ * method is ignored when creating a subprocess
+ * <li>the stream returned from {@link Process#getErrorStream()} will
+ * always be a <a href="#redirect-output">null input stream</a>
+ * </ul>
+ *
+ * </ul>
+ *
  * <p>Modifying a process builder's attributes will affect processes
  * subsequently started by that object's {@link #start()} method, but
  * will never affect previously started processes or the Java process
@@ -89,7 +147,8 @@ import java.util.Map;
  * }</pre>
  *
  * <p>Here is an example that starts a process with a modified working
- * directory and environment:
+ * directory and environment, and redirects standard output and error
+ * to be appended to a log file:
  *
  * <pre> {@code
  * ProcessBuilder pb =
@@ -99,7 +158,13 @@ import java.util.Map;
  * env.remove("OTHERVAR");
  * env.put("VAR2", env.get("VAR1") + "suffix");
  * pb.directory(new File("myDir"));
+ * File log = new File("log");
+ * pb.redirectErrorStream(true);
+ * pb.redirectOutput(Redirect.appendTo(log));
  * Process p = pb.start();
+ * assert pb.redirectInput() == Redirect.PIPE;
+ * assert pb.redirectOutput().file() == log;
+ * assert p.getInputStream().read() == -1;
  * }</pre>
  *
  * <p>To start a process with an explicit set of environment
@@ -390,8 +455,6 @@ public final class ProcessBuilder
      * {@link Type Type}.
      *
      * @since 1.7
-     *
-     * @hide
      */
     public static abstract class Redirect {
         /**
@@ -490,6 +553,7 @@ public final class ProcessBuilder
          * Redirect.from(file).type() == Redirect.Type.READ
          * }</pre>
          *
+         * @param file The {@code File} for the {@code Redirect}.
          * @throws NullPointerException if the specified file is null
          * @return a redirect to read from the specified file
          */
@@ -516,6 +580,7 @@ public final class ProcessBuilder
          * Redirect.to(file).type() == Redirect.Type.WRITE
          * }</pre>
          *
+         * @param file The {@code File} for the {@code Redirect}.
          * @throws NullPointerException if the specified file is null
          * @return a redirect to write to the specified file
          */
@@ -546,6 +611,7 @@ public final class ProcessBuilder
          * Redirect.appendTo(file).type() == Redirect.Type.APPEND
          * }</pre>
          *
+         * @param file The {@code File} for the {@code Redirect}.
          * @throws NullPointerException if the specified file is null
          * @return a redirect to append to the specified file
          */
@@ -630,8 +696,6 @@ public final class ProcessBuilder
      *         {@link Redirect.Type#WRITE WRITE} or
      *         {@link Redirect.Type#APPEND APPEND}
      * @since  1.7
-     *
-     * @hide
      */
     public ProcessBuilder redirectInput(Redirect source) {
         if (source.type() == Redirect.Type.WRITE ||
@@ -663,8 +727,6 @@ public final class ProcessBuilder
      *         destination of data, that is, has type
      *         {@link Redirect.Type#READ READ}
      * @since  1.7
-     *
-     * @hide
      */
     public ProcessBuilder redirectOutput(Redirect destination) {
         if (destination.type() == Redirect.Type.READ)
@@ -699,8 +761,6 @@ public final class ProcessBuilder
      *         destination of data, that is, has type
      *         {@link Redirect.Type#READ READ}
      * @since  1.7
-     *
-     * @hide
      */
     public ProcessBuilder redirectError(Redirect destination) {
         if (destination.type() == Redirect.Type.READ)
@@ -722,8 +782,6 @@ public final class ProcessBuilder
      * @param  file the new standard input source
      * @return this process builder
      * @since  1.7
-     *
-     * @hide
      */
     public ProcessBuilder redirectInput(File file) {
         return redirectInput(Redirect.from(file));
@@ -741,8 +799,6 @@ public final class ProcessBuilder
      * @param  file the new standard output destination
      * @return this process builder
      * @since  1.7
-     *
-     * @hide
      */
     public ProcessBuilder redirectOutput(File file) {
         return redirectOutput(Redirect.to(file));
@@ -760,8 +816,6 @@ public final class ProcessBuilder
      * @param  file the new standard error destination
      * @return this process builder
      * @since  1.7
-     *
-     * @hide
      */
     public ProcessBuilder redirectError(File file) {
         return redirectError(Redirect.to(file));
@@ -776,8 +830,6 @@ public final class ProcessBuilder
      *
      * @return this process builder's standard input source
      * @since  1.7
-     *
-     * @hide
      */
     public Redirect redirectInput() {
         return (redirects == null) ? Redirect.PIPE : redirects[0];
@@ -792,8 +844,6 @@ public final class ProcessBuilder
      *
      * @return this process builder's standard output destination
      * @since  1.7
-     *
-     * @hide
      */
     public Redirect redirectOutput() {
         return (redirects == null) ? Redirect.PIPE : redirects[1];
@@ -808,8 +858,6 @@ public final class ProcessBuilder
      *
      * @return this process builder's standard error destination
      * @since  1.7
-     *
-     * @hide
      */
     public Redirect redirectError() {
         return (redirects == null) ? Redirect.PIPE : redirects[2];
@@ -836,8 +884,6 @@ public final class ProcessBuilder
      *
      * @return this process builder
      * @since  1.7
-     *
-     * @hide
      */
     public ProcessBuilder inheritIO() {
         Arrays.fill(redirects(), Redirect.INHERIT);
@@ -935,6 +981,20 @@ public final class ProcessBuilder
      *         <li>its
      *         {@link SecurityManager#checkExec checkExec}
      *         method doesn't allow creation of the subprocess, or
+     *
+     *         <li>the standard input to the subprocess was
+     *         {@linkplain #redirectInput redirected from a file}
+     *         and the security manager's
+     *         {@link SecurityManager#checkRead checkRead} method
+     *         denies read access to the file, or
+     *
+     *         <li>the standard output or standard error of the
+     *         subprocess was
+     *         {@linkplain #redirectOutput redirected to a file}
+     *         and the security manager's
+     *         {@link SecurityManager#checkWrite checkWrite} method
+     *         denies write access to the file
+     *
      *         </ul>
      *
      * @throws IOException if an I/O error occurs
@@ -954,11 +1014,16 @@ public final class ProcessBuilder
         String prog = cmdarray[0];
 
         SecurityManager security = System.getSecurityManager();
-        if (security != null) {
+        if (security != null)
             security.checkExec(prog);
-        }
 
         String dir = directory == null ? null : directory.toString();
+
+        for (int i = 1; i < cmdarray.length; i++) {
+            if (cmdarray[i].indexOf('\u0000') >= 0) {
+                throw new IOException("invalid null character in command");
+            }
+        }
 
         try {
             return ProcessImpl.start(cmdarray,
@@ -973,9 +1038,9 @@ public final class ProcessBuilder
                 // Can not disclose the fail reason for read-protected files.
                 try {
                     security.checkRead(prog);
-                } catch (AccessControlException ace) {
+                } catch (SecurityException se) {
                     exceptionInfo = "";
-                    cause = ace;
+                    cause = se;
                 }
             }
             // It's much easier for us to create a high-quality error

@@ -16,10 +16,11 @@
 
 package com.android.uiautomator.core;
 
-import android.app.ActivityManagerNative;
+import android.app.ActivityManager;
+import android.app.ContentProviderHolder;
 import android.app.IActivityManager;
-import android.app.IActivityManager.ContentProviderHolder;
 import android.app.UiAutomation;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.IContentProvider;
 import android.database.Cursor;
@@ -56,23 +57,25 @@ public class ShellUiAutomatorBridge extends UiAutomatorBridge {
         try {
             IContentProvider provider = null;
             Cursor cursor = null;
-            IActivityManager activityManager = ActivityManagerNative.getDefault();
+            IActivityManager activityManager = ActivityManager.getService();
             String providerName = Settings.Secure.CONTENT_URI.getAuthority();
             IBinder token = new Binder();
             try {
                 ContentProviderHolder holder = activityManager.getContentProviderExternal(
-                        providerName, UserHandle.USER_SYSTEM, token);
+                        providerName, UserHandle.USER_SYSTEM, token, "*uiautomator*");
                 if (holder == null) {
                     throw new IllegalStateException("Could not find provider: " + providerName);
                 }
                 provider = holder.provider;
-                cursor = provider.query(null, Settings.Secure.CONTENT_URI,
+                cursor = provider.query(null, null, Settings.Secure.CONTENT_URI,
                         new String[] {
                             Settings.Secure.VALUE
-                        }, "name=?",
-                        new String[] {
-                            Settings.Secure.LONG_PRESS_TIMEOUT
-                        }, null, null);
+                        },
+                        ContentResolver.createSqlQueryBundle(
+                                "name=?",
+                                new String[] { Settings.Secure.LONG_PRESS_TIMEOUT },
+                                null),
+                        null);
                 if (cursor.moveToFirst()) {
                     longPressTimeout = cursor.getInt(0);
                 }
@@ -81,7 +84,8 @@ public class ShellUiAutomatorBridge extends UiAutomatorBridge {
                     cursor.close();
                 }
                 if (provider != null) {
-                    activityManager.removeContentProviderExternal(providerName, token);
+                    activityManager.removeContentProviderExternalAsUser(providerName, token,
+                            UserHandle.USER_SYSTEM);
                 }
             }
         } catch (RemoteException e) {
@@ -98,7 +102,7 @@ public class ShellUiAutomatorBridge extends UiAutomatorBridge {
                 IWindowManager.Stub.asInterface(ServiceManager.getService(Context.WINDOW_SERVICE));
         int ret = -1;
         try {
-            ret = wm.getRotation();
+            ret = wm.getDefaultDisplayRotation();
         } catch (RemoteException e) {
             Log.e(LOG_TAG, "Error getting screen rotation", e);
             throw new RuntimeException(e);

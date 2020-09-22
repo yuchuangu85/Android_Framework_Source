@@ -16,14 +16,14 @@
 
 package android.graphics;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * A camera instance can be used to compute 3D transformations and
  * generate a matrix that can be applied, for instance, on a
  * {@link Canvas}.
  */
 public class Camera {
-    private Matrix mMatrix;
-
     /**
      * Creates a new camera, with empty transformations.
      */
@@ -149,13 +149,7 @@ public class Camera {
      * @param canvas The Canvas to set the transform matrix onto
      */
     public void applyToCanvas(Canvas canvas) {
-        if (canvas.isHardwareAccelerated()) {
-            if (mMatrix == null) mMatrix = new Matrix();
-            getMatrix(mMatrix);
-            canvas.concat(mMatrix);
-        } else {
-            nativeApplyToCanvas(canvas.getNativeCanvasWrapper());
-        }
+        nativeApplyToCanvas(canvas.getNativeCanvasWrapper());
     }
 
     public native float dotWithNormal(float dx, float dy, float dz);
@@ -174,5 +168,6 @@ public class Camera {
     private native void nativeGetMatrix(long native_matrix);
     private native void nativeApplyToCanvas(long native_canvas);
 
+    @UnsupportedAppUsage
     long native_instance;
 }

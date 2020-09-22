@@ -17,15 +17,17 @@ package com.android.egg.neko;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.pm.PackageManager;
+import android.provider.Settings;
 import android.util.Log;
 import android.widget.Toast;
 
 import com.android.internal.logging.MetricsLogger;
 
 public class NekoActivationActivity extends Activity {
+    private static final String R_EGG_UNLOCK_SETTING = "egg_mode_r";
+
     private void toastUp(String s) {
         Toast toast = Toast.makeText(this, s, Toast.LENGTH_SHORT);
-        toast.getView().setBackgroundDrawable(null);
         toast.show();
     }
 
@@ -34,23 +36,30 @@ public class NekoActivationActivity extends Activity {
         super.onStart();
 
         final PackageManager pm = getPackageManager();
-        final ComponentName cn = new ComponentName(this, NekoTile.class);
-        if (pm.getComponentEnabledSetting(cn) == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
-            if (NekoLand.DEBUG) {
-                Log.v("Neko", "Disabling tile.");
+        final ComponentName cn = new ComponentName(this, NekoControlsService.class);
+        final boolean componentEnabled = pm.getComponentEnabledSetting(cn)
+                == PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
+        if (Settings.System.getLong(getContentResolver(),
+                R_EGG_UNLOCK_SETTING, 0) == 0) {
+            if (componentEnabled) {
+                Log.v("Neko", "Disabling controls.");
+                pm.setComponentEnabledSetting(cn, PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        PackageManager.DONT_KILL_APP);
+                MetricsLogger.histogram(this, "egg_neko_enable", 0);
+                toastUp("\uD83D\uDEAB");
+            } else {
+                Log.v("Neko", "Controls already disabled.");
             }
-            pm.setComponentEnabledSetting(cn, PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                    PackageManager.DONT_KILL_APP);
-            MetricsLogger.histogram(this, "egg_neko_enable", 0);
-            toastUp("\uD83D\uDEAB");
         } else {
-            if (NekoLand.DEBUG) {
-                Log.v("Neko", "Enabling tile.");
+            if (!componentEnabled) {
+                Log.v("Neko", "Enabling controls.");
+                pm.setComponentEnabledSetting(cn, PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                        PackageManager.DONT_KILL_APP);
+                MetricsLogger.histogram(this, "egg_neko_enable", 1);
+                toastUp("\uD83D\uDC31");
+            } else {
+                Log.v("Neko", "Controls already enabled.");
             }
-            pm.setComponentEnabledSetting(cn, PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                    PackageManager.DONT_KILL_APP);
-            MetricsLogger.histogram(this, "egg_neko_enable", 1);
-            toastUp("\uD83D\uDC31");
         }
         finish();
     }

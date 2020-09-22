@@ -16,48 +16,8 @@
 
 package com.android.internal.telephony.metrics;
 
-import android.os.SystemClock;
-import android.telephony.Rlog;
-import android.telephony.ServiceState;
-import android.telephony.TelephonyHistogram;
-import android.util.Base64;
-import android.util.SparseArray;
-
-import com.android.ims.ImsConfig;
-import com.android.ims.ImsReasonInfo;
-import com.android.ims.internal.ImsCallSession;
-import com.android.internal.telephony.PhoneConstants;
-import com.android.internal.telephony.RIL;
-import com.android.internal.telephony.RILConstants;
-import com.android.internal.telephony.SmsResponse;
-import com.android.internal.telephony.TelephonyProto;
-import com.android.internal.telephony.TelephonyProto.ImsCapabilities;
-import com.android.internal.telephony.TelephonyProto.ImsConnectionState;
-import com.android.internal.telephony.TelephonyProto.RilDataCall;
-import com.android.internal.telephony.TelephonyProto.SmsSession;
-import com.android.internal.telephony.TelephonyProto.TelephonyCallSession;
-import com.android.internal.telephony.TelephonyProto.TelephonyEvent;
-import com.android.internal.telephony.TelephonyProto.TelephonyEvent.RilDeactivateDataCall;
-import com.android.internal.telephony.TelephonyProto.TelephonyEvent.RilSetupDataCall;
-import com.android.internal.telephony.TelephonyProto.TelephonyEvent.RilSetupDataCallResponse;
-import com.android.internal.telephony.TelephonyProto.TelephonyEvent.RilSetupDataCallResponse.RilDataCallFailCause;
-import com.android.internal.telephony.TelephonyProto.TelephonyLog;
-import com.android.internal.telephony.TelephonyProto.TelephonyServiceState;
-import com.android.internal.telephony.TelephonyProto.TelephonySettings;
-import com.android.internal.telephony.TelephonyProto.TimeInterval;
-import com.android.internal.telephony.UUSInfo;
-import com.android.internal.telephony.dataconnection.DataCallResponse;
-import com.android.internal.telephony.imsphone.ImsPhoneCall;
-import com.android.internal.util.IndentingPrintWriter;
-
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
-import java.util.List;
-
 import static android.text.format.DateUtils.MINUTE_IN_MILLIS;
+
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_ANSWER;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_CDMA_SEND_SMS;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_DEACTIVATE_DATA_CALL;
@@ -69,11 +29,100 @@ import static com.android.internal.telephony.RILConstants.RIL_REQUEST_IMS_SEND_S
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SEND_SMS;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SEND_SMS_EXPECT_MORE;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SETUP_DATA_CALL;
-import static com.android.internal.telephony.TelephonyProto.PdpType.PDP_TYPE_IP;
-import static com.android.internal.telephony.TelephonyProto.PdpType.PDP_TYPE_IPV4V6;
-import static com.android.internal.telephony.TelephonyProto.PdpType.PDP_TYPE_IPV6;
-import static com.android.internal.telephony.TelephonyProto.PdpType.PDP_TYPE_PPP;
-import static com.android.internal.telephony.TelephonyProto.PdpType.PDP_UNKNOWN;
+import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_IP;
+import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_IPV4V6;
+import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_IPV6;
+import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_NON_IP;
+import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_PPP;
+import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_TYPE_UNSTRUCTURED;
+import static com.android.internal.telephony.nano.TelephonyProto.PdpType.PDP_UNKNOWN;
+
+import android.content.Context;
+import android.net.NetworkCapabilities;
+import android.os.BatteryStatsManager;
+import android.os.Build;
+import android.os.SystemClock;
+import android.os.SystemProperties;
+import android.provider.Telephony.Sms.Intents;
+import android.telephony.AccessNetworkConstants;
+import android.telephony.CallQuality;
+import android.telephony.DisconnectCause;
+import android.telephony.NetworkRegistrationInfo;
+import android.telephony.ServiceState;
+import android.telephony.SmsManager;
+import android.telephony.SmsMessage;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyHistogram;
+import android.telephony.TelephonyManager;
+import android.telephony.data.DataCallResponse;
+import android.telephony.data.DataService;
+import android.telephony.emergency.EmergencyNumber;
+import android.telephony.ims.ImsCallProfile;
+import android.telephony.ims.ImsCallSession;
+import android.telephony.ims.ImsReasonInfo;
+import android.telephony.ims.ImsStreamMediaProfile;
+import android.telephony.ims.feature.MmTelFeature;
+import android.telephony.ims.stub.ImsRegistrationImplBase;
+import android.telephony.ims.stub.ImsSmsImplBase;
+import android.text.TextUtils;
+import android.util.Base64;
+import android.util.SparseArray;
+
+import com.android.internal.telephony.CarrierResolver;
+import com.android.internal.telephony.DriverCall;
+import com.android.internal.telephony.GsmCdmaConnection;
+import com.android.internal.telephony.PhoneConstants;
+import com.android.internal.telephony.RIL;
+import com.android.internal.telephony.RILConstants;
+import com.android.internal.telephony.SmsResponse;
+import com.android.internal.telephony.UUSInfo;
+import com.android.internal.telephony.emergency.EmergencyNumberTracker;
+import com.android.internal.telephony.imsphone.ImsPhoneCall;
+import com.android.internal.telephony.nano.TelephonyProto;
+import com.android.internal.telephony.nano.TelephonyProto.ActiveSubscriptionInfo;
+import com.android.internal.telephony.nano.TelephonyProto.EmergencyNumberInfo;
+import com.android.internal.telephony.nano.TelephonyProto.ImsCapabilities;
+import com.android.internal.telephony.nano.TelephonyProto.ImsConnectionState;
+import com.android.internal.telephony.nano.TelephonyProto.ModemPowerStats;
+import com.android.internal.telephony.nano.TelephonyProto.RilDataCall;
+import com.android.internal.telephony.nano.TelephonyProto.SimState;
+import com.android.internal.telephony.nano.TelephonyProto.SmsSession;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession.Event.CallState;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession.Event.RilCall;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyCallSession.Event.RilCall.Type;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.CarrierIdMatching;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.CarrierIdMatchingResult;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.CarrierKeyChange;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.DataSwitch;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.ModemRestart;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.NetworkCapabilitiesInfo;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.OnDemandDataSwitch;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilDeactivateDataCall;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilDeactivateDataCall.DeactivateReason;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCall;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCallResponse;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent.RilSetupDataCallResponse.RilDataCallFailCause;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyLog;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonyServiceState;
+import com.android.internal.telephony.nano.TelephonyProto.TelephonySettings;
+import com.android.internal.telephony.nano.TelephonyProto.TimeInterval;
+import com.android.internal.telephony.protobuf.nano.MessageNano;
+import com.android.internal.telephony.util.TelephonyUtils;
+import com.android.internal.util.IndentingPrintWriter;
+import com.android.telephony.Rlog;
+
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+import java.text.DecimalFormat;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Deque;
+import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Telephony metrics holds all metrics events and convert it into telephony proto buf.
@@ -135,6 +184,47 @@ public class TelephonyMetrics {
      */
     private final SparseArray<ImsConnectionState> mLastImsConnectionState = new SparseArray<>();
 
+    /**
+     * Last settings state. This is for deduping same settings event logged.
+     */
+    private final SparseArray<TelephonySettings> mLastSettings = new SparseArray<>();
+
+    /**
+     * Last sim state, indexed by phone id.
+     */
+    private final SparseArray<Integer> mLastSimState = new SparseArray<>();
+
+    /**
+     * Last active subscription information, indexed by phone id.
+     */
+    private final SparseArray<ActiveSubscriptionInfo> mLastActiveSubscriptionInfos =
+            new SparseArray<>();
+
+    /**
+     * The last modem state represent by a bitmap, the i-th bit(LSB) indicates the i-th modem
+     * state(0 - disabled, 1 - enabled).
+     *
+     * TODO: initialize the enabled modem bitmap when it's possible to get the modem state.
+     */
+    private int mLastEnabledModemBitmap = (1 << TelephonyManager.getDefault().getPhoneCount()) - 1;
+
+    /**
+     * Last carrier id matching.
+     */
+    private final SparseArray<CarrierIdMatching> mLastCarrierId = new SparseArray<>();
+
+    /**
+     * Last NetworkCapabilitiesInfo, indexed by phone id.
+     */
+    private final SparseArray<NetworkCapabilitiesInfo> mLastNetworkCapabilitiesInfos =
+            new SparseArray<>();
+
+    /**
+     * Last RilDataCall Events (indexed by cid), indexed by phone id
+     */
+    private final SparseArray<SparseArray<RilDataCall>> mLastRilDataCallEvents =
+            new SparseArray<>();
+
     /** The start system time of the TelephonyLog in milliseconds*/
     private long mStartSystemTimeMs;
 
@@ -144,8 +234,11 @@ public class TelephonyMetrics {
     /** Indicating if some of the telephony events are dropped in this log */
     private boolean mTelephonyEventsDropped = false;
 
+    private Context mContext;
+
     public TelephonyMetrics() {
-        reset();
+        mStartSystemTimeMs = System.currentTimeMillis();
+        mStartElapsedTimeMs = SystemClock.elapsedRealtime();
     }
 
     /**
@@ -162,6 +255,16 @@ public class TelephonyMetrics {
     }
 
     /**
+     * Set the context for telephony metrics.
+     *
+     * @param context Context
+     * @hide
+     */
+    public void setContext(Context context) {
+        mContext = context;
+    }
+
+    /**
      * Dump the state of various objects, add calls to other objects as desired.
      *
      * @param fd File descriptor
@@ -170,15 +273,31 @@ public class TelephonyMetrics {
      */
     public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
         if (args != null && args.length > 0) {
+            boolean reset = true;
+            if (args.length > 1 && "--keep".equals(args[1])) {
+                reset = false;
+            }
+
             switch (args[0]) {
                 case "--metrics":
                     printAllMetrics(pw);
                     break;
                 case "--metricsproto":
                     pw.println(convertProtoToBase64String(buildProto()));
-                    reset();
+                    if (reset) {
+                        reset();
+                    }
+                    break;
+                case "--metricsprototext":
+                    pw.println(buildProto().toString());
                     break;
             }
+        }
+    }
+
+    private void logv(String log) {
+        if (VDBG) {
+            Rlog.v(TAG, log);
         }
     }
 
@@ -214,6 +333,14 @@ public class TelephonyMetrics {
                 return "DATA_STALL_ACTION";
             case TelephonyEvent.Type.MODEM_RESTART:
                 return "MODEM_RESTART";
+            case TelephonyEvent.Type.CARRIER_ID_MATCHING:
+                return "CARRIER_ID_MATCHING";
+            case TelephonyEvent.Type.NITZ_TIME:
+                return "NITZ_TIME";
+            case TelephonyEvent.Type.EMERGENCY_NUMBER_REPORT:
+                return "EMERGENCY_NUMBER_REPORT";
+            case TelephonyEvent.Type.NETWORK_CAPABILITIES_CHANGED:
+                return "NETWORK_CAPABILITIES_CHANGED";
             default:
                 return Integer.toString(event);
         }
@@ -271,6 +398,8 @@ public class TelephonyMetrics {
                 return "PHONE_STATE_CHANGED";
             case TelephonyCallSession.Event.Type.NITZ_TIME:
                 return "NITZ_TIME";
+            case TelephonyCallSession.Event.Type.AUDIO_CODEC:
+                return "AUDIO_CODEC";
             default:
                 return Integer.toString(event);
         }
@@ -301,6 +430,8 @@ public class TelephonyMetrics {
                 return "SMS_SEND_RESULT";
             case SmsSession.Event.Type.SMS_RECEIVED:
                 return "SMS_RECEIVED";
+            case SmsSession.Event.Type.INCOMPLETE_SMS_RECEIVED:
+                return "INCOMPLETE_SMS_RECEIVED";
             default:
                 return Integer.toString(event);
         }
@@ -319,23 +450,30 @@ public class TelephonyMetrics {
         pw.println("Telephony events:");
         pw.increaseIndent();
         for (TelephonyEvent event : mTelephonyEvents) {
-            if (event.hasTimestampMillis()) {
-                pw.print(event.getTimestampMillis());
-                pw.print(" [");
-                if (event.hasPhoneId()) pw.print(event.getPhoneId());
-                pw.print("] ");
+            pw.print(event.timestampMillis);
+            pw.print(" [");
+            pw.print(event.phoneId);
+            pw.print("] ");
 
-                if (event.hasType()) {
-                    pw.print("T=");
-                    if (event.getType() == TelephonyEvent.Type.RIL_SERVICE_STATE_CHANGED) {
-                        pw.print(telephonyEventToString(event.getType())
-                                + "(" + event.serviceState.getDataRat() + ")");
-                    } else {
-                        pw.print(telephonyEventToString(event.getType()));
-                    }
+            pw.print("T=");
+            if (event.type == TelephonyEvent.Type.RIL_SERVICE_STATE_CHANGED) {
+                pw.print(telephonyEventToString(event.type)
+                        + "(" + "Data RAT " + event.serviceState.dataRat
+                        + " Voice RAT " + event.serviceState.voiceRat
+                        + " Channel Number " + event.serviceState.channelNumber
+                        + " NR Frequency Range " + event.serviceState.nrFrequencyRange
+                        + " NR State " + event.serviceState.nrState
+                        + ")");
+                for (int i = 0; i < event.serviceState.networkRegistrationInfo.length; i++) {
+                    pw.print("reg info: domain="
+                            + event.serviceState.networkRegistrationInfo[i].domain
+                            + ", rat=" + event.serviceState.networkRegistrationInfo[i].rat);
                 }
-                pw.println("");
+            } else {
+                pw.print(telephonyEventToString(event.type));
             }
+
+            pw.println("");
         }
 
         pw.decreaseIndent();
@@ -343,22 +481,40 @@ public class TelephonyMetrics {
         pw.increaseIndent();
 
         for (TelephonyCallSession callSession : mCompletedCallSessions) {
-            if (callSession.hasStartTimeMinutes()) {
-                pw.println("Start time in minutes: " + callSession.getStartTimeMinutes());
+            pw.print("Start time in minutes: " + callSession.startTimeMinutes);
+            pw.print(", phone: " + callSession.phoneId);
+            if (callSession.eventsDropped) {
+                pw.println(" Events dropped: " + callSession.eventsDropped);
             }
-            if (callSession.hasEventsDropped()) {
-                pw.println("Events dropped: " + callSession.getEventsDropped());
-            }
-            pw.println("Events: ");
+
+            pw.println(" Events: ");
             pw.increaseIndent();
             for (TelephonyCallSession.Event event : callSession.events) {
-                pw.print(event.getDelay());
+                pw.print(event.delay);
                 pw.print(" T=");
-                if (event.getType() == TelephonyCallSession.Event.Type.RIL_SERVICE_STATE_CHANGED) {
-                    pw.println(callSessionEventToString(event.getType())
-                            + "(" + event.serviceState.getDataRat() + ")");
+                if (event.type == TelephonyCallSession.Event.Type.RIL_SERVICE_STATE_CHANGED) {
+                    pw.println(callSessionEventToString(event.type)
+                            + "(" + "Data RAT " + event.serviceState.dataRat
+                            + " Voice RAT " + event.serviceState.voiceRat
+                            + " Channel Number " + event.serviceState.channelNumber
+                            + " NR Frequency Range " + event.serviceState.nrFrequencyRange
+                            + " NR State " + event.serviceState.nrState
+                            + ")");
+                } else if (event.type == TelephonyCallSession.Event.Type.RIL_CALL_LIST_CHANGED) {
+                    pw.println(callSessionEventToString(event.type));
+                    pw.increaseIndent();
+                    for (RilCall call : event.calls) {
+                        pw.println(call.index + ". Type = " + call.type + " State = "
+                                + call.state + " End Reason " + call.callEndReason
+                                + " Precise Disconnect Cause " + call.preciseDisconnectCause
+                                + " isMultiparty = " + call.isMultiparty);
+                    }
+                    pw.decreaseIndent();
+                } else if (event.type == TelephonyCallSession.Event.Type.AUDIO_CODEC) {
+                    pw.println(callSessionEventToString(event.type)
+                            + "(" + event.audioCodec + ")");
                 } else {
-                    pw.println(callSessionEventToString(event.getType()));
+                    pw.println(callSessionEventToString(event.type));
                 }
             }
             pw.decreaseIndent();
@@ -371,24 +527,92 @@ public class TelephonyMetrics {
         int count = 0;
         for (SmsSession smsSession : mCompletedSmsSessions) {
             count++;
-            if (smsSession.hasStartTimeMinutes()) {
-                pw.print("[" + count + "] Start time in minutes: "
-                        + smsSession.getStartTimeMinutes());
-            }
-            if (smsSession.hasEventsDropped()) {
-                pw.println(", events dropped: " + smsSession.getEventsDropped());
+            pw.print("[" + count + "] Start time in minutes: "
+                    + smsSession.startTimeMinutes);
+            pw.print(", phone: " + smsSession.phoneId);
+            if (smsSession.eventsDropped) {
+                pw.println(", events dropped: " + smsSession.eventsDropped);
+            } else {
+                pw.println("");
             }
             pw.println("Events: ");
             pw.increaseIndent();
             for (SmsSession.Event event : smsSession.events) {
-                pw.print(event.getDelay());
+                pw.print(event.delay);
                 pw.print(" T=");
-                pw.println(smsSessionEventToString(event.getType()));
+                pw.println(smsSessionEventToString(event.type));
+                // Only show more info for tx/rx sms
+                if (event.type == SmsSession.Event.Type.SMS_RECEIVED) {
+                    pw.increaseIndent();
+                    switch (event.smsType) {
+                        case SmsSession.Event.SmsType.SMS_TYPE_SMS_PP:
+                            pw.println("Type: SMS-PP");
+                            break;
+                        case SmsSession.Event.SmsType.SMS_TYPE_VOICEMAIL_INDICATION:
+                            pw.println("Type: Voicemail indication");
+                            break;
+                        case SmsSession.Event.SmsType.SMS_TYPE_ZERO:
+                            pw.println("Type: zero");
+                            break;
+                        case SmsSession.Event.SmsType.SMS_TYPE_WAP_PUSH:
+                            pw.println("Type: WAP PUSH");
+                            break;
+                        default:
+                            break;
+                    }
+                    if (event.errorCode != SmsManager.RESULT_ERROR_NONE) {
+                        pw.println("E=" + event.errorCode);
+                    }
+                    pw.decreaseIndent();
+                } else if (event.type == SmsSession.Event.Type.SMS_SEND
+                        || event.type == SmsSession.Event.Type.SMS_SEND_RESULT) {
+                    pw.increaseIndent();
+                    pw.println("ReqId=" + event.rilRequestId);
+                    pw.println("E=" + event.errorCode);
+                    pw.println("RilE=" + event.error);
+                    pw.println("ImsE=" + event.imsError);
+                    pw.decreaseIndent();
+                } else if (event.type == SmsSession.Event.Type.INCOMPLETE_SMS_RECEIVED) {
+                    pw.increaseIndent();
+                    pw.println("Received: " + event.incompleteSms.receivedParts + "/"
+                            + event.incompleteSms.totalParts);
+                    pw.decreaseIndent();
+                }
             }
             pw.decreaseIndent();
         }
 
         pw.decreaseIndent();
+        pw.println("Modem power stats:");
+        pw.increaseIndent();
+
+        BatteryStatsManager batteryStatsManager = mContext == null ? null :
+                (BatteryStatsManager) mContext.getSystemService(Context.BATTERY_STATS_SERVICE);
+        ModemPowerStats s = new ModemPowerMetrics(batteryStatsManager).buildProto();
+
+        pw.println("Power log duration (battery time) (ms): " + s.loggingDurationMs);
+        pw.println("Energy consumed by modem (mAh): " + s.energyConsumedMah);
+        pw.println("Number of packets sent (tx): " + s.numPacketsTx);
+        pw.println("Number of bytes sent (tx): " + s.numBytesTx);
+        pw.println("Number of packets received (rx): " + s.numPacketsRx);
+        pw.println("Number of bytes received (rx): " + s.numBytesRx);
+        pw.println("Amount of time kernel is active because of cellular data (ms): "
+                + s.cellularKernelActiveTimeMs);
+        pw.println("Amount of time spent in very poor rx signal level (ms): "
+                + s.timeInVeryPoorRxSignalLevelMs);
+        pw.println("Amount of time modem is in sleep (ms): " + s.sleepTimeMs);
+        pw.println("Amount of time modem is in idle (ms): " + s.idleTimeMs);
+        pw.println("Amount of time modem is in rx (ms): " + s.rxTimeMs);
+        pw.println("Amount of time modem is in tx (ms): " + Arrays.toString(s.txTimeMs));
+        pw.println("Amount of time phone spent in various Radio Access Technologies (ms): "
+                + Arrays.toString(s.timeInRatMs));
+        pw.println("Amount of time phone spent in various cellular "
+                + "rx signal strength levels (ms): "
+                + Arrays.toString(s.timeInRxSignalStrengthLevelMs));
+        pw.println("Energy consumed across measured modem rails (mAh): "
+                + new DecimalFormat("#.##").format(s.monitoredRailEnergyConsumedMah));
+        pw.decreaseIndent();
+        pw.println("Hardware Version: " + SystemProperties.get("ro.boot.revision", ""));
     }
 
     /**
@@ -415,8 +639,24 @@ public class TelephonyMetrics {
         mStartSystemTimeMs = System.currentTimeMillis();
         mStartElapsedTimeMs = SystemClock.elapsedRealtime();
 
-        // Insert the last known service state, ims capabilities, and ims connection states as the
-        // base.
+        // Insert the last known sim state, enabled modem bitmap, active subscription info,
+        // service state, ims capabilities, ims connection states, carrier id and Data call
+        // events as the base.
+        // Sim state, modem bitmap and active subscription info events are logged before
+        // other events.
+        addTelephonyEvent(new TelephonyEventBuilder(mStartElapsedTimeMs, -1 /* phoneId */)
+                .setSimStateChange(mLastSimState).build());
+
+        addTelephonyEvent(new TelephonyEventBuilder(mStartElapsedTimeMs, -1 /* phoneId */)
+                .setEnabledModemBitmap(mLastEnabledModemBitmap).build());
+
+        for (int i = 0; i < mLastActiveSubscriptionInfos.size(); i++) {
+          final int key = mLastActiveSubscriptionInfos.keyAt(i);
+          TelephonyEvent event = new TelephonyEventBuilder(mStartElapsedTimeMs, key)
+                  .setActiveSubscriptionInfoChange(mLastActiveSubscriptionInfos.get(key)).build();
+          addTelephonyEvent(event);
+        }
+
         for (int i = 0; i < mLastServiceState.size(); i++) {
             final int key = mLastServiceState.keyAt(i);
 
@@ -440,6 +680,31 @@ public class TelephonyMetrics {
                     .setImsConnectionState(mLastImsConnectionState.get(key)).build();
             addTelephonyEvent(event);
         }
+
+        for (int i = 0; i < mLastCarrierId.size(); i++) {
+            final int key = mLastCarrierId.keyAt(i);
+            TelephonyEvent event = new TelephonyEventBuilder(mStartElapsedTimeMs, key)
+                    .setCarrierIdMatching(mLastCarrierId.get(key)).build();
+            addTelephonyEvent(event);
+        }
+
+        for (int i = 0; i < mLastNetworkCapabilitiesInfos.size(); i++) {
+            final int key = mLastNetworkCapabilitiesInfos.keyAt(i);
+            TelephonyEvent event = new TelephonyEventBuilder(mStartElapsedTimeMs, key)
+                    .setNetworkCapabilities(mLastNetworkCapabilitiesInfos.get(key)).build();
+            addTelephonyEvent(event);
+        }
+
+        for (int i = 0; i < mLastRilDataCallEvents.size(); i++) {
+            final int key = mLastRilDataCallEvents.keyAt(i);
+            for (int j = 0; j < mLastRilDataCallEvents.get(key).size(); j++) {
+                final int cidKey = mLastRilDataCallEvents.get(key).keyAt(j);
+                RilDataCall[] dataCalls = new RilDataCall[1];
+                dataCalls[0] = mLastRilDataCallEvents.get(key).get(cidKey);
+                addTelephonyEvent(new TelephonyEventBuilder(mStartElapsedTimeMs, key)
+                        .setDataCalls(dataCalls).build());
+            }
+        }
     }
 
     /**
@@ -453,7 +718,7 @@ public class TelephonyMetrics {
         // Build telephony events
         log.events = new TelephonyEvent[mTelephonyEvents.size()];
         mTelephonyEvents.toArray(log.events);
-        log.setEventsDropped(mTelephonyEventsDropped);
+        log.eventsDropped = mTelephonyEventsDropped;
 
         // Build call sessions
         log.callSessions = new TelephonyCallSession[mCompletedCallSessions.size()];
@@ -471,27 +736,109 @@ public class TelephonyMetrics {
             TelephonyHistogram rilHistogram = rilHistograms.get(i);
             TelephonyProto.TelephonyHistogram histogramProto = log.histograms[i];
 
-            histogramProto.setCategory(rilHistogram.getCategory());
-            histogramProto.setId(rilHistogram.getId());
-            histogramProto.setMinTimeMillis(rilHistogram.getMinTime());
-            histogramProto.setMaxTimeMillis(rilHistogram.getMaxTime());
-            histogramProto.setAvgTimeMillis(rilHistogram.getAverageTime());
-            histogramProto.setCount(rilHistogram.getSampleCount());
-            histogramProto.setBucketCount(rilHistogram.getBucketCount());
+            histogramProto.category = rilHistogram.getCategory();
+            histogramProto.id = rilHistogram.getId();
+            histogramProto.minTimeMillis = rilHistogram.getMinTime();
+            histogramProto.maxTimeMillis = rilHistogram.getMaxTime();
+            histogramProto.avgTimeMillis = rilHistogram.getAverageTime();
+            histogramProto.count = rilHistogram.getSampleCount();
+            histogramProto.bucketCount = rilHistogram.getBucketCount();
             histogramProto.bucketEndPoints = rilHistogram.getBucketEndPoints();
             histogramProto.bucketCounters = rilHistogram.getBucketCounters();
         }
 
+        // Build modem power metrics
+        BatteryStatsManager batteryStatsManager = mContext == null ? null :
+                (BatteryStatsManager) mContext.getSystemService(Context.BATTERY_STATS_SERVICE);
+        log.modemPowerStats = new ModemPowerMetrics(batteryStatsManager).buildProto();
+
+        // Log the hardware revision
+        log.hardwareRevision = SystemProperties.get("ro.boot.revision", "");
+
         // Log the starting system time
         log.startTime = new TelephonyProto.Time();
-        log.startTime.setSystemTimestampMillis(mStartSystemTimeMs);
-        log.startTime.setElapsedTimestampMillis(mStartElapsedTimeMs);
+        log.startTime.systemTimestampMillis = mStartSystemTimeMs;
+        log.startTime.elapsedTimestampMillis = mStartElapsedTimeMs;
 
         log.endTime = new TelephonyProto.Time();
-        log.endTime.setSystemTimestampMillis(System.currentTimeMillis());
-        log.endTime.setElapsedTimestampMillis(SystemClock.elapsedRealtime());
+        log.endTime.systemTimestampMillis = System.currentTimeMillis();
+        log.endTime.elapsedTimestampMillis = SystemClock.elapsedRealtime();
+
+        // Log the last active subscription information.
+        int phoneCount = TelephonyManager.getDefault().getPhoneCount();
+        ActiveSubscriptionInfo[] activeSubscriptionInfo =
+                new ActiveSubscriptionInfo[phoneCount];
+        for (int i = 0; i < mLastActiveSubscriptionInfos.size(); i++) {
+            int key = mLastActiveSubscriptionInfos.keyAt(i);
+            activeSubscriptionInfo[key] = mLastActiveSubscriptionInfos.get(key);
+        }
+        for (int i = 0; i < phoneCount; i++) {
+            if (activeSubscriptionInfo[i] == null) {
+                activeSubscriptionInfo[i] = makeInvalidSubscriptionInfo(i);
+            }
+        }
+        log.lastActiveSubscriptionInfo = activeSubscriptionInfo;
 
         return log;
+    }
+
+    /** Update the sim state. */
+    public void updateSimState(int phoneId, int simState) {
+        int state = mapSimStateToProto(simState);
+        Integer lastSimState = mLastSimState.get(phoneId);
+        if (lastSimState == null || !lastSimState.equals(state)) {
+            mLastSimState.put(phoneId, state);
+            addTelephonyEvent(new TelephonyEventBuilder().setSimStateChange(mLastSimState).build());
+        }
+    }
+
+    /** Update active subscription info list. */
+    public synchronized void updateActiveSubscriptionInfoList(List<SubscriptionInfo> subInfos) {
+        List<Integer> inActivePhoneList = new ArrayList<>();
+        for (int i = 0; i < mLastActiveSubscriptionInfos.size(); i++) {
+            inActivePhoneList.add(mLastActiveSubscriptionInfos.keyAt(i));
+        }
+
+        for (SubscriptionInfo info : subInfos) {
+            int phoneId = info.getSimSlotIndex();
+            inActivePhoneList.removeIf(value -> value.equals(phoneId));
+            ActiveSubscriptionInfo activeSubscriptionInfo = new ActiveSubscriptionInfo();
+            activeSubscriptionInfo.slotIndex = phoneId;
+            activeSubscriptionInfo.isOpportunistic = info.isOpportunistic() ? 1 : 0;
+            activeSubscriptionInfo.carrierId = info.getCarrierId();
+            if (info.getMccString() != null && info.getMncString() != null) {
+                activeSubscriptionInfo.simMccmnc = info.getMccString() + info.getMncString();
+            }
+            if (!MessageNano.messageNanoEquals(
+                    mLastActiveSubscriptionInfos.get(phoneId), activeSubscriptionInfo)) {
+                addTelephonyEvent(new TelephonyEventBuilder(phoneId)
+                        .setActiveSubscriptionInfoChange(activeSubscriptionInfo).build());
+
+                mLastActiveSubscriptionInfos.put(phoneId, activeSubscriptionInfo);
+            }
+        }
+
+        for (int phoneId : inActivePhoneList) {
+            mLastActiveSubscriptionInfos.remove(phoneId);
+            addTelephonyEvent(new TelephonyEventBuilder(phoneId)
+                    .setActiveSubscriptionInfoChange(makeInvalidSubscriptionInfo(phoneId)).build());
+        }
+    }
+
+    /** Update the enabled modem bitmap. */
+    public void updateEnabledModemBitmap(int enabledModemBitmap) {
+        if (mLastEnabledModemBitmap == enabledModemBitmap) return;
+        mLastEnabledModemBitmap = enabledModemBitmap;
+        addTelephonyEvent(new TelephonyEventBuilder()
+                .setEnabledModemBitmap(mLastEnabledModemBitmap).build());
+    }
+
+    private static ActiveSubscriptionInfo makeInvalidSubscriptionInfo(int phoneId) {
+        ActiveSubscriptionInfo invalidSubscriptionInfo = new ActiveSubscriptionInfo();
+        invalidSubscriptionInfo.slotIndex = phoneId;
+        invalidSubscriptionInfo.carrierId = -1;
+        invalidSubscriptionInfo.isOpportunistic = -1;
+        return invalidSubscriptionInfo;
     }
 
     /**
@@ -504,6 +851,23 @@ public class TelephonyMetrics {
         return (int) ((timestamp) / (MINUTE_IN_MILLIS * SESSION_START_PRECISION_MINUTES)
                 * (SESSION_START_PRECISION_MINUTES));
     }
+
+    /**
+     * Write the Carrier Key change event
+     *
+     * @param phoneId Phone id
+     * @param keyType type of key
+     * @param isDownloadSuccessful true if the key was successfully downloaded
+     */
+    public void writeCarrierKeyEvent(int phoneId, int keyType,  boolean isDownloadSuccessful) {
+        final CarrierKeyChange carrierKeyChange = new CarrierKeyChange();
+        carrierKeyChange.keyType = keyType;
+        carrierKeyChange.isDownloadSuccessful = isDownloadSuccessful;
+        TelephonyEvent event = new TelephonyEventBuilder(phoneId).setCarrierKeyChange(
+                carrierKeyChange).build();
+        addTelephonyEvent(event);
+    }
+
 
     /**
      * Get the time interval with reduced prevision
@@ -566,39 +930,51 @@ public class TelephonyMetrics {
     private TelephonyServiceState toServiceStateProto(ServiceState serviceState) {
         TelephonyServiceState ssProto = new TelephonyServiceState();
 
-        ssProto.setVoiceRoamingType(serviceState.getVoiceRoamingType());
-        ssProto.setDataRoamingType(serviceState.getDataRoamingType());
+        ssProto.voiceRoamingType = serviceState.getVoiceRoamingType();
+        ssProto.dataRoamingType = serviceState.getDataRoamingType();
 
         ssProto.voiceOperator = new TelephonyServiceState.TelephonyOperator();
-
-        if (serviceState.getVoiceOperatorAlphaLong() != null) {
-            ssProto.voiceOperator.setAlphaLong(serviceState.getVoiceOperatorAlphaLong());
-        }
-
-        if (serviceState.getVoiceOperatorAlphaShort() != null) {
-            ssProto.voiceOperator.setAlphaShort(serviceState.getVoiceOperatorAlphaShort());
-        }
-
-        if (serviceState.getVoiceOperatorNumeric() != null) {
-            ssProto.voiceOperator.setNumeric(serviceState.getVoiceOperatorNumeric());
-        }
-
         ssProto.dataOperator = new TelephonyServiceState.TelephonyOperator();
-
-        if (serviceState.getDataOperatorAlphaLong() != null) {
-            ssProto.dataOperator.setAlphaLong(serviceState.getDataOperatorAlphaLong());
+        if (serviceState.getOperatorAlphaLong() != null) {
+            ssProto.voiceOperator.alphaLong = serviceState.getOperatorAlphaLong();
+            ssProto.dataOperator.alphaLong = serviceState.getOperatorAlphaLong();
         }
 
-        if (serviceState.getDataOperatorAlphaShort() != null) {
-            ssProto.dataOperator.setAlphaShort(serviceState.getDataOperatorAlphaShort());
+        if (serviceState.getOperatorAlphaShort() != null) {
+            ssProto.voiceOperator.alphaShort = serviceState.getOperatorAlphaShort();
+            ssProto.dataOperator.alphaShort = serviceState.getOperatorAlphaShort();
         }
 
-        if (serviceState.getDataOperatorNumeric() != null) {
-            ssProto.dataOperator.setNumeric(serviceState.getDataOperatorNumeric());
+        if (serviceState.getOperatorNumeric() != null) {
+            ssProto.voiceOperator.numeric = serviceState.getOperatorNumeric();
+            ssProto.dataOperator.numeric = serviceState.getOperatorNumeric();
         }
 
-        ssProto.setVoiceRat(serviceState.getRilVoiceRadioTechnology());
-        ssProto.setDataRat(serviceState.getRilDataRadioTechnology());
+        // Log PS WWAN only because CS WWAN would be exactly the same as voiceRat, and PS WLAN
+        // would be always IWLAN in the rat field.
+        // Note that we intentionally do not log reg state because it changes too frequently that
+        // will grow the proto size too much.
+        List<TelephonyServiceState.NetworkRegistrationInfo> nriList = new ArrayList<>();
+        NetworkRegistrationInfo nri = serviceState.getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        if (nri != null) {
+            TelephonyServiceState.NetworkRegistrationInfo nriProto =
+                    new TelephonyServiceState.NetworkRegistrationInfo();
+            nriProto.domain = TelephonyServiceState.Domain.DOMAIN_PS;
+            nriProto.transport = TelephonyServiceState.Transport.TRANSPORT_WWAN;
+            nriProto.rat = ServiceState.networkTypeToRilRadioTechnology(
+                    nri.getAccessNetworkTechnology());
+            nriList.add(nriProto);
+            ssProto.networkRegistrationInfo =
+                    new TelephonyServiceState.NetworkRegistrationInfo[nriList.size()];
+            nriList.toArray(ssProto.networkRegistrationInfo);
+        }
+
+        ssProto.voiceRat = serviceState.getRilVoiceRadioTechnology();
+        ssProto.dataRat = serviceState.getRilDataRadioTechnology();
+        ssProto.channelNumber = serviceState.getChannelNumber();
+        ssProto.nrFrequencyRange = serviceState.getNrFrequencyRange();
+        ssProto.nrState = serviceState.getNrState();
         return ssProto;
     }
 
@@ -641,7 +1017,7 @@ public class TelephonyMetrics {
     private synchronized InProgressCallSession startNewCallSessionIfNeeded(int phoneId) {
         InProgressCallSession callSession = mInProgressCallSessions.get(phoneId);
         if (callSession == null) {
-            if (VDBG) Rlog.v(TAG, "Starting a new call session on phone " + phoneId);
+            logv("Starting a new call session on phone " + phoneId);
             callSession = new InProgressCallSession(phoneId);
             mInProgressCallSessions.append(phoneId, callSession);
 
@@ -680,32 +1056,43 @@ public class TelephonyMetrics {
     private synchronized InProgressSmsSession startNewSmsSessionIfNeeded(int phoneId) {
         InProgressSmsSession smsSession = mInProgressSmsSessions.get(phoneId);
         if (smsSession == null) {
-            if (VDBG) Rlog.v(TAG, "Starting a new sms session on phone " + phoneId);
-            smsSession = new InProgressSmsSession(phoneId);
+            logv("Starting a new sms session on phone " + phoneId);
+            smsSession = startNewSmsSession(phoneId);
             mInProgressSmsSessions.append(phoneId, smsSession);
+        }
+        return smsSession;
+    }
 
-            // Insert the latest service state, ims capabilities, and ims connection state as the
-            // base.
-            TelephonyServiceState serviceState = mLastServiceState.get(phoneId);
-            if (serviceState != null) {
-                smsSession.addEvent(smsSession.startElapsedTimeMs, new SmsSessionEventBuilder(
-                        TelephonyCallSession.Event.Type.RIL_SERVICE_STATE_CHANGED)
-                        .setServiceState(serviceState));
-            }
+    /**
+     * Create a new SMS session
+     *
+     * @param phoneId Phone id
+     * @return The SMS session
+     */
+    private InProgressSmsSession startNewSmsSession(int phoneId) {
+        InProgressSmsSession smsSession = new InProgressSmsSession(phoneId);
 
-            ImsCapabilities imsCapabilities = mLastImsCapabilities.get(phoneId);
-            if (imsCapabilities != null) {
-                smsSession.addEvent(smsSession.startElapsedTimeMs, new SmsSessionEventBuilder(
-                        SmsSession.Event.Type.IMS_CAPABILITIES_CHANGED)
-                        .setImsCapabilities(imsCapabilities));
-            }
+        // Insert the latest service state, ims capabilities, and ims connection state as the
+        // base.
+        TelephonyServiceState serviceState = mLastServiceState.get(phoneId);
+        if (serviceState != null) {
+            smsSession.addEvent(smsSession.startElapsedTimeMs, new SmsSessionEventBuilder(
+                    TelephonyCallSession.Event.Type.RIL_SERVICE_STATE_CHANGED)
+                    .setServiceState(serviceState));
+        }
 
-            ImsConnectionState imsConnectionState = mLastImsConnectionState.get(phoneId);
-            if (imsConnectionState != null) {
-                smsSession.addEvent(smsSession.startElapsedTimeMs, new SmsSessionEventBuilder(
-                        SmsSession.Event.Type.IMS_CONNECTION_STATE_CHANGED)
-                        .setImsConnectionState(imsConnectionState));
-            }
+        ImsCapabilities imsCapabilities = mLastImsCapabilities.get(phoneId);
+        if (imsCapabilities != null) {
+            smsSession.addEvent(smsSession.startElapsedTimeMs, new SmsSessionEventBuilder(
+                    SmsSession.Event.Type.IMS_CAPABILITIES_CHANGED)
+                    .setImsCapabilities(imsCapabilities));
+        }
+
+        ImsConnectionState imsConnectionState = mLastImsConnectionState.get(phoneId);
+        if (imsConnectionState != null) {
+            smsSession.addEvent(smsSession.startElapsedTimeMs, new SmsSessionEventBuilder(
+                    SmsSession.Event.Type.IMS_CONNECTION_STATE_CHANGED)
+                    .setImsConnectionState(imsConnectionState));
         }
         return smsSession;
     }
@@ -719,15 +1106,15 @@ public class TelephonyMetrics {
         TelephonyCallSession callSession = new TelephonyCallSession();
         callSession.events = new TelephonyCallSession.Event[inProgressCallSession.events.size()];
         inProgressCallSession.events.toArray(callSession.events);
-        callSession.setStartTimeMinutes(inProgressCallSession.startSystemTimeMin);
-        callSession.setPhoneId(inProgressCallSession.phoneId);
-        callSession.setEventsDropped(inProgressCallSession.isEventsDropped());
+        callSession.startTimeMinutes = inProgressCallSession.startSystemTimeMin;
+        callSession.phoneId = inProgressCallSession.phoneId;
+        callSession.eventsDropped = inProgressCallSession.isEventsDropped();
         if (mCompletedCallSessions.size() >= MAX_COMPLETED_CALL_SESSIONS) {
             mCompletedCallSessions.removeFirst();
         }
         mCompletedCallSessions.add(callSession);
         mInProgressCallSessions.remove(inProgressCallSession.phoneId);
-        if (VDBG) Rlog.v(TAG, "Call session finished");
+        logv("Call session finished");
     }
 
     /**
@@ -737,19 +1124,26 @@ public class TelephonyMetrics {
      */
     private synchronized void finishSmsSessionIfNeeded(InProgressSmsSession inProgressSmsSession) {
         if (inProgressSmsSession.getNumExpectedResponses() == 0) {
-            SmsSession smsSession = new SmsSession();
-            smsSession.events = new SmsSession.Event[inProgressSmsSession.events.size()];
-            inProgressSmsSession.events.toArray(smsSession.events);
-            smsSession.setStartTimeMinutes(inProgressSmsSession.startSystemTimeMin);
-            smsSession.setPhoneId(inProgressSmsSession.phoneId);
-            smsSession.setEventsDropped(inProgressSmsSession.isEventsDropped());
-            if (mCompletedSmsSessions.size() >= MAX_COMPLETED_SMS_SESSIONS) {
-                mCompletedSmsSessions.removeFirst();
-            }
-            mCompletedSmsSessions.add(smsSession);
+            SmsSession smsSession = finishSmsSession(inProgressSmsSession);
+
             mInProgressSmsSessions.remove(inProgressSmsSession.phoneId);
-            if (VDBG) Rlog.v(TAG, "SMS session finished");
+            logv("SMS session finished");
         }
+    }
+
+    private SmsSession finishSmsSession(InProgressSmsSession inProgressSmsSession) {
+        SmsSession smsSession = new SmsSession();
+        smsSession.events = new SmsSession.Event[inProgressSmsSession.events.size()];
+        inProgressSmsSession.events.toArray(smsSession.events);
+        smsSession.startTimeMinutes = inProgressSmsSession.startSystemTimeMin;
+        smsSession.phoneId = inProgressSmsSession.phoneId;
+        smsSession.eventsDropped = inProgressSmsSession.isEventsDropped();
+
+        if (mCompletedSmsSessions.size() >= MAX_COMPLETED_SMS_SESSIONS) {
+            mCompletedSmsSessions.removeFirst();
+        }
+        mCompletedSmsSessions.add(smsSession);
+        return smsSession;
     }
 
     /**
@@ -776,14 +1170,21 @@ public class TelephonyMetrics {
         TelephonyEvent event = new TelephonyEventBuilder(phoneId)
                 .setServiceState(toServiceStateProto(serviceState)).build();
 
+        // If service state doesn't change, we don't log the event.
+        if (mLastServiceState.get(phoneId) != null &&
+                Arrays.equals(TelephonyServiceState.toByteArray(mLastServiceState.get(phoneId)),
+                        TelephonyServiceState.toByteArray(event.serviceState))) {
+            return;
+        }
+
         mLastServiceState.put(phoneId, event.serviceState);
         addTelephonyEvent(event);
 
-        annotateInProgressCallSession(event.getTimestampMillis(), phoneId,
+        annotateInProgressCallSession(event.timestampMillis, phoneId,
                 new CallSessionEventBuilder(
                         TelephonyCallSession.Event.Type.RIL_SERVICE_STATE_CHANGED)
                         .setServiceState(event.serviceState));
-        annotateInProgressSmsSession(event.getTimestampMillis(), phoneId,
+        annotateInProgressSmsSession(event.timestampMillis, phoneId,
                 new SmsSessionEventBuilder(
                         SmsSession.Event.Type.RIL_SERVICE_STATE_CHANGED)
                         .setServiceState(event.serviceState));
@@ -801,39 +1202,63 @@ public class TelephonyMetrics {
     }
 
     /**
+     * Write SignalStrength event
+     *
+     * @param phoneId Phone id
+     * @param signalStrength Signal strength at the time of data stall recovery
+     */
+    public void writeSignalStrengthEvent(int phoneId, int signalStrength) {
+        addTelephonyEvent(new TelephonyEventBuilder(phoneId)
+                .setSignalStrength(signalStrength).build());
+    }
+
+    /**
      * Write IMS feature settings changed event
      *
      * @param phoneId Phone id
      * @param feature IMS feature
      * @param network The IMS network type
      * @param value The settings. 0 indicates disabled, otherwise enabled.
-     * @param status IMS operation status. See OperationStatusConstants for details.
      */
-    public void writeImsSetFeatureValue(int phoneId, int feature, int network, int value,
-                                        int status) {
+    public void writeImsSetFeatureValue(int phoneId, int feature, int network, int value) {
         TelephonySettings s = new TelephonySettings();
-        switch (feature) {
-            case ImsConfig.FeatureConstants.FEATURE_TYPE_VOICE_OVER_LTE:
-                s.setIsEnhanced4GLteModeEnabled(value != 0);
-                break;
-            case ImsConfig.FeatureConstants.FEATURE_TYPE_VOICE_OVER_WIFI:
-                s.setIsWifiCallingEnabled(value != 0);
-                break;
-            case ImsConfig.FeatureConstants.FEATURE_TYPE_VIDEO_OVER_LTE:
-                s.setIsVtOverLteEnabled(value != 0);
-                break;
-            case ImsConfig.FeatureConstants.FEATURE_TYPE_VIDEO_OVER_WIFI:
-                s.setIsVtOverWifiEnabled(value != 0);
-                break;
+        if (network == ImsRegistrationImplBase.REGISTRATION_TECH_LTE) {
+            switch (feature) {
+                case MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VOICE:
+                    s.isEnhanced4GLteModeEnabled = (value != 0);
+                    break;
+                case MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VIDEO:
+                    s.isVtOverLteEnabled = (value != 0);
+                    break;
+            }
+        } else if (network == ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN) {
+            switch (feature) {
+                case MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VOICE:
+                    s.isWifiCallingEnabled = (value != 0);
+                    break;
+                case MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VIDEO:
+                    s.isVtOverWifiEnabled = (value != 0);
+                    break;
+            }
         }
+
+
+        // If the settings don't change, we don't log the event.
+        if (mLastSettings.get(phoneId) != null &&
+                Arrays.equals(TelephonySettings.toByteArray(mLastSettings.get(phoneId)),
+                        TelephonySettings.toByteArray(s))) {
+            return;
+        }
+
+        mLastSettings.put(phoneId, s);
 
         TelephonyEvent event = new TelephonyEventBuilder(phoneId).setSettings(s).build();
         addTelephonyEvent(event);
 
-        annotateInProgressCallSession(event.getTimestampMillis(), phoneId,
+        annotateInProgressCallSession(event.timestampMillis, phoneId,
                 new CallSessionEventBuilder(TelephonyCallSession.Event.Type.SETTINGS_CHANGED)
                         .setSettings(s));
-        annotateInProgressSmsSession(event.getTimestampMillis(), phoneId,
+        annotateInProgressSmsSession(event.timestampMillis, phoneId,
                 new SmsSessionEventBuilder(SmsSession.Event.Type.SETTINGS_CHANGED)
                         .setSettings(s));
     }
@@ -846,7 +1271,17 @@ public class TelephonyMetrics {
      */
     public void writeSetPreferredNetworkType(int phoneId, int networkType) {
         TelephonySettings s = new TelephonySettings();
-        s.setPreferredNetworkMode(networkType);
+        s.preferredNetworkMode = networkType + 1;
+
+        // If the settings don't change, we don't log the event.
+        if (mLastSettings.get(phoneId) != null &&
+                Arrays.equals(TelephonySettings.toByteArray(mLastSettings.get(phoneId)),
+                        TelephonySettings.toByteArray(s))) {
+            return;
+        }
+
+        mLastSettings.put(phoneId, s);
+
         addTelephonyEvent(new TelephonyEventBuilder(phoneId).setSettings(s).build());
     }
 
@@ -860,31 +1295,39 @@ public class TelephonyMetrics {
     public synchronized void writeOnImsConnectionState(int phoneId, int state,
                                                        ImsReasonInfo reasonInfo) {
         ImsConnectionState imsState = new ImsConnectionState();
-        imsState.setState(state);
-        mLastImsConnectionState.put(phoneId, imsState);
+        imsState.state = state;
 
         if (reasonInfo != null) {
             TelephonyProto.ImsReasonInfo ri = new TelephonyProto.ImsReasonInfo();
 
-            ri.setReasonCode(reasonInfo.getCode());
-            ri.setExtraCode(reasonInfo.getExtraCode());
+            ri.reasonCode = reasonInfo.getCode();
+            ri.extraCode = reasonInfo.getExtraCode();
             String extraMessage = reasonInfo.getExtraMessage();
             if (extraMessage != null) {
-                ri.setExtraMessage(extraMessage);
+                ri.extraMessage = extraMessage;
             }
 
             imsState.reasonInfo = ri;
         }
 
+        // If the connection state does not change, do not log it.
+        if (mLastImsConnectionState.get(phoneId) != null &&
+                Arrays.equals(ImsConnectionState.toByteArray(mLastImsConnectionState.get(phoneId)),
+                        ImsConnectionState.toByteArray(imsState))) {
+            return;
+        }
+
+        mLastImsConnectionState.put(phoneId, imsState);
+
         TelephonyEvent event = new TelephonyEventBuilder(phoneId)
                 .setImsConnectionState(imsState).build();
         addTelephonyEvent(event);
 
-        annotateInProgressCallSession(event.getTimestampMillis(), phoneId,
+        annotateInProgressCallSession(event.timestampMillis, phoneId,
                 new CallSessionEventBuilder(
                         TelephonyCallSession.Event.Type.IMS_CONNECTION_STATE_CHANGED)
                         .setImsConnectionState(event.imsConnectionState));
-        annotateInProgressSmsSession(event.getTimestampMillis(), phoneId,
+        annotateInProgressSmsSession(event.timestampMillis, phoneId,
                 new SmsSessionEventBuilder(
                         SmsSession.Event.Type.IMS_CONNECTION_STATE_CHANGED)
                         .setImsConnectionState(event.imsConnectionState));
@@ -896,25 +1339,45 @@ public class TelephonyMetrics {
      * @param phoneId Phone id
      * @param capabilities IMS capabilities array
      */
-    public synchronized void writeOnImsCapabilities(int phoneId, boolean[] capabilities) {
+    public synchronized void writeOnImsCapabilities(int phoneId,
+            @ImsRegistrationImplBase.ImsRegistrationTech int radioTech,
+            MmTelFeature.MmTelCapabilities capabilities) {
         ImsCapabilities cap = new ImsCapabilities();
 
-        cap.setVoiceOverLte(capabilities[0]);
-        cap.setVideoOverLte(capabilities[1]);
-        cap.setVoiceOverWifi(capabilities[2]);
-        cap.setVideoOverWifi(capabilities[3]);
-        cap.setUtOverLte(capabilities[4]);
-        cap.setUtOverWifi(capabilities[5]);
+        if (radioTech == ImsRegistrationImplBase.REGISTRATION_TECH_LTE) {
+            cap.voiceOverLte = capabilities.isCapable(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VOICE);
+            cap.videoOverLte = capabilities.isCapable(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VIDEO);
+            cap.utOverLte = capabilities.isCapable(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_UT);
+
+        } else if (radioTech == ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN) {
+            cap.voiceOverWifi = capabilities.isCapable(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VOICE);
+            cap.videoOverWifi = capabilities.isCapable(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_VIDEO);
+            cap.utOverWifi = capabilities.isCapable(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_UT);
+        }
 
         TelephonyEvent event = new TelephonyEventBuilder(phoneId).setImsCapabilities(cap).build();
+
+        // If the capabilities don't change, we don't log the event.
+        if (mLastImsCapabilities.get(phoneId) != null &&
+                Arrays.equals(ImsCapabilities.toByteArray(mLastImsCapabilities.get(phoneId)),
+                ImsCapabilities.toByteArray(cap))) {
+            return;
+        }
+
         mLastImsCapabilities.put(phoneId, cap);
         addTelephonyEvent(event);
 
-        annotateInProgressCallSession(event.getTimestampMillis(), phoneId,
+        annotateInProgressCallSession(event.timestampMillis, phoneId,
                 new CallSessionEventBuilder(
                         TelephonyCallSession.Event.Type.IMS_CAPABILITIES_CHANGED)
                         .setImsCapabilities(event.imsCapabilities));
-        annotateInProgressSmsSession(event.getTimestampMillis(), phoneId,
+        annotateInProgressSmsSession(event.timestampMillis, phoneId,
                 new SmsSessionEventBuilder(
                         SmsSession.Event.Type.IMS_CAPABILITIES_CHANGED)
                         .setImsCapabilities(event.imsCapabilities));
@@ -936,6 +1399,10 @@ public class TelephonyMetrics {
                 return PDP_TYPE_IPV4V6;
             case "PPP":
                 return PDP_TYPE_PPP;
+            case "NON-IP":
+                return PDP_TYPE_NON_IP;
+            case "UNSTRUCTURED":
+                return PDP_TYPE_UNSTRUCTURED;
         }
         Rlog.e(TAG, "Unknown type: " + type);
         return PDP_UNKNOWN;
@@ -945,25 +1412,22 @@ public class TelephonyMetrics {
      * Write setup data call event
      *
      * @param phoneId Phone id
-     * @param rilSerial RIL request serial number
      * @param radioTechnology The data call RAT
-     * @param profile Data profile
+     * @param profileId Data profile id
      * @param apn APN in string
-     * @param authType Authentication type
      * @param protocol Data connection protocol
      */
-    public void writeRilSetupDataCall(int phoneId, int rilSerial, int radioTechnology, int profile,
-                                      String apn, int authType, String protocol) {
+    public void writeSetupDataCall(int phoneId, int radioTechnology, int profileId, String apn,
+                                   int protocol) {
 
         RilSetupDataCall setupDataCall = new RilSetupDataCall();
-        setupDataCall.setRat(radioTechnology);
-        setupDataCall.setDataProfile(profile + 1);  // off by 1 between proto and RIL constants.
+        setupDataCall.rat = radioTechnology;
+        setupDataCall.dataProfile = profileId + 1;  // off by 1 between proto and RIL constants.
         if (apn != null) {
-            setupDataCall.setApn(apn);
+            setupDataCall.apn = apn;
         }
-        if (protocol != null) {
-            setupDataCall.setType(toPdpType(protocol));
-        }
+
+        setupDataCall.type = protocol + 1;
 
         addTelephonyEvent(new TelephonyEventBuilder(phoneId).setSetupDataCall(
                 setupDataCall).build());
@@ -980,54 +1444,200 @@ public class TelephonyMetrics {
     public void writeRilDeactivateDataCall(int phoneId, int rilSerial, int cid, int reason) {
 
         RilDeactivateDataCall deactivateDataCall = new RilDeactivateDataCall();
-        deactivateDataCall.setCid(cid);
-        deactivateDataCall.setReason(reason + 1);
+        deactivateDataCall.cid = cid;
+        switch (reason) {
+            case DataService.REQUEST_REASON_NORMAL:
+                deactivateDataCall.reason = DeactivateReason.DEACTIVATE_REASON_NONE;
+                break;
+            case DataService.REQUEST_REASON_SHUTDOWN:
+                deactivateDataCall.reason = DeactivateReason.DEACTIVATE_REASON_RADIO_OFF;
+                break;
+            case DataService.REQUEST_REASON_HANDOVER:
+                deactivateDataCall.reason = DeactivateReason.DEACTIVATE_REASON_HANDOVER;
+                break;
+            default:
+                deactivateDataCall.reason = DeactivateReason.DEACTIVATE_REASON_UNKNOWN;
+        }
 
         addTelephonyEvent(new TelephonyEventBuilder(phoneId).setDeactivateDataCall(
                 deactivateDataCall).build());
     }
 
     /**
-     * Write get data call list event
-     *
-     * @param phoneId Phone id
-     * @param dcsList Data call list
+     * Write data call list event when connected
+     * @param phoneId          Phone id
+     * @param cid              Context Id, uniquely identifies the call
+     * @param apnTypeBitmask   Bitmask of supported APN types
+     * @param state            State of the data call event
      */
-    public void writeRilDataCallList(int phoneId, ArrayList<DataCallResponse> dcsList) {
+    public void writeRilDataCallEvent(int phoneId, int cid,
+            int apnTypeBitmask, int state) {
+        RilDataCall[] dataCalls = new RilDataCall[1];
+        dataCalls[0] = new RilDataCall();
+        dataCalls[0].cid = cid;
+        dataCalls[0].apnTypeBitmask = apnTypeBitmask;
+        dataCalls[0].state = state;
 
-        RilDataCall[] dataCalls = new RilDataCall[dcsList.size()];
-
-        for (int i = 0; i < dcsList.size(); i++) {
-            dataCalls[i] = new RilDataCall();
-            dataCalls[i].setCid(dcsList.get(i).cid);
-            if (dcsList.get(i).ifname != null) {
-                dataCalls[i].setIframe(dcsList.get(i).ifname);
+        SparseArray<RilDataCall> dataCallList;
+        if (mLastRilDataCallEvents.get(phoneId) != null) {
+            // If the Data call event does not change, do not log it.
+            if (mLastRilDataCallEvents.get(phoneId).get(cid) != null
+                    && Arrays.equals(
+                        RilDataCall.toByteArray(mLastRilDataCallEvents.get(phoneId).get(cid)),
+                        RilDataCall.toByteArray(dataCalls[0]))) {
+                return;
             }
-            if (dcsList.get(i).type != null) {
-                dataCalls[i].setType(toPdpType(dcsList.get(i).type));
-            }
+            dataCallList =  mLastRilDataCallEvents.get(phoneId);
+        } else {
+            dataCallList = new SparseArray<>();
         }
 
+        dataCallList.put(cid, dataCalls[0]);
+        mLastRilDataCallEvents.put(phoneId, dataCallList);
         addTelephonyEvent(new TelephonyEventBuilder(phoneId).setDataCalls(dataCalls).build());
+    }
+
+    /**
+     * Write CS call list event
+     *
+     * @param phoneId    Phone id
+     * @param connections Array of GsmCdmaConnection objects
+     */
+    public void writeRilCallList(int phoneId, ArrayList<GsmCdmaConnection> connections,
+                                 String countryIso) {
+        logv("Logging CallList Changed Connections Size = " + connections.size());
+        InProgressCallSession callSession = startNewCallSessionIfNeeded(phoneId);
+        if (callSession == null) {
+            Rlog.e(TAG, "writeRilCallList: Call session is missing");
+        } else {
+            RilCall[] calls = convertConnectionsToRilCalls(connections, countryIso);
+            callSession.addEvent(
+                    new CallSessionEventBuilder(
+                            TelephonyCallSession.Event.Type.RIL_CALL_LIST_CHANGED)
+                            .setRilCalls(calls)
+            );
+            logv("Logged Call list changed");
+            if (callSession.isPhoneIdle() && disconnectReasonsKnown(calls)) {
+                finishCallSession(callSession);
+            }
+        }
+    }
+
+    private boolean disconnectReasonsKnown(RilCall[] calls) {
+        for (RilCall call : calls) {
+            if (call.callEndReason == 0) return false;
+        }
+        return true;
+    }
+
+    private RilCall[] convertConnectionsToRilCalls(ArrayList<GsmCdmaConnection> mConnections,
+                                                   String countryIso) {
+        RilCall[] calls = new RilCall[mConnections.size()];
+        for (int i = 0; i < mConnections.size(); i++) {
+            calls[i] = new RilCall();
+            calls[i].index = i;
+            convertConnectionToRilCall(mConnections.get(i), calls[i], countryIso);
+        }
+        return calls;
+    }
+
+    private EmergencyNumberInfo convertEmergencyNumberToEmergencyNumberInfo(EmergencyNumber num) {
+        EmergencyNumberInfo emergencyNumberInfo = new EmergencyNumberInfo();
+        emergencyNumberInfo.address = num.getNumber();
+        emergencyNumberInfo.countryIso = num.getCountryIso();
+        emergencyNumberInfo.mnc = num.getMnc();
+        emergencyNumberInfo.serviceCategoriesBitmask = num.getEmergencyServiceCategoryBitmask();
+        emergencyNumberInfo.urns = num.getEmergencyUrns().stream().toArray(String[]::new);
+        emergencyNumberInfo.numberSourcesBitmask = num.getEmergencyNumberSourceBitmask();
+        emergencyNumberInfo.routing = num.getEmergencyCallRouting();
+        return emergencyNumberInfo;
+    }
+
+    private void convertConnectionToRilCall(GsmCdmaConnection conn, RilCall call,
+                                            String countryIso) {
+        if (conn.isIncoming()) {
+            call.type = Type.MT;
+        } else {
+            call.type = Type.MO;
+        }
+        switch (conn.getState()) {
+            case IDLE:
+                call.state = CallState.CALL_IDLE;
+                break;
+            case ACTIVE:
+                call.state = CallState.CALL_ACTIVE;
+                break;
+            case HOLDING:
+                call.state = CallState.CALL_HOLDING;
+                break;
+            case DIALING:
+                call.state = CallState.CALL_DIALING;
+                break;
+            case ALERTING:
+                call.state = CallState.CALL_ALERTING;
+                break;
+            case INCOMING:
+                call.state = CallState.CALL_INCOMING;
+                break;
+            case WAITING:
+                call.state = CallState.CALL_WAITING;
+                break;
+            case DISCONNECTED:
+                call.state = CallState.CALL_DISCONNECTED;
+                break;
+            case DISCONNECTING:
+                call.state = CallState.CALL_DISCONNECTING;
+                break;
+            default:
+                call.state = CallState.CALL_UNKNOWN;
+                break;
+        }
+        call.callEndReason = conn.getDisconnectCause();
+        call.isMultiparty = conn.isMultiparty();
+        call.preciseDisconnectCause = conn.getPreciseDisconnectCause();
+
+        // Emergency call metrics when call ends
+        if (conn.getDisconnectCause() != DisconnectCause.NOT_DISCONNECTED
+                && conn.isEmergencyCall() && conn.getEmergencyNumberInfo() != null) {
+            /** Only collect this emergency number information per sample percentage */
+            if (ThreadLocalRandom.current().nextDouble(0, 100)
+                    < getSamplePercentageForEmergencyCall(countryIso)) {
+                call.isEmergencyCall = conn.isEmergencyCall();
+                call.emergencyNumberInfo = convertEmergencyNumberToEmergencyNumberInfo(
+                        conn.getEmergencyNumberInfo());
+                EmergencyNumberTracker emergencyNumberTracker = conn.getEmergencyNumberTracker();
+                call.emergencyNumberDatabaseVersion = emergencyNumberTracker != null
+                        ? emergencyNumberTracker.getEmergencyNumberDbVersion()
+                        : TelephonyManager.INVALID_EMERGENCY_NUMBER_DB_VERSION;
+            }
+        }
     }
 
     /**
      * Write dial event
      *
      * @param phoneId Phone id
-     * @param rilSerial RIL request serial number
+     * @param conn Connection object created to track this call
      * @param clirMode CLIR (Calling Line Identification Restriction) mode
      * @param uusInfo User-to-User signaling Info
      */
-    public void writeRilDial(int phoneId, int rilSerial, int clirMode, UUSInfo uusInfo) {
+    public void writeRilDial(int phoneId, GsmCdmaConnection conn, int clirMode, UUSInfo uusInfo) {
 
         InProgressCallSession callSession = startNewCallSessionIfNeeded(phoneId);
-
-        callSession.addEvent(callSession.startElapsedTimeMs,
-                new CallSessionEventBuilder(TelephonyCallSession.Event.Type.RIL_REQUEST)
-                        .setRilRequest(TelephonyCallSession.Event.RilRequest.RIL_REQUEST_DIAL)
-                        .setRilRequestId(rilSerial)
-        );
+        logv("Logging Dial Connection = " + conn);
+        if (callSession == null) {
+            Rlog.e(TAG, "writeRilDial: Call session is missing");
+        } else {
+            RilCall[] calls = new RilCall[1];
+            calls[0] = new RilCall();
+            calls[0].index = -1;
+            convertConnectionToRilCall(conn, calls[0], "");
+            callSession.addEvent(callSession.startElapsedTimeMs,
+                    new CallSessionEventBuilder(TelephonyCallSession.Event.Type.RIL_REQUEST)
+                            .setRilRequest(TelephonyCallSession.Event.RilRequest.RIL_REQUEST_DIAL)
+                            .setRilCalls(calls));
+            logv("Logged Dial event");
+        }
     }
 
     /**
@@ -1047,19 +1657,24 @@ public class TelephonyMetrics {
      * Write call hangup event
      *
      * @param phoneId Phone id
-     * @param rilSerial RIL request serial number
+     * @param conn Connection object associated with the call that is being hung-up
      * @param callId Call id
      */
-    public void writeRilHangup(int phoneId, int rilSerial, int callId) {
+    public void writeRilHangup(int phoneId, GsmCdmaConnection conn, int callId,
+                               String countryIso) {
         InProgressCallSession callSession = mInProgressCallSessions.get(phoneId);
         if (callSession == null) {
-            Rlog.e(TAG, "Call session is missing");
+            Rlog.e(TAG, "writeRilHangup: Call session is missing");
         } else {
+            RilCall[] calls = new RilCall[1];
+            calls[0] = new RilCall();
+            calls[0].index = callId;
+            convertConnectionToRilCall(conn, calls[0], countryIso);
             callSession.addEvent(
                     new CallSessionEventBuilder(TelephonyCallSession.Event.Type.RIL_REQUEST)
                             .setRilRequest(TelephonyCallSession.Event.RilRequest.RIL_REQUEST_HANGUP)
-                            .setRilRequestId(rilSerial)
-                            .setCallIndex(callId));
+                            .setRilCalls(calls));
+            logv("Logged Hangup event");
         }
     }
 
@@ -1072,7 +1687,7 @@ public class TelephonyMetrics {
     public void writeRilAnswer(int phoneId, int rilSerial) {
         InProgressCallSession callSession = mInProgressCallSessions.get(phoneId);
         if (callSession == null) {
-            Rlog.e(TAG, "Call session is missing");
+            Rlog.e(TAG, "writeRilAnswer: Call session is missing");
         } else {
             callSession.addEvent(
                     new CallSessionEventBuilder(TelephonyCallSession.Event.Type.RIL_REQUEST)
@@ -1090,7 +1705,7 @@ public class TelephonyMetrics {
     public void writeRilSrvcc(int phoneId, int rilSrvccState) {
         InProgressCallSession callSession =  mInProgressCallSessions.get(phoneId);
         if (callSession == null) {
-            Rlog.e(TAG, "Call session is missing");
+            Rlog.e(TAG, "writeRilSrvcc: Call session is missing");
         } else {
             callSession.addEvent(
                     new CallSessionEventBuilder(TelephonyCallSession.Event.Type.RIL_CALL_SRVCC)
@@ -1140,7 +1755,7 @@ public class TelephonyMetrics {
      * @param rilSerial RIL request serial number
      * @param rilError RIL error
      * @param rilRequest RIL request
-     * @param response Data call response
+     * @param result Data call result
      */
     private void writeOnSetupDataCallResponse(int phoneId, int rilSerial, int rilError,
                                               int rilRequest, DataCallResponse response) {
@@ -1149,17 +1764,15 @@ public class TelephonyMetrics {
         RilDataCall dataCall = new RilDataCall();
 
         if (response != null) {
-            setupDataCallResponse.setStatus(
-                    response.status == 0 ? RilDataCallFailCause.PDP_FAIL_NONE : response.status);
-            setupDataCallResponse.setSuggestedRetryTimeMillis(response.suggestedRetryTime);
+            setupDataCallResponse.status = (response.getCause() == 0
+                    ? RilDataCallFailCause.PDP_FAIL_NONE : response.getCause());
+            setupDataCallResponse.suggestedRetryTimeMillis = response.getSuggestedRetryTime();
 
-            dataCall.setCid(response.cid);
-            if (response.type != null) {
-                dataCall.setType(toPdpType(response.type));
-            }
+            dataCall.cid = response.getId();
+            dataCall.type = response.getProtocolType() + 1;
 
-            if (response.ifname != null) {
-                dataCall.setIframe(response.ifname);
+            if (!TextUtils.isEmpty(response.getInterfaceName())) {
+                dataCall.iframe = response.getInterfaceName();
             }
         }
         setupDataCallResponse.call = dataCall;
@@ -1180,13 +1793,13 @@ public class TelephonyMetrics {
                                               int rilRequest) {
         InProgressCallSession callSession = mInProgressCallSessions.get(phoneId);
         if (callSession == null) {
-            Rlog.e(TAG, "Call session is missing");
+            Rlog.e(TAG, "writeOnCallSolicitedResponse: Call session is missing");
         } else {
             callSession.addEvent(new CallSessionEventBuilder(
                     TelephonyCallSession.Event.Type.RIL_RESPONSE)
                     .setRilRequest(toCallSessionRilRequest(rilRequest))
                     .setRilRequestId(rilSerial)
-                    .setRilError(rilError));
+                    .setRilError(rilError + 1));
         }
     }
 
@@ -1206,7 +1819,7 @@ public class TelephonyMetrics {
             Rlog.e(TAG, "SMS session is missing");
         } else {
 
-            int errorCode = 0;
+            int errorCode = SmsResponse.NO_ERROR_CODE;
             if (response != null) {
                 errorCode = response.mErrorCode;
             }
@@ -1214,8 +1827,36 @@ public class TelephonyMetrics {
             smsSession.addEvent(new SmsSessionEventBuilder(
                     SmsSession.Event.Type.SMS_SEND_RESULT)
                     .setErrorCode(errorCode)
-                    .setRilErrno(rilError)
+                    .setRilErrno(rilError + 1)
                     .setRilRequestId(rilSerial)
+            );
+
+            smsSession.decreaseExpectedResponse();
+            finishSmsSessionIfNeeded(smsSession);
+        }
+    }
+
+    /**
+     * Write SMS related solicited response event
+     *
+     * @param phoneId Phone id
+     * @param errorReason Defined in {@link SmsManager} RESULT_XXX.
+     * @param messageId Unique id for this message.
+     */
+    public synchronized void writeOnImsServiceSmsSolicitedResponse(int phoneId,
+            @ImsSmsImplBase.SendStatusResult int resultCode, int errorReason,
+            long messageId) {
+
+        InProgressSmsSession smsSession = mInProgressSmsSessions.get(phoneId);
+        if (smsSession == null) {
+            Rlog.e(TAG, "SMS session is missing");
+        } else {
+
+            smsSession.addEvent(new SmsSessionEventBuilder(
+                    SmsSession.Event.Type.SMS_SEND_RESULT)
+                    .setImsServiceErrno(resultCode)
+                    .setErrorCode(errorReason)
+                    .setMessageId((messageId))
             );
 
             smsSession.decreaseExpectedResponse();
@@ -1247,8 +1888,8 @@ public class TelephonyMetrics {
                                             int rilRequest, Object ret) {
         switch (rilRequest) {
             case RIL_REQUEST_SETUP_DATA_CALL:
-                DataCallResponse dataCall = (DataCallResponse) ret;
-                writeOnSetupDataCallResponse(phoneId, rilSerial, rilError, rilRequest, dataCall);
+                DataCallResponse response = (DataCallResponse) ret;
+                writeOnSetupDataCallResponse(phoneId, rilSerial, rilError, rilRequest, response);
                 break;
             case RIL_REQUEST_DEACTIVATE_DATA_CALL:
                 writeOnDeactivateDataCallResponse(phoneId, rilError);
@@ -1268,6 +1909,34 @@ public class TelephonyMetrics {
                 writeOnSmsSolicitedResponse(phoneId, rilSerial, rilError, smsResponse);
                 break;
         }
+    }
+
+    /**
+     * Write network validation event.
+     * @param networkValidationState the network validation state.
+     */
+    public void writeNetworkValidate(int networkValidationState) {
+        addTelephonyEvent(
+                new TelephonyEventBuilder().setNetworkValidate(networkValidationState).build());
+    }
+
+    /**
+     * Write data switch event.
+     * @param subId data switch to the subscription with this id.
+     * @param dataSwitch the reason and state of data switch.
+     */
+    public void writeDataSwitch(int subId, DataSwitch dataSwitch) {
+        int phoneId = SubscriptionManager.getPhoneId(subId);
+        addTelephonyEvent(new TelephonyEventBuilder(phoneId).setDataSwitch(dataSwitch).build());
+    }
+
+    /**
+     * Write on demand data switch event.
+     * @param onDemandDataSwitch the apn and state of on demand data switch.
+     */
+    public void writeOnDemandDataSwitch(OnDemandDataSwitch onDemandDataSwitch) {
+        addTelephonyEvent(
+                new TelephonyEventBuilder().setOnDemandDataSwitch(onDemandDataSwitch).build());
     }
 
     /**
@@ -1295,9 +1964,14 @@ public class TelephonyMetrics {
 
         InProgressCallSession callSession = mInProgressCallSessions.get(phoneId);
         if (callSession == null) {
-            Rlog.e(TAG, "Call session is missing");
+            Rlog.e(TAG, "writePhoneState: Call session is missing");
         } else {
-            if (state == TelephonyCallSession.Event.PhoneState.STATE_IDLE) {
+            // For CS Calls Finish the Call Session after Receiving the Last Call Fail Cause
+            // For IMS calls we receive the Disconnect Cause along with Call End event.
+            // So we can finish the call session here.
+            callSession.setLastKnownPhoneState(state);
+            if ((state == TelephonyCallSession.Event.PhoneState.STATE_IDLE)
+                    && (!callSession.containsCsCalls())) {
                 finishCallSession(callSession);
             }
             callSession.addEvent(new CallSessionEventBuilder(
@@ -1390,7 +2064,11 @@ public class TelephonyMetrics {
      * @param session IMS call session
      */
     public void writeOnImsCallReceive(int phoneId, ImsCallSession session) {
-        writeOnImsCallStart(phoneId, session);
+        InProgressCallSession callSession = startNewCallSessionIfNeeded(phoneId);
+
+        callSession.addEvent(
+                new CallSessionEventBuilder(TelephonyCallSession.Event.Type.IMS_CALL_RECEIVE)
+                        .setCallIndex(getCallId(session)));
     }
 
     /**
@@ -1422,14 +2100,64 @@ public class TelephonyMetrics {
     private TelephonyProto.ImsReasonInfo toImsReasonInfoProto(ImsReasonInfo reasonInfo) {
         TelephonyProto.ImsReasonInfo ri = new TelephonyProto.ImsReasonInfo();
         if (reasonInfo != null) {
-            ri.setReasonCode(reasonInfo.getCode());
-            ri.setExtraCode(reasonInfo.getExtraCode());
+            ri.reasonCode = reasonInfo.getCode();
+            ri.extraCode = reasonInfo.getExtraCode();
             String extraMessage = reasonInfo.getExtraMessage();
             if (extraMessage != null) {
-                ri.setExtraMessage(extraMessage);
+                ri.extraMessage = extraMessage;
             }
         }
         return ri;
+    }
+
+    /**
+     * Convert CallQuality to proto.
+     *
+     * @param callQuality call quality to convert
+     * @return Coverted proto
+     */
+    public static TelephonyCallSession.Event.CallQuality toCallQualityProto(
+            CallQuality callQuality) {
+        TelephonyCallSession.Event.CallQuality cq = new TelephonyCallSession.Event.CallQuality();
+        if (callQuality != null) {
+            cq.downlinkLevel = callQualityLevelToProtoEnum(callQuality
+                    .getDownlinkCallQualityLevel());
+            cq.uplinkLevel = callQualityLevelToProtoEnum(callQuality.getUplinkCallQualityLevel());
+            // callDuration is reported in millis, so convert to seconds
+            cq.durationInSeconds = callQuality.getCallDuration() / 1000;
+            cq.rtpPacketsTransmitted = callQuality.getNumRtpPacketsTransmitted();
+            cq.rtpPacketsReceived = callQuality.getNumRtpPacketsReceived();
+            cq.rtpPacketsTransmittedLost = callQuality.getNumRtpPacketsTransmittedLost();
+            cq.rtpPacketsNotReceived = callQuality.getNumRtpPacketsNotReceived();
+            cq.averageRelativeJitterMillis = callQuality.getAverageRelativeJitter();
+            cq.maxRelativeJitterMillis = callQuality.getMaxRelativeJitter();
+            cq.codecType = convertImsCodec(callQuality.getCodecType());
+            cq.rtpInactivityDetected = callQuality.isRtpInactivityDetected();
+            cq.rxSilenceDetected = callQuality.isIncomingSilenceDetectedAtCallSetup();
+            cq.txSilenceDetected = callQuality.isOutgoingSilenceDetectedAtCallSetup();
+        }
+        return cq;
+    }
+
+    /**
+     * Convert Call quality level into proto defined value.
+     */
+    private static int callQualityLevelToProtoEnum(int level) {
+        if (level == CallQuality.CALL_QUALITY_EXCELLENT) {
+            return TelephonyCallSession.Event.CallQuality.CallQualityLevel.EXCELLENT;
+        } else if (level == CallQuality.CALL_QUALITY_GOOD) {
+            return TelephonyCallSession.Event.CallQuality.CallQualityLevel.GOOD;
+        } else if (level == CallQuality.CALL_QUALITY_FAIR) {
+            return TelephonyCallSession.Event.CallQuality.CallQualityLevel.FAIR;
+        } else if (level == CallQuality.CALL_QUALITY_POOR) {
+            return TelephonyCallSession.Event.CallQuality.CallQualityLevel.POOR;
+        } else if (level == CallQuality.CALL_QUALITY_BAD) {
+            return TelephonyCallSession.Event.CallQuality.CallQualityLevel.BAD;
+        } else if (level == CallQuality.CALL_QUALITY_NOT_AVAILABLE) {
+            return TelephonyCallSession.Event.CallQuality.CallQualityLevel.NOT_AVAILABLE;
+        } else {
+            return TelephonyCallSession.Event.CallQuality.CallQualityLevel.UNDEFINED;
+        }
     }
 
     /**
@@ -1438,17 +2166,41 @@ public class TelephonyMetrics {
      * @param phoneId Phone id
      * @param session IMS call session
      * @param reasonInfo Call end reason
+     * @param cqm Call Quality Metrics
+     * @param emergencyNumber Emergency Number Info
+     * @param countryIso Network country iso
+     * @param emergencyNumberDatabaseVersion Emergency Number Database Version
      */
     public void writeOnImsCallTerminated(int phoneId, ImsCallSession session,
-                                         ImsReasonInfo reasonInfo) {
+                                         ImsReasonInfo reasonInfo, CallQualityMetrics cqm,
+                                         EmergencyNumber emergencyNumber, String countryIso,
+                                         int emergencyNumberDatabaseVersion) {
         InProgressCallSession callSession = mInProgressCallSessions.get(phoneId);
         if (callSession == null) {
             Rlog.e(TAG, "Call session is missing");
         } else {
-            callSession.addEvent(
-                    new CallSessionEventBuilder(TelephonyCallSession.Event.Type.IMS_CALL_TERMINATED)
-                            .setCallIndex(getCallId(session))
-                            .setImsReasonInfo(toImsReasonInfoProto(reasonInfo)));
+            CallSessionEventBuilder callSessionEvent = new CallSessionEventBuilder(
+                    TelephonyCallSession.Event.Type.IMS_CALL_TERMINATED);
+            callSessionEvent.setCallIndex(getCallId(session));
+            callSessionEvent.setImsReasonInfo(toImsReasonInfoProto(reasonInfo));
+
+            if (cqm != null) {
+                callSessionEvent.setCallQualitySummaryDl(cqm.getCallQualitySummaryDl())
+                        .setCallQualitySummaryUl(cqm.getCallQualitySummaryUl());
+            }
+
+            if (emergencyNumber != null) {
+                /** Only collect this emergency number information per sample percentage */
+                if (ThreadLocalRandom.current().nextDouble(0, 100)
+                        < getSamplePercentageForEmergencyCall(countryIso)) {
+                    callSessionEvent.setIsImsEmergencyCall(true);
+                    callSessionEvent.setImsEmergencyNumberInfo(
+                            convertEmergencyNumberToEmergencyNumberInfo(emergencyNumber));
+                    callSessionEvent.setEmergencyNumberDatabaseVersion(
+                            emergencyNumberDatabaseVersion);
+                }
+            }
+            callSession.addEvent(callSessionEvent);
         }
     }
 
@@ -1486,7 +2238,7 @@ public class TelephonyMetrics {
      * @param tech SMS RAT
      * @param format SMS format. Either 3GPP or 3GPP2.
      */
-    public void writeRilSendSms(int phoneId, int rilSerial, int tech, int format) {
+    public synchronized void writeRilSendSms(int phoneId, int rilSerial, int tech, int format) {
         InProgressSmsSession smsSession = startNewSmsSessionIfNeeded(phoneId);
 
         smsSession.addEvent(new SmsSessionEventBuilder(SmsSession.Event.Type.SMS_SEND)
@@ -1499,21 +2251,255 @@ public class TelephonyMetrics {
     }
 
     /**
-     * Write incoming SMS event
+     * Write Send SMS event using ImsService. Expecting response from
+     * {@link #writeOnSmsSolicitedResponse}.
      *
      * @param phoneId Phone id
-     * @param tech SMS RAT
-     * @param format SMS format. Either 3GPP or 3GPP2.
+     * @param format SMS format. Either {@link SmsMessage#FORMAT_3GPP} or
+     *         {@link SmsMessage#FORMAT_3GPP2}.
+     * @param resultCode The result of sending the new SMS to the vendor layer to be sent to the
+     *         carrier network.
      */
-    public void writeRilNewSms(int phoneId, int tech, int format) {
+    public synchronized void writeImsServiceSendSms(int phoneId, String format,
+            @ImsSmsImplBase.SendStatusResult int resultCode) {
+        InProgressSmsSession smsSession = startNewSmsSessionIfNeeded(phoneId);
+        smsSession.addEvent(new SmsSessionEventBuilder(SmsSession.Event.Type.SMS_SEND)
+                .setTech(SmsSession.Event.Tech.SMS_IMS)
+                .setImsServiceErrno(resultCode)
+                .setFormat(convertSmsFormat(format))
+        );
+
+        smsSession.increaseExpectedResponse();
+    }
+
+    /**
+     * Write incoming Broadcast SMS event
+     *
+     * @param phoneId Phone id
+     * @param format CB msg format
+     * @param priority CB msg priority
+     * @param isCMAS true if msg is CMAS
+     * @param isETWS true if msg is ETWS
+     * @param serviceCategory Service category of CB msg
+     * @param serialNumber Serial number of the message
+     * @param deliveredTimestamp Message's delivered timestamp
+     */
+    public synchronized void writeNewCBSms(int phoneId, int format, int priority, boolean isCMAS,
+                                           boolean isETWS, int serviceCategory, int serialNumber,
+                                           long deliveredTimestamp) {
         InProgressSmsSession smsSession = startNewSmsSessionIfNeeded(phoneId);
 
-        smsSession.addEvent(new SmsSessionEventBuilder(SmsSession.Event.Type.SMS_RECEIVED)
-                .setTech(tech)
-                .setFormat(format)
+        int type;
+        if (isCMAS) {
+            type = SmsSession.Event.CBMessageType.CMAS;
+        } else if (isETWS) {
+            type = SmsSession.Event.CBMessageType.ETWS;
+        } else {
+            type = SmsSession.Event.CBMessageType.OTHER;
+        }
+
+        SmsSession.Event.CBMessage cbm = new SmsSession.Event.CBMessage();
+        cbm.msgFormat = format;
+        cbm.msgPriority = priority + 1;
+        cbm.msgType = type;
+        cbm.serviceCategory = serviceCategory;
+        cbm.serialNumber = serialNumber;
+        cbm.deliveredTimestampMillis = deliveredTimestamp;
+
+        smsSession.addEvent(new SmsSessionEventBuilder(SmsSession.Event.Type.CB_SMS_RECEIVED)
+                .setCellBroadcastMessage(cbm)
         );
 
         finishSmsSessionIfNeeded(smsSession);
+    }
+
+    /**
+     * Write an incoming multi-part SMS that was discarded because some parts were missing
+     *
+     * @param phoneId Phone id
+     * @param format SMS format. Either 3GPP or 3GPP2.
+     * @param receivedCount Number of received parts.
+     * @param totalCount Total number of parts of the SMS.
+     */
+    public void writeDroppedIncomingMultipartSms(int phoneId, String format,
+            int receivedCount, int totalCount) {
+        logv("Logged dropped multipart SMS: received " + receivedCount
+                + " out of " + totalCount);
+
+        SmsSession.Event.IncompleteSms details = new SmsSession.Event.IncompleteSms();
+        details.receivedParts = receivedCount;
+        details.totalParts = totalCount;
+
+        InProgressSmsSession smsSession = startNewSmsSession(phoneId);
+        smsSession.addEvent(
+                new SmsSessionEventBuilder(SmsSession.Event.Type.INCOMPLETE_SMS_RECEIVED)
+                    .setFormat(convertSmsFormat(format))
+                    .setIncompleteSms(details));
+
+        finishSmsSession(smsSession);
+    }
+
+    /**
+     * Write a generic SMS of any type
+     *
+     * @param phoneId Phone id
+     * @param type Type of the SMS.
+     * @param format SMS format. Either 3GPP or 3GPP2.
+     * @param success Indicates if the SMS-PP was successfully delivered to the USIM.
+     */
+    private void writeIncomingSmsWithType(int phoneId, int type, String format, boolean success) {
+        InProgressSmsSession smsSession = startNewSmsSession(phoneId);
+        smsSession.addEvent(new SmsSessionEventBuilder(SmsSession.Event.Type.SMS_RECEIVED)
+                .setFormat(convertSmsFormat(format))
+                .setSmsType(type)
+                .setErrorCode(success ? SmsManager.RESULT_ERROR_NONE :
+                    SmsManager.RESULT_ERROR_GENERIC_FAILURE));
+        finishSmsSession(smsSession);
+    }
+
+    /**
+     * Write an incoming SMS-PP for the USIM
+     *
+     * @param phoneId Phone id
+     * @param format SMS format. Either 3GPP or 3GPP2.
+     * @param success Indicates if the SMS-PP was successfully delivered to the USIM.
+     */
+    public void writeIncomingSMSPP(int phoneId, String format, boolean success) {
+        logv("Logged SMS-PP session. Result = " + success);
+        writeIncomingSmsWithType(phoneId,
+                SmsSession.Event.SmsType.SMS_TYPE_SMS_PP, format, success);
+    }
+
+    /**
+     * Write an incoming SMS to update voicemail indicator
+     *
+     * @param phoneId Phone id
+     * @param format SMS format. Either 3GPP or 3GPP2.
+     */
+    public void writeIncomingVoiceMailSms(int phoneId, String format) {
+        logv("Logged VoiceMail message.");
+        writeIncomingSmsWithType(phoneId,
+                SmsSession.Event.SmsType.SMS_TYPE_VOICEMAIL_INDICATION, format, true);
+    }
+
+    /**
+     * Write an incoming SMS of type 0
+     *
+     * @param phoneId Phone id
+     * @param format SMS format. Either 3GPP or 3GPP2.
+     */
+    public void writeIncomingSmsTypeZero(int phoneId, String format) {
+        logv("Logged Type-0 SMS message.");
+        writeIncomingSmsWithType(phoneId,
+                SmsSession.Event.SmsType.SMS_TYPE_ZERO, format, true);
+    }
+
+    /**
+     * Write a successful incoming SMS session
+     *
+     * @param phoneId Phone id
+     * @param type Type of the SMS.
+     * @param smsOverIms true if the SMS was received over SMS, false otherwise
+     * @param format SMS format. Either 3GPP or 3GPP2.
+     * @param timestamps array with timestamps of each incoming SMS part. It contains a single
+     * @param blocked indicates if the message was blocked or not.
+     * @param success Indicates if the SMS-PP was successfully delivered to the USIM.
+     * @param messageId Unique id for this message.
+     */
+    private void writeIncomingSmsSessionWithType(int phoneId, int type, boolean smsOverIms,
+            String format, long[] timestamps, boolean blocked, boolean success,
+            long messageId) {
+        logv("Logged SMS session consisting of " + timestamps.length
+                + " parts, over IMS = " + smsOverIms
+                + " blocked = " + blocked
+                + " type = " + type
+                + " messageId = " + messageId);
+
+        InProgressSmsSession smsSession = startNewSmsSession(phoneId);
+        for (long time : timestamps) {
+            SmsSessionEventBuilder eventBuilder =
+                    new SmsSessionEventBuilder(SmsSession.Event.Type.SMS_RECEIVED)
+                        .setFormat(convertSmsFormat(format))
+                        .setTech(smsOverIms ? SmsSession.Event.Tech.SMS_IMS :
+                            SmsSession.Event.Tech.SMS_GSM)
+                        .setErrorCode(success ? SmsManager.RESULT_ERROR_NONE :
+                            SmsManager.RESULT_ERROR_GENERIC_FAILURE)
+                        .setSmsType(type)
+                        .setBlocked(blocked)
+                        .setMessageId(messageId);
+            smsSession.addEvent(time, eventBuilder);
+        }
+        finishSmsSession(smsSession);
+    }
+
+    /**
+     * Write an incoming WAP-PUSH message.
+     *
+     * @param phoneId Phone id
+     * @param smsOverIms true if the SMS was received over SMS, false otherwise
+     * @param format SMS format. Either 3GPP or 3GPP2.
+     * @param timestamps array with timestamps of each incoming SMS part. It contains a single
+     * @param success Indicates if the SMS-PP was successfully delivered to the USIM.
+     * @param messageId Unique id for this message.
+     */
+    public void writeIncomingWapPush(int phoneId, boolean smsOverIms, String format,
+            long[] timestamps, boolean success, long messageId) {
+        writeIncomingSmsSessionWithType(phoneId, SmsSession.Event.SmsType.SMS_TYPE_WAP_PUSH,
+                smsOverIms, format, timestamps, false, success, messageId);
+    }
+
+    /**
+     * Write a successful incoming SMS session
+     *
+     * @param phoneId Phone id
+     * @param smsOverIms true if the SMS was received over SMS, false otherwise
+     * @param format SMS format. Either 3GPP or 3GPP2.
+     * @param timestamps array with timestamps of each incoming SMS part. It contains a single
+     * @param blocked indicates if the message was blocked or not.
+     * @param messageId Unique id for this message.
+     */
+    public void writeIncomingSmsSession(int phoneId, boolean smsOverIms, String format,
+            long[] timestamps, boolean blocked, long messageId) {
+        writeIncomingSmsSessionWithType(phoneId, SmsSession.Event.SmsType.SMS_TYPE_NORMAL,
+                smsOverIms, format, timestamps, blocked, true, messageId);
+    }
+
+    /**
+     * Write an error incoming SMS
+     *
+     * @param phoneId Phone id
+     * @param smsOverIms true if the SMS was received over SMS, false otherwise
+     * @param result Indicates the reason of the failure.
+     */
+    public void writeIncomingSmsError(int phoneId, boolean smsOverIms, int result) {
+        logv("Incoming SMS error = " + result);
+
+        int smsError = SmsManager.RESULT_ERROR_GENERIC_FAILURE;
+        switch (result) {
+            case Intents.RESULT_SMS_HANDLED:
+                // This should not happen.
+                return;
+            case Intents.RESULT_SMS_OUT_OF_MEMORY:
+                smsError = SmsManager.RESULT_NO_MEMORY;
+                break;
+            case Intents.RESULT_SMS_UNSUPPORTED:
+                smsError = SmsManager.RESULT_REQUEST_NOT_SUPPORTED;
+                break;
+            case Intents.RESULT_SMS_GENERIC_ERROR:
+            default:
+                smsError = SmsManager.RESULT_ERROR_GENERIC_FAILURE;
+                break;
+        }
+
+        InProgressSmsSession smsSession = startNewSmsSession(phoneId);
+
+        SmsSessionEventBuilder eventBuilder =
+                new SmsSessionEventBuilder(SmsSession.Event.Type.SMS_RECEIVED)
+                    .setErrorCode(smsError)
+                    .setTech(smsOverIms ? SmsSession.Event.Tech.SMS_IMS :
+                        SmsSession.Event.Tech.SMS_GSM);
+        smsSession.addEvent(eventBuilder);
+        finishSmsSession(smsSession);
     }
 
     /**
@@ -1526,10 +2512,265 @@ public class TelephonyMetrics {
         TelephonyEvent event = new TelephonyEventBuilder(phoneId).setNITZ(timestamp).build();
         addTelephonyEvent(event);
 
-        annotateInProgressCallSession(event.getTimestampMillis(), phoneId,
+        annotateInProgressCallSession(event.timestampMillis, phoneId,
                 new CallSessionEventBuilder(
                         TelephonyCallSession.Event.Type.NITZ_TIME)
                         .setNITZ(timestamp));
+    }
+
+    /**
+     * Write Modem Restart event
+     *
+     * @param phoneId Phone id
+     * @param reason Reason for the modem reset.
+     */
+    public void writeModemRestartEvent(int phoneId, String reason) {
+        final ModemRestart modemRestart = new ModemRestart();
+        String basebandVersion = Build.getRadioVersion();
+        if (basebandVersion != null) modemRestart.basebandVersion = basebandVersion;
+        if (reason != null) modemRestart.reason = reason;
+        TelephonyEvent event = new TelephonyEventBuilder(phoneId).setModemRestart(
+                modemRestart).build();
+        addTelephonyEvent(event);
+    }
+
+    /**
+     * Write carrier identification matching event
+     *
+     * @param phoneId Phone id
+     * @param version Carrier table version
+     * @param cid Unique Carrier Id
+     * @param unknownMcmnc MCC and MNC that map to this carrier
+     * @param unknownGid1 Group id level 1
+     * @param simInfo Subscription info
+     */
+    public void writeCarrierIdMatchingEvent(int phoneId, int version, int cid,
+                                            String unknownMcmnc, String unknownGid1,
+                                            CarrierResolver.CarrierMatchingRule simInfo) {
+        final CarrierIdMatching carrierIdMatching = new CarrierIdMatching();
+        final CarrierIdMatchingResult carrierIdMatchingResult = new CarrierIdMatchingResult();
+
+        // fill in information for unknown mccmnc and gid1 for unidentified carriers.
+        if (cid != TelephonyManager.UNKNOWN_CARRIER_ID) {
+            // Successful matching event if result only has carrierId
+            carrierIdMatchingResult.carrierId = cid;
+            // Unknown Gid1 event if result only has carrierId, gid1 and mccmnc
+            if (unknownGid1 != null) {
+                carrierIdMatchingResult.unknownMccmnc = unknownMcmnc;
+                carrierIdMatchingResult.unknownGid1 = unknownGid1;
+            }
+        } else {
+            // Unknown mccmnc event if result only has mccmnc
+            if (unknownMcmnc != null) {
+                carrierIdMatchingResult.unknownMccmnc = unknownMcmnc;
+            }
+        }
+
+        // fill in complete matching information from the SIM.
+        carrierIdMatchingResult.mccmnc = TelephonyUtils.emptyIfNull(simInfo.mccMnc);
+        carrierIdMatchingResult.spn = TelephonyUtils.emptyIfNull(simInfo.spn);
+        carrierIdMatchingResult.pnn = TelephonyUtils.emptyIfNull(simInfo.plmn);
+        carrierIdMatchingResult.gid1 = TelephonyUtils.emptyIfNull(simInfo.gid1);
+        carrierIdMatchingResult.gid2 = TelephonyUtils.emptyIfNull(simInfo.gid2);
+        carrierIdMatchingResult.imsiPrefix = TelephonyUtils.emptyIfNull(simInfo.imsiPrefixPattern);
+        carrierIdMatchingResult.iccidPrefix = TelephonyUtils.emptyIfNull(simInfo.iccidPrefix);
+        carrierIdMatchingResult.preferApn = TelephonyUtils.emptyIfNull(simInfo.apn);
+        if (simInfo.privilegeAccessRule != null) {
+            carrierIdMatchingResult.privilegeAccessRule =
+                    simInfo.privilegeAccessRule.stream().toArray(String[]::new);
+        }
+
+        carrierIdMatching.cidTableVersion = version;
+        carrierIdMatching.result = carrierIdMatchingResult;
+
+        TelephonyEvent event = new TelephonyEventBuilder(phoneId).setCarrierIdMatching(
+                carrierIdMatching).build();
+        mLastCarrierId.put(phoneId, carrierIdMatching);
+        addTelephonyEvent(event);
+    }
+
+    /**
+     * Write emergency number update event
+     *
+     * @param emergencyNumber Updated emergency number
+     */
+    public void writeEmergencyNumberUpdateEvent(int phoneId, EmergencyNumber emergencyNumber,
+            int emergencyNumberDatabaseVersion) {
+        if (emergencyNumber == null) {
+            return;
+        }
+        final EmergencyNumberInfo emergencyNumberInfo =
+                convertEmergencyNumberToEmergencyNumberInfo(emergencyNumber);
+
+        TelephonyEvent event = new TelephonyEventBuilder(phoneId).setUpdatedEmergencyNumber(
+                emergencyNumberInfo, emergencyNumberDatabaseVersion).build();
+        addTelephonyEvent(event);
+    }
+
+    /**
+     * Write network capabilities changed event
+     *
+     * @param phoneId Phone id
+     * @param networkCapabilities Network capabilities
+     */
+    public void writeNetworkCapabilitiesChangedEvent(int phoneId,
+            NetworkCapabilities networkCapabilities) {
+        final NetworkCapabilitiesInfo caps = new NetworkCapabilitiesInfo();
+        caps.isNetworkUnmetered = networkCapabilities.hasCapability(
+                NetworkCapabilities.NET_CAPABILITY_TEMPORARILY_NOT_METERED);
+
+        TelephonyEvent event = new TelephonyEventBuilder(phoneId)
+                .setNetworkCapabilities(caps).build();
+        mLastNetworkCapabilitiesInfos.put(phoneId, caps);
+        addTelephonyEvent(event);
+    }
+
+    /**
+     * Convert SMS format
+     */
+    private int convertSmsFormat(String format) {
+        int formatCode = SmsSession.Event.Format.SMS_FORMAT_UNKNOWN;
+        switch (format) {
+            case SmsMessage.FORMAT_3GPP : {
+                formatCode = SmsSession.Event.Format.SMS_FORMAT_3GPP;
+                break;
+            }
+            case SmsMessage.FORMAT_3GPP2: {
+                formatCode = SmsSession.Event.Format.SMS_FORMAT_3GPP2;
+                break;
+            }
+        }
+        return formatCode;
+    }
+
+    /**
+     * Convert IMS audio codec into proto defined value
+     *
+     * @param c IMS codec value
+     * @return Codec value defined in call session proto
+     */
+    private static int convertImsCodec(int c) {
+        switch (c) {
+            case ImsStreamMediaProfile.AUDIO_QUALITY_AMR:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_AMR;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_AMR_WB:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_AMR_WB;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_QCELP13K:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_QCELP13K;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_EVRC:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_EVRC;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_EVRC_B:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_EVRC_B;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_EVRC_WB:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_EVRC_WB;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_EVRC_NW:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_EVRC_NW;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_GSM_EFR:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_GSM_EFR;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_GSM_FR:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_GSM_FR;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_GSM_HR:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_GSM_HR;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_G711U:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_G711U;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_G723:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_G723;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_G711A:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_G711A;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_G722:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_G722;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_G711AB:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_G711AB;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_G729:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_G729;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_EVS_NB:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_EVS_NB;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_EVS_WB:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_EVS_WB;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_EVS_SWB:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_EVS_SWB;
+            case ImsStreamMediaProfile.AUDIO_QUALITY_EVS_FB:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_EVS_FB;
+            default:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_UNKNOWN;
+        }
+    }
+
+    /**
+     * Convert GSM/CDMA audio codec into proto defined value
+     *
+     * @param c GSM/CDMA codec value
+     * @return Codec value defined in call session proto
+     */
+    private int convertGsmCdmaCodec(int c) {
+        switch (c) {
+            case DriverCall.AUDIO_QUALITY_AMR:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_AMR;
+            case DriverCall.AUDIO_QUALITY_AMR_WB:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_AMR_WB;
+            case DriverCall.AUDIO_QUALITY_GSM_EFR:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_GSM_EFR;
+            case DriverCall.AUDIO_QUALITY_GSM_FR:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_GSM_FR;
+            case DriverCall.AUDIO_QUALITY_GSM_HR:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_GSM_HR;
+            case DriverCall.AUDIO_QUALITY_EVRC:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_EVRC;
+            case DriverCall.AUDIO_QUALITY_EVRC_B:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_EVRC_B;
+            case DriverCall.AUDIO_QUALITY_EVRC_WB:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_EVRC_WB;
+            case DriverCall.AUDIO_QUALITY_EVRC_NW:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_EVRC_NW;
+            default:
+                return TelephonyCallSession.Event.AudioCodec.AUDIO_CODEC_UNKNOWN;
+        }
+    }
+
+    /**
+     * Write audio codec event
+     *
+     * @param phoneId Phone id
+     * @param session IMS call session
+     */
+    public void writeAudioCodecIms(int phoneId, ImsCallSession session) {
+        InProgressCallSession callSession = mInProgressCallSessions.get(phoneId);
+        if (callSession == null) {
+            Rlog.e(TAG, "Call session is missing");
+            return;
+        }
+
+        ImsCallProfile localCallProfile = session.getLocalCallProfile();
+        if (localCallProfile != null) {
+            int codec = convertImsCodec(localCallProfile.mMediaProfile.mAudioQuality);
+            callSession.addEvent(new CallSessionEventBuilder(
+                    TelephonyCallSession.Event.Type.AUDIO_CODEC)
+                    .setCallIndex(getCallId(session))
+                    .setAudioCodec(codec));
+
+            logv("Logged Audio Codec event. Value: " + codec);
+        }
+    }
+
+    /**
+     * Write audio codec event
+     *
+     * @param phoneId Phone id
+     * @param audioQuality Audio quality value
+     */
+    public void writeAudioCodecGsmCdma(int phoneId, int audioQuality) {
+        InProgressCallSession callSession = mInProgressCallSessions.get(phoneId);
+        if (callSession == null) {
+            Rlog.e(TAG, "Call session is missing");
+            return;
+        }
+
+        int codec = convertGsmCdmaCodec(audioQuality);
+        callSession.addEvent(new CallSessionEventBuilder(
+                TelephonyCallSession.Event.Type.AUDIO_CODEC)
+                .setAudioCodec(codec));
+
+        logv("Logged Audio Codec event. Value: " + codec);
     }
 
     //TODO: Expand the proto in the future
@@ -1546,4 +2787,47 @@ public class TelephonyMetrics {
     public void writeOnImsCallResumeFailed(int phoneId, ImsCallSession session,
                                            ImsReasonInfo reasonInfo) {}
     public void writeOnRilTimeoutResponse(int phoneId, int rilSerial, int rilRequest) {}
+
+    /**
+     * Get the sample percentage of collecting metrics based on countries' population.
+     *
+     * The larger population the country has, the lower percentage we use to collect this
+     * metrics. Since the exact population changes frequently, buckets of the population are used
+     * instead of its exact number. Seven different levels of sampling percentage are assigned
+     * based on the scale of population for countries.
+     */
+    private double getSamplePercentageForEmergencyCall(String countryIso) {
+        String countriesFor1Percentage = "cn,in";
+        String countriesFor5Percentage = "us,id,br,pk,ng,bd,ru,mx,jp,et,ph,eg,vn,cd,tr,ir,de";
+        String countriesFor15Percentage = "th,gb,fr,tz,it,za,mm,ke,kr,co,es,ug,ar,ua,dz,sd,iq";
+        String countriesFor25Percentage = "pl,ca,af,ma,sa,pe,uz,ve,my,ao,mz,gh,np,ye,mg,kp,cm";
+        String countriesFor35Percentage = "au,tw,ne,lk,bf,mw,ml,ro,kz,sy,cl,zm,gt,zw,nl,ec,sn";
+        String countriesFor45Percentage = "kh,td,so,gn,ss,rw,bj,tn,bi,be,cu,bo,ht,gr,do,cz,pt";
+        if (countriesFor1Percentage.contains(countryIso)) {
+            return 1;
+        } else if (countriesFor5Percentage.contains(countryIso)) {
+            return 5;
+        } else if (countriesFor15Percentage.contains(countryIso)) {
+            return 15;
+        } else if (countriesFor25Percentage.contains(countryIso)) {
+            return 25;
+        } else if (countriesFor35Percentage.contains(countryIso)) {
+            return 35;
+        } else if (countriesFor45Percentage.contains(countryIso)) {
+            return 45;
+        } else {
+            return 50;
+        }
+    }
+
+    private static int mapSimStateToProto(int simState) {
+        switch (simState) {
+            case TelephonyManager.SIM_STATE_ABSENT:
+                return SimState.SIM_STATE_ABSENT;
+            case TelephonyManager.SIM_STATE_LOADED:
+                return SimState.SIM_STATE_LOADED;
+            default:
+                return SimState.SIM_STATE_UNKNOWN;
+        }
+    }
 }

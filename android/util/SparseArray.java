@@ -16,45 +16,52 @@
 
 package android.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.GrowingArrayUtils;
 
 import libcore.util.EmptyArray;
 
 /**
- * SparseArrays map integers to Objects.  Unlike a normal array of Objects,
- * there can be gaps in the indices.  It is intended to be more memory efficient
- * than using a HashMap to map Integers to Objects, both because it avoids
+ * <code>SparseArray</code> maps integers to Objects and, unlike a normal array of Objects,
+ * its indices can contain gaps. <code>SparseArray</code> is intended to be more memory-efficient
+ * than a
+ * <a href="/reference/java/util/HashMap"><code>HashMap</code></a>, because it avoids
  * auto-boxing keys and its data structure doesn't rely on an extra entry object
  * for each mapping.
  *
  * <p>Note that this container keeps its mappings in an array data structure,
- * using a binary search to find keys.  The implementation is not intended to be appropriate for
+ * using a binary search to find keys. The implementation is not intended to be appropriate for
  * data structures
- * that may contain large numbers of items.  It is generally slower than a traditional
- * HashMap, since lookups require a binary search and adds and removes require inserting
- * and deleting entries in the array.  For containers holding up to hundreds of items,
- * the performance difference is not significant, less than 50%.</p>
+ * that may contain large numbers of items. It is generally slower than a
+ * <code>HashMap</code> because lookups require a binary search,
+ * and adds and removes require inserting
+ * and deleting entries in the array. For containers holding up to hundreds of items,
+ * the performance difference is less than 50%.
  *
  * <p>To help with performance, the container includes an optimization when removing
  * keys: instead of compacting its array immediately, it leaves the removed entry marked
- * as deleted.  The entry can then be re-used for the same key, or compacted later in
- * a single garbage collection step of all removed entries.  This garbage collection will
- * need to be performed at any time the array needs to be grown or the the map size or
- * entry values are retrieved.</p>
+ * as deleted. The entry can then be re-used for the same key or compacted later in
+ * a single garbage collection of all removed entries. This garbage collection
+ * must be performed whenever the array needs to be grown, or when the map size or
+ * entry values are retrieved.
  *
  * <p>It is possible to iterate over the items in this container using
  * {@link #keyAt(int)} and {@link #valueAt(int)}. Iterating over the keys using
- * <code>keyAt(int)</code> with ascending values of the index will return the
- * keys in ascending order, or the values corresponding to the keys in ascending
- * order in the case of <code>valueAt(int)</code>.</p>
+ * <code>keyAt(int)</code> with ascending values of the index returns the
+ * keys in ascending order. In the case of <code>valueAt(int)</code>, the
+ * values corresponding to the keys are returned in ascending order.
  */
 public class SparseArray<E> implements Cloneable {
     private static final Object DELETED = new Object();
     private boolean mGarbage = false;
 
+    @UnsupportedAppUsage(maxTargetSdk = 28) // Use keyAt(int)
     private int[] mKeys;
+    @UnsupportedAppUsage(maxTargetSdk = 28) // Use valueAt(int), setValueAt(int, E)
     private Object[] mValues;
+    @UnsupportedAppUsage(maxTargetSdk = 28) // Use size()
     private int mSize;
 
     /**
@@ -94,6 +101,17 @@ public class SparseArray<E> implements Cloneable {
             /* ignore */
         }
         return clone;
+    }
+
+    /**
+     * Returns true if the key exists in the array. This is equivalent to
+     * {@link #indexOfKey(int)} >= 0.
+     *
+     * @param key Potential key in the mapping
+     * @return true if the key is defined in the mapping
+     */
+    public boolean contains(int key) {
+        return indexOfKey(key) >= 0;
     }
 
     /**
@@ -162,9 +180,16 @@ public class SparseArray<E> implements Cloneable {
      * Removes the mapping at the specified index.
      *
      * <p>For indices outside of the range <code>0...size()-1</code>,
-     * the behavior is undefined.</p>
+     * the behavior is undefined for apps targeting {@link android.os.Build.VERSION_CODES#P} and
+     * earlier, and an {@link ArrayIndexOutOfBoundsException} is thrown for apps targeting
+     * {@link android.os.Build.VERSION_CODES#Q} and later.</p>
      */
     public void removeAt(int index) {
+        if (index >= mSize && UtilConfig.sThrowExceptionForUpperArrayOutOfBounds) {
+            // The array might be slightly bigger than mSize, in which case, indexing won't fail.
+            // Check if exception should be thrown outside of the critical path.
+            throw new ArrayIndexOutOfBoundsException(index);
+        }
         if (mValues[index] != DELETED) {
             mValues[index] = DELETED;
             mGarbage = true;
@@ -270,9 +295,16 @@ public class SparseArray<E> implements Cloneable {
      * key.</p>
      *
      * <p>For indices outside of the range <code>0...size()-1</code>,
-     * the behavior is undefined.</p>
+     * the behavior is undefined for apps targeting {@link android.os.Build.VERSION_CODES#P} and
+     * earlier, and an {@link ArrayIndexOutOfBoundsException} is thrown for apps targeting
+     * {@link android.os.Build.VERSION_CODES#Q} and later.</p>
      */
     public int keyAt(int index) {
+        if (index >= mSize && UtilConfig.sThrowExceptionForUpperArrayOutOfBounds) {
+            // The array might be slightly bigger than mSize, in which case, indexing won't fail.
+            // Check if exception should be thrown outside of the critical path.
+            throw new ArrayIndexOutOfBoundsException(index);
+        }
         if (mGarbage) {
             gc();
         }
@@ -292,10 +324,17 @@ public class SparseArray<E> implements Cloneable {
      * associated with the largest key.</p>
      *
      * <p>For indices outside of the range <code>0...size()-1</code>,
-     * the behavior is undefined.</p>
+     * the behavior is undefined for apps targeting {@link android.os.Build.VERSION_CODES#P} and
+     * earlier, and an {@link ArrayIndexOutOfBoundsException} is thrown for apps targeting
+     * {@link android.os.Build.VERSION_CODES#Q} and later.</p>
      */
     @SuppressWarnings("unchecked")
     public E valueAt(int index) {
+        if (index >= mSize && UtilConfig.sThrowExceptionForUpperArrayOutOfBounds) {
+            // The array might be slightly bigger than mSize, in which case, indexing won't fail.
+            // Check if exception should be thrown outside of the critical path.
+            throw new ArrayIndexOutOfBoundsException(index);
+        }
         if (mGarbage) {
             gc();
         }
@@ -308,9 +347,17 @@ public class SparseArray<E> implements Cloneable {
      * value for the <code>index</code>th key-value mapping that this
      * SparseArray stores.
      *
-     * <p>For indices outside of the range <code>0...size()-1</code>, the behavior is undefined.</p>
+     * <p>For indices outside of the range <code>0...size()-1</code>, the behavior is undefined for
+     * apps targeting {@link android.os.Build.VERSION_CODES#P} and earlier, and an
+     * {@link ArrayIndexOutOfBoundsException} is thrown for apps targeting
+     * {@link android.os.Build.VERSION_CODES#Q} and later.</p>
      */
     public void setValueAt(int index, E value) {
+        if (index >= mSize && UtilConfig.sThrowExceptionForUpperArrayOutOfBounds) {
+            // The array might be slightly bigger than mSize, in which case, indexing won't fail.
+            // Check if exception should be thrown outside of the critical path.
+            throw new ArrayIndexOutOfBoundsException(index);
+        }
         if (mGarbage) {
             gc();
         }
@@ -333,7 +380,7 @@ public class SparseArray<E> implements Cloneable {
 
     /**
      * Returns an index for which {@link #valueAt} would return the
-     * specified key, or a negative number if no keys map to the
+     * specified value, or a negative number if no keys map to the
      * specified value.
      * <p>Beware that this is a linear search, unlike lookups by key,
      * and that multiple keys can map to the same value and this will
@@ -346,10 +393,41 @@ public class SparseArray<E> implements Cloneable {
             gc();
         }
 
-        for (int i = 0; i < mSize; i++)
-            if (mValues[i] == value)
+        for (int i = 0; i < mSize; i++) {
+            if (mValues[i] == value) {
                 return i;
+            }
+        }
 
+        return -1;
+    }
+
+    /**
+     * Returns an index for which {@link #valueAt} would return the
+     * specified value, or a negative number if no keys map to the
+     * specified value.
+     * <p>Beware that this is a linear search, unlike lookups by key,
+     * and that multiple keys can map to the same value and this will
+     * find only one of them.
+     * <p>Note also that this method uses {@code equals} unlike {@code indexOfValue}.
+     * @hide
+     */
+    public int indexOfValueByValue(E value) {
+        if (mGarbage) {
+            gc();
+        }
+
+        for (int i = 0; i < mSize; i++) {
+            if (value == null) {
+                if (mValues[i] == null) {
+                    return i;
+                }
+            } else {
+                if (value.equals(mValues[i])) {
+                    return i;
+                }
+            }
+        }
         return -1;
     }
 

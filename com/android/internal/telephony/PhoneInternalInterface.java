@@ -16,30 +16,22 @@
 
 package com.android.internal.telephony;
 
-import android.content.Context;
-import android.net.LinkProperties;
-import android.net.NetworkCapabilities;
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
-import android.telephony.CellInfo;
-import android.telephony.CellLocation;
-import android.telephony.CarrierConfigManager;
-import android.telephony.PhoneStateListener;
+import android.os.ResultReceiver;
+import android.telecom.VideoProfile;
+import android.telephony.ImsiEncryptionInfo;
+import android.telephony.NetworkScanRequest;
+import android.telephony.PreciseDataConnectionState;
 import android.telephony.ServiceState;
-import android.telephony.SignalStrength;
+import android.telephony.TelephonyManager;
 
-import com.android.internal.telephony.imsphone.ImsPhone;
-import com.android.internal.telephony.RadioCapability;
-import com.android.internal.telephony.test.SimulatedRadioControl;
-import com.android.internal.telephony.uicc.IsimRecords;
-import com.android.internal.telephony.uicc.UiccCard;
-import com.android.internal.telephony.uicc.UsimServiceTable;
-
-import com.android.internal.telephony.PhoneConstants.*; // ????
+import com.android.internal.telephony.PhoneConstants.DataState;
 
 import java.util.List;
-import java.util.Locale;
 
 /**
  * Internal interface used to control the phone; SDK developers cannot
@@ -65,11 +57,57 @@ public interface PhoneInternalInterface {
                                      but physical link is down</li>
          * </ul>
          */
+        @UnsupportedAppUsage
         NONE, DATAIN, DATAOUT, DATAINANDOUT, DORMANT;
     }
 
     enum SuppService {
       UNKNOWN, SWITCH, SEPARATE, TRANSFER, CONFERENCE, REJECT, HANGUP, RESUME, HOLD;
+    }
+
+    /**
+     * Arguments that control behavior of dialing a call.
+     */
+    public static class DialArgs {
+        public static class Builder<T extends Builder<T>> {
+            protected UUSInfo mUusInfo;
+            protected int mVideoState = VideoProfile.STATE_AUDIO_ONLY;
+            protected Bundle mIntentExtras;
+
+            public T setUusInfo(UUSInfo uusInfo) {
+                mUusInfo = uusInfo;
+                return (T) this;
+            }
+
+            public T setVideoState(int videoState) {
+                mVideoState = videoState;
+                return (T) this;
+            }
+
+            public T setIntentExtras(Bundle intentExtras) {
+                this.mIntentExtras = intentExtras;
+                return (T) this;
+            }
+
+            public PhoneInternalInterface.DialArgs build() {
+                return new DialArgs(this);
+            }
+        }
+
+        /** The UUSInfo */
+        public final UUSInfo uusInfo;
+
+        /** The desired video state for the connection. */
+        public final int videoState;
+
+        /** The extras from the original CALL intent. */
+        public final Bundle intentExtras;
+
+        protected DialArgs(Builder b) {
+            this.uusInfo = b.mUusInfo;
+            this.videoState = b.mVideoState;
+            this.intentExtras = b.mIntentExtras;
+        }
     }
 
     // "Features" accessible through the connectivity manager
@@ -88,7 +126,7 @@ public interface PhoneInternalInterface {
      */
     static final String REASON_ROAMING_ON = "roamingOn";
     static final String REASON_ROAMING_OFF = "roamingOff";
-    static final String REASON_DATA_DISABLED = "dataDisabled";
+    static final String REASON_DATA_DISABLED_INTERNAL = "dataDisabledInternal";
     static final String REASON_DATA_ENABLED = "dataEnabled";
     static final String REASON_DATA_ATTACHED = "dataAttached";
     static final String REASON_DATA_DETACHED = "dataDetached";
@@ -117,6 +155,9 @@ public interface PhoneInternalInterface {
     static final String REASON_CARRIER_CHANGE = "carrierChange";
     static final String REASON_CARRIER_ACTION_DISABLE_METERED_APN =
             "carrierActionDisableMeteredApn";
+    static final String REASON_CSS_INDICATOR_CHANGED = "cssIndicatorChanged";
+    static final String REASON_RELEASED_BY_CONNECTIVITY_SERVICE = "releasedByConnectivityService";
+    static final String REASON_DATA_ENABLED_OVERRIDE = "dataEnabledOverride";
 
     // Used for band mode selection methods
     static final int BM_UNSPECIFIED = RILConstants.BAND_MODE_UNSPECIFIED; // automatic
@@ -140,52 +181,26 @@ public interface PhoneInternalInterface {
     static final int BM_US_2500M    = RILConstants.BAND_MODE_USA_2500M;
     static final int BM_NUM_BAND_MODES = 19; //Total number of band modes
 
-    // Used for preferred network type
-    // Note NT_* substitute RILConstants.NETWORK_MODE_* above the Phone
-    int NT_MODE_WCDMA_PREF   = RILConstants.NETWORK_MODE_WCDMA_PREF;
-    int NT_MODE_GSM_ONLY     = RILConstants.NETWORK_MODE_GSM_ONLY;
-    int NT_MODE_WCDMA_ONLY   = RILConstants.NETWORK_MODE_WCDMA_ONLY;
-    int NT_MODE_GSM_UMTS     = RILConstants.NETWORK_MODE_GSM_UMTS;
-
-    int NT_MODE_CDMA         = RILConstants.NETWORK_MODE_CDMA;
-
-    int NT_MODE_CDMA_NO_EVDO = RILConstants.NETWORK_MODE_CDMA_NO_EVDO;
-    int NT_MODE_EVDO_NO_CDMA = RILConstants.NETWORK_MODE_EVDO_NO_CDMA;
-    int NT_MODE_GLOBAL       = RILConstants.NETWORK_MODE_GLOBAL;
-
-    int NT_MODE_LTE_CDMA_AND_EVDO        = RILConstants.NETWORK_MODE_LTE_CDMA_EVDO;
-    int NT_MODE_LTE_GSM_WCDMA            = RILConstants.NETWORK_MODE_LTE_GSM_WCDMA;
-    int NT_MODE_LTE_CDMA_EVDO_GSM_WCDMA  = RILConstants.NETWORK_MODE_LTE_CDMA_EVDO_GSM_WCDMA;
-    int NT_MODE_LTE_ONLY                 = RILConstants.NETWORK_MODE_LTE_ONLY;
-    int NT_MODE_LTE_WCDMA                = RILConstants.NETWORK_MODE_LTE_WCDMA;
-
-    int NT_MODE_TDSCDMA_ONLY            = RILConstants.NETWORK_MODE_TDSCDMA_ONLY;
-    int NT_MODE_TDSCDMA_WCDMA           = RILConstants.NETWORK_MODE_TDSCDMA_WCDMA;
-    int NT_MODE_LTE_TDSCDMA             = RILConstants.NETWORK_MODE_LTE_TDSCDMA;
-    int NT_MODE_TDSCDMA_GSM             = RILConstants.NETWORK_MODE_TDSCDMA_GSM;
-    int NT_MODE_LTE_TDSCDMA_GSM         = RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM;
-    int NT_MODE_TDSCDMA_GSM_WCDMA       = RILConstants.NETWORK_MODE_TDSCDMA_GSM_WCDMA;
-    int NT_MODE_LTE_TDSCDMA_WCDMA       = RILConstants.NETWORK_MODE_LTE_TDSCDMA_WCDMA;
-    int NT_MODE_LTE_TDSCDMA_GSM_WCDMA   = RILConstants.NETWORK_MODE_LTE_TDSCDMA_GSM_WCDMA;
-    int NT_MODE_TDSCDMA_CDMA_EVDO_GSM_WCDMA = RILConstants.NETWORK_MODE_TDSCDMA_CDMA_EVDO_GSM_WCDMA;
-    int NT_MODE_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA = RILConstants.NETWORK_MODE_LTE_TDSCDMA_CDMA_EVDO_GSM_WCDMA;
-
+    @UnsupportedAppUsage
     int PREFERRED_NT_MODE                = RILConstants.PREFERRED_NETWORK_MODE;
 
     // Used for CDMA roaming mode
     // Home Networks only, as defined in PRL
-    static final int CDMA_RM_HOME        = CarrierConfigManager.CDMA_ROAMING_MODE_HOME;
+    int CDMA_RM_HOME        = TelephonyManager.CDMA_ROAMING_MODE_HOME;
     // Roaming an Affiliated networks, as defined in PRL
-    static final int CDMA_RM_AFFILIATED  = CarrierConfigManager.CDMA_ROAMING_MODE_AFFILIATED;
+    int CDMA_RM_AFFILIATED  = TelephonyManager.CDMA_ROAMING_MODE_AFFILIATED;
     // Roaming on Any Network, as defined in PRL
-    static final int CDMA_RM_ANY         = CarrierConfigManager.CDMA_ROAMING_MODE_ANY;
+    int CDMA_RM_ANY         = TelephonyManager.CDMA_ROAMING_MODE_ANY;
 
     // Used for CDMA subscription mode
-    static final int CDMA_SUBSCRIPTION_UNKNOWN  =-1; // Unknown
-    static final int CDMA_SUBSCRIPTION_RUIM_SIM = 0; // RUIM/SIM (default)
-    static final int CDMA_SUBSCRIPTION_NV       = 1; // NV -> non-volatile memory
+    // Unknown
+    static final int CDMA_SUBSCRIPTION_UNKNOWN  = TelephonyManager.CDMA_SUBSCRIPTION_UNKNOWN;
+    // RUIM/SIM (default)
+    static final int CDMA_SUBSCRIPTION_RUIM_SIM = TelephonyManager.CDMA_SUBSCRIPTION_RUIM_SIM;
+    // NV -> non-volatile memory
+    static final int CDMA_SUBSCRIPTION_NV       = TelephonyManager.CDMA_SUBSCRIPTION_NV;
 
-    static final int PREFERRED_CDMA_SUBSCRIPTION = CDMA_SUBSCRIPTION_NV;
+    static final int PREFERRED_CDMA_SUBSCRIPTION = CDMA_SUBSCRIPTION_RUIM_SIM;
 
     static final int TTY_MODE_OFF = 0;
     static final int TTY_MODE_FULL = 1;
@@ -218,17 +233,22 @@ public interface PhoneInternalInterface {
     ServiceState getServiceState();
 
     /**
-     * Get the current CellLocation.
-     */
-    CellLocation getCellLocation();
-
-    /**
      * Get the current DataState. No change notification exists at this
      * interface -- use
      * {@link android.telephony.PhoneStateListener} instead.
      * @param apnType specify for which apn to get connection state info.
      */
     DataState getDataConnectionState(String apnType);
+
+    /**
+     * Get the current Precise DataState. No change notification exists at this
+     * interface -- use
+     * {@link android.telephony.PhoneStateListener} instead.
+     *
+     * @param apnType specify for which apn to get connection state info.
+     * @return the PreciseDataConnectionState for the data connection supporting apnType
+     */
+    PreciseDataConnectionState getPreciseDataConnectionState(String apnType);
 
     /**
      * Get the current DataActivityState. No change notification exists at this
@@ -409,33 +429,27 @@ public interface PhoneInternalInterface {
      * assigned) until PhoneStateChanged notification has occurred.
      *
      * @param dialString The dial string.
-     * @param videoState The desired video state for the connection.
-     * @exception CallStateException if a new outgoing call is not currently
-     * possible because no more call slots exist or a call exists that is
-     * dialing, alerting, ringing, or waiting.  Other errors are
-     * handled asynchronously.
-     */
-    Connection dial(String dialString, int videoState) throws CallStateException;
-
-    /**
-     * Initiate a new voice connection with supplementary User to User
-     * Information. This happens asynchronously, so you cannot assume the audio
-     * path is connected (or a call index has been assigned) until
-     * PhoneStateChanged notification has occurred.
-     *
-     * NOTE: If adding another parameter, consider creating a DialArgs parameter instead to
-     * encapsulate all dial arguments and decrease scaffolding headache.
-     *
-     * @param dialString The dial string.
-     * @param uusInfo The UUSInfo.
-     * @param videoState The desired video state for the connection.
-     * @param intentExtras The extras from the original CALL intent.
+     * @param dialArgs Parameters to perform the dial with.
      * @exception CallStateException if a new outgoing call is not currently
      *                possible because no more call slots exist or a call exists
      *                that is dialing, alerting, ringing, or waiting. Other
      *                errors are handled asynchronously.
      */
-    Connection dial(String dialString, UUSInfo uusInfo, int videoState, Bundle intentExtras)
+    Connection dial(String dialString, @NonNull DialArgs dialArgs) throws CallStateException;
+
+    /**
+     * Initiate a new conference connection. This happens asynchronously, so you
+     * cannot assume the audio path is connected (or a call index has been
+     * assigned) until PhoneStateChanged notification has occurred.
+     *
+     * @param participantsToDial The participants to dial.
+     * @param dialArgs Parameters to perform the start conference with.
+     * @exception CallStateException if a new outgoing call is not currently
+     *                possible because no more call slots exist or a call exists
+     *                that is dialing, alerting, ringing, or waiting. Other
+     *                errors are handled asynchronously.
+     */
+    Connection startConference(String[] participantsToDial, @NonNull DialArgs dialArgs)
             throws CallStateException;
 
     /**
@@ -446,6 +460,15 @@ public interface PhoneInternalInterface {
      * @return true if MMI command is executed.
      */
     boolean handlePinMmi(String dialString);
+
+    /**
+     * Handles USSD commands
+     *
+     * @param ussdRequest the USSD command to be executed.
+     * @param wrappedCallback receives the callback result.
+     */
+    boolean handleUssdRequest(String ussdRequest, ResultReceiver wrappedCallback)
+            throws CallStateException;
 
     /**
      * Handles in-call MMI commands. While in a call, or while receiving a
@@ -491,7 +514,33 @@ public interface PhoneInternalInterface {
      *
      * @param power true means "on", false means "off".
      */
-    void setRadioPower(boolean power);
+    default void setRadioPower(boolean power) {
+        setRadioPower(power, false, false, false);
+    }
+
+    /**
+     * Sets the radio power on/off state with option to specify whether it's for emergency call
+     * (off is sometimes called "airplane mode"). Current state can be gotten via
+     * {@link #getServiceState()}.{@link
+     * android.telephony.ServiceState#getState() getState()}.
+     * <strong>Note: </strong>This request is asynchronous.
+     * getServiceState().getState() will not change immediately after this call.
+     * registerForServiceStateChanged() to find out when the
+     * request is complete.
+     *
+     * @param power true means "on", false means "off".
+     * @param forEmergencyCall true means the purpose of turning radio power on is for emergency
+     *                         call. No effect if power is set false.
+     * @param isSelectedPhoneForEmergencyCall true means this phone / modem is selected to place
+     *                                  emergency call after turning power on. No effect if power
+     *                                  or forEmergency is set false.
+     * @param forceApply true means always call setRadioPower HAL API without checking against
+     *                   current radio power state. It's needed when: radio was powered on into
+     *                   emergency call mode, to exit from that mode, we set radio
+     *                   power on again with forEmergencyCall being false.
+     */
+    default void setRadioPower(boolean power, boolean forEmergencyCall,
+            boolean isSelectedPhoneForEmergencyCall, boolean forceApply) {}
 
     /**
      * Get the line 1 phone number (MSISDN). For CDMA phones, the MDN is returned
@@ -557,7 +606,7 @@ public interface PhoneInternalInterface {
 
     /**
      * getCallForwardingOptions
-     * gets a call forwarding option. The return value of
+     * gets a call forwarding option for SERVICE_CLASS_VOICE. The return value of
      * ((AsyncResult)onComplete.obj) is an array of CallForwardInfo.
      *
      * @param commandInterfaceCFReason is one of the valid call forwarding
@@ -570,25 +619,94 @@ public interface PhoneInternalInterface {
                                   Message onComplete);
 
     /**
-     * setCallForwardingOptions
-     * sets a call forwarding option.
+     * getCallForwardingOptions
+     * gets a call forwarding option. The return value of
+     * ((AsyncResult)onComplete.obj) is an array of CallForwardInfo.
      *
      * @param commandInterfaceCFReason is one of the valid call forwarding
      *        CF_REASONS, as defined in
      *        <code>com.android.internal.telephony.CommandsInterface.</code>
+     * @param serviceClass is a sum of SERVICE_CLASS_* as defined in
+     *        <code>com.android.internal.telephony.CommandsInterface.</code>
+     * @param onComplete a callback message when the action is completed.
+     *        @see com.android.internal.telephony.CallForwardInfo for details.
+     */
+    void getCallForwardingOption(int commandInterfaceCFReason, int serviceClass,
+                                  Message onComplete);
+
+    /**
+     * setCallForwardingOptions
+     * sets a call forwarding option for SERVICE_CLASS_VOICE.
+     *
      * @param commandInterfaceCFAction is one of the valid call forwarding
      *        CF_ACTIONS, as defined in
+     *        <code>com.android.internal.telephony.CommandsInterface.</code>
+     * @param commandInterfaceCFReason is one of the valid call forwarding
+     *        CF_REASONS, as defined in
      *        <code>com.android.internal.telephony.CommandsInterface.</code>
      * @param dialingNumber is the target phone number to forward calls to
      * @param timerSeconds is used by CFNRy to indicate the timeout before
      *        forwarding is attempted.
      * @param onComplete a callback message when the action is completed.
      */
-    void setCallForwardingOption(int commandInterfaceCFReason,
-                                 int commandInterfaceCFAction,
+    void setCallForwardingOption(int commandInterfaceCFAction,
+                                 int commandInterfaceCFReason,
                                  String dialingNumber,
                                  int timerSeconds,
                                  Message onComplete);
+
+    /**
+     * setCallForwardingOptions
+     * sets a call forwarding option.
+     *
+     * @param commandInterfaceCFAction is one of the valid call forwarding
+     *        CF_ACTIONS, as defined in
+     *        <code>com.android.internal.telephony.CommandsInterface.</code>
+     * @param commandInterfaceCFReason is one of the valid call forwarding
+     *        CF_REASONS, as defined in
+     *        <code>com.android.internal.telephony.CommandsInterface.</code>
+     * @param dialingNumber is the target phone number to forward calls to
+     * @param serviceClass is a sum of SERVICE_CLASS_* as defined in
+     *        <code>com.android.internal.telephony.CommandsInterface.</code>
+     * @param timerSeconds is used by CFNRy to indicate the timeout before
+     *        forwarding is attempted.
+     * @param onComplete a callback message when the action is completed.
+     */
+    void setCallForwardingOption(int commandInterfaceCFAction,
+                                 int commandInterfaceCFReason,
+                                 String dialingNumber,
+                                 int serviceClass,
+                                 int timerSeconds,
+                                 Message onComplete);
+
+    /**
+     * Gets a call barring option. The return value of ((AsyncResult) onComplete.obj) will be an
+     * Integer representing the sum of enabled serivice classes (sum of SERVICE_CLASS_*)
+     *
+     * @param facility is one of CB_FACILTY_*
+     * @param password is password or "" if not required
+     * @param serviceClass is a sum of SERVICE_CLASS_*
+     * @param onComplete is callback message when the action is completed.
+     */
+    public void getCallBarring(String facility,
+            String password,
+            Message onComplete,
+            int serviceClass);
+
+    /**
+     * Sets a call barring option.
+     *
+     * @param facility is one of CB_FACILTY_*
+     * @param lockState is true means lock, false means unlock
+     * @param password is password or "" if not required
+     * @param serviceClass is a sum of SERVICE_CLASS_*
+     * @param onComplete is callback message when the action is completed.
+     */
+    public void setCallBarring(String facility,
+            boolean lockState,
+            String password,
+            Message onComplete,
+            int serviceClass);
 
     /**
      * getOutgoingCallerIdDisplay
@@ -646,17 +764,28 @@ public interface PhoneInternalInterface {
     void getAvailableNetworks(Message response);
 
     /**
-     * Query neighboring cell IDs.  <code>response</code> is dispatched when
-     * this is complete.  <code>response.obj</code> will be an AsyncResult,
-     * and <code>response.obj.exception</code> will be non-null on failure.
-     * On success, <code>AsyncResult.result</code> will be a <code>String[]</code>
-     * containing the neighboring cell IDs.  Index 0 will contain the count
-     * of available cell IDs.  Cell IDs are in hexadecimal format.
-     *
-     * @param response callback message that is dispatched when the query
-     * completes.
+     * Start a network scan. This method is asynchronous; .
+     * On completion, <code>response.obj</code> is set to an AsyncResult with
+     * one of the following members:.<p>
+     * <ul>
+     * <li><code>response.obj.result</code> will be a <code>NetworkScanResult</code> object, or</li>
+     * <li><code>response.obj.exception</code> will be set with an exception
+     * on failure.</li>
+     * </ul>
      */
-    void getNeighboringCids(Message response);
+    void startNetworkScan(NetworkScanRequest nsr, Message response);
+
+    /**
+     * Stop ongoing network scan. This method is asynchronous; .
+     * On completion, <code>response.obj</code> is set to an AsyncResult with
+     * one of the following members:.<p>
+     * <ul>
+     * <li><code>response.obj.result</code> will be a <code>NetworkScanResult</code> object, or</li>
+     * <li><code>response.obj.exception</code> will be set with an exception
+     * on failure.</li>
+     * </ul>
+     */
+    void stopNetworkScan(Message response);
 
     /**
      * Mutes or unmutes the microphone for the active call. The microphone
@@ -679,19 +808,6 @@ public interface PhoneInternalInterface {
      * @return true is muting, false is unmuting
      */
     boolean getMute();
-
-    /**
-     * Get the current active Data Call list
-     *
-     * @param response <strong>On success</strong>, "response" bytes is
-     * made available as:
-     * (String[])(((AsyncResult)response.obj).result).
-     * <strong>On failure</strong>,
-     * (((AsyncResult)response.obj).result) == null and
-     * (((AsyncResult)response.obj).exception) being an instance of
-     * com.android.internal.telephony.gsm.CommandException
-     */
-    void getDataCallList(Message response);
 
     /**
      * Update the ServiceState CellLocation for current network registration.
@@ -721,12 +837,7 @@ public interface PhoneInternalInterface {
     /**
      * @return true if user has enabled data
      */
-    boolean getDataEnabled();
-
-    /**
-     * @param @enable set {@code true} if enable data connection
-     */
-    void setDataEnabled(boolean enable);
+    boolean isUserDataEnabled();
 
     /**
      * Retrieves the unique device ID, e.g., IMEI for GSM phones and MEID for CDMA phones.
@@ -803,4 +914,27 @@ public interface PhoneInternalInterface {
      *            Callback message is empty on completion
      */
     public void setCellBroadcastSmsConfig(int[] configValuesArray, Message response);
+
+    /*
+    * Sets the carrier information needed to encrypt the IMSI and IMPI.
+    * @param imsiEncryptionInfo Carrier specific information that will be used to encrypt the
+    *        IMSI and IMPI. This includes the Key type, the Public key
+    *        {@link java.security.PublicKey} and the Key identifier.
+    */
+    public void setCarrierInfoForImsiEncryption(ImsiEncryptionInfo imsiEncryptionInfo);
+
+    /**
+     * Returns Carrier specific information that will be used to encrypt the IMSI and IMPI.
+     * @param keyType whether the key is being used for WLAN or ePDG.
+     * @return ImsiEncryptionInfo which includes the Key Type, the Public Key
+     *        {@link java.security.PublicKey} and the Key Identifier.
+     *        The keyIdentifier This is used by the server to help it locate the private key to
+     *        decrypt the permanent identity.
+     */
+    public ImsiEncryptionInfo getCarrierInfoForImsiEncryption(int keyType);
+
+    /**
+     * Resets the Carrier Keys, by deleting them from the database and sending a download intent.
+     */
+    public void resetCarrierKeysForImsiEncryption();
 }

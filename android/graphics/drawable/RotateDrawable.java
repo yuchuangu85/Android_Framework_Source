@@ -16,21 +16,22 @@
 
 package android.graphics.drawable;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.res.Resources;
+import android.content.res.Resources.Theme;
+import android.content.res.TypedArray;
+import android.graphics.Canvas;
+import android.graphics.Rect;
+import android.util.AttributeSet;
+import android.util.MathUtils;
+import android.util.TypedValue;
+
 import com.android.internal.R;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
-
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.graphics.Canvas;
-import android.graphics.Rect;
-import android.content.res.Resources;
-import android.content.res.TypedArray;
-import android.content.res.Resources.Theme;
-import android.util.MathUtils;
-import android.util.TypedValue;
-import android.util.AttributeSet;
 
 import java.io.IOException;
 
@@ -54,6 +55,7 @@ import java.io.IOException;
 public class RotateDrawable extends DrawableWrapper {
     private static final int MAX_LEVEL = 10000;
 
+    @UnsupportedAppUsage
     private RotateState mState;
 
     /**

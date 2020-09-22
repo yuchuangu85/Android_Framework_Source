@@ -16,13 +16,19 @@
 
 package android.util;
 
+import android.annotation.Nullable;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
+
 import libcore.util.EmptyArray;
 
 import java.lang.reflect.Array;
 import java.util.Collection;
+import java.util.ConcurrentModificationException;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * ArraySet is a generic set data structure that is designed to be more memory efficient than a
@@ -42,6 +48,8 @@ import java.util.Set;
  * you have no control over this shrinking -- if you set a capacity and then remove an
  * item, it may reduce the capacity to better match the current size.  In the future an
  * explicit call to set the capacity should turn off this aggressive shrinking behavior.</p>
+ *
+ * <p>This structure is <b>NOT</b> thread-safe.</p>
  */
 public final class ArraySet<E> implements Collection<E>, Set<E> {
     private static final boolean DEBUG = false;
@@ -64,17 +72,36 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
      * The first entry in the array is a pointer to the next array in the
      * list; the second entry is a pointer to the int[] hash code array for it.
      */
-    static Object[] mBaseCache;
-    static int mBaseCacheSize;
-    static Object[] mTwiceBaseCache;
-    static int mTwiceBaseCacheSize;
+    static Object[] sBaseCache;
+    static int sBaseCacheSize;
+    static Object[] sTwiceBaseCache;
+    static int sTwiceBaseCacheSize;
+    /**
+     * Separate locks for each cache since each can be accessed independently of the other without
+     * risk of a deadlock.
+     */
+    private static final Object sBaseCacheLock = new Object();
+    private static final Object sTwiceBaseCacheLock = new Object();
 
-    final boolean mIdentityHashCode;
+    private final boolean mIdentityHashCode;
+    @UnsupportedAppUsage(maxTargetSdk = 28) // Hashes are an implementation detail. Use public API.
     int[] mHashes;
+    @UnsupportedAppUsage(maxTargetSdk = 28) // Storage is an implementation detail. Use public API.
     Object[] mArray;
+    @UnsupportedAppUsage(maxTargetSdk = 28) // Use size()
     int mSize;
-    MapCollections<E, E> mCollections;
+    private MapCollections<E, E> mCollections;
 
+    private int binarySearch(int[] hashes, int hash) {
+        try {
+            return ContainerHelpers.binarySearch(hashes, mSize, hash);
+        } catch (ArrayIndexOutOfBoundsException e) {
+            throw new ConcurrentModificationException();
+        }
+    }
+
+
+    @UnsupportedAppUsage(maxTargetSdk = 28) // Hashes are an implementation detail. Use indexOfKey(Object).
     private int indexOf(Object key, int hash) {
         final int N = mSize;
 
@@ -83,7 +110,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
             return ~0;
         }
 
-        int index = ContainerHelpers.binarySearch(mHashes, N, hash);
+        int index = binarySearch(mHashes, hash);
 
         // If the hash code wasn't found, then we have no entry for this key.
         if (index < 0) {
@@ -113,6 +140,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
         return ~end;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = 28) // Use indexOf(null)
     private int indexOfNull() {
         final int N = mSize;
 
@@ -121,7 +149,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
             return ~0;
         }
 
-        int index = ContainerHelpers.binarySearch(mHashes, N, 0);
+        int index = binarySearch(mHashes, 0);
 
         // If the hash code wasn't found, then we have no entry for this key.
         if (index < 0) {
@@ -151,51 +179,60 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
         return ~end;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = 28) // Allocations are an implementation detail.
     private void allocArrays(final int size) {
-        if (size == (BASE_SIZE*2)) {
-            synchronized (ArraySet.class) {
-                if (mTwiceBaseCache != null) {
-                    final Object[] array = mTwiceBaseCache;
+        if (size == (BASE_SIZE * 2)) {
+            synchronized (sTwiceBaseCacheLock) {
+                if (sTwiceBaseCache != null) {
+                    final Object[] array = sTwiceBaseCache;
                     try {
                         mArray = array;
-                        mTwiceBaseCache = (Object[]) array[0];
+                        sTwiceBaseCache = (Object[]) array[0];
                         mHashes = (int[]) array[1];
-                        array[0] = array[1] = null;
-                        mTwiceBaseCacheSize--;
-                        if (DEBUG) Log.d(TAG, "Retrieving 2x cache " + mHashes
-                                + " now have " + mTwiceBaseCacheSize + " entries");
-                        return;
+                        if (mHashes != null) {
+                            array[0] = array[1] = null;
+                            sTwiceBaseCacheSize--;
+                            if (DEBUG) {
+                                Log.d(TAG, "Retrieving 2x cache " + mHashes + " now have "
+                                        + sTwiceBaseCacheSize + " entries");
+                            }
+                            return;
+                        }
                     } catch (ClassCastException e) {
                     }
                     // Whoops!  Someone trampled the array (probably due to not protecting
                     // their access with a lock).  Our cache is corrupt; report and give up.
                     Slog.wtf(TAG, "Found corrupt ArraySet cache: [0]=" + array[0]
                             + " [1]=" + array[1]);
-                    mTwiceBaseCache = null;
-                    mTwiceBaseCacheSize = 0;
+                    sTwiceBaseCache = null;
+                    sTwiceBaseCacheSize = 0;
                 }
             }
         } else if (size == BASE_SIZE) {
-            synchronized (ArraySet.class) {
-                if (mBaseCache != null) {
-                    final Object[] array = mBaseCache;
+            synchronized (sBaseCacheLock) {
+                if (sBaseCache != null) {
+                    final Object[] array = sBaseCache;
                     try {
                         mArray = array;
-                        mBaseCache = (Object[]) array[0];
+                        sBaseCache = (Object[]) array[0];
                         mHashes = (int[]) array[1];
-                        array[0] = array[1] = null;
-                        mBaseCacheSize--;
-                        if (DEBUG) Log.d(TAG, "Retrieving 1x cache " + mHashes
-                                + " now have " + mBaseCacheSize + " entries");
-                        return;
+                        if (mHashes != null) {
+                            array[0] = array[1] = null;
+                            sBaseCacheSize--;
+                            if (DEBUG) {
+                                Log.d(TAG, "Retrieving 1x cache " + mHashes + " now have "
+                                        + sBaseCacheSize + " entries");
+                            }
+                            return;
+                        }
                     } catch (ClassCastException e) {
                     }
                     // Whoops!  Someone trampled the array (probably due to not protecting
                     // their access with a lock).  Our cache is corrupt; report and give up.
                     Slog.wtf(TAG, "Found corrupt ArraySet cache: [0]=" + array[0]
                             + " [1]=" + array[1]);
-                    mBaseCache = null;
-                    mBaseCacheSize = 0;
+                    sBaseCache = null;
+                    sBaseCacheSize = 0;
                 }
             }
         }
@@ -204,33 +241,42 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
         mArray = new Object[size];
     }
 
+    /**
+     * Make sure <b>NOT</b> to call this method with arrays that can still be modified. In other
+     * words, don't pass mHashes or mArray in directly.
+     */
+    @UnsupportedAppUsage(maxTargetSdk = 28) // Allocations are an implementation detail.
     private static void freeArrays(final int[] hashes, final Object[] array, final int size) {
-        if (hashes.length == (BASE_SIZE*2)) {
-            synchronized (ArraySet.class) {
-                if (mTwiceBaseCacheSize < CACHE_SIZE) {
-                    array[0] = mTwiceBaseCache;
+        if (hashes.length == (BASE_SIZE * 2)) {
+            synchronized (sTwiceBaseCacheLock) {
+                if (sTwiceBaseCacheSize < CACHE_SIZE) {
+                    array[0] = sTwiceBaseCache;
                     array[1] = hashes;
-                    for (int i=size-1; i>=2; i--) {
+                    for (int i = size - 1; i >= 2; i--) {
                         array[i] = null;
                     }
-                    mTwiceBaseCache = array;
-                    mTwiceBaseCacheSize++;
-                    if (DEBUG) Log.d(TAG, "Storing 2x cache " + array
-                            + " now have " + mTwiceBaseCacheSize + " entries");
+                    sTwiceBaseCache = array;
+                    sTwiceBaseCacheSize++;
+                    if (DEBUG) {
+                        Log.d(TAG, "Storing 2x cache " + array + " now have " + sTwiceBaseCacheSize
+                                + " entries");
+                    }
                 }
             }
         } else if (hashes.length == BASE_SIZE) {
-            synchronized (ArraySet.class) {
-                if (mBaseCacheSize < CACHE_SIZE) {
-                    array[0] = mBaseCache;
+            synchronized (sBaseCacheLock) {
+                if (sBaseCacheSize < CACHE_SIZE) {
+                    array[0] = sBaseCache;
                     array[1] = hashes;
-                    for (int i=size-1; i>=2; i--) {
+                    for (int i = size - 1; i >= 2; i--) {
                         array[i] = null;
                     }
-                    mBaseCache = array;
-                    mBaseCacheSize++;
-                    if (DEBUG) Log.d(TAG, "Storing 1x cache " + array
-                            + " now have " + mBaseCacheSize + " entries");
+                    sBaseCache = array;
+                    sBaseCacheSize++;
+                    if (DEBUG) {
+                        Log.d(TAG, "Storing 1x cache " + array + " now have "
+                                + sBaseCacheSize + " entries");
+                    }
                 }
             }
         }
@@ -273,11 +319,25 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
         }
     }
 
-    /** {@hide} */
-    public ArraySet(Collection<E> set) {
+    /**
+     * Create a new ArraySet with items from the given collection.
+     */
+    public ArraySet(Collection<? extends E> set) {
         this();
         if (set != null) {
             addAll(set);
+        }
+    }
+
+    /**
+     * Create a new ArraySet with items from the given array
+     */
+    public ArraySet(@Nullable E[] array) {
+        this();
+        if (array != null) {
+            for (E value : array) {
+                add(value);
+            }
         }
     }
 
@@ -287,10 +347,16 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
     @Override
     public void clear() {
         if (mSize != 0) {
-            freeArrays(mHashes, mArray, mSize);
+            final int[] ohashes = mHashes;
+            final Object[] oarray = mArray;
+            final int osize = mSize;
             mHashes = EmptyArray.INT;
             mArray = EmptyArray.OBJECT;
             mSize = 0;
+            freeArrays(ohashes, oarray, osize);
+        }
+        if (mSize != 0) {
+            throw new ConcurrentModificationException();
         }
     }
 
@@ -299,6 +365,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
      * items.
      */
     public void ensureCapacity(int minimumCapacity) {
+        final int oSize = mSize;
         if (mHashes.length < minimumCapacity) {
             final int[] ohashes = mHashes;
             final Object[] oarray = mArray;
@@ -308,6 +375,9 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
                 System.arraycopy(oarray, 0, mArray, 0, mSize);
             }
             freeArrays(ohashes, oarray, mSize);
+        }
+        if (mSize != oSize) {
+            throw new ConcurrentModificationException();
         }
     }
 
@@ -335,11 +405,34 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
 
     /**
      * Return the value at the given index in the array.
+     *
+     * <p>For indices outside of the range <code>0...size()-1</code>, the behavior is undefined for
+     * apps targeting {@link android.os.Build.VERSION_CODES#P} and earlier, and an
+     * {@link ArrayIndexOutOfBoundsException} is thrown for apps targeting
+     * {@link android.os.Build.VERSION_CODES#Q} and later.</p>
+     *
      * @param index The desired index, must be between 0 and {@link #size()}-1.
      * @return Returns the value stored at the given index.
      */
     public E valueAt(int index) {
-        return (E)mArray[index];
+        if (index >= mSize && UtilConfig.sThrowExceptionForUpperArrayOutOfBounds) {
+            // The array might be slightly bigger than mSize, in which case, indexing won't fail.
+            // Check if exception should be thrown outside of the critical path.
+            throw new ArrayIndexOutOfBoundsException(index);
+        }
+        return valueAtUnchecked(index);
+    }
+
+    /**
+     * Returns the value at the given index in the array without checking that the index is within
+     * bounds. This allows testing values at the end of the internal array, outside of the
+     * [0, mSize) bounds.
+     *
+     * @hide
+     */
+    @TestApi
+    public E valueAtUnchecked(int index) {
+        return (E) mArray[index];
     }
 
     /**
@@ -356,11 +449,10 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
      *
      * @param value the object to add.
      * @return {@code true} if this set is modified, {@code false} otherwise.
-     * @throws ClassCastException
-     *             when the class of the object is inappropriate for this set.
      */
     @Override
     public boolean add(E value) {
+        final int oSize = mSize;
         final int hash;
         int index;
         if (value == null) {
@@ -375,9 +467,9 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
         }
 
         index = ~index;
-        if (mSize >= mHashes.length) {
-            final int n = mSize >= (BASE_SIZE*2) ? (mSize+(mSize>>1))
-                    : (mSize >= BASE_SIZE ? (BASE_SIZE*2) : BASE_SIZE);
+        if (oSize >= mHashes.length) {
+            final int n = oSize >= (BASE_SIZE * 2) ? (oSize + (oSize >> 1))
+                    : (oSize >= BASE_SIZE ? (BASE_SIZE * 2) : BASE_SIZE);
 
             if (DEBUG) Log.d(TAG, "add: grow from " + mHashes.length + " to " + n);
 
@@ -385,20 +477,29 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
             final Object[] oarray = mArray;
             allocArrays(n);
 
+            if (oSize != mSize) {
+                throw new ConcurrentModificationException();
+            }
+
             if (mHashes.length > 0) {
-                if (DEBUG) Log.d(TAG, "add: copy 0-" + mSize + " to 0");
+                if (DEBUG) Log.d(TAG, "add: copy 0-" + oSize + " to 0");
                 System.arraycopy(ohashes, 0, mHashes, 0, ohashes.length);
                 System.arraycopy(oarray, 0, mArray, 0, oarray.length);
             }
 
-            freeArrays(ohashes, oarray, mSize);
+            freeArrays(ohashes, oarray, oSize);
         }
 
-        if (index < mSize) {
-            if (DEBUG) Log.d(TAG, "add: move " + index + "-" + (mSize-index)
-                    + " to " + (index+1));
-            System.arraycopy(mHashes, index, mHashes, index + 1, mSize - index);
-            System.arraycopy(mArray, index, mArray, index + 1, mSize - index);
+        if (index < oSize) {
+            if (DEBUG) {
+                Log.d(TAG, "add: move " + index + "-" + (oSize - index) + " to " + (index + 1));
+            }
+            System.arraycopy(mHashes, index, mHashes, index + 1, oSize - index);
+            System.arraycopy(mArray, index, mArray, index + 1, oSize - index);
+        }
+
+        if (oSize != mSize || index >= mHashes.length) {
+            throw new ConcurrentModificationException();
         }
 
         mHashes[index] = hash;
@@ -413,6 +514,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
      * @hide
      */
     public void append(E value) {
+        final int oSize = mSize;
         final int index = mSize;
         final int hash = value == null ? 0
                 : (mIdentityHashCode ? System.identityHashCode(value) : value.hashCode());
@@ -431,6 +533,11 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
             add(value);
             return;
         }
+
+        if (oSize != mSize) {
+            throw new ConcurrentModificationException();
+        }
+
         mSize = index + 1;
         mHashes[index] = hash;
         mArray[index] = value;
@@ -447,10 +554,13 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
             if (N > 0) {
                 System.arraycopy(array.mHashes, 0, mHashes, 0, N);
                 System.arraycopy(array.mArray, 0, mArray, 0, N);
+                if (0 != mSize) {
+                    throw new ConcurrentModificationException();
+                }
                 mSize = N;
             }
         } else {
-            for (int i=0; i<N; i++) {
+            for (int i = 0; i < N; i++) {
                 add(array.valueAt(i));
             }
         }
@@ -472,26 +582,49 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
         return false;
     }
 
+    /** Returns true if the array size should be decreased. */
+    private boolean shouldShrink() {
+        return mHashes.length > (BASE_SIZE * 2) && mSize < mHashes.length / 3;
+    }
+
+    /**
+     * Returns the new size the array should have. Is only valid if {@link #shouldShrink} returns
+     * true.
+     */
+    private int getNewShrunkenSize() {
+        // We don't allow it to shrink smaller than (BASE_SIZE*2) to avoid flapping between that
+        // and BASE_SIZE.
+        return mSize > (BASE_SIZE * 2) ? (mSize + (mSize >> 1)) : (BASE_SIZE * 2);
+    }
+
     /**
      * Remove the key/value mapping at the given index.
+     *
+     * <p>For indices outside of the range <code>0...size()-1</code>, the behavior is undefined for
+     * apps targeting {@link android.os.Build.VERSION_CODES#P} and earlier, and an
+     * {@link ArrayIndexOutOfBoundsException} is thrown for apps targeting
+     * {@link android.os.Build.VERSION_CODES#Q} and later.</p>
+     *
      * @param index The desired index, must be between 0 and {@link #size()}-1.
      * @return Returns the value that was stored at this index.
      */
     public E removeAt(int index) {
+        if (index >= mSize && UtilConfig.sThrowExceptionForUpperArrayOutOfBounds) {
+            // The array might be slightly bigger than mSize, in which case, indexing won't fail.
+            // Check if exception should be thrown outside of the critical path.
+            throw new ArrayIndexOutOfBoundsException(index);
+        }
+        final int oSize = mSize;
         final Object old = mArray[index];
-        if (mSize <= 1) {
+        if (oSize <= 1) {
             // Now empty.
             if (DEBUG) Log.d(TAG, "remove: shrink from " + mHashes.length + " to 0");
-            freeArrays(mHashes, mArray, mSize);
-            mHashes = EmptyArray.INT;
-            mArray = EmptyArray.OBJECT;
-            mSize = 0;
+            clear();
         } else {
-            if (mHashes.length > (BASE_SIZE*2) && mSize < mHashes.length/3) {
-                // Shrunk enough to reduce size of arrays.  We don't allow it to
-                // shrink smaller than (BASE_SIZE*2) to avoid flapping between
-                // that and BASE_SIZE.
-                final int n = mSize > (BASE_SIZE*2) ? (mSize + (mSize>>1)) : (BASE_SIZE*2);
+            final int nSize = oSize - 1;
+            if (shouldShrink()) {
+                // Shrunk enough to reduce size of arrays.
+                final int n = getNewShrunkenSize();
 
                 if (DEBUG) Log.d(TAG, "remove: shrink from " + mHashes.length + " to " + n);
 
@@ -499,30 +632,35 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
                 final Object[] oarray = mArray;
                 allocArrays(n);
 
-                mSize--;
                 if (index > 0) {
                     if (DEBUG) Log.d(TAG, "remove: copy from 0-" + index + " to 0");
                     System.arraycopy(ohashes, 0, mHashes, 0, index);
                     System.arraycopy(oarray, 0, mArray, 0, index);
                 }
-                if (index < mSize) {
-                    if (DEBUG) Log.d(TAG, "remove: copy from " + (index+1) + "-" + mSize
-                            + " to " + index);
-                    System.arraycopy(ohashes, index + 1, mHashes, index, mSize - index);
-                    System.arraycopy(oarray, index + 1, mArray, index, mSize - index);
+                if (index < nSize) {
+                    if (DEBUG) {
+                        Log.d(TAG, "remove: copy from " + (index + 1) + "-" + nSize
+                                + " to " + index);
+                    }
+                    System.arraycopy(ohashes, index + 1, mHashes, index, nSize - index);
+                    System.arraycopy(oarray, index + 1, mArray, index, nSize - index);
                 }
             } else {
-                mSize--;
-                if (index < mSize) {
-                    if (DEBUG) Log.d(TAG, "remove: move " + (index+1) + "-" + mSize
-                            + " to " + index);
-                    System.arraycopy(mHashes, index + 1, mHashes, index, mSize - index);
-                    System.arraycopy(mArray, index + 1, mArray, index, mSize - index);
+                if (index < nSize) {
+                    if (DEBUG) {
+                        Log.d(TAG, "remove: move " + (index + 1) + "-" + nSize + " to " + index);
+                    }
+                    System.arraycopy(mHashes, index + 1, mHashes, index, nSize - index);
+                    System.arraycopy(mArray, index + 1, mArray, index, nSize - index);
                 }
-                mArray[mSize] = null;
+                mArray[nSize] = null;
             }
+            if (oSize != mSize) {
+                throw new ConcurrentModificationException();
+            }
+            mSize = nSize;
         }
-        return (E)old;
+        return (E) old;
     }
 
     /**
@@ -546,6 +684,62 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
     }
 
     /**
+     * Removes all values that satisfy the predicate. This implementation avoids using the
+     * {@link #iterator()}.
+     *
+     * @param filter A predicate which returns true for elements to be removed
+     */
+    @Override
+    public boolean removeIf(Predicate<? super E> filter) {
+        if (mSize == 0) {
+            return false;
+        }
+
+        // Intentionally not using removeAt() to avoid unnecessary intermediate resizing.
+
+        int replaceIndex = 0;
+        int numRemoved = 0;
+        for (int i = 0; i < mSize; ++i) {
+            if (filter.test((E) mArray[i])) {
+                numRemoved++;
+            } else {
+                if (replaceIndex != i) {
+                    mArray[replaceIndex] = mArray[i];
+                    mHashes[replaceIndex] = mHashes[i];
+                }
+                replaceIndex++;
+            }
+        }
+
+        if (numRemoved == 0) {
+            return false;
+        } else if (numRemoved == mSize) {
+            clear();
+            return true;
+        }
+
+        mSize -= numRemoved;
+        if (shouldShrink()) {
+            // Shrunk enough to reduce size of arrays.
+            final int n = getNewShrunkenSize();
+            final int[] ohashes = mHashes;
+            final Object[] oarray = mArray;
+            allocArrays(n);
+
+            System.arraycopy(ohashes, 0, mHashes, 0, mSize);
+            System.arraycopy(oarray, 0, mArray, 0, mSize);
+        } else {
+            // Null out values at the end of the array. Not doing it in the loop above to avoid
+            // writing twice to the same index or writing unnecessarily if the array would have been
+            // discarded anyway.
+            for (int i = mSize; i < mArray.length; ++i) {
+                mArray[i] = null;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Return the number of items in this array map.
      */
     @Override
@@ -563,8 +757,8 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
     @Override
     public <T> T[] toArray(T[] array) {
         if (array.length < mSize) {
-            @SuppressWarnings("unchecked") T[] newArray
-                = (T[]) Array.newInstance(array.getClass().getComponentType(), mSize);
+            @SuppressWarnings("unchecked") T[] newArray =
+                    (T[]) Array.newInstance(array.getClass().getComponentType(), mSize);
             array = newArray;
         }
         System.arraycopy(mArray, 0, array, 0, mSize);
@@ -595,7 +789,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
             }
 
             try {
-                for (int i=0; i<mSize; i++) {
+                for (int i = 0; i < mSize; i++) {
                     E mine = valueAt(i);
                     if (!set.contains(mine)) {
                         return false;
@@ -639,7 +833,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
 
         StringBuilder buffer = new StringBuilder(mSize * 14);
         buffer.append('{');
-        for (int i=0; i<mSize; i++) {
+        for (int i = 0; i < mSize; i++) {
             if (i > 0) {
                 buffer.append(", ");
             }
@@ -777,7 +971,7 @@ public final class ArraySet<E> implements Collection<E>, Set<E> {
     @Override
     public boolean retainAll(Collection<?> collection) {
         boolean removed = false;
-        for (int i=mSize-1; i>=0; i--) {
+        for (int i = mSize - 1; i >= 0; i--) {
             if (!collection.contains(mArray[i])) {
                 removeAt(i);
                 removed = true;

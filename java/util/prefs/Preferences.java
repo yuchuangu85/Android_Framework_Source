@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -135,52 +135,52 @@ import java.lang.Double;
  * subsequently restore from the backup.
  *
  * <p>The XML document has the following DOCTYPE declaration:
- * <pre>
- * &lt;!DOCTYPE preferences SYSTEM "http://java.sun.com/dtd/preferences.dtd"&gt;
- * </pre>
+ * <pre>{@code
+ * <!DOCTYPE preferences SYSTEM "http://java.sun.com/dtd/preferences.dtd">
+ * }</pre>
  * Note that the system URI (http://java.sun.com/dtd/preferences.dtd) is
  * <i>not</i> accessed when exporting or importing preferences; it merely
  * serves as a string to uniquely identify the DTD, which is:
- * <pre>
- *    &lt;?xml version="1.0" encoding="UTF-8"?&gt;
+ * <pre>{@code
+ *    <?xml version="1.0" encoding="UTF-8"?>
  *
- *    &lt;!-- DTD for a Preferences tree. --&gt;
+ *    <!-- DTD for a Preferences tree. -->
  *
- *    &lt;!-- The preferences element is at the root of an XML document
- *         representing a Preferences tree. --&gt;
- *    &lt;!ELEMENT preferences (root)&gt;
+ *    <!-- The preferences element is at the root of an XML document
+ *         representing a Preferences tree. -->
+ *    <!ELEMENT preferences (root)>
  *
- *    &lt;!-- The preferences element contains an optional version attribute,
- *          which specifies version of DTD. --&gt;
- *    &lt;!ATTLIST preferences EXTERNAL_XML_VERSION CDATA "0.0" &gt
+ *    <!-- The preferences element contains an optional version attribute,
+ *          which specifies version of DTD. -->
+ *    <!ATTLIST preferences EXTERNAL_XML_VERSION CDATA "0.0" >
  *
- *    &lt;!-- The root element has a map representing the root's preferences
- *         (if any), and one node for each child of the root (if any). --&gt;
- *    &lt;!ELEMENT root (map, node*) &gt;
+ *    <!-- The root element has a map representing the root's preferences
+ *         (if any), and one node for each child of the root (if any). -->
+ *    <!ELEMENT root (map, node*) >
  *
- *    &lt;!-- Additionally, the root contains a type attribute, which
- *         specifies whether it's the system or user root. --&gt;
- *    &lt;!ATTLIST root
- *              type (system|user) #REQUIRED &gt;
+ *    <!-- Additionally, the root contains a type attribute, which
+ *         specifies whether it's the system or user root. -->
+ *    <!ATTLIST root
+ *              type (system|user) #REQUIRED >
  *
- *    &lt;!-- Each node has a map representing its preferences (if any),
- *         and one node for each child (if any). --&gt;
- *    &lt;!ELEMENT node (map, node*) &gt;
+ *    <!-- Each node has a map representing its preferences (if any),
+ *         and one node for each child (if any). -->
+ *    <!ELEMENT node (map, node*) >
  *
- *    &lt;!-- Additionally, each node has a name attribute --&gt;
- *    &lt;!ATTLIST node
- *              name CDATA #REQUIRED &gt;
+ *    <!-- Additionally, each node has a name attribute -->
+ *    <!ATTLIST node
+ *              name CDATA #REQUIRED >
  *
- *    &lt;!-- A map represents the preferences stored at a node (if any). --&gt;
- *    &lt;!ELEMENT map (entry*) &gt;
+ *    <!-- A map represents the preferences stored at a node (if any). -->
+ *    <!ELEMENT map (entry*) >
  *
- *    &lt;!-- An entry represents a single preference, which is simply
- *          a key-value pair. --&gt;
- *    &lt;!ELEMENT entry EMPTY &gt;
- *    &lt;!ATTLIST entry
+ *    <!-- An entry represents a single preference, which is simply
+ *          a key-value pair. -->
+ *    <!ELEMENT entry EMPTY >
+ *    <!ATTLIST entry
  *              key   CDATA #REQUIRED
- *              value CDATA #REQUIRED &gt;
- * </pre>
+ *              value CDATA #REQUIRED >
+ * }</pre>
  *
  * Every <tt>Preferences</tt> implementation must have an associated {@link
  * PreferencesFactory} implementation.  Every Java(TM) SE implementation must provide
@@ -224,11 +224,97 @@ import java.lang.Double;
  */
 public abstract class Preferences {
 
-    // Android-changed: Not final for testing.
-    private static PreferencesFactory factory = findPreferencesFactory();
+    // Android-changed: Allow Preferences.factory to be set by tests.
+    // private static final PreferencesFactory factory = factory();
+    private static PreferencesFactory factory = factory();
 
-    // Android-changed: Custom implementation of findPreferencesFactory.
-    private static PreferencesFactory findPreferencesFactory() {
+    // BEGIN Android-changed: Logic for constructing the default Preferences factory.
+    /*
+    private static PreferencesFactory factory() {
+        // 1. Try user-specified system property
+        String factoryName = AccessController.doPrivileged(
+            new PrivilegedAction<String>() {
+                public String run() {
+                    return System.getProperty(
+                        "java.util.prefs.PreferencesFactory");}});
+        if (factoryName != null) {
+            // FIXME: This code should be run in a doPrivileged and
+            // not use the context classloader, to avoid being
+            // dependent on the invoking thread.
+            // Checking AllPermission also seems wrong.
+            try {
+                return (PreferencesFactory)
+                    Class.forName(factoryName, false,
+                                  ClassLoader.getSystemClassLoader())
+                    .newInstance();
+            } catch (Exception ex) {
+                try {
+                    // workaround for javaws, plugin,
+                    // load factory class using non-system classloader
+                    SecurityManager sm = System.getSecurityManager();
+                    if (sm != null) {
+                        sm.checkPermission(new java.security.AllPermission());
+                    }
+                    return (PreferencesFactory)
+                        Class.forName(factoryName, false,
+                                      Thread.currentThread()
+                                      .getContextClassLoader())
+                        .newInstance();
+                } catch (Exception e) {
+                    throw new InternalError(
+                        "Can't instantiate Preferences factory "
+                        + factoryName, e);
+                }
+            }
+        }
+
+        return AccessController.doPrivileged(
+            new PrivilegedAction<PreferencesFactory>() {
+                public PreferencesFactory run() {
+                    return factory1();}});
+    }
+
+    private static PreferencesFactory factory1() {
+        // 2. Try service provider interface
+        Iterator<PreferencesFactory> itr = ServiceLoader
+            .load(PreferencesFactory.class, ClassLoader.getSystemClassLoader())
+            .iterator();
+
+        // choose first provider instance
+        while (itr.hasNext()) {
+            try {
+                return itr.next();
+            } catch (ServiceConfigurationError sce) {
+                if (sce.getCause() instanceof SecurityException) {
+                    // Ignore the security exception, try the next provider
+                    continue;
+                }
+                throw sce;
+            }
+        }
+
+        // 3. Use platform-specific system-wide default
+        String osName = System.getProperty("os.name");
+        String platformFactory;
+        if (osName.startsWith("Windows")) {
+            platformFactory = "java.util.prefs.WindowsPreferencesFactory";
+        } else if (osName.contains("OS X")) {
+            platformFactory = "java.util.prefs.MacOSXPreferencesFactory";
+        } else {
+            platformFactory = "java.util.prefs.FileSystemPreferencesFactory";
+        }
+        try {
+            return (PreferencesFactory)
+                Class.forName(platformFactory, false,
+                              Preferences.class.getClassLoader()).newInstance();
+        } catch (Exception e) {
+            throw new InternalError(
+                "Can't instantiate platform default Preferences factory "
+                + platformFactory, e);
+        }
+    }
+    */
+    private static PreferencesFactory factory() {
         // Try the system property first...
         PreferencesFactory result = ServiceLoader.loadFromSystemProperty(PreferencesFactory.class);
         if (result != null) {
@@ -241,16 +327,16 @@ public abstract class Preferences {
         // Finally return a default...
         return new FileSystemPreferencesFactory();
     }
+    // END Android-changed: Logic for constructing the default Preferences factory.
 
-    /**
-     * @hide for testing only.
-     */
-    // Android-changed: Allow this to be set for testing.
+    // BEGIN Android-added: Allow Preferences.factory to be set by tests.
+    /** @hide for testing only. */
     public static PreferencesFactory setPreferencesFactory(PreferencesFactory pf) {
         PreferencesFactory previous = factory;
         factory = pf;
         return previous;
     }
+    // END Android-added: Allow Preferences.factory to be set by tests.
 
     /**
      * Maximum length of string allowed as a key (80 characters).
@@ -267,6 +353,7 @@ public abstract class Preferences {
      */
     public static final int MAX_NAME_LENGTH = 80;
 
+    // Android-added: Document Android's security restrictions on system/user preferences.
     /**
      * <strong>WARNING:</strong> On Android, the Preference nodes
      * corresponding to the "system" and "user" preferences are stored in sections
@@ -316,6 +403,7 @@ public abstract class Preferences {
         return userRoot().node(nodeName(c));
     }
 
+    // Android-added: Document Android's security restrictions on system/user preferences.
     /**
      * <strong>WARNING:</strong> On Android, the Preference nodes
      * corresponding to the "system" and "user" preferences are stored in sections
@@ -372,7 +460,7 @@ public abstract class Preferences {
      * @throws IllegalArgumentException if the package has node preferences
      *         node associated with it.
      */
-    private static String nodeName(Class c) {
+    private static String nodeName(Class<?> c) {
         if (c.isArray())
             throw new IllegalArgumentException(
                 "Arrays have no associated preferences node.");
@@ -391,6 +479,7 @@ public abstract class Preferences {
      */
     private static Permission prefsPerm = new RuntimePermission("preferences");
 
+    // Android-added: Document Android's security restrictions on system/user preferences.
     /**
      * <strong>WARNING:</strong> On Android, the Preference nodes
      * corresponding to the "system" and "user" preferences are stored in sections
@@ -412,6 +501,7 @@ public abstract class Preferences {
         return factory.userRoot();
     }
 
+    // Android-added: Document Android's security restrictions on system/user preferences.
     /**
      * <strong>WARNING:</strong> On Android, the Preference nodes
      * corresponding to the "system" and "user" preferences are stored in sections
@@ -1124,9 +1214,9 @@ public abstract class Preferences {
      * This XML document is, in effect, an offline backup of the node.
      *
      * <p>The XML document will have the following DOCTYPE declaration:
-     * <pre>
-     * &lt;!DOCTYPE preferences SYSTEM "http://java.sun.com/dtd/preferences.dtd"&gt;
-     * </pre>
+     * <pre>{@code
+     * <!DOCTYPE preferences SYSTEM "http://java.sun.com/dtd/preferences.dtd">
+     * }</pre>
      * The UTF-8 character encoding will be used.
      *
      * <p>This method is an exception to the general rule that the results of
@@ -1155,9 +1245,9 @@ public abstract class Preferences {
      * effect, an offline backup of the subtree rooted at the node.
      *
      * <p>The XML document will have the following DOCTYPE declaration:
-     * <pre>
-     * &lt;!DOCTYPE preferences SYSTEM "http://java.sun.com/dtd/preferences.dtd"&gt;
-     * </pre>
+     * <pre>{@code
+     * <!DOCTYPE preferences SYSTEM "http://java.sun.com/dtd/preferences.dtd">
+     * }</pre>
      * The UTF-8 character encoding will be used.
      *
      * <p>This method is an exception to the general rule that the results of
@@ -1191,9 +1281,9 @@ public abstract class Preferences {
      * do not exist, the nodes will be created.
      *
      * <p>The XML document must have the following DOCTYPE declaration:
-     * <pre>
-     * &lt;!DOCTYPE preferences SYSTEM "http://java.sun.com/dtd/preferences.dtd"&gt;
-     * </pre>
+     * <pre>{@code
+     * <!DOCTYPE preferences SYSTEM "http://java.sun.com/dtd/preferences.dtd">
+     * }</pre>
      * (This method is designed for use in conjunction with
      * {@link #exportNode(OutputStream)} and
      * {@link #exportSubtree(OutputStream)}.

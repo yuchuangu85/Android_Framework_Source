@@ -16,24 +16,23 @@
 
 package benchmarks;
 
+import com.google.caliper.BeforeExperiment;
+import com.google.caliper.Benchmark;
 import com.google.caliper.Param;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.util.Arrays;
 
 public class DeepArrayOpsBenchmark {
-    @Param({"1", "4", "16", "256", "2048"}) int arrayLength;
+    @Param({"0001", "0004", "0016", "0256", "2048"}) int arrayLength;
 
     private Object[] array;
     private Object[] array2;
 
-    private Object[] array3;
-    private Object[] array4;
-
-    protected void setUp() throws Exception {
-        array = new Object[arrayLength * 13];
-        array2 = new Object[arrayLength * 13];
-        for (int i = 0; i < arrayLength; i += 13) {
+    @BeforeExperiment public void setUp() throws Exception {
+        array = new Object[arrayLength * 14];
+        array2 = new Object[arrayLength * 14];
+        for (int i = 0; i < arrayLength; i += 14) {
             array[i] = new IntWrapper(i);
             array2[i] = new IntWrapper(i);
 
@@ -74,16 +73,19 @@ public class DeepArrayOpsBenchmark {
             // Subarray types is an interface.
             array[i + 12] = new16ElementArray(CharSequence.class, String.class);
             array2[i + 12] = new16ElementArray(CharSequence.class, String.class);
+
+            array[i + 13] = null;
+            array2[i + 13] = null;
         }
     }
 
-    public void timeDeepHashCode(int reps) {
+    @Benchmark public void deepHashCode(int reps) {
         for (int i = 0; i < reps; ++i) {
             Arrays.deepHashCode(array);
         }
     }
 
-    public void timeEquals(int reps) {
+    @Benchmark public void deepEquals(int reps) {
         for (int i = 0; i < reps; ++i) {
             Arrays.deepEquals(array, array2);
         }
@@ -143,4 +145,3 @@ public class DeepArrayOpsBenchmark {
         }
     }
 }
-

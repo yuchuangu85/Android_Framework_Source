@@ -20,13 +20,12 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.net.IEthernetManager;
 import android.net.IEthernetServiceListener;
+import android.net.ITetheredInterfaceCallback;
 import android.net.IpConfiguration;
-import android.net.IpConfiguration.IpAssignment;
-import android.net.IpConfiguration.ProxySettings;
+import android.net.NetworkStack;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.provider.Settings;
 import android.util.Log;
@@ -41,31 +40,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * EthernetServiceImpl handles remote Ethernet operation requests by implementing
  * the IEthernetManager interface.
- *
- * @hide
  */
 public class EthernetServiceImpl extends IEthernetManager.Stub {
     private static final String TAG = "EthernetServiceImpl";
 
     private final Context mContext;
-    private final EthernetConfigStore mEthernetConfigStore;
     private final AtomicBoolean mStarted = new AtomicBoolean(false);
-    private IpConfiguration mIpConfiguration;
 
     private Handler mHandler;
-    private final EthernetNetworkFactory mTracker;
-    private final RemoteCallbackList<IEthernetServiceListener> mListeners =
-            new RemoteCallbackList<IEthernetServiceListener>();
+    private EthernetTracker mTracker;
 
     public EthernetServiceImpl(Context context) {
         mContext = context;
-        Log.i(TAG, "Creating EthernetConfigStore");
-        mEthernetConfigStore = new EthernetConfigStore();
-        mIpConfiguration = mEthernetConfigStore.readIpAndProxyConfigurations();
-
-        Log.i(TAG, "Read stored IP configuration: " + mIpConfiguration);
-
-        mTracker = new EthernetNetworkFactory(mListeners);
     }
 
     private void enforceAccessPermission() {
@@ -74,10 +60,16 @@ public class EthernetServiceImpl extends IEthernetManager.Stub {
                 "EthernetService");
     }
 
-    private void enforceConnectivityInternalPermission() {
+    private void enforceUseRestrictedNetworksPermission() {
         mContext.enforceCallingOrSelfPermission(
-                android.Manifest.permission.CONNECTIVITY_INTERNAL,
+                android.Manifest.permission.CONNECTIVITY_USE_RESTRICTED_NETWORKS,
                 "ConnectivityService");
+    }
+
+    private boolean checkUseRestrictedNetworksPermission() {
+        return mContext.checkCallingOrSelfPermission(
+                android.Manifest.permission.CONNECTIVITY_USE_RESTRICTED_NETWORKS)
+                == PackageManager.PERMISSION_GRANTED;
     }
 
     public void start() {
@@ -87,9 +79,15 @@ public class EthernetServiceImpl extends IEthernetManager.Stub {
         handlerThread.start();
         mHandler = new Handler(handlerThread.getLooper());
 
-        mTracker.start(mContext, mHandler);
+        mTracker = new EthernetTracker(mContext, mHandler);
+        mTracker.start();
 
         mStarted.set(true);
+    }
+
+    @Override
+    public String[] getAvailableInterfaces() throws RemoteException {
+        return mTracker.getInterfaces(checkUseRestrictedNetworksPermission());
     }
 
     /**
@@ -97,50 +95,52 @@ public class EthernetServiceImpl extends IEthernetManager.Stub {
      * @return the Ethernet Configuration, contained in {@link IpConfiguration}.
      */
     @Override
-    public IpConfiguration getConfiguration() {
+    public IpConfiguration getConfiguration(String iface) {
         enforceAccessPermission();
 
-        synchronized (mIpConfiguration) {
-            return new IpConfiguration(mIpConfiguration);
+        if (mTracker.isRestrictedInterface(iface)) {
+            enforceUseRestrictedNetworksPermission();
         }
+
+        return new IpConfiguration(mTracker.getIpConfiguration(iface));
     }
 
     /**
      * Set Ethernet configuration
      */
     @Override
-    public void setConfiguration(IpConfiguration config) {
+    public void setConfiguration(String iface, IpConfiguration config) {
         if (!mStarted.get()) {
             Log.w(TAG, "System isn't ready enough to change ethernet configuration");
         }
 
-        enforceConnectivityInternalPermission();
+        NetworkStack.checkNetworkStackPermission(mContext);
 
-        synchronized (mIpConfiguration) {
-            mEthernetConfigStore.writeIpAndProxyConfigurations(config);
-
-            // TODO: this does not check proxy settings, gateways, etc.
-            // Fix this by making IpConfiguration a complete representation of static configuration.
-            if (!config.equals(mIpConfiguration)) {
-                mIpConfiguration = new IpConfiguration(config);
-                mTracker.stop();
-                mTracker.start(mContext, mHandler);
-            }
+        if (mTracker.isRestrictedInterface(iface)) {
+            enforceUseRestrictedNetworksPermission();
         }
+
+        // TODO: this does not check proxy settings, gateways, etc.
+        // Fix this by making IpConfiguration a complete representation of static configuration.
+        mTracker.updateIpConfiguration(iface, new IpConfiguration(config));
     }
 
     /**
-     * Indicates whether the system currently has one or more
-     * Ethernet interfaces.
+     * Indicates whether given interface is available.
      */
     @Override
-    public boolean isAvailable() {
+    public boolean isAvailable(String iface) {
         enforceAccessPermission();
-        return mTracker.isTrackingInterface();
+
+        if (mTracker.isRestrictedInterface(iface)) {
+            enforceUseRestrictedNetworksPermission();
+        }
+
+        return mTracker.isTrackingInterface(iface);
     }
 
     /**
-     * Addes a listener.
+     * Adds a listener.
      * @param listener A {@link IEthernetServiceListener} to add.
      */
     public void addListener(IEthernetServiceListener listener) {
@@ -148,7 +148,7 @@ public class EthernetServiceImpl extends IEthernetManager.Stub {
             throw new IllegalArgumentException("listener must not be null");
         }
         enforceAccessPermission();
-        mListeners.register(listener);
+        mTracker.addListener(listener, checkUseRestrictedNetworksPermission());
     }
 
     /**
@@ -160,7 +160,28 @@ public class EthernetServiceImpl extends IEthernetManager.Stub {
             throw new IllegalArgumentException("listener must not be null");
         }
         enforceAccessPermission();
-        mListeners.unregister(listener);
+        mTracker.removeListener(listener);
+    }
+
+    @Override
+    public void setIncludeTestInterfaces(boolean include) {
+        NetworkStack.checkNetworkStackPermissionOr(mContext,
+                android.Manifest.permission.NETWORK_SETTINGS);
+        mTracker.setIncludeTestInterfaces(include);
+    }
+
+    @Override
+    public void requestTetheredInterface(ITetheredInterfaceCallback callback) {
+        NetworkStack.checkNetworkStackPermissionOr(mContext,
+                android.Manifest.permission.NETWORK_SETTINGS);
+        mTracker.requestTetheredInterface(callback);
+    }
+
+    @Override
+    public void releaseTetheredInterface(ITetheredInterfaceCallback callback) {
+        NetworkStack.checkNetworkStackPermissionOr(mContext,
+                android.Manifest.permission.NETWORK_SETTINGS);
+        mTracker.releaseTetheredInterface(callback);
     }
 
     @Override
@@ -177,12 +198,6 @@ public class EthernetServiceImpl extends IEthernetManager.Stub {
         pw.println("Current Ethernet state: ");
         pw.increaseIndent();
         mTracker.dump(fd, pw, args);
-        pw.decreaseIndent();
-
-        pw.println();
-        pw.println("Stored Ethernet configuration: ");
-        pw.increaseIndent();
-        pw.println(mIpConfiguration);
         pw.decreaseIndent();
 
         pw.println("Handler:");

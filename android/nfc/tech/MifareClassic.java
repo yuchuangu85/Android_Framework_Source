@@ -38,7 +38,7 @@ import java.nio.ByteOrder;
  * <li>MIFARE Classic Mini are 320 bytes ({@link #SIZE_MINI}), with 5 sectors each of 4 blocks.
  * <li>MIFARE Classic 1k are 1024 bytes ({@link #SIZE_1K}), with 16 sectors each of 4 blocks.
  * <li>MIFARE Classic 2k are 2048 bytes ({@link #SIZE_2K}), with 32 sectors each of 4 blocks.
- * <li>MIFARE Classic 4k} are 4096 bytes ({@link #SIZE_4K}). The first 32 sectors contain 4 blocks
+ * <li>MIFARE Classic 4k are 4096 bytes ({@link #SIZE_4K}). The first 32 sectors contain 4 blocks
  * and the last 8 sectors contain 16 blocks.
  * </ul>
  *
@@ -318,7 +318,7 @@ public final class MifareClassic extends BasicTagTechnology {
      * <p>Successful authentication of a sector with key A enables other
      * I/O operations on that sector. The set of operations granted by key A
      * key depends on the ACL bits set in that sector. For more information
-     * see the MIFARE Classic specification on {@see http://www.nxp.com}.
+     * see the MIFARE Classic specification on <a href="http://www.nxp.com">http://www.nxp.com</a>.
      *
      * <p>A failed authentication attempt causes an implicit reconnection to the
      * tag, so authentication to other sectors will be lost.
@@ -345,7 +345,7 @@ public final class MifareClassic extends BasicTagTechnology {
      * <p>Successful authentication of a sector with key B enables other
      * I/O operations on that sector. The set of operations granted by key B
      * depends on the ACL bits set in that sector. For more information
-     * see the MIFARE Classic specification on {@see http://www.nxp.com}.
+     * see the MIFARE Classic specification on <a href="http://www.nxp.com">http://www.nxp.com</a>.
      *
      * <p>A failed authentication attempt causes an implicit reconnection to the
      * tag, so authentication to other sectors will be lost.

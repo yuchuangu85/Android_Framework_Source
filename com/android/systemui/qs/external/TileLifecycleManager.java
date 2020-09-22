@@ -15,7 +15,6 @@
  */
 package com.android.systemui.qs.external;
 
-import android.app.AppGlobals;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -23,7 +22,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ServiceInfo;
 import android.net.Uri;
 import android.os.Binder;
@@ -35,13 +33,16 @@ import android.service.quicksettings.IQSService;
 import android.service.quicksettings.IQSTileService;
 import android.service.quicksettings.Tile;
 import android.service.quicksettings.TileService;
-import android.support.annotation.VisibleForTesting;
 import android.util.ArraySet;
 import android.util.Log;
 
-import libcore.util.Objects;
+import androidx.annotation.VisibleForTesting;
 
+import com.android.systemui.broadcast.BroadcastDispatcher;
+
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Manages the lifecycle of a TileService.
@@ -63,7 +64,7 @@ public class TileLifecycleManager extends BroadcastReceiver implements
 
     // Bind retry control.
     private static final int MAX_BIND_RETRIES = 5;
-    private static final int BIND_RETRY_DELAY = 1000;
+    private static final int DEFAULT_BIND_RETRY_DELAY = 1000;
 
     // Shared prefs that hold tile lifecycle info.
     private static final String TILES = "tiles_prefs";
@@ -73,6 +74,8 @@ public class TileLifecycleManager extends BroadcastReceiver implements
     private final Intent mIntent;
     private final UserHandle mUser;
     private final IBinder mToken = new Binder();
+    private final PackageManagerAdapter mPackageManagerAdapter;
+    private final BroadcastDispatcher mBroadcastDispatcher;
 
     private Set<Integer> mQueuedMessages = new ArraySet<>();
     private QSTileServiceWrapper mWrapper;
@@ -80,22 +83,33 @@ public class TileLifecycleManager extends BroadcastReceiver implements
     private IBinder mClickBinder;
 
     private int mBindTryCount;
+    private int mBindRetryDelay = DEFAULT_BIND_RETRY_DELAY;
     private boolean mBound;
-    @VisibleForTesting
-    boolean mReceiverRegistered;
+    private AtomicBoolean mPackageReceiverRegistered = new AtomicBoolean(false);
+    private AtomicBoolean mUserReceiverRegistered = new AtomicBoolean(false);
     private boolean mUnbindImmediate;
     private TileChangeListener mChangeListener;
     // Return value from bindServiceAsUser, determines whether safe to call unbind.
     private boolean mIsBound;
 
-    public TileLifecycleManager(Handler handler, Context context, IQSService service,
-            Tile tile, Intent intent, UserHandle user) {
+    public TileLifecycleManager(Handler handler, Context context, IQSService service, Tile tile,
+            Intent intent, UserHandle user, BroadcastDispatcher broadcastDispatcher) {
+        this(handler, context, service, tile, intent, user, new PackageManagerAdapter(context),
+                broadcastDispatcher);
+    }
+
+    @VisibleForTesting
+    TileLifecycleManager(Handler handler, Context context, IQSService service, Tile tile,
+            Intent intent, UserHandle user, PackageManagerAdapter packageManagerAdapter,
+            BroadcastDispatcher broadcastDispatcher) {
         mContext = context;
         mHandler = handler;
         mIntent = intent;
         mIntent.putExtra(TileService.EXTRA_SERVICE, service.asBinder());
         mIntent.putExtra(TileService.EXTRA_TOKEN, mToken);
         mUser = user;
+        mPackageManagerAdapter = packageManagerAdapter;
+        mBroadcastDispatcher = broadcastDispatcher;
         if (DEBUG) Log.d(TAG, "Creating " + mIntent + " " + mUser);
     }
 
@@ -109,13 +123,35 @@ public class TileLifecycleManager extends BroadcastReceiver implements
         }
     }
 
+    public void setBindRetryDelay(int delayMs) {
+        mBindRetryDelay = delayMs;
+    }
+
     public boolean isActiveTile() {
         try {
-            ServiceInfo info = mContext.getPackageManager().getServiceInfo(mIntent.getComponent(),
+            ServiceInfo info = mPackageManagerAdapter.getServiceInfo(mIntent.getComponent(),
                     PackageManager.MATCH_UNINSTALLED_PACKAGES | PackageManager.GET_META_DATA);
             return info.metaData != null
                     && info.metaData.getBoolean(TileService.META_DATA_ACTIVE_TILE, false);
-        } catch (NameNotFoundException e) {
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Determines whether the associated TileService is a Boolean Tile.
+     *
+     * @return true if {@link TileService#META_DATA_TOGGLEABLE_TILE} is set to {@code true} for this
+     *         tile
+     * @see TileService#META_DATA_TOGGLEABLE_TILE
+     */
+    public boolean isToggleableTile() {
+        try {
+            ServiceInfo info = mPackageManagerAdapter.getServiceInfo(mIntent.getComponent(),
+                    PackageManager.MATCH_UNINSTALLED_PACKAGES | PackageManager.GET_META_DATA);
+            return info.metaData != null
+                    && info.metaData.getBoolean(TileService.META_DATA_TOGGLEABLE_TILE, false);
+        } catch (PackageManager.NameNotFoundException e) {
             return false;
         }
     }
@@ -149,7 +185,10 @@ public class TileLifecycleManager extends BroadcastReceiver implements
             mBindTryCount++;
             try {
                 mIsBound = mContext.bindServiceAsUser(mIntent, this,
-                        Context.BIND_AUTO_CREATE | Context.BIND_FOREGROUND_SERVICE_WHILE_AWAKE,
+                        Context.BIND_AUTO_CREATE
+                                | Context.BIND_FOREGROUND_SERVICE_WHILE_AWAKE
+                                | Context.BIND_ALLOW_BACKGROUND_ACTIVITY_STARTS
+                                | Context.BIND_WAIVE_PRIORITY,
                         mUser);
             } catch (SecurityException e) {
                 Log.e(TAG, "Failed to bind to service", e);
@@ -237,9 +276,10 @@ public class TileLifecycleManager extends BroadcastReceiver implements
 
     public void handleDestroy() {
         if (DEBUG) Log.d(TAG, "handleDestroy");
-        if (mReceiverRegistered) {
+        if (mPackageReceiverRegistered.get() || mUserReceiverRegistered.get()) {
             stopPackageListening();
         }
+        mChangeListener = null;
     }
 
     private void handleDeath() {
@@ -256,13 +296,12 @@ public class TileLifecycleManager extends BroadcastReceiver implements
                         setBindService(true);
                     }
                 }
-            }, BIND_RETRY_DELAY);
+            }, mBindRetryDelay);
         }
     }
 
     private boolean checkComponentState() {
-        PackageManager pm = mContext.getPackageManager();
-        if (!isPackageAvailable(pm) || !isComponentAvailable(pm)) {
+        if (!isPackageAvailable() || !isComponentAvailable()) {
             startPackageListening();
             return false;
         }
@@ -274,16 +313,31 @@ public class TileLifecycleManager extends BroadcastReceiver implements
         IntentFilter filter = new IntentFilter(Intent.ACTION_PACKAGE_ADDED);
         filter.addAction(Intent.ACTION_PACKAGE_CHANGED);
         filter.addDataScheme("package");
-        mContext.registerReceiverAsUser(this, mUser, filter, null, mHandler);
+        try {
+            mPackageReceiverRegistered.set(true);
+            mContext.registerReceiverAsUser(this, mUser, filter, null, mHandler);
+        } catch (Exception ex) {
+            mPackageReceiverRegistered.set(false);
+            Log.e(TAG, "Could not register package receiver", ex);
+        }
         filter = new IntentFilter(Intent.ACTION_USER_UNLOCKED);
-        mContext.registerReceiverAsUser(this, mUser, filter, null, mHandler);
-        mReceiverRegistered = true;
+        try {
+            mUserReceiverRegistered.set(true);
+            mBroadcastDispatcher.registerReceiverWithHandler(this, filter, mHandler, mUser);
+        } catch (Exception ex) {
+            mUserReceiverRegistered.set(false);
+            Log.e(TAG, "Could not register unlock receiver", ex);
+        }
     }
 
     private void stopPackageListening() {
         if (DEBUG) Log.d(TAG, "stopPackageListening");
-        mContext.unregisterReceiver(this);
-        mReceiverRegistered = false;
+        if (mUserReceiverRegistered.compareAndSet(true, false)) {
+            mBroadcastDispatcher.unregisterReceiver(this);
+        }
+        if (mPackageReceiverRegistered.compareAndSet(true, false)) {
+            mContext.unregisterReceiver(this);
+        }
     }
 
     public void setTileChangeListener(TileChangeListener changeListener) {
@@ -296,7 +350,7 @@ public class TileLifecycleManager extends BroadcastReceiver implements
         if (!Intent.ACTION_USER_UNLOCKED.equals(intent.getAction())) {
             Uri data = intent.getData();
             String pkgName = data.getEncodedSchemeSpecificPart();
-            if (!Objects.equal(pkgName, mIntent.getComponent().getPackageName())) {
+            if (!Objects.equals(pkgName, mIntent.getComponent().getPackageName())) {
                 return;
             }
         }
@@ -311,10 +365,10 @@ public class TileLifecycleManager extends BroadcastReceiver implements
         }
     }
 
-    private boolean isComponentAvailable(PackageManager pm) {
+    private boolean isComponentAvailable() {
         String packageName = mIntent.getComponent().getPackageName();
         try {
-            ServiceInfo si = AppGlobals.getPackageManager().getServiceInfo(mIntent.getComponent(),
+            ServiceInfo si = mPackageManagerAdapter.getServiceInfo(mIntent.getComponent(),
                     0, mUser.getIdentifier());
             if (DEBUG && si == null) Log.d(TAG, "Can't find component " + mIntent.getComponent());
             return si != null;
@@ -324,10 +378,10 @@ public class TileLifecycleManager extends BroadcastReceiver implements
         return false;
     }
 
-    private boolean isPackageAvailable(PackageManager pm) {
+    private boolean isPackageAvailable() {
         String packageName = mIntent.getComponent().getPackageName();
         try {
-            pm.getPackageInfoAsUser(packageName, 0, mUser.getIdentifier());
+            mPackageManagerAdapter.getPackageInfoAsUser(packageName, 0, mUser.getIdentifier());
             return true;
         } catch (PackageManager.NameNotFoundException e) {
             if (DEBUG) Log.d(TAG, "Package not available: " + packageName, e);

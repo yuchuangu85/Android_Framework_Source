@@ -20,40 +20,44 @@ import static android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DEFAULT;
 import static android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
 import static android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.UserIdInt;
+import android.content.ComponentName;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.IntentFilterVerificationInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.UninstallReason;
+import android.content.pm.PackageParser;
 import android.content.pm.PackageUserState;
-import android.os.storage.VolumeInfo;
+import android.content.pm.Signature;
+import android.content.pm.SuspendDialogInfo;
+import android.os.PersistableBundle;
+import android.service.pm.PackageProto;
+import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.SparseArray;
+import android.util.proto.ProtoOutputStream;
+
+import com.android.internal.annotations.VisibleForTesting;
 
 import java.io.File;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Settings base class for pending and resolved classes.
  */
-abstract class PackageSettingBase extends SettingBase {
-    /**
-     * Indicates the state of installation. Used by PackageManager to figure out
-     * incomplete installations. Say a package is being installed (the state is
-     * set to PKG_INSTALL_INCOMPLETE) and remains so till the package
-     * installation is successful or unsuccessful in which case the
-     * PackageManager will no longer maintain state information associated with
-     * the package. If some exception(like device freeze or battery being pulled
-     * out) occurs during installation of a package, the PackageManager needs
-     * this information to clean up the previously failed installation.
-     */
-    static final int PKG_INSTALL_COMPLETE = 1;
-    static final int PKG_INSTALL_INCOMPLETE = 0;
+public abstract class PackageSettingBase extends SettingBase {
 
-    final String name;
+    private static final int[] EMPTY_INT_ARRAY = new int[0];
+
+    public final String name;
     final String realName;
-
-    String parentPackageName;
-    List<String> childPackageNames;
 
     /**
      * Path where this package was found on disk. For monolithic packages
@@ -65,6 +69,9 @@ abstract class PackageSettingBase extends SettingBase {
     File resourcePath;
     String resourcePathString;
 
+    String[] usesStaticLibraries;
+    long[] usesStaticLibrariesVersions;
+
     /**
      * The path under which native libraries have been unpacked. This path is
      * always derived at runtime, and is only stored here for cleanup when a
@@ -74,16 +81,14 @@ abstract class PackageSettingBase extends SettingBase {
     String legacyNativeLibraryPathString;
 
     /**
-     * The primary CPU abi for this package. This value is regenerated at every
-     * boot scan.
+     * The primary CPU abi for this package.
      */
-    String primaryCpuAbiString;
+    public String primaryCpuAbiString;
 
     /**
-     * The secondary CPU abi for this package. This value is regenerated at every
-     * boot scan.
+     * The secondary CPU abi for this package.
      */
-    String secondaryCpuAbiString;
+    public String secondaryCpuAbiString;
 
     /**
      * The install time CPU override, if any. This value is written at install time
@@ -95,23 +100,21 @@ abstract class PackageSettingBase extends SettingBase {
     long timeStamp;
     long firstInstallTime;
     long lastUpdateTime;
-    int versionCode;
+    long versionCode;
 
     boolean uidError;
 
-    PackageSignatures signatures = new PackageSignatures();
+    PackageSignatures signatures;
 
     boolean installPermissionsFixed;
 
     PackageKeySetData keySetData = new PackageKeySetData();
 
-    private static final PackageUserState DEFAULT_USER_STATE = new PackageUserState();
+    static final PackageUserState DEFAULT_USER_STATE = new PackageUserState();
 
     // Whether this package is currently stopped, thus can not be
     // started until explicitly launched by the user.
-    private final SparseArray<PackageUserState> userState = new SparseArray<PackageUserState>();
-
-    int installStatus = PKG_INSTALL_COMPLETE;
+    private final SparseArray<PackageUserState> mUserState = new SparseArray<>();
 
     /**
      * Non-persisted value. During an "upgrade without restart", we need the set
@@ -120,83 +123,31 @@ abstract class PackageSettingBase extends SettingBase {
      * restart, this field will be cleared since the classloader would be created
      * using the full set of code paths when the package's process is started.
      */
-    Set<String> oldCodePaths;
-    PackageSettingBase origPackage;
+    Set<String> mOldCodePaths;
 
-    /** Package name of the app that installed this package */
-    String installerPackageName;
-    /** Indicates if the package that installed this app has been uninstalled */
-    boolean isOrphaned;
+    /** Information about how this package was installed/updated. */
+    @NonNull InstallSource installSource;
     /** UUID of {@link VolumeInfo} hosting this app */
     String volumeUuid;
+    /** The category of this app, as hinted by the installer */
+    int categoryHint = ApplicationInfo.CATEGORY_UNDEFINED;
+    /** Whether or not an update is available. Ostensibly only for instant apps. */
+    boolean updateAvailable;
 
     IntentFilterVerificationInfo verificationInfo;
+
+    boolean forceQueryableOverride;
 
     PackageSettingBase(String name, String realName, File codePath, File resourcePath,
             String legacyNativeLibraryPathString, String primaryCpuAbiString,
             String secondaryCpuAbiString, String cpuAbiOverrideString,
-            int pVersionCode, int pkgFlags, int pkgPrivateFlags,
-            String parentPackageName, List<String> childPackageNames) {
+            long pVersionCode, int pkgFlags, int pkgPrivateFlags,
+            String[] usesStaticLibraries, long[] usesStaticLibrariesVersions) {
         super(pkgFlags, pkgPrivateFlags);
         this.name = name;
         this.realName = realName;
-        this.parentPackageName = parentPackageName;
-        this.childPackageNames = (childPackageNames != null)
-                ? new ArrayList<>(childPackageNames) : null;
-        init(codePath, resourcePath, legacyNativeLibraryPathString, primaryCpuAbiString,
-                secondaryCpuAbiString, cpuAbiOverrideString, pVersionCode);
-    }
-
-    /**
-     * New instance of PackageSetting with one-level-deep cloning.
-     */
-    @SuppressWarnings("unchecked")
-    PackageSettingBase(PackageSettingBase base) {
-        super(base);
-
-        name = base.name;
-        realName = base.realName;
-        codePath = base.codePath;
-        codePathString = base.codePathString;
-        resourcePath = base.resourcePath;
-        resourcePathString = base.resourcePathString;
-        legacyNativeLibraryPathString = base.legacyNativeLibraryPathString;
-        primaryCpuAbiString = base.primaryCpuAbiString;
-        secondaryCpuAbiString = base.secondaryCpuAbiString;
-        cpuAbiOverrideString = base.cpuAbiOverrideString;
-        timeStamp = base.timeStamp;
-        firstInstallTime = base.firstInstallTime;
-        lastUpdateTime = base.lastUpdateTime;
-        versionCode = base.versionCode;
-
-        uidError = base.uidError;
-
-        signatures = new PackageSignatures(base.signatures);
-
-        installPermissionsFixed = base.installPermissionsFixed;
-        userState.clear();
-        for (int i=0; i<base.userState.size(); i++) {
-            userState.put(base.userState.keyAt(i),
-                    new PackageUserState(base.userState.valueAt(i)));
-        }
-        installStatus = base.installStatus;
-
-        origPackage = base.origPackage;
-
-        installerPackageName = base.installerPackageName;
-        isOrphaned = base.isOrphaned;
-        volumeUuid = base.volumeUuid;
-
-        keySetData = new PackageKeySetData(base.keySetData);
-
-        parentPackageName = base.parentPackageName;
-        childPackageNames = (base.childPackageNames != null)
-                ? new ArrayList<>(base.childPackageNames) : null;
-    }
-
-    void init(File codePath, File resourcePath, String legacyNativeLibraryPathString,
-              String primaryCpuAbiString, String secondaryCpuAbiString,
-              String cpuAbiOverrideString, int pVersionCode) {
+        this.usesStaticLibraries = usesStaticLibraries;
+        this.usesStaticLibrariesVersions = usesStaticLibrariesVersions;
         this.codePath = codePath;
         this.codePathString = codePath.toString();
         this.resourcePath = resourcePath;
@@ -206,14 +157,38 @@ abstract class PackageSettingBase extends SettingBase {
         this.secondaryCpuAbiString = secondaryCpuAbiString;
         this.cpuAbiOverrideString = cpuAbiOverrideString;
         this.versionCode = pVersionCode;
+        this.signatures = new PackageSignatures();
+        this.installSource = InstallSource.EMPTY;
+    }
+
+    /**
+     * New instance of PackageSetting with one-level-deep cloning.
+     * <p>
+     * IMPORTANT: With a shallow copy, we do NOT create new contained objects.
+     * This means, for example, changes to the user state of the original PackageSetting
+     * will also change the user state in its copy.
+     */
+    PackageSettingBase(PackageSettingBase base, String realName) {
+        super(base);
+        name = base.name;
+        this.realName = realName;
+        doCopy(base);
     }
 
     public void setInstallerPackageName(String packageName) {
-        installerPackageName = packageName;
+        installSource = installSource.setInstallerPackage(packageName);
     }
 
-    public String getInstallerPackageName() {
-        return installerPackageName;
+    public void setInstallSource(InstallSource installSource) {
+        this.installSource = Objects.requireNonNull(installSource);
+    }
+
+    void removeInstallerPackage(String packageName) {
+        installSource = installSource.removeInstallerPackage(packageName);
+    }
+
+    public void setIsOrphaned(boolean isOrphaned) {
+        installSource = installSource.setIsOrphaned(isOrphaned);
     }
 
     public void setVolumeUuid(String volumeUuid) {
@@ -224,57 +199,94 @@ abstract class PackageSettingBase extends SettingBase {
         return volumeUuid;
     }
 
-    public void setInstallStatus(int newStatus) {
-        installStatus = newStatus;
-    }
-
-    public int getInstallStatus() {
-        return installStatus;
-    }
-
     public void setTimeStamp(long newStamp) {
         timeStamp = newStamp;
     }
 
-    /**
-     * Make a shallow copy of this package settings.
-     */
-    public void copyFrom(PackageSettingBase base) {
-        mPermissionsState.copyFrom(base.mPermissionsState);
-        primaryCpuAbiString = base.primaryCpuAbiString;
-        secondaryCpuAbiString = base.secondaryCpuAbiString;
-        cpuAbiOverrideString = base.cpuAbiOverrideString;
-        timeStamp = base.timeStamp;
-        firstInstallTime = base.firstInstallTime;
-        lastUpdateTime = base.lastUpdateTime;
-        signatures = base.signatures;
-        installPermissionsFixed = base.installPermissionsFixed;
-        userState.clear();
-        for (int i=0; i<base.userState.size(); i++) {
-            userState.put(base.userState.keyAt(i), base.userState.valueAt(i));
-        }
-        installStatus = base.installStatus;
-        keySetData = base.keySetData;
-        verificationInfo = base.verificationInfo;
-        installerPackageName = base.installerPackageName;
-        volumeUuid = base.volumeUuid;
+    public void setUpdateAvailable(boolean updateAvailable) {
+        this.updateAvailable = updateAvailable;
     }
 
-    private PackageUserState modifyUserState(int userId) {
-        PackageUserState state = userState.get(userId);
+    public boolean isUpdateAvailable() {
+        return updateAvailable;
+    }
+
+    public boolean isSharedUser() {
+        return false;
+    }
+
+    public Signature[] getSignatures() {
+        return signatures.mSigningDetails.signatures;
+    }
+
+    public PackageParser.SigningDetails getSigningDetails() {
+        return signatures.mSigningDetails;
+    }
+
+    /**
+     * Makes a shallow copy of the given package settings.
+     *
+     * NOTE: For some fields [such as keySetData, signatures, mUserState, verificationInfo, etc...],
+     * the original object is copied and a new one is not created.
+     */
+    public void copyFrom(PackageSettingBase orig) {
+        super.copyFrom(orig);
+        doCopy(orig);
+    }
+
+    private void doCopy(PackageSettingBase orig) {
+        codePath = orig.codePath;
+        codePathString = orig.codePathString;
+        cpuAbiOverrideString = orig.cpuAbiOverrideString;
+        firstInstallTime = orig.firstInstallTime;
+        installPermissionsFixed = orig.installPermissionsFixed;
+        installSource = orig.installSource;
+        keySetData = orig.keySetData;
+        lastUpdateTime = orig.lastUpdateTime;
+        legacyNativeLibraryPathString = orig.legacyNativeLibraryPathString;
+        // Intentionally skip mOldCodePaths; it's not relevant for copies
+        primaryCpuAbiString = orig.primaryCpuAbiString;
+        resourcePath = orig.resourcePath;
+        resourcePathString = orig.resourcePathString;
+        secondaryCpuAbiString = orig.secondaryCpuAbiString;
+        signatures = orig.signatures;
+        timeStamp = orig.timeStamp;
+        uidError = orig.uidError;
+        mUserState.clear();
+        for (int i = 0; i < orig.mUserState.size(); i++) {
+            mUserState.put(orig.mUserState.keyAt(i), orig.mUserState.valueAt(i));
+        }
+        verificationInfo = orig.verificationInfo;
+        versionCode = orig.versionCode;
+        volumeUuid = orig.volumeUuid;
+        categoryHint = orig.categoryHint;
+        usesStaticLibraries = orig.usesStaticLibraries != null
+                ? Arrays.copyOf(orig.usesStaticLibraries,
+                        orig.usesStaticLibraries.length) : null;
+        usesStaticLibrariesVersions = orig.usesStaticLibrariesVersions != null
+                ? Arrays.copyOf(orig.usesStaticLibrariesVersions,
+                       orig.usesStaticLibrariesVersions.length) : null;
+        updateAvailable = orig.updateAvailable;
+        forceQueryableOverride = orig.forceQueryableOverride;
+    }
+
+    @VisibleForTesting
+    PackageUserState modifyUserState(int userId) {
+        PackageUserState state = mUserState.get(userId);
         if (state == null) {
             state = new PackageUserState();
-            userState.put(userId, state);
+            mUserState.put(userId, state);
         }
         return state;
     }
 
     public PackageUserState readUserState(int userId) {
-        PackageUserState state = userState.get(userId);
-        if (state != null) {
-            return state;
+        PackageUserState state = mUserState.get(userId);
+        if (state == null) {
+            return DEFAULT_USER_STATE;
         }
-        return DEFAULT_USER_STATE;
+        state.categoryHint = categoryHint;
+        return state;
     }
 
     void setEnabled(int state, int userId, String callingPackage) {
@@ -297,6 +309,46 @@ abstract class PackageSettingBase extends SettingBase {
 
     boolean getInstalled(int userId) {
         return readUserState(userId).installed;
+    }
+
+    int getInstallReason(int userId) {
+        return readUserState(userId).installReason;
+    }
+
+    void setInstallReason(int installReason, int userId) {
+        modifyUserState(userId).installReason = installReason;
+    }
+
+    int getUninstallReason(int userId) {
+        return readUserState(userId).uninstallReason;
+    }
+
+    void setUninstallReason(@UninstallReason int uninstallReason, int userId) {
+        modifyUserState(userId).uninstallReason = uninstallReason;
+    }
+
+    void setOverlayPaths(List<String> overlayPaths, int userId) {
+        modifyUserState(userId).setOverlayPaths(overlayPaths == null ? null :
+            overlayPaths.toArray(new String[overlayPaths.size()]));
+    }
+
+    String[] getOverlayPaths(int userId) {
+        return readUserState(userId).getOverlayPaths();
+    }
+
+    void setOverlayPathsForLibrary(String libName, List<String> overlayPaths, int userId) {
+        modifyUserState(userId).setSharedLibraryOverlayPaths(libName,
+                overlayPaths == null ? null : overlayPaths.toArray(new String[0]));
+    }
+
+    Map<String, String[]> getOverlayPathsForLibrary(int userId) {
+        return readUserState(userId).getSharedLibraryOverlayPaths();
+    }
+
+    /** Only use for testing. Do NOT use in production code. */
+    @VisibleForTesting
+    SparseArray<PackageUserState> getUserState() {
+        return mUserState;
     }
 
     boolean isAnyInstalled(int[] users) {
@@ -358,27 +410,86 @@ abstract class PackageSettingBase extends SettingBase {
         modifyUserState(userId).hidden = hidden;
     }
 
+    int getDistractionFlags(int userId) {
+        return readUserState(userId).distractionFlags;
+    }
+
+    void setDistractionFlags(int distractionFlags, int userId) {
+        modifyUserState(userId).distractionFlags = distractionFlags;
+    }
+
     boolean getSuspended(int userId) {
         return readUserState(userId).suspended;
     }
 
-    void setSuspended(boolean suspended, int userId) {
-        modifyUserState(userId).suspended = suspended;
+    boolean isSuspendedBy(String suspendingPackage, int userId) {
+        final PackageUserState state = readUserState(userId);
+        return state.suspendParams != null && state.suspendParams.containsKey(suspendingPackage);
     }
 
-    boolean getBlockUninstall(int userId) {
-        return readUserState(userId).blockUninstall;
+    void addOrUpdateSuspension(String suspendingPackage, SuspendDialogInfo dialogInfo,
+            PersistableBundle appExtras, PersistableBundle launcherExtras, int userId) {
+        final PackageUserState existingUserState = modifyUserState(userId);
+        final PackageUserState.SuspendParams newSuspendParams =
+                PackageUserState.SuspendParams.getInstanceOrNull(dialogInfo, appExtras,
+                        launcherExtras);
+        if (existingUserState.suspendParams == null) {
+            existingUserState.suspendParams = new ArrayMap<>();
+        }
+        existingUserState.suspendParams.put(suspendingPackage, newSuspendParams);
+        existingUserState.suspended = true;
     }
 
-    void setBlockUninstall(boolean blockUninstall, int userId) {
-        modifyUserState(userId).blockUninstall = blockUninstall;
+    void removeSuspension(String suspendingPackage, int userId) {
+        final PackageUserState existingUserState = modifyUserState(userId);
+        if (existingUserState.suspendParams != null) {
+            existingUserState.suspendParams.remove(suspendingPackage);
+            if (existingUserState.suspendParams.size() == 0) {
+                existingUserState.suspendParams = null;
+            }
+        }
+        existingUserState.suspended = (existingUserState.suspendParams != null);
+    }
+
+    void removeSuspension(Predicate<String> suspendingPackagePredicate, int userId) {
+        final PackageUserState existingUserState = modifyUserState(userId);
+        if (existingUserState.suspendParams != null) {
+            for (int i = existingUserState.suspendParams.size() - 1; i >= 0; i--) {
+                final String suspendingPackage = existingUserState.suspendParams.keyAt(i);
+                if (suspendingPackagePredicate.test(suspendingPackage)) {
+                    existingUserState.suspendParams.removeAt(i);
+                }
+            }
+            if (existingUserState.suspendParams.size() == 0) {
+                existingUserState.suspendParams = null;
+            }
+        }
+        existingUserState.suspended = (existingUserState.suspendParams != null);
+    }
+
+    public boolean getInstantApp(int userId) {
+        return readUserState(userId).instantApp;
+    }
+
+    void setInstantApp(boolean instantApp, int userId) {
+        modifyUserState(userId).instantApp = instantApp;
+    }
+
+    boolean getVirtulalPreload(int userId) {
+        return readUserState(userId).virtualPreload;
+    }
+
+    void setVirtualPreload(boolean virtualPreload, int userId) {
+        modifyUserState(userId).virtualPreload = virtualPreload;
     }
 
     void setUserState(int userId, long ceDataInode, int enabled, boolean installed, boolean stopped,
-            boolean notLaunched, boolean hidden, boolean suspended,
-            String lastDisableAppCaller, ArraySet<String> enabledComponents,
-            ArraySet<String> disabledComponents, boolean blockUninstall, int domainVerifState,
-            int linkGeneration) {
+            boolean notLaunched, boolean hidden, int distractionFlags, boolean suspended,
+            ArrayMap<String, PackageUserState.SuspendParams> suspendParams, boolean instantApp,
+            boolean virtualPreload, String lastDisableAppCaller,
+            ArraySet<String> enabledComponents, ArraySet<String> disabledComponents,
+            int domainVerifState, int linkGeneration, int installReason, int uninstallReason,
+            String harmfulAppWarning) {
         PackageUserState state = modifyUserState(userId);
         state.ceDataInode = ceDataInode;
         state.enabled = enabled;
@@ -386,13 +497,30 @@ abstract class PackageSettingBase extends SettingBase {
         state.stopped = stopped;
         state.notLaunched = notLaunched;
         state.hidden = hidden;
+        state.distractionFlags = distractionFlags;
         state.suspended = suspended;
+        state.suspendParams = suspendParams;
         state.lastDisableAppCaller = lastDisableAppCaller;
         state.enabledComponents = enabledComponents;
         state.disabledComponents = disabledComponents;
-        state.blockUninstall = blockUninstall;
         state.domainVerificationStatus = domainVerifState;
         state.appLinkGeneration = linkGeneration;
+        state.installReason = installReason;
+        state.uninstallReason = uninstallReason;
+        state.instantApp = instantApp;
+        state.virtualPreload = virtualPreload;
+        state.harmfulAppWarning = harmfulAppWarning;
+    }
+
+    void setUserState(int userId, PackageUserState otherState) {
+        setUserState(userId, otherState.ceDataInode, otherState.enabled, otherState.installed,
+                otherState.stopped, otherState.notLaunched, otherState.hidden,
+                otherState.distractionFlags, otherState.suspended, otherState.suspendParams,
+                otherState.instantApp,
+                otherState.virtualPreload, otherState.lastDisableAppCaller,
+                otherState.enabledComponents, otherState.disabledComponents,
+                otherState.domainVerificationStatus, otherState.appLinkGeneration,
+                otherState.installReason, otherState.uninstallReason, otherState.harmfulAppWarning);
     }
 
     ArraySet<String> getEnabledComponents(int userId) {
@@ -478,7 +606,26 @@ abstract class PackageSettingBase extends SettingBase {
     }
 
     void removeUser(int userId) {
-        userState.delete(userId);
+        mUserState.delete(userId);
+    }
+
+    public int[] getNotInstalledUserIds() {
+        int count = 0;
+        int userStateCount = mUserState.size();
+        for (int i = 0; i < userStateCount; i++) {
+            if (!mUserState.valueAt(i).installed) {
+                count++;
+            }
+        }
+        if (count == 0) return EMPTY_INT_ARRAY;
+        int[] excludedUserIds = new int[count];
+        int idx = 0;
+        for (int i = 0; i < userStateCount; i++) {
+            if (!mUserState.valueAt(i).installed) {
+                excludedUserIds[idx++] = mUserState.keyAt(i);
+            }
+        }
+        return excludedUserIds;
     }
 
     IntentFilterVerificationInfo getIntentFilterVerificationInfo() {
@@ -511,5 +658,112 @@ abstract class PackageSettingBase extends SettingBase {
     void clearDomainVerificationStatusForUser(int userId) {
         modifyUserState(userId).domainVerificationStatus =
                 PackageManager.INTENT_FILTER_DOMAIN_VERIFICATION_STATUS_UNDEFINED;
+    }
+
+    protected void writeUsersInfoToProto(ProtoOutputStream proto, long fieldId) {
+        int count = mUserState.size();
+        for (int i = 0; i < count; i++) {
+            final long userToken = proto.start(fieldId);
+            final int userId = mUserState.keyAt(i);
+            final PackageUserState state = mUserState.valueAt(i);
+            proto.write(PackageProto.UserInfoProto.ID, userId);
+            final int installType;
+            if (state.instantApp) {
+                installType = PackageProto.UserInfoProto.INSTANT_APP_INSTALL;
+            } else if (state.installed) {
+                installType = PackageProto.UserInfoProto.FULL_APP_INSTALL;
+            } else {
+                installType = PackageProto.UserInfoProto.NOT_INSTALLED_FOR_USER;
+            }
+            proto.write(PackageProto.UserInfoProto.INSTALL_TYPE, installType);
+            proto.write(PackageProto.UserInfoProto.IS_HIDDEN, state.hidden);
+            proto.write(PackageProto.UserInfoProto.DISTRACTION_FLAGS, state.distractionFlags);
+            proto.write(PackageProto.UserInfoProto.IS_SUSPENDED, state.suspended);
+            if (state.suspended) {
+                for (int j = 0; j < state.suspendParams.size(); j++) {
+                    proto.write(PackageProto.UserInfoProto.SUSPENDING_PACKAGE,
+                            state.suspendParams.keyAt(j));
+                }
+            }
+            proto.write(PackageProto.UserInfoProto.IS_STOPPED, state.stopped);
+            proto.write(PackageProto.UserInfoProto.IS_LAUNCHED, !state.notLaunched);
+            proto.write(PackageProto.UserInfoProto.ENABLED_STATE, state.enabled);
+            proto.write(
+                    PackageProto.UserInfoProto.LAST_DISABLED_APP_CALLER,
+                    state.lastDisableAppCaller);
+            proto.end(userToken);
+        }
+    }
+
+    void setHarmfulAppWarning(int userId, String harmfulAppWarning) {
+        PackageUserState userState = modifyUserState(userId);
+        userState.harmfulAppWarning = harmfulAppWarning;
+    }
+
+    String getHarmfulAppWarning(int userId) {
+        PackageUserState userState = readUserState(userId);
+        return userState.harmfulAppWarning;
+    }
+
+    /**
+     * @see PackageUserState#overrideLabelAndIcon(ComponentName, String, Integer)
+     *
+     * @param userId the specific user to change the label/icon for
+     */
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+    public boolean overrideNonLocalizedLabelAndIcon(@NonNull ComponentName component,
+            @Nullable String label, @Nullable Integer icon, @UserIdInt int userId) {
+        return modifyUserState(userId).overrideLabelAndIcon(component, label, icon);
+    }
+
+    /**
+     * @see PackageUserState#resetOverrideComponentLabelIcon()
+     *
+     * @param userId the specific user to reset
+     */
+    public void resetOverrideComponentLabelIcon(@UserIdInt int userId) {
+        modifyUserState(userId).resetOverrideComponentLabelIcon();
+    }
+
+    protected PackageSettingBase updateFrom(PackageSettingBase other) {
+        super.copyFrom(other);
+        this.codePath = other.codePath;
+        this.codePathString = other.codePathString;
+        this.resourcePath = other.resourcePath;
+        this.resourcePathString = other.resourcePathString;
+        this.usesStaticLibraries = other.usesStaticLibraries;
+        this.usesStaticLibrariesVersions = other.usesStaticLibrariesVersions;
+        this.legacyNativeLibraryPathString = other.legacyNativeLibraryPathString;
+        this.primaryCpuAbiString = other.primaryCpuAbiString;
+        this.secondaryCpuAbiString = other.secondaryCpuAbiString;
+        this.cpuAbiOverrideString = other.cpuAbiOverrideString;
+        this.timeStamp = other.timeStamp;
+        this.firstInstallTime = other.firstInstallTime;
+        this.lastUpdateTime = other.lastUpdateTime;
+        this.versionCode = other.versionCode;
+        this.uidError = other.uidError;
+        this.signatures = other.signatures;
+        this.installPermissionsFixed = other.installPermissionsFixed;
+        this.keySetData = other.keySetData;
+        this.installSource = other.installSource;
+        this.volumeUuid = other.volumeUuid;
+        this.categoryHint = other.categoryHint;
+        this.updateAvailable = other.updateAvailable;
+        this.verificationInfo = other.verificationInfo;
+        this.forceQueryableOverride = other.forceQueryableOverride;
+
+        if (mOldCodePaths != null) {
+            if (other.mOldCodePaths != null) {
+                mOldCodePaths.clear();
+                mOldCodePaths.addAll(other.mOldCodePaths);
+            } else {
+                mOldCodePaths = null;
+            }
+        }
+        mUserState.clear();
+        for (int i = 0; i < other.mUserState.size(); i++) {
+            mUserState.put(other.mUserState.keyAt(i), other.mUserState.valueAt(i));
+        }
+        return this;
     }
 }

@@ -16,6 +16,12 @@
 
 package android.os;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+
+import dalvik.annotation.optimization.CriticalNative;
+import dalvik.annotation.optimization.FastNative;
+
 /**
  * Writes trace events to the system trace buffer.  These trace events can be
  * collected and visualized using the Systrace tool.
@@ -46,6 +52,7 @@ public final class Trace {
     /** @hide */
     public static final long TRACE_TAG_INPUT = 1L << 2;
     /** @hide */
+    @UnsupportedAppUsage
     public static final long TRACE_TAG_VIEW = 1L << 3;
     /** @hide */
     public static final long TRACE_TAG_WEBVIEW = 1L << 4;
@@ -64,6 +71,7 @@ public final class Trace {
     /** @hide */
     public static final long TRACE_TAG_HAL = 1L << 11;
     /** @hide */
+    @UnsupportedAppUsage
     public static final long TRACE_TAG_APP = 1L << 12;
     /** @hide */
     public static final long TRACE_TAG_RESOURCES = 1L << 13;
@@ -83,59 +91,48 @@ public final class Trace {
     public static final long TRACE_TAG_DATABASE = 1L << 20;
     /** @hide */
     public static final long TRACE_TAG_NETWORK = 1L << 21;
+    /** @hide */
+    public static final long TRACE_TAG_ADB = 1L << 22;
+    /** @hide */
+    public static final long TRACE_TAG_VIBRATOR = 1L << 23;
+    /** @hide */
+    public static final long TRACE_TAG_AIDL = 1L << 24;
+    /** @hide */
+    public static final long TRACE_TAG_NNAPI = 1L << 25;
+    /** @hide */
+    public static final long TRACE_TAG_RRO = 1L << 26;
+    /** @hide */
+    public static final long TRACE_TAG_APEX_MANAGER = 1L << 18;
 
     private static final long TRACE_TAG_NOT_READY = 1L << 63;
     private static final int MAX_SECTION_NAME_LEN = 127;
 
     // Must be volatile to avoid word tearing.
+    // This is only kept in case any apps get this by reflection but do not
+    // check the return value for null.
+    @UnsupportedAppUsage
     private static volatile long sEnabledTags = TRACE_TAG_NOT_READY;
 
+    private static int sZygoteDebugFlags = 0;
+
+    @UnsupportedAppUsage
+    @CriticalNative
     private static native long nativeGetEnabledTags();
-    private static native void nativeTraceCounter(long tag, String name, int value);
-    private static native void nativeTraceBegin(long tag, String name);
-    private static native void nativeTraceEnd(long tag);
-    private static native void nativeAsyncTraceBegin(long tag, String name, int cookie);
-    private static native void nativeAsyncTraceEnd(long tag, String name, int cookie);
     private static native void nativeSetAppTracingAllowed(boolean allowed);
     private static native void nativeSetTracingEnabled(boolean allowed);
 
-    static {
-        // We configure two separate change callbacks, one in Trace.cpp and one here.  The
-        // native callback reads the tags from the system property, and this callback
-        // reads the value that the native code retrieved.  It's essential that the native
-        // callback executes first.
-        //
-        // The system provides ordering through a priority level.  Callbacks made through
-        // SystemProperties.addChangeCallback currently have a negative priority, while
-        // our native code is using a priority of zero.
-        SystemProperties.addChangeCallback(new Runnable() {
-            @Override public void run() {
-                cacheEnabledTags();
-            }
-        });
-    }
+    @FastNative
+    private static native void nativeTraceCounter(long tag, String name, long value);
+    @FastNative
+    private static native void nativeTraceBegin(long tag, String name);
+    @FastNative
+    private static native void nativeTraceEnd(long tag);
+    @FastNative
+    private static native void nativeAsyncTraceBegin(long tag, String name, int cookie);
+    @FastNative
+    private static native void nativeAsyncTraceEnd(long tag, String name, int cookie);
 
     private Trace() {
-    }
-
-    /**
-     * Caches a copy of the enabled-tag bits.  The "master" copy is held by the native code,
-     * and comes from the PROPERTY_TRACE_TAG_ENABLEFLAGS property.
-     * <p>
-     * If the native code hasn't yet read the property, we will cause it to do one-time
-     * initialization.  We don't want to do this during class init, because this class is
-     * preloaded, so all apps would be stuck with whatever the zygote saw.  (The zygote
-     * doesn't see the system-property update broadcasts.)
-     * <p>
-     * We want to defer initialization until the first use by an app, post-zygote.
-     * <p>
-     * We're okay if multiple threads call here simultaneously -- the native state is
-     * synchronized, and sEnabledTags is volatile (prevents word tearing).
-     */
-    private static long cacheEnabledTags() {
-        long tags = nativeGetEnabledTags();
-        sEnabledTags = tags;
-        return tags;
     }
 
     /**
@@ -146,11 +143,9 @@ public final class Trace {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static boolean isTagEnabled(long traceTag) {
-        long tags = sEnabledTags;
-        if (tags == TRACE_TAG_NOT_READY) {
-            tags = cacheEnabledTags();
-        }
+        long tags = nativeGetEnabledTags();
         return (tags & traceTag) != 0;
     }
 
@@ -163,6 +158,7 @@ public final class Trace {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static void traceCounter(long traceTag, String counterName, int counterValue) {
         if (isTagEnabled(traceTag)) {
             nativeTraceCounter(traceTag, counterName, counterValue);
@@ -175,28 +171,18 @@ public final class Trace {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static void setAppTracingAllowed(boolean allowed) {
         nativeSetAppTracingAllowed(allowed);
-
-        // Setting whether app tracing is allowed may change the tags, so we update the cached
-        // tags here.
-        cacheEnabledTags();
     }
 
     /**
-     * Set whether tracing is enabled in this process.  Tracing is disabled shortly after Zygote
-     * initializes and re-enabled after processes fork from Zygote.  This is done because Zygote
-     * has no way to be notified about changes to the tracing tags, and if Zygote ever reads and
-     * caches the tracing tags, forked processes will inherit those stale tags.
-     *
+     * Set whether tracing is enabled in this process.
      * @hide
      */
-    public static void setTracingEnabled(boolean enabled) {
+    public static void setTracingEnabled(boolean enabled, int debugFlags) {
         nativeSetTracingEnabled(enabled);
-
-        // Setting whether tracing is enabled may change the tags, so we update the cached tags
-        // here.
-        cacheEnabledTags();
+        sZygoteDebugFlags = debugFlags;
     }
 
     /**
@@ -209,6 +195,7 @@ public final class Trace {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static void traceBegin(long traceTag, String methodName) {
         if (isTagEnabled(traceTag)) {
             nativeTraceBegin(traceTag, methodName);
@@ -223,6 +210,7 @@ public final class Trace {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static void traceEnd(long traceTag) {
         if (isTagEnabled(traceTag)) {
             nativeTraceEnd(traceTag);
@@ -242,6 +230,7 @@ public final class Trace {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static void asyncTraceBegin(long traceTag, String methodName, int cookie) {
         if (isTagEnabled(traceTag)) {
             nativeAsyncTraceBegin(traceTag, methodName, cookie);
@@ -259,10 +248,24 @@ public final class Trace {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static void asyncTraceEnd(long traceTag, String methodName, int cookie) {
         if (isTagEnabled(traceTag)) {
             nativeAsyncTraceEnd(traceTag, methodName, cookie);
         }
+    }
+
+    /**
+     * Checks whether or not tracing is currently enabled. This is useful to avoid intermediate
+     * string creation for trace sections that require formatting. It is not necessary
+     * to guard all Trace method calls as they internally already check this. However it is
+     * recommended to use this to prevent creating any temporary objects that would then be
+     * passed to those methods to reduce runtime cost when tracing isn't enabled.
+     *
+     * @return true if tracing is currently enabled, false otherwise
+     */
+    public static boolean isEnabled() {
+        return isTagEnabled(TRACE_TAG_APP);
     }
 
     /**
@@ -276,7 +279,7 @@ public final class Trace {
      * @param sectionName The name of the code section to appear in the trace.  This may be at
      * most 127 Unicode code units long.
      */
-    public static void beginSection(String sectionName) {
+    public static void beginSection(@NonNull String sectionName) {
         if (isTagEnabled(TRACE_TAG_APP)) {
             if (sectionName.length() > MAX_SECTION_NAME_LEN) {
                 throw new IllegalArgumentException("sectionName is too long");
@@ -295,6 +298,44 @@ public final class Trace {
     public static void endSection() {
         if (isTagEnabled(TRACE_TAG_APP)) {
             nativeTraceEnd(TRACE_TAG_APP);
+        }
+    }
+
+    /**
+     * Writes a trace message to indicate that a given section of code has
+     * begun. Must be followed by a call to {@link #endAsyncSection(String, int)} with the same
+     * methodName and cookie. Unlike {@link #beginSection(String)} and {@link #endSection()},
+     * asynchronous events do not need to be nested. The name and cookie used to
+     * begin an event must be used to end it.
+     *
+     * @param methodName The method name to appear in the trace.
+     * @param cookie Unique identifier for distinguishing simultaneous events
+     */
+    public static void beginAsyncSection(@NonNull String methodName, int cookie) {
+        asyncTraceBegin(TRACE_TAG_APP, methodName, cookie);
+    }
+
+    /**
+     * Writes a trace message to indicate that the current method has ended.
+     * Must be called exactly once for each call to {@link #beginAsyncSection(String, int)}
+     * using the same name and cookie.
+     *
+     * @param methodName The method name to appear in the trace.
+     * @param cookie Unique identifier for distinguishing simultaneous events
+     */
+    public static void endAsyncSection(@NonNull String methodName, int cookie) {
+        asyncTraceEnd(TRACE_TAG_APP, methodName, cookie);
+    }
+
+    /**
+     * Writes trace message to indicate the value of a given counter.
+     *
+     * @param counterName The counter name to appear in the trace.
+     * @param counterValue The counter value.
+     */
+    public static void setCounter(@NonNull String counterName, long counterValue) {
+        if (isTagEnabled(TRACE_TAG_APP)) {
+            nativeTraceCounter(TRACE_TAG_APP, counterName, counterValue);
         }
     }
 }

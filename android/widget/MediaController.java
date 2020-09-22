@@ -16,10 +16,12 @@
 
 package android.widget;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.PixelFormat;
 import android.media.AudioManager;
+import android.os.Build;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Gravity;
@@ -68,16 +70,29 @@ import java.util.Locale;
  */
 public class MediaController extends FrameLayout {
 
+    @UnsupportedAppUsage
     private MediaPlayerControl mPlayer;
+    @UnsupportedAppUsage
     private final Context mContext;
+    @UnsupportedAppUsage
     private View mAnchor;
+    @UnsupportedAppUsage
     private View mRoot;
+    @UnsupportedAppUsage
     private WindowManager mWindowManager;
+    @UnsupportedAppUsage
     private Window mWindow;
+    @UnsupportedAppUsage
     private View mDecor;
+    @UnsupportedAppUsage
     private WindowManager.LayoutParams mDecorLayoutParams;
+    @UnsupportedAppUsage
     private ProgressBar mProgress;
-    private TextView mEndTime, mCurrentTime;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+    private TextView mEndTime;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+    private TextView mCurrentTime;
+    @UnsupportedAppUsage
     private boolean mShowing;
     private boolean mDragging;
     private static final int sDefaultTimeout = 3000;
@@ -87,10 +102,15 @@ public class MediaController extends FrameLayout {
     private View.OnClickListener mNextListener, mPrevListener;
     StringBuilder mFormatBuilder;
     Formatter mFormatter;
+    @UnsupportedAppUsage
     private ImageButton mPauseButton;
+    @UnsupportedAppUsage
     private ImageButton mFfwdButton;
+    @UnsupportedAppUsage
     private ImageButton mRewButton;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private ImageButton mNextButton;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private ImageButton mPrevButton;
     private CharSequence mPlayDescription;
     private CharSequence mPauseDescription;
@@ -257,13 +277,13 @@ public class MediaController extends FrameLayout {
                 .getText(com.android.internal.R.string.lockscreen_transport_play_description);
         mPauseDescription = res
                 .getText(com.android.internal.R.string.lockscreen_transport_pause_description);
-        mPauseButton = (ImageButton) v.findViewById(com.android.internal.R.id.pause);
+        mPauseButton = v.findViewById(com.android.internal.R.id.pause);
         if (mPauseButton != null) {
             mPauseButton.requestFocus();
             mPauseButton.setOnClickListener(mPauseListener);
         }
 
-        mFfwdButton = (ImageButton) v.findViewById(com.android.internal.R.id.ffwd);
+        mFfwdButton = v.findViewById(com.android.internal.R.id.ffwd);
         if (mFfwdButton != null) {
             mFfwdButton.setOnClickListener(mFfwdListener);
             if (!mFromXml) {
@@ -271,7 +291,7 @@ public class MediaController extends FrameLayout {
             }
         }
 
-        mRewButton = (ImageButton) v.findViewById(com.android.internal.R.id.rew);
+        mRewButton = v.findViewById(com.android.internal.R.id.rew);
         if (mRewButton != null) {
             mRewButton.setOnClickListener(mRewListener);
             if (!mFromXml) {
@@ -280,16 +300,16 @@ public class MediaController extends FrameLayout {
         }
 
         // By default these are hidden. They will be enabled when setPrevNextListeners() is called
-        mNextButton = (ImageButton) v.findViewById(com.android.internal.R.id.next);
+        mNextButton = v.findViewById(com.android.internal.R.id.next);
         if (mNextButton != null && !mFromXml && !mListenersSet) {
             mNextButton.setVisibility(View.GONE);
         }
-        mPrevButton = (ImageButton) v.findViewById(com.android.internal.R.id.prev);
+        mPrevButton = v.findViewById(com.android.internal.R.id.prev);
         if (mPrevButton != null && !mFromXml && !mListenersSet) {
             mPrevButton.setVisibility(View.GONE);
         }
 
-        mProgress = (ProgressBar) v.findViewById(com.android.internal.R.id.mediacontroller_progress);
+        mProgress = v.findViewById(com.android.internal.R.id.mediacontroller_progress);
         if (mProgress != null) {
             if (mProgress instanceof SeekBar) {
                 SeekBar seeker = (SeekBar) mProgress;
@@ -298,8 +318,8 @@ public class MediaController extends FrameLayout {
             mProgress.setMax(1000);
         }
 
-        mEndTime = (TextView) v.findViewById(com.android.internal.R.id.time);
-        mCurrentTime = (TextView) v.findViewById(com.android.internal.R.id.time_current);
+        mEndTime = v.findViewById(com.android.internal.R.id.time);
+        mCurrentTime = v.findViewById(com.android.internal.R.id.time_current);
         mFormatBuilder = new StringBuilder();
         mFormatter = new Formatter(mFormatBuilder, Locale.getDefault());
 
@@ -535,6 +555,7 @@ public class MediaController extends FrameLayout {
         }
     };
 
+    @UnsupportedAppUsage
     private void updatePausePlay() {
         if (mRoot == null || mPauseButton == null)
             return;
@@ -568,6 +589,7 @@ public class MediaController extends FrameLayout {
     // The second scenario involves the user operating the scroll ball, in this
     // case there WON'T BE onStartTrackingTouch/onStopTrackingTouch notifications,
     // we will simply apply the updated position without suspending regular updates.
+    @UnsupportedAppUsage
     private final OnSeekBarChangeListener mSeekListener = new OnSeekBarChangeListener() {
         @Override
         public void onStartTrackingTouch(SeekBar bar) {
@@ -641,6 +663,7 @@ public class MediaController extends FrameLayout {
         return MediaController.class.getName();
     }
 
+    @UnsupportedAppUsage
     private final View.OnClickListener mRewListener = new View.OnClickListener() {
         @Override
         public void onClick(View v) {
@@ -653,6 +676,7 @@ public class MediaController extends FrameLayout {
         }
     };
 
+    @UnsupportedAppUsage
     private final View.OnClickListener mFfwdListener = new View.OnClickListener() {
         @Override
         public void onClick(View v) {

@@ -20,9 +20,12 @@ import static android.hardware.soundtrigger.SoundTrigger.STATUS_OK;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.hardware.soundtrigger.IRecognitionStatusCallback;
 import android.hardware.soundtrigger.SoundTrigger;
+import android.hardware.soundtrigger.SoundTrigger.ModuleProperties;
 import android.hardware.soundtrigger.SoundTrigger.RecognitionConfig;
 import android.media.AudioFormat;
 import android.os.Handler;
@@ -73,7 +76,9 @@ public final class SoundTriggerDetector {
             value = {
                 RECOGNITION_FLAG_NONE,
                 RECOGNITION_FLAG_CAPTURE_TRIGGER_AUDIO,
-                RECOGNITION_FLAG_ALLOW_MULTIPLE_TRIGGERS
+                RECOGNITION_FLAG_ALLOW_MULTIPLE_TRIGGERS,
+                RECOGNITION_FLAG_ENABLE_AUDIO_ECHO_CANCELLATION,
+                    RECOGNITION_FLAG_ENABLE_AUDIO_NOISE_SUPPRESSION,
             })
     public @interface RecognitionFlags {}
 
@@ -98,9 +103,33 @@ public final class SoundTriggerDetector {
      * triggers after a call to {@link #startRecognition(int)}, if the model
      * triggers multiple times.
      * When this isn't specified, the default behavior is to stop recognition once the
-     * trigger happenss, till the caller starts recognition again.
+     * trigger happens, till the caller starts recognition again.
      */
     public static final int RECOGNITION_FLAG_ALLOW_MULTIPLE_TRIGGERS = 0x2;
+
+    /**
+     * Audio capabilities flag for {@link #startRecognition(int)} that indicates
+     * if the underlying recognition should use AEC.
+     * This capability may or may not be supported by the system, and support can be queried
+     * by calling {@link SoundTriggerManager#getModuleProperties()} and checking
+     * {@link ModuleProperties#audioCapabilities}. The corresponding capabilities field for
+     * this flag is {@link SoundTrigger.ModuleProperties#AUDIO_CAPABILITY_ECHO_CANCELLATION}.
+     * If this flag is passed without the audio capability supported, there will be no audio effect
+     * applied.
+     */
+    public static final int RECOGNITION_FLAG_ENABLE_AUDIO_ECHO_CANCELLATION = 0x4;
+
+    /**
+     * Audio capabilities flag for {@link #startRecognition(int)} that indicates
+     * if the underlying recognition should use noise suppression.
+     * This capability may or may not be supported by the system, and support can be queried
+     * by calling {@link SoundTriggerManager#getModuleProperties()} and checking
+     * {@link ModuleProperties#audioCapabilities}. The corresponding capabilities field for
+     * this flag is {@link SoundTrigger.ModuleProperties#AUDIO_CAPABILITY_NOISE_SUPPRESSION}.
+     * If this flag is passed without the audio capability supported, there will be no audio effect
+     * applied.
+     */
+    public static final int RECOGNITION_FLAG_ENABLE_AUDIO_NOISE_SUPPRESSION = 0x8;
 
     /**
      * Additional payload for {@link Callback#onDetected}.
@@ -137,7 +166,7 @@ public final class SoundTriggerDetector {
         }
 
         /**
-         * Gets the raw audio that triggered the keyphrase.
+         * Gets the raw audio that triggered the detector.
          * This may be null if the trigger audio isn't available.
          * If non-null, the format of the audio can be obtained by calling
          * {@link #getCaptureAudioFormat()}.
@@ -147,6 +176,25 @@ public final class SoundTriggerDetector {
         @Nullable
         public byte[] getTriggerAudio() {
             if (mTriggerAvailable) {
+                return mData;
+            } else {
+                return null;
+            }
+        }
+
+        /**
+         * Gets the opaque data passed from the detection engine for the event.
+         * This may be null if it was not populated by the engine, or if the data is known to
+         * contain the trigger audio.
+         *
+         * @see #getTriggerAudio
+         *
+         * @hide
+         */
+        @Nullable
+        @UnsupportedAppUsage
+        public byte[] getData() {
+            if (!mTriggerAvailable) {
                 return mData;
             } else {
                 return null;
@@ -172,6 +220,7 @@ public final class SoundTriggerDetector {
          * @hide
          */
         @Nullable
+        @UnsupportedAppUsage
         public Integer getCaptureSession() {
             if (mCaptureAvailable) {
                 return mCaptureSession;
@@ -235,6 +284,7 @@ public final class SoundTriggerDetector {
      * {@link Callback}.
      * @return Indicates whether the call succeeded or not.
      */
+    @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
     public boolean startRecognition(@RecognitionFlags int recognitionFlags) {
         if (DBG) {
             Slog.d(TAG, "startRecognition()");
@@ -244,11 +294,20 @@ public final class SoundTriggerDetector {
 
         boolean allowMultipleTriggers =
                 (recognitionFlags & RECOGNITION_FLAG_ALLOW_MULTIPLE_TRIGGERS) != 0;
-        int status = STATUS_OK;
+
+        int audioCapabilities = 0;
+        if ((recognitionFlags & RECOGNITION_FLAG_ENABLE_AUDIO_ECHO_CANCELLATION) != 0) {
+            audioCapabilities |= SoundTrigger.ModuleProperties.AUDIO_CAPABILITY_ECHO_CANCELLATION;
+        }
+        if ((recognitionFlags & RECOGNITION_FLAG_ENABLE_AUDIO_NOISE_SUPPRESSION) != 0) {
+            audioCapabilities |= SoundTrigger.ModuleProperties.AUDIO_CAPABILITY_NOISE_SUPPRESSION;
+        }
+
+        int status;
         try {
             status = mSoundTriggerService.startRecognition(new ParcelUuid(mSoundModelId),
                     mRecognitionCallback, new RecognitionConfig(captureTriggerAudio,
-                        allowMultipleTriggers, null, null));
+                        allowMultipleTriggers, null, null, audioCapabilities));
         } catch (RemoteException e) {
             return false;
         }
@@ -258,6 +317,7 @@ public final class SoundTriggerDetector {
     /**
      * Stops recognition for the associated model.
      */
+    @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
     public boolean stopRecognition() {
         int status = STATUS_OK;
         try {

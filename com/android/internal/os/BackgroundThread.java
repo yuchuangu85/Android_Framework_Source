@@ -17,15 +17,22 @@
 package com.android.internal.os;
 
 import android.os.Handler;
+import android.os.HandlerExecutor;
 import android.os.HandlerThread;
+import android.os.Looper;
 import android.os.Trace;
+
+import java.util.concurrent.Executor;
 
 /**
  * Shared singleton background thread for each process.
  */
 public final class BackgroundThread extends HandlerThread {
+    private static final long SLOW_DISPATCH_THRESHOLD_MS = 10_000;
+    private static final long SLOW_DELIVERY_THRESHOLD_MS = 30_000;
     private static BackgroundThread sInstance;
     private static Handler sHandler;
+    private static HandlerExecutor sHandlerExecutor;
 
     private BackgroundThread() {
         super("android.bg", android.os.Process.THREAD_PRIORITY_BACKGROUND);
@@ -35,8 +42,12 @@ public final class BackgroundThread extends HandlerThread {
         if (sInstance == null) {
             sInstance = new BackgroundThread();
             sInstance.start();
-            sInstance.getLooper().setTraceTag(Trace.TRACE_TAG_ACTIVITY_MANAGER);
+            final Looper looper = sInstance.getLooper();
+            looper.setTraceTag(Trace.TRACE_TAG_SYSTEM_SERVER);
+            looper.setSlowLogThresholdMs(
+                    SLOW_DISPATCH_THRESHOLD_MS, SLOW_DELIVERY_THRESHOLD_MS);
             sHandler = new Handler(sInstance.getLooper());
+            sHandlerExecutor = new HandlerExecutor(sHandler);
         }
     }
 
@@ -51,6 +62,13 @@ public final class BackgroundThread extends HandlerThread {
         synchronized (BackgroundThread.class) {
             ensureThreadLocked();
             return sHandler;
+        }
+    }
+
+    public static Executor getExecutor() {
+        synchronized (BackgroundThread.class) {
+            ensureThreadLocked();
+            return sHandlerExecutor;
         }
     }
 }

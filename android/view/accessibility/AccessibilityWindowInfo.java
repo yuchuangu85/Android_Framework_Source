@@ -16,12 +16,24 @@
 
 package android.view.accessibility;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.TestApi;
 import android.graphics.Rect;
+import android.graphics.Region;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.text.TextUtils;
 import android.util.LongArray;
 import android.util.Pools.SynchronizedPool;
+import android.util.SparseArray;
+import android.view.Display;
+import android.view.accessibility.AccessibilityEvent.WindowsChangeTypes;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * This class represents a state snapshot of a window for accessibility
@@ -71,32 +83,58 @@ public final class AccessibilityWindowInfo implements Parcelable {
      */
     public static final int TYPE_SPLIT_SCREEN_DIVIDER = 5;
 
-    private static final int UNDEFINED = -1;
+    /* Special values for window IDs */
+    /** @hide */
+    public static final int ACTIVE_WINDOW_ID = Integer.MAX_VALUE;
+    /** @hide */
+    public static final int UNDEFINED_CONNECTION_ID = -1;
+    /** @hide */
+    public static final int UNDEFINED_WINDOW_ID = -1;
+    /** @hide */
+    public static final int ANY_WINDOW_ID = -2;
+    /** @hide */
+    public static final int PICTURE_IN_PICTURE_ACTION_REPLACER_WINDOW_ID = -3;
 
     private static final int BOOLEAN_PROPERTY_ACTIVE = 1 << 0;
     private static final int BOOLEAN_PROPERTY_FOCUSED = 1 << 1;
     private static final int BOOLEAN_PROPERTY_ACCESSIBILITY_FOCUSED = 1 << 2;
+    private static final int BOOLEAN_PROPERTY_PICTURE_IN_PICTURE = 1 << 3;
 
     // Housekeeping.
     private static final int MAX_POOL_SIZE = 10;
     private static final SynchronizedPool<AccessibilityWindowInfo> sPool =
             new SynchronizedPool<AccessibilityWindowInfo>(MAX_POOL_SIZE);
+    // TODO(b/129300068): Remove sNumInstancesInUse.
+    private static AtomicInteger sNumInstancesInUse;
 
     // Data.
-    private int mType = UNDEFINED;
-    private int mLayer = UNDEFINED;
+    private int mDisplayId = Display.INVALID_DISPLAY;
+    private int mType = UNDEFINED_WINDOW_ID;
+    private int mLayer = UNDEFINED_WINDOW_ID;
     private int mBooleanProperties;
-    private int mId = UNDEFINED;
-    private int mParentId = UNDEFINED;
-    private final Rect mBoundsInScreen = new Rect();
+    private int mId = UNDEFINED_WINDOW_ID;
+    private int mParentId = UNDEFINED_WINDOW_ID;
+    private Region mRegionInScreen = new Region();
     private LongArray mChildIds;
     private CharSequence mTitle;
-    private int mAnchorId = UNDEFINED;
+    private long mAnchorId = AccessibilityNodeInfo.UNDEFINED_NODE_ID;
 
-    private int mConnectionId = UNDEFINED;
+    private int mConnectionId = UNDEFINED_CONNECTION_ID;
 
-    private AccessibilityWindowInfo() {
-        /* do nothing - hide constructor */
+    /**
+     * Creates a new {@link AccessibilityWindowInfo}.
+     */
+    public AccessibilityWindowInfo() {
+    }
+
+    /**
+     * Copy constructor. Creates a new {@link AccessibilityWindowInfo}, and this new instance is
+     * initialized from given <code>info</code>.
+     *
+     * @param info The other info.
+     */
+    public AccessibilityWindowInfo(@NonNull AccessibilityWindowInfo info) {
+        init(info);
     }
 
     /**
@@ -173,13 +211,13 @@ public final class AccessibilityWindowInfo implements Parcelable {
      * @return The root node.
      */
     public AccessibilityNodeInfo getRoot() {
-        if (mConnectionId == UNDEFINED) {
+        if (mConnectionId == UNDEFINED_WINDOW_ID) {
             return null;
         }
         AccessibilityInteractionClient client = AccessibilityInteractionClient.getInstance();
         return client.findAccessibilityNodeInfoByAccessibilityId(mConnectionId,
                 mId, AccessibilityNodeInfo.ROOT_NODE_ID,
-                true, AccessibilityNodeInfo.FLAG_PREFETCH_DESCENDANTS);
+                true, AccessibilityNodeInfo.FLAG_PREFETCH_DESCENDANTS, null);
     }
 
     /**
@@ -189,7 +227,7 @@ public final class AccessibilityWindowInfo implements Parcelable {
      *
      * @hide
      */
-    public void setAnchorId(int anchorId) {
+    public void setAnchorId(long anchorId) {
         mAnchorId = anchorId;
     }
 
@@ -199,13 +237,29 @@ public final class AccessibilityWindowInfo implements Parcelable {
      * @return The anchor node, or {@code null} if none exists.
      */
     public AccessibilityNodeInfo getAnchor() {
-        if ((mConnectionId == UNDEFINED) || (mAnchorId == UNDEFINED) || (mParentId == UNDEFINED)) {
+        if ((mConnectionId == UNDEFINED_WINDOW_ID)
+                || (mAnchorId == AccessibilityNodeInfo.UNDEFINED_NODE_ID)
+                || (mParentId == UNDEFINED_WINDOW_ID)) {
             return null;
         }
 
         AccessibilityInteractionClient client = AccessibilityInteractionClient.getInstance();
         return client.findAccessibilityNodeInfoByAccessibilityId(mConnectionId,
-                mParentId, mAnchorId, true, 0);
+                mParentId, mAnchorId, true, 0, null);
+    }
+
+    /** @hide */
+    public void setPictureInPicture(boolean pictureInPicture) {
+        setBooleanProperty(BOOLEAN_PROPERTY_PICTURE_IN_PICTURE, pictureInPicture);
+    }
+
+    /**
+     * Check if the window is in picture-in-picture mode.
+     *
+     * @return {@code true} if the window is in picture-in-picture mode, {@code false} otherwise.
+     */
+    public boolean isInPictureInPictureMode() {
+        return getBooleanProperty(BOOLEAN_PROPERTY_PICTURE_IN_PICTURE);
     }
 
     /**
@@ -214,7 +268,7 @@ public final class AccessibilityWindowInfo implements Parcelable {
      * @return The parent window, or {@code null} if none exists.
      */
     public AccessibilityWindowInfo getParent() {
-        if (mConnectionId == UNDEFINED || mParentId == UNDEFINED) {
+        if (mConnectionId == UNDEFINED_WINDOW_ID || mParentId == UNDEFINED_WINDOW_ID) {
             return null;
         }
         AccessibilityInteractionClient client = AccessibilityInteractionClient.getInstance();
@@ -265,23 +319,33 @@ public final class AccessibilityWindowInfo implements Parcelable {
     }
 
     /**
-     * Gets the bounds of this window in the screen.
+     * Gets the touchable region of this window in the screen.
+     *
+     * @param outRegion The out window region.
+     */
+    public void getRegionInScreen(@NonNull Region outRegion) {
+        outRegion.set(mRegionInScreen);
+    }
+
+    /**
+     * Sets the touchable region of this window in the screen.
+     *
+     * @param region The window region.
+     *
+     * @hide
+     */
+    public void setRegionInScreen(Region region) {
+        mRegionInScreen.set(region);
+    }
+
+    /**
+     * Gets the bounds of this window in the screen. This is equivalent to get the bounds of the
+     * Region from {@link #getRegionInScreen(Region)}.
      *
      * @param outBounds The out window bounds.
      */
     public void getBoundsInScreen(Rect outBounds) {
-        outBounds.set(mBoundsInScreen);
-    }
-
-    /**
-     * Sets the bounds of this window in the screen.
-     *
-     * @param bounds The out window bounds.
-     *
-     * @hide
-     */
-    public void setBoundsInScreen(Rect bounds) {
-        mBoundsInScreen.set(bounds);
+        outBounds.set(mRegionInScreen.getBounds());
     }
 
     /**
@@ -367,7 +431,7 @@ public final class AccessibilityWindowInfo implements Parcelable {
         if (mChildIds == null) {
             throw new IndexOutOfBoundsException();
         }
-        if (mConnectionId == UNDEFINED) {
+        if (mConnectionId == UNDEFINED_WINDOW_ID) {
             return null;
         }
         final int childId = (int) mChildIds.get(index);
@@ -390,8 +454,32 @@ public final class AccessibilityWindowInfo implements Parcelable {
     }
 
     /**
+     * Sets the display Id.
+     *
+     * @param displayId The display id.
+     *
+     * @hide
+     */
+    public void setDisplayId(int displayId) {
+        mDisplayId = displayId;
+    }
+
+    /**
+     * Returns the ID of the display this window is on, for use with
+     * {@link android.hardware.display.DisplayManager#getDisplay(int)}.
+     *
+     * @return The logical display id.
+     */
+    public int getDisplayId() {
+        return mDisplayId;
+    }
+
+    /**
      * Returns a cached instance if such is available or a new one is
      * created.
+     *
+     * <p>In most situations object pooling is not beneficial. Create a new instance using the
+     * constructor {@link #AccessibilityWindowInfo()} instead.
      *
      * @return An instance.
      */
@@ -399,6 +487,9 @@ public final class AccessibilityWindowInfo implements Parcelable {
         AccessibilityWindowInfo info = sPool.acquire();
         if (info == null) {
             info = new AccessibilityWindowInfo();
+        }
+        if (sNumInstancesInUse != null) {
+            sNumInstancesInUse.incrementAndGet();
         }
         return info;
     }
@@ -408,32 +499,28 @@ public final class AccessibilityWindowInfo implements Parcelable {
      * created. The returned instance is initialized from the given
      * <code>info</code>.
      *
+     * <p>In most situations object pooling is not beneficial. Create a new instance using the
+     * constructor {@link #AccessibilityWindowInfo(AccessibilityWindowInfo)} instead.
+     *
      * @param info The other info.
      * @return An instance.
      */
     public static AccessibilityWindowInfo obtain(AccessibilityWindowInfo info) {
         AccessibilityWindowInfo infoClone = obtain();
-
-        infoClone.mType = info.mType;
-        infoClone.mLayer = info.mLayer;
-        infoClone.mBooleanProperties = info.mBooleanProperties;
-        infoClone.mId = info.mId;
-        infoClone.mParentId = info.mParentId;
-        infoClone.mBoundsInScreen.set(info.mBoundsInScreen);
-        infoClone.mTitle = info.mTitle;
-        infoClone.mAnchorId = info.mAnchorId;
-
-        if (info.mChildIds != null && info.mChildIds.size() > 0) {
-            if (infoClone.mChildIds == null) {
-                infoClone.mChildIds = info.mChildIds.clone();
-            } else {
-                infoClone.mChildIds.addAll(info.mChildIds);
-            }
-        }
-
-        infoClone.mConnectionId = info.mConnectionId;
-
+        infoClone.init(info);
         return infoClone;
+    }
+
+    /**
+     * Specify a counter that will be incremented on obtain() and decremented on recycle()
+     *
+     * @hide
+     */
+    @TestApi
+    public static void setNumInstancesInUseCounter(AtomicInteger counter) {
+        if (sNumInstancesInUse != null) {
+            sNumInstancesInUse = counter;
+        }
     }
 
     /**
@@ -442,11 +529,40 @@ public final class AccessibilityWindowInfo implements Parcelable {
      * <strong>Note:</strong> You must not touch the object after calling this function.
      * </p>
      *
+     * <p>In most situations object pooling is not beneficial, and recycling is not necessary.
+     *
      * @throws IllegalStateException If the info is already recycled.
      */
     public void recycle() {
         clear();
         sPool.release(this);
+        if (sNumInstancesInUse != null) {
+            sNumInstancesInUse.decrementAndGet();
+        }
+    }
+
+    /**
+     * Refreshes this window with the latest state of the window it represents.
+     * <p>
+     * <strong>Note:</strong> If this method returns false this info is obsolete
+     * since it represents a window that is no longer exist.
+     * </p>
+     *
+     * @hide
+     */
+    public boolean refresh() {
+        if (mConnectionId == UNDEFINED_CONNECTION_ID || mId == UNDEFINED_WINDOW_ID) {
+            return false;
+        }
+        final AccessibilityInteractionClient client = AccessibilityInteractionClient.getInstance();
+        final AccessibilityWindowInfo refreshedInfo = client.getWindow(mConnectionId,
+                mId, /* bypassCache */true);
+        if (refreshedInfo == null) {
+            return false;
+        }
+        init(refreshedInfo);
+        refreshedInfo.recycle();
+        return true;
     }
 
     @Override
@@ -456,14 +572,15 @@ public final class AccessibilityWindowInfo implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel parcel, int flags) {
+        parcel.writeInt(mDisplayId);
         parcel.writeInt(mType);
         parcel.writeInt(mLayer);
         parcel.writeInt(mBooleanProperties);
         parcel.writeInt(mId);
         parcel.writeInt(mParentId);
-        mBoundsInScreen.writeToParcel(parcel, flags);
+        mRegionInScreen.writeToParcel(parcel, flags);
         parcel.writeCharSequence(mTitle);
-        parcel.writeInt(mAnchorId);
+        parcel.writeLong(mAnchorId);
 
         final LongArray childIds = mChildIds;
         if (childIds == null) {
@@ -479,15 +596,44 @@ public final class AccessibilityWindowInfo implements Parcelable {
         parcel.writeInt(mConnectionId);
     }
 
+    /**
+     * Initializes this instance from another one.
+     *
+     * @param other The other instance.
+     */
+    private void init(AccessibilityWindowInfo other) {
+        mDisplayId = other.mDisplayId;
+        mType = other.mType;
+        mLayer = other.mLayer;
+        mBooleanProperties = other.mBooleanProperties;
+        mId = other.mId;
+        mParentId = other.mParentId;
+        mRegionInScreen.set(other.mRegionInScreen);
+        mTitle = other.mTitle;
+        mAnchorId = other.mAnchorId;
+
+        if (mChildIds != null) mChildIds.clear();
+        if (other.mChildIds != null && other.mChildIds.size() > 0) {
+            if (mChildIds == null) {
+                mChildIds = other.mChildIds.clone();
+            } else {
+                mChildIds.addAll(other.mChildIds);
+            }
+        }
+
+        mConnectionId = other.mConnectionId;
+    }
+
     private void initFromParcel(Parcel parcel) {
+        mDisplayId = parcel.readInt();
         mType = parcel.readInt();
         mLayer = parcel.readInt();
         mBooleanProperties = parcel.readInt();
         mId = parcel.readInt();
         mParentId = parcel.readInt();
-        mBoundsInScreen.readFromParcel(parcel);
+        mRegionInScreen = Region.CREATOR.createFromParcel(parcel);
         mTitle = parcel.readCharSequence();
-        mAnchorId = parcel.readInt();
+        mAnchorId = parcel.readLong();
 
         final int childCount = parcel.readInt();
         if (childCount > 0) {
@@ -528,12 +674,15 @@ public final class AccessibilityWindowInfo implements Parcelable {
         StringBuilder builder = new StringBuilder();
         builder.append("AccessibilityWindowInfo[");
         builder.append("title=").append(mTitle);
-        builder.append("id=").append(mId);
+        builder.append(", displayId=").append(mDisplayId);
+        builder.append(", id=").append(mId);
         builder.append(", type=").append(typeToString(mType));
         builder.append(", layer=").append(mLayer);
-        builder.append(", bounds=").append(mBoundsInScreen);
+        builder.append(", region=").append(mRegionInScreen);
+        builder.append(", bounds=").append(mRegionInScreen.getBounds());
         builder.append(", focused=").append(isFocused());
         builder.append(", active=").append(isActive());
+        builder.append(", pictureInPicture=").append(isInPictureInPictureMode());
         if (DEBUG) {
             builder.append(", parent=").append(mParentId);
             builder.append(", children=[");
@@ -550,8 +699,9 @@ public final class AccessibilityWindowInfo implements Parcelable {
             }
             builder.append(']');
         } else {
-            builder.append(", hasParent=").append(mParentId != UNDEFINED);
-            builder.append(", isAnchored=").append(mAnchorId != UNDEFINED);
+            builder.append(", hasParent=").append(mParentId != UNDEFINED_WINDOW_ID);
+            builder.append(", isAnchored=")
+                    .append(mAnchorId != AccessibilityNodeInfo.UNDEFINED_NODE_ID);
             builder.append(", hasChildren=").append(mChildIds != null
                     && mChildIds.size() > 0);
         }
@@ -563,17 +713,16 @@ public final class AccessibilityWindowInfo implements Parcelable {
      * Clears the internal state.
      */
     private void clear() {
-        mType = UNDEFINED;
-        mLayer = UNDEFINED;
+        mDisplayId = Display.INVALID_DISPLAY;
+        mType = UNDEFINED_WINDOW_ID;
+        mLayer = UNDEFINED_WINDOW_ID;
         mBooleanProperties = 0;
-        mId = UNDEFINED;
-        mParentId = UNDEFINED;
-        mBoundsInScreen.setEmpty();
-        if (mChildIds != null) {
-            mChildIds.clear();
-        }
-        mConnectionId = UNDEFINED;
-        mAnchorId = UNDEFINED;
+        mId = UNDEFINED_WINDOW_ID;
+        mParentId = UNDEFINED_WINDOW_ID;
+        mRegionInScreen.setEmpty();
+        mChildIds = null;
+        mConnectionId = UNDEFINED_WINDOW_ID;
+        mAnchorId = AccessibilityNodeInfo.UNDEFINED_NODE_ID;
         mTitle = null;
     }
 
@@ -603,7 +752,10 @@ public final class AccessibilityWindowInfo implements Parcelable {
         }
     }
 
-    private static String typeToString(int type) {
+    /**
+     * @hide
+     */
+    public static String typeToString(int type) {
         switch (type) {
             case TYPE_APPLICATION: {
                 return "TYPE_APPLICATION";
@@ -621,50 +773,65 @@ public final class AccessibilityWindowInfo implements Parcelable {
                 return "TYPE_SPLIT_SCREEN_DIVIDER";
             }
             default:
-                return "<UNKNOWN>";
+                return "<UNKNOWN:" + type + ">";
         }
     }
 
     /**
-     * Checks whether this window changed. The argument should be
-     * another state of the same window, which is have the same id
-     * and type as they never change.
+     * Reports how this window differs from a possibly different state of the same window. The
+     * argument must have the same id and type as neither of those properties may change.
      *
      * @param other The new state.
-     * @return Whether something changed.
+     * @return A set of flags showing how the window has changes, or 0 if the two states are the
+     * same.
      *
      * @hide
      */
-    public boolean changed(AccessibilityWindowInfo other) {
+    @WindowsChangeTypes
+    public int differenceFrom(AccessibilityWindowInfo other) {
         if (other.mId != mId) {
             throw new IllegalArgumentException("Not same window.");
         }
         if (other.mType != mType) {
             throw new IllegalArgumentException("Not same type.");
         }
-        if (!mBoundsInScreen.equals(other.mBoundsInScreen)) {
-            return true;
+        int changes = 0;
+        if (!TextUtils.equals(mTitle, other.mTitle)) {
+            changes |= AccessibilityEvent.WINDOWS_CHANGE_TITLE;
+        }
+        if (!mRegionInScreen.equals(other.mRegionInScreen)) {
+            changes |= AccessibilityEvent.WINDOWS_CHANGE_BOUNDS;
         }
         if (mLayer != other.mLayer) {
-            return true;
+            changes |= AccessibilityEvent.WINDOWS_CHANGE_LAYER;
         }
-        if (mBooleanProperties != other.mBooleanProperties) {
-            return true;
+        if (getBooleanProperty(BOOLEAN_PROPERTY_ACTIVE)
+                != other.getBooleanProperty(BOOLEAN_PROPERTY_ACTIVE)) {
+            changes |= AccessibilityEvent.WINDOWS_CHANGE_ACTIVE;
+        }
+        if (getBooleanProperty(BOOLEAN_PROPERTY_FOCUSED)
+                != other.getBooleanProperty(BOOLEAN_PROPERTY_FOCUSED)) {
+            changes |= AccessibilityEvent.WINDOWS_CHANGE_FOCUSED;
+        }
+        if (getBooleanProperty(BOOLEAN_PROPERTY_ACCESSIBILITY_FOCUSED)
+                != other.getBooleanProperty(BOOLEAN_PROPERTY_ACCESSIBILITY_FOCUSED)) {
+            changes |= AccessibilityEvent.WINDOWS_CHANGE_ACCESSIBILITY_FOCUSED;
+        }
+        if (getBooleanProperty(BOOLEAN_PROPERTY_PICTURE_IN_PICTURE)
+                != other.getBooleanProperty(BOOLEAN_PROPERTY_PICTURE_IN_PICTURE)) {
+            changes |= AccessibilityEvent.WINDOWS_CHANGE_PIP;
         }
         if (mParentId != other.mParentId) {
-            return true;
+            changes |= AccessibilityEvent.WINDOWS_CHANGE_PARENT;
         }
-        if (mChildIds == null) {
-            if (other.mChildIds != null) {
-                return true;
-            }
-        } else if (!mChildIds.equals(other.mChildIds)) {
-            return true;
+        if (!Objects.equals(mChildIds, other.mChildIds)) {
+            changes |= AccessibilityEvent.WINDOWS_CHANGE_CHILDREN;
         }
-        return false;
+        //TODO(b/1338122): Add DISPLAY_CHANGED type for multi-display
+        return changes;
     }
 
-    public static final Parcelable.Creator<AccessibilityWindowInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<AccessibilityWindowInfo> CREATOR =
             new Creator<AccessibilityWindowInfo>() {
         @Override
         public AccessibilityWindowInfo createFromParcel(Parcel parcel) {
@@ -678,4 +845,49 @@ public final class AccessibilityWindowInfo implements Parcelable {
             return new AccessibilityWindowInfo[size];
         }
     };
+
+    /**
+     * Transfers a sparsearray with lists having {@link AccessibilityWindowInfo}s across an IPC.
+     * The key of this sparsearray is display Id.
+     *
+     * @hide
+     */
+    public static final class WindowListSparseArray
+            extends SparseArray<List<AccessibilityWindowInfo>> implements Parcelable {
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            final int count = size();
+            dest.writeInt(count);
+            for (int i = 0; i < count; i++) {
+                dest.writeParcelableList(valueAt(i), 0);
+                dest.writeInt(keyAt(i));
+            }
+        }
+
+        public static final Parcelable.Creator<WindowListSparseArray> CREATOR =
+                new Parcelable.Creator<WindowListSparseArray>() {
+            public WindowListSparseArray createFromParcel(
+                    Parcel source) {
+                final WindowListSparseArray array = new WindowListSparseArray();
+                final ClassLoader loader = array.getClass().getClassLoader();
+                final int count = source.readInt();
+                for (int i = 0; i < count; i++) {
+                    List<AccessibilityWindowInfo> windows = new ArrayList<>();
+                    source.readParcelableList(windows, loader);
+                    array.put(source.readInt(), windows);
+                }
+                return array;
+            }
+
+            public WindowListSparseArray[] newArray(int size) {
+                return new WindowListSparseArray[size];
+            }
+        };
+    }
 }

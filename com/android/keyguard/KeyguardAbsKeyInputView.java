@@ -16,7 +16,11 @@
 
 package com.android.keyguard;
 
+import static com.android.internal.util.LatencyTracker.ACTION_CHECK_CREDENTIAL;
+import static com.android.internal.util.LatencyTracker.ACTION_CHECK_CREDENTIAL_UNLOCKED;
+
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.os.AsyncTask;
 import android.os.CountDownTimer;
 import android.os.SystemClock;
@@ -26,8 +30,12 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.widget.LinearLayout;
 
+import com.android.internal.util.LatencyTracker;
 import com.android.internal.widget.LockPatternChecker;
 import com.android.internal.widget.LockPatternUtils;
+import com.android.internal.widget.LockscreenCredential;
+import com.android.systemui.Dependency;
+import com.android.systemui.R;
 
 /**
  * Base class for PIN and password unlock screens.
@@ -41,6 +49,9 @@ public abstract class KeyguardAbsKeyInputView extends LinearLayout
     protected View mEcaView;
     protected boolean mEnableHaptics;
     private boolean mDismissing;
+    protected boolean mResumed;
+    private CountDownTimer mCountdownTimer = null;
+    private final KeyguardUpdateMonitor mKeyguardUpdateMonitor;
 
     // To avoid accidental lockout due to events while the device in in the pocket, ignore
     // any passwords with length less than or equal to this length.
@@ -52,6 +63,7 @@ public abstract class KeyguardAbsKeyInputView extends LinearLayout
 
     public KeyguardAbsKeyInputView(Context context, AttributeSet attrs) {
         super(context, attrs);
+        mKeyguardUpdateMonitor = Dependency.get(KeyguardUpdateMonitor.class);
     }
 
     @Override
@@ -91,13 +103,18 @@ public abstract class KeyguardAbsKeyInputView extends LinearLayout
     @Override
     protected void onFinishInflate() {
         mLockPatternUtils = new LockPatternUtils(mContext);
-        mSecurityMessageDisplay = KeyguardMessageArea.findSecurityMessageDisplay(this);
         mEcaView = findViewById(R.id.keyguard_selector_fade_container);
 
-        EmergencyButton button = (EmergencyButton) findViewById(R.id.emergency_call_button);
+        EmergencyButton button = findViewById(R.id.emergency_call_button);
         if (button != null) {
             button.setCallback(this);
         }
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        mSecurityMessageDisplay = KeyguardMessageArea.findSecurityMessageDisplay(this);
     }
 
     @Override
@@ -117,41 +134,69 @@ public abstract class KeyguardAbsKeyInputView extends LinearLayout
     protected void verifyPasswordAndUnlock() {
         if (mDismissing) return; // already verified but haven't been dismissed; don't do it again.
 
-        final String entry = getPasswordText();
+        final LockscreenCredential password = getEnteredCredential();
         setPasswordEntryInputEnabled(false);
         if (mPendingLockCheck != null) {
             mPendingLockCheck.cancel(false);
         }
 
         final int userId = KeyguardUpdateMonitor.getCurrentUser();
-        if (entry.length() <= MINIMUM_PASSWORD_LENGTH_BEFORE_REPORT) {
+        if (password.size() <= MINIMUM_PASSWORD_LENGTH_BEFORE_REPORT) {
             // to avoid accidental lockout, only count attempts that are long enough to be a
             // real password. This may require some tweaking.
             setPasswordEntryInputEnabled(true);
             onPasswordChecked(userId, false /* matched */, 0, false /* not valid - too short */);
+            password.zeroize();
             return;
         }
 
-        mPendingLockCheck = LockPatternChecker.checkPassword(
+        if (LatencyTracker.isEnabled(mContext)) {
+            LatencyTracker.getInstance(mContext).onActionStart(ACTION_CHECK_CREDENTIAL);
+            LatencyTracker.getInstance(mContext).onActionStart(ACTION_CHECK_CREDENTIAL_UNLOCKED);
+        }
+
+        mKeyguardUpdateMonitor.setCredentialAttempted();
+        mPendingLockCheck = LockPatternChecker.checkCredential(
                 mLockPatternUtils,
-                entry,
+                password,
                 userId,
                 new LockPatternChecker.OnCheckCallback() {
 
                     @Override
                     public void onEarlyMatched() {
+                        if (LatencyTracker.isEnabled(mContext)) {
+                            LatencyTracker.getInstance(mContext).onActionEnd(
+                                    ACTION_CHECK_CREDENTIAL);
+                        }
                         onPasswordChecked(userId, true /* matched */, 0 /* timeoutMs */,
                                 true /* isValidPassword */);
+                        password.zeroize();
                     }
 
                     @Override
                     public void onChecked(boolean matched, int timeoutMs) {
+                        if (LatencyTracker.isEnabled(mContext)) {
+                            LatencyTracker.getInstance(mContext).onActionEnd(
+                                    ACTION_CHECK_CREDENTIAL_UNLOCKED);
+                        }
                         setPasswordEntryInputEnabled(true);
                         mPendingLockCheck = null;
                         if (!matched) {
                             onPasswordChecked(userId, false /* matched */, timeoutMs,
                                     true /* isValidPassword */);
                         }
+                        password.zeroize();
+                    }
+
+                    @Override
+                    public void onCancelled() {
+                        // We already got dismissed with the early matched callback, so we cancelled
+                        // the check. However, we still need to note down the latency.
+                        if (LatencyTracker.isEnabled(mContext)) {
+                            LatencyTracker.getInstance(mContext).onActionEnd(
+                                    ACTION_CHECK_CREDENTIAL_UNLOCKED);
+                        }
+                        password.zeroize();
                     }
                 });
     }
@@ -163,7 +208,7 @@ public abstract class KeyguardAbsKeyInputView extends LinearLayout
             mCallback.reportUnlockAttempt(userId, true, 0);
             if (dismissKeyguard) {
                 mDismissing = true;
-                mCallback.dismiss(true);
+                mCallback.dismiss(true, userId);
             }
         } else {
             if (isValidPassword) {
@@ -175,14 +220,14 @@ public abstract class KeyguardAbsKeyInputView extends LinearLayout
                 }
             }
             if (timeoutMs == 0) {
-                mSecurityMessageDisplay.setMessage(getWrongPasswordStringId(), true);
+                mSecurityMessageDisplay.setMessage(getWrongPasswordStringId());
             }
         }
         resetPasswordText(true /* animate */, !matched /* announce deletion if no match */);
     }
 
     protected abstract void resetPasswordText(boolean animate, boolean announce);
-    protected abstract String getPasswordText();
+    protected abstract LockscreenCredential getEnteredCredential();
     protected abstract void setPasswordEntryEnabled(boolean enabled);
     protected abstract void setPasswordEntryInputEnabled(boolean enabled);
 
@@ -190,18 +235,21 @@ public abstract class KeyguardAbsKeyInputView extends LinearLayout
     protected void handleAttemptLockout(long elapsedRealtimeDeadline) {
         setPasswordEntryEnabled(false);
         long elapsedRealtime = SystemClock.elapsedRealtime();
-        new CountDownTimer(elapsedRealtimeDeadline - elapsedRealtime, 1000) {
+        long secondsInFuture = (long) Math.ceil(
+                (elapsedRealtimeDeadline - elapsedRealtime) / 1000.0);
+        mCountdownTimer = new CountDownTimer(secondsInFuture * 1000, 1000) {
 
             @Override
             public void onTick(long millisUntilFinished) {
-                int secondsRemaining = (int) (millisUntilFinished / 1000);
-                mSecurityMessageDisplay.setMessage(
-                        R.string.kg_too_many_failed_attempts_countdown, true, secondsRemaining);
+                int secondsRemaining = (int) Math.round(millisUntilFinished / 1000.0);
+                mSecurityMessageDisplay.setMessage(mContext.getResources().getQuantityString(
+                        R.plurals.kg_too_many_failed_attempts_countdown,
+                        secondsRemaining, secondsRemaining));
             }
 
             @Override
             public void onFinish() {
-                mSecurityMessageDisplay.setMessage("", false);
+                mSecurityMessageDisplay.setMessage("");
                 resetState();
             }
         }.start();
@@ -210,13 +258,19 @@ public abstract class KeyguardAbsKeyInputView extends LinearLayout
     protected void onUserInput() {
         if (mCallback != null) {
             mCallback.userActivity();
+            mCallback.onUserInput();
         }
-        mSecurityMessageDisplay.setMessage("", false);
+        mSecurityMessageDisplay.setMessage("");
     }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        onUserInput();
+        // Fingerprint sensor sends a KeyEvent.KEYCODE_UNKNOWN.
+        // We don't want to consider it valid user input because the UI
+        // will already respond to the event.
+        if (keyCode != KeyEvent.KEYCODE_UNKNOWN) {
+            onUserInput();
+        }
         return false;
     }
 
@@ -227,15 +281,22 @@ public abstract class KeyguardAbsKeyInputView extends LinearLayout
 
     @Override
     public void onPause() {
+        mResumed = false;
+
+        if (mCountdownTimer != null) {
+            mCountdownTimer.cancel();
+            mCountdownTimer = null;
+        }
         if (mPendingLockCheck != null) {
             mPendingLockCheck.cancel(false);
             mPendingLockCheck = null;
         }
+        reset();
     }
 
     @Override
     public void onResume(int reason) {
-        reset();
+        mResumed = true;
     }
 
     @Override
@@ -246,21 +307,22 @@ public abstract class KeyguardAbsKeyInputView extends LinearLayout
     @Override
     public void showPromptReason(int reason) {
         if (reason != PROMPT_REASON_NONE) {
-            int promtReasonStringRes = getPromtReasonStringRes(reason);
+            int promtReasonStringRes = getPromptReasonStringRes(reason);
             if (promtReasonStringRes != 0) {
-                mSecurityMessageDisplay.setMessage(promtReasonStringRes,
-                        true /* important */);
+                mSecurityMessageDisplay.setMessage(promtReasonStringRes);
             }
         }
     }
 
     @Override
-    public void showMessage(String message, int color) {
-        mSecurityMessageDisplay.setNextMessageColor(color);
-        mSecurityMessageDisplay.setMessage(message, true /* important */);
+    public void showMessage(CharSequence message, ColorStateList colorState) {
+        if (colorState != null) {
+            mSecurityMessageDisplay.setNextMessageColor(colorState);
+        }
+        mSecurityMessageDisplay.setMessage(message);
     }
 
-    protected abstract int getPromtReasonStringRes(int reason);
+    protected abstract int getPromptReasonStringRes(int reason);
 
     // Cause a VIRTUAL_KEY vibration
     public void doHapticKeyClick() {

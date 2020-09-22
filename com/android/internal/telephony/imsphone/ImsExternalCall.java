@@ -16,29 +16,25 @@
 
 package com.android.internal.telephony.imsphone;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.telephony.ims.ImsExternalCallState;
+
 import com.android.internal.telephony.Call;
 import com.android.internal.telephony.CallStateException;
-import com.android.internal.telephony.Connection;
 import com.android.internal.telephony.Phone;
-
-import java.util.List;
 
 /**
  * Companion class for {@link ImsExternalConnection}; represents an external call which was
- * received via {@link com.android.ims.ImsExternalCallState} info.
+ * received via {@link ImsExternalCallState} info.
  */
 public class ImsExternalCall extends Call {
 
     private Phone mPhone;
 
+    @UnsupportedAppUsage
     public ImsExternalCall(Phone phone, ImsExternalConnection connection) {
         mPhone = phone;
-        mConnections.add(connection);
-    }
-
-    @Override
-    public List<Connection> getConnections() {
-        return mConnections;
+        addConnection(connection);
     }
 
     @Override
@@ -54,6 +50,12 @@ public class ImsExternalCall extends Call {
     @Override
     public void hangup() throws CallStateException {
 
+    }
+
+    @Override
+    public void hangup(@android.telecom.Call.RejectReason int rejectReason)
+            throws CallStateException {
+        // tumbleweed
     }
 
     /**

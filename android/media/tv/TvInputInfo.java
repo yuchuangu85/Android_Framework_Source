@@ -20,6 +20,7 @@ import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.StringRes;
 import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -32,7 +33,10 @@ import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
+import android.hardware.hdmi.HdmiControlManager;
 import android.hardware.hdmi.HdmiDeviceInfo;
+import android.hardware.hdmi.HdmiUtils;
+import android.hardware.hdmi.HdmiUtils.HdmiAddressRelativePosition;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Parcel;
@@ -48,7 +52,6 @@ import android.util.Xml;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.annotation.Retention;
@@ -138,13 +141,14 @@ public final class TvInputInfo implements Parcelable {
 
     // Attributes from XML meta data.
     private final String mSetupActivity;
-    private final String mSettingsActivity;
     private final boolean mCanRecord;
     private final int mTunerCount;
 
     // Attributes specific to HDMI
     private final HdmiDeviceInfo mHdmiDeviceInfo;
     private final boolean mIsConnectedToHdmiSwitch;
+    @HdmiAddressRelativePosition
+    private final int mHdmiConnectionRelativePosition;
     private final String mParentId;
 
     private final Bundle mExtras;
@@ -259,8 +263,9 @@ public final class TvInputInfo implements Parcelable {
 
     private TvInputInfo(ResolveInfo service, String id, int type, boolean isHardwareInput,
             CharSequence label, int labelResId, Icon icon, Icon iconStandby, Icon iconDisconnected,
-            String setupActivity, String settingsActivity, boolean canRecord, int tunerCount,
-            HdmiDeviceInfo hdmiDeviceInfo, boolean isConnectedToHdmiSwitch, String parentId,
+            String setupActivity, boolean canRecord, int tunerCount, HdmiDeviceInfo hdmiDeviceInfo,
+            boolean isConnectedToHdmiSwitch,
+            @HdmiAddressRelativePosition int hdmiConnectionRelativePosition, String parentId,
             Bundle extras) {
         mService = service;
         mId = id;
@@ -272,11 +277,11 @@ public final class TvInputInfo implements Parcelable {
         mIconStandby = iconStandby;
         mIconDisconnected = iconDisconnected;
         mSetupActivity = setupActivity;
-        mSettingsActivity = settingsActivity;
         mCanRecord = canRecord;
         mTunerCount = tunerCount;
         mHdmiDeviceInfo = hdmiDeviceInfo;
         mIsConnectedToHdmiSwitch = isConnectedToHdmiSwitch;
+        mHdmiConnectionRelativePosition = hdmiConnectionRelativePosition;
         mParentId = parentId;
         mExtras = extras;
     }
@@ -321,6 +326,7 @@ public final class TvInputInfo implements Parcelable {
      * Returns the component of the service that implements this TV input.
      * @hide
      */
+    @UnsupportedAppUsage
     public ComponentName getComponent() {
         return new ComponentName(mService.serviceInfo.packageName, mService.serviceInfo.name);
     }
@@ -340,14 +346,12 @@ public final class TvInputInfo implements Parcelable {
 
     /**
      * Returns an intent to start the settings activity for this TV input.
+     *
+     * @deprecated Use {@link #createSetupIntent()} instead. Settings activity is deprecated.
+     *             Use setup activity instead to provide settings.
      */
+    @Deprecated
     public Intent createSettingsIntent() {
-        if (!TextUtils.isEmpty(mSettingsActivity)) {
-            Intent intent = new Intent(Intent.ACTION_MAIN);
-            intent.setClassName(mService.serviceInfo.packageName, mSettingsActivity);
-            intent.putExtra(EXTRA_INPUT_ID, getId());
-            return intent;
-        }
         return null;
     }
 
@@ -422,11 +426,22 @@ public final class TvInputInfo implements Parcelable {
     /**
      * Returns {@code true}, if a CEC device for this TV input is connected to an HDMI switch, i.e.,
      * the device isn't directly connected to a HDMI port.
+     * TODO(b/110094868): add @Deprecated for Q
      * @hide
      */
     @SystemApi
     public boolean isConnectedToHdmiSwitch() {
         return mIsConnectedToHdmiSwitch;
+    }
+
+    /**
+     * Returns the relative position of this HDMI input.
+     * TODO(b/110094868): unhide for Q
+     * @hide
+     */
+    @HdmiAddressRelativePosition
+    public int getHdmiConnectionRelativePosition() {
+        return mHdmiConnectionRelativePosition;
     }
 
     /**
@@ -554,11 +569,11 @@ public final class TvInputInfo implements Parcelable {
                 && Objects.equals(mIconStandby, obj.mIconStandby)
                 && Objects.equals(mIconDisconnected, obj.mIconDisconnected)
                 && TextUtils.equals(mSetupActivity, obj.mSetupActivity)
-                && TextUtils.equals(mSettingsActivity, obj.mSettingsActivity)
                 && mCanRecord == obj.mCanRecord
                 && mTunerCount == obj.mTunerCount
                 && Objects.equals(mHdmiDeviceInfo, obj.mHdmiDeviceInfo)
                 && mIsConnectedToHdmiSwitch == obj.mIsConnectedToHdmiSwitch
+                && mHdmiConnectionRelativePosition == obj.mHdmiConnectionRelativePosition
                 && TextUtils.equals(mParentId, obj.mParentId)
                 && Objects.equals(mExtras, obj.mExtras);
     }
@@ -589,11 +604,11 @@ public final class TvInputInfo implements Parcelable {
         dest.writeParcelable(mIconStandby, flags);
         dest.writeParcelable(mIconDisconnected, flags);
         dest.writeString(mSetupActivity);
-        dest.writeString(mSettingsActivity);
         dest.writeByte(mCanRecord ? (byte) 1 : 0);
         dest.writeInt(mTunerCount);
         dest.writeParcelable(mHdmiDeviceInfo, flags);
         dest.writeByte(mIsConnectedToHdmiSwitch ? (byte) 1 : 0);
+        dest.writeInt(mHdmiConnectionRelativePosition);
         dest.writeString(mParentId);
         dest.writeBundle(mExtras);
     }
@@ -606,7 +621,7 @@ public final class TvInputInfo implements Parcelable {
         return mService.serviceInfo.loadIcon(context.getPackageManager());
     }
 
-    public static final Parcelable.Creator<TvInputInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<TvInputInfo> CREATOR =
             new Parcelable.Creator<TvInputInfo>() {
         @Override
         public TvInputInfo createFromParcel(Parcel in) {
@@ -631,11 +646,11 @@ public final class TvInputInfo implements Parcelable {
         mIconStandby = in.readParcelable(null);
         mIconDisconnected = in.readParcelable(null);
         mSetupActivity = in.readString();
-        mSettingsActivity = in.readString();
         mCanRecord = in.readByte() == 1;
         mTunerCount = in.readInt();
         mHdmiDeviceInfo = in.readParcelable(null);
         mIsConnectedToHdmiSwitch = in.readByte() == 1;
+        mHdmiConnectionRelativePosition = in.readInt();
         mParentId = in.readString();
         mExtras = in.readBundle();
     }
@@ -678,7 +693,6 @@ public final class TvInputInfo implements Parcelable {
         private Icon mIconStandby;
         private Icon mIconDisconnected;
         private String mSetupActivity;
-        private String mSettingsActivity;
         private Boolean mCanRecord;
         private Integer mTunerCount;
         private TvInputHardwareInfo mTvInputHardwareInfo;
@@ -694,10 +708,16 @@ public final class TvInputInfo implements Parcelable {
          *            {@link TvInputService}.
          */
         public Builder(Context context, ComponentName component) {
-            mContext = context;
+            if (context == null) {
+                throw new IllegalArgumentException("context cannot be null.");
+            }
             Intent intent = new Intent(TvInputService.SERVICE_INTERFACE).setComponent(component);
             mResolveInfo = context.getPackageManager().resolveService(intent,
                     PackageManager.GET_SERVICES | PackageManager.GET_META_DATA);
+            if (mResolveInfo == null) {
+                throw new IllegalArgumentException("Invalid component. Can't find the service.");
+            }
+            mContext = context;
         }
 
         /**
@@ -884,12 +904,17 @@ public final class TvInputInfo implements Parcelable {
             int type;
             boolean isHardwareInput = false;
             boolean isConnectedToHdmiSwitch = false;
+            @HdmiAddressRelativePosition
+            int hdmiConnectionRelativePosition = HdmiUtils.HDMI_RELATIVE_POSITION_UNKNOWN;
 
             if (mHdmiDeviceInfo != null) {
                 id = generateInputId(componentName, mHdmiDeviceInfo);
                 type = TYPE_HDMI;
                 isHardwareInput = true;
-                isConnectedToHdmiSwitch = (mHdmiDeviceInfo.getPhysicalAddress() & 0x0FFF) != 0;
+                hdmiConnectionRelativePosition = getRelativePosition(mContext, mHdmiDeviceInfo);
+                isConnectedToHdmiSwitch =
+                        hdmiConnectionRelativePosition
+                                != HdmiUtils.HDMI_RELATIVE_POSITION_DIRECTLY_BELOW;
             } else if (mTvInputHardwareInfo != null) {
                 id = generateInputId(componentName, mTvInputHardwareInfo);
                 type = sHardwareTypeToTvInputType.get(mTvInputHardwareInfo.getType(), TYPE_TUNER);
@@ -900,9 +925,10 @@ public final class TvInputInfo implements Parcelable {
             }
             parseServiceMetadata(type);
             return new TvInputInfo(mResolveInfo, id, type, isHardwareInput, mLabel, mLabelResId,
-                    mIcon, mIconStandby, mIconDisconnected, mSetupActivity, mSettingsActivity,
+                    mIcon, mIconStandby, mIconDisconnected, mSetupActivity,
                     mCanRecord == null ? false : mCanRecord, mTunerCount == null ? 0 : mTunerCount,
-                    mHdmiDeviceInfo, isConnectedToHdmiSwitch, mParentId, mExtras);
+                    mHdmiDeviceInfo, isConnectedToHdmiSwitch, hdmiConnectionRelativePosition,
+                    mParentId, mExtras);
         }
 
         private static String generateInputId(ComponentName name) {
@@ -922,6 +948,16 @@ public final class TvInputInfo implements Parcelable {
                 TvInputHardwareInfo tvInputHardwareInfo) {
             return name.flattenToShortString() + DELIMITER_INFO_IN_ID + PREFIX_HARDWARE_DEVICE
                     + tvInputHardwareInfo.getDeviceId();
+        }
+
+        private static int getRelativePosition(Context context, HdmiDeviceInfo info) {
+            HdmiControlManager hcm =
+                    (HdmiControlManager) context.getSystemService(Context.HDMI_CONTROL_SERVICE);
+            if (hcm == null) {
+                return HdmiUtils.HDMI_RELATIVE_POSITION_UNKNOWN;
+            }
+            return HdmiUtils.getHdmiAddressRelativePosition(
+                    info.getPhysicalAddress(), hcm.getPhysicalAddress());
         }
 
         private void parseServiceMetadata(int inputType) {
@@ -952,11 +988,6 @@ public final class TvInputInfo implements Parcelable {
                         com.android.internal.R.styleable.TvInputService);
                 mSetupActivity = sa.getString(
                         com.android.internal.R.styleable.TvInputService_setupActivity);
-                if (inputType == TYPE_TUNER && TextUtils.isEmpty(mSetupActivity)) {
-                    throw new IllegalStateException("Setup activity not found for " + si.name);
-                }
-                mSettingsActivity = sa.getString(
-                        com.android.internal.R.styleable.TvInputService_settingsActivity);
                 if (mCanRecord == null) {
                     mCanRecord = sa.getBoolean(
                             com.android.internal.R.styleable.TvInputService_canRecord, false);

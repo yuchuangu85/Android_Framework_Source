@@ -16,9 +16,17 @@
 
 package android.net.wifi.p2p;
 
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.SystemApi;
+import android.annotation.SystemService;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
+import android.net.NetworkInfo;
 import android.net.wifi.WpsInfo;
 import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceInfo;
 import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceResponse;
@@ -27,6 +35,8 @@ import android.net.wifi.p2p.nsd.WifiP2pServiceRequest;
 import android.net.wifi.p2p.nsd.WifiP2pServiceResponse;
 import android.net.wifi.p2p.nsd.WifiP2pUpnpServiceInfo;
 import android.net.wifi.p2p.nsd.WifiP2pUpnpServiceResponse;
+import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -34,11 +44,15 @@ import android.os.Message;
 import android.os.Messenger;
 import android.os.RemoteException;
 import android.text.TextUtils;
+import android.util.CloseGuard;
 import android.util.Log;
 
 import com.android.internal.util.AsyncChannel;
 import com.android.internal.util.Protocol;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.ref.Reference;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -80,7 +94,9 @@ import java.util.Map;
  * {@link WifiP2pInfo} contains the address of the group owner
  * {@link WifiP2pInfo#groupOwnerAddress} and a flag {@link WifiP2pInfo#isGroupOwner} to indicate
  * if the current device is a p2p group owner. A p2p client can thus communicate with
- * the p2p group owner through a socket connection.
+ * the p2p group owner through a socket connection. If the current device is the p2p group owner,
+ * {@link WifiP2pInfo#groupOwnerAddress} is anonymized unless the caller holds the
+ * {@code android.Manifest.permission#LOCAL_MAC_ADDRESS} permission.
  *
  * <p> With peer discovery using {@link  #discoverPeers}, an application discovers the neighboring
  * peers, but has no good way to figure out which peer to establish a connection with. For example,
@@ -119,9 +135,6 @@ import java.util.Map;
  * {@link android.Manifest.permission#CHANGE_WIFI_STATE} to perform any further peer-to-peer
  * operations.
  *
- * Get an instance of this class by calling {@link android.content.Context#getSystemService(String)
- * Context.getSystemService(Context.WIFI_P2P_SERVICE)}.
- *
  * {@see WifiP2pConfig}
  * {@see WifiP2pInfo}
  * {@see WifiP2pGroup}
@@ -129,6 +142,7 @@ import java.util.Map;
  * {@see WifiP2pDeviceList}
  * {@see android.net.wifi.WpsInfo}
  */
+@SystemService(Context.WIFI_P2P_SERVICE)
 public class WifiP2pManager {
     private static final String TAG = "WifiP2pManager";
     /**
@@ -150,6 +164,14 @@ public class WifiP2pManager {
      */
     public static final String EXTRA_WIFI_STATE = "wifi_p2p_state";
 
+    /** @hide */
+    @IntDef({
+            WIFI_P2P_STATE_DISABLED,
+            WIFI_P2P_STATE_ENABLED})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface WifiP2pState {
+    }
+
     /**
      * Wi-Fi p2p is disabled.
      *
@@ -169,7 +191,11 @@ public class WifiP2pManager {
      * has changed. One extra {@link #EXTRA_WIFI_P2P_INFO} provides the p2p connection info in
      * the form of a {@link WifiP2pInfo} object. Another extra {@link #EXTRA_NETWORK_INFO} provides
      * the network info in the form of a {@link android.net.NetworkInfo}. A third extra provides
-     * the details of the group.
+     * the details of the group and may contain a {@code null}.
+     *
+     * All of these permissions are required to receive this broadcast:
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION} and
+     * {@link android.Manifest.permission#ACCESS_WIFI_STATE}
      *
      * @see #EXTRA_WIFI_P2P_INFO
      * @see #EXTRA_NETWORK_INFO
@@ -203,6 +229,10 @@ public class WifiP2pManager {
      * Broadcast intent action indicating that the available peer list has changed. This
      * can be sent as a result of peers being found, lost or updated.
      *
+     * All of these permissions are required to receive this broadcast:
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION} and
+     * {@link android.Manifest.permission#ACCESS_WIFI_STATE}
+     *
      * <p> An extra {@link #EXTRA_P2P_DEVICE_LIST} provides the full list of
      * current peers. The full list of peers can also be obtained any time with
      * {@link #requestPeers}.
@@ -219,7 +249,7 @@ public class WifiP2pManager {
       *
       * <p>Retrieve with {@link android.content.Intent#getParcelableExtra(String)}.
       */
-     public static final String EXTRA_P2P_DEVICE_LIST = "wifiP2pDeviceList";
+    public static final String EXTRA_P2P_DEVICE_LIST = "wifiP2pDeviceList";
 
     /**
      * Broadcast intent action indicating that peer discovery has either started or stopped.
@@ -242,6 +272,14 @@ public class WifiP2pManager {
      */
     public static final String EXTRA_DISCOVERY_STATE = "discoveryState";
 
+    /** @hide */
+    @IntDef({
+            WIFI_P2P_DISCOVERY_STOPPED,
+            WIFI_P2P_DISCOVERY_STARTED})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface WifiP2pDiscoveryState {
+    }
+
     /**
      * p2p discovery has stopped
      *
@@ -258,6 +296,23 @@ public class WifiP2pManager {
 
     /**
      * Broadcast intent action indicating that this device details have changed.
+     *
+     * <p> An extra {@link #EXTRA_WIFI_P2P_DEVICE} provides this device details.
+     * The valid device details can also be obtained with
+     * {@link #requestDeviceInfo(Channel, DeviceInfoListener)} when p2p is enabled.
+     * To get information notifications on P2P getting enabled refers
+     * {@link #WIFI_P2P_STATE_ENABLED}.
+     *
+     * <p> The {@link #EXTRA_WIFI_P2P_DEVICE} extra contains an anonymized version of the device's
+     * MAC address. Callers holding the {@code android.Manifest.permission#LOCAL_MAC_ADDRESS}
+     * permission can use {@link #requestDeviceInfo} to obtain the actual MAC address of this
+     * device.
+     *
+     * All of these permissions are required to receive this broadcast:
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION} and
+     * {@link android.Manifest.permission#ACCESS_WIFI_STATE}
+     *
+     * @see #EXTRA_WIFI_P2P_DEVICE
      */
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String WIFI_P2P_THIS_DEVICE_CHANGED_ACTION =
@@ -271,10 +326,17 @@ public class WifiP2pManager {
 
     /**
      * Broadcast intent action indicating that remembered persistent groups have changed.
+     *
+     * You can <em>not</em> receive this through components declared
+     * in manifests, only by explicitly registering for it with
+     * {@link android.content.Context#registerReceiver(android.content.BroadcastReceiver,
+     * android.content.IntentFilter) Context.registerReceiver()}.
+     *
      * @hide
      */
-    public static final String WIFI_P2P_PERSISTENT_GROUPS_CHANGED_ACTION =
-        "android.net.wifi.p2p.PERSISTENT_GROUPS_CHANGED";
+    @SystemApi
+    public static final String ACTION_WIFI_P2P_PERSISTENT_GROUPS_CHANGED =
+            "android.net.wifi.p2p.action.WIFI_P2P_PERSISTENT_GROUPS_CHANGED";
 
     /**
      * The lookup key for a handover message returned by the WifiP2pService.
@@ -282,6 +344,27 @@ public class WifiP2pManager {
      */
     public static final String EXTRA_HANDOVER_MESSAGE =
             "android.net.wifi.p2p.EXTRA_HANDOVER_MESSAGE";
+
+    /**
+     * The lookup key for a calling package name from WifiP2pManager
+     * @hide
+     */
+    public static final String CALLING_PACKAGE =
+            "android.net.wifi.p2p.CALLING_PACKAGE";
+
+    /**
+     * The lookup key for a calling feature id from WifiP2pManager
+     * @hide
+     */
+    public static final String CALLING_FEATURE_ID =
+            "android.net.wifi.p2p.CALLING_FEATURE_ID";
+
+    /**
+     * The lookup key for a calling package binder from WifiP2pManager
+     * @hide
+     */
+    public static final String CALLING_BINDER =
+            "android.net.wifi.p2p.CALLING_BINDER";
 
     IWifiP2pManager mService;
 
@@ -316,6 +399,7 @@ public class WifiP2pManager {
     public static final int CANCEL_CONNECT_SUCCEEDED                = BASE + 12;
 
     /** @hide */
+    @UnsupportedAppUsage
     public static final int CREATE_GROUP                            = BASE + 13;
     /** @hide */
     public static final int CREATE_GROUP_FAILED                     = BASE + 14;
@@ -468,6 +552,46 @@ public class WifiP2pManager {
     /** @hide */
     public static final int REPORT_NFC_HANDOVER_FAILED              = BASE + 81;
 
+    /** @hide */
+    public static final int FACTORY_RESET                           = BASE + 82;
+    /** @hide */
+    public static final int FACTORY_RESET_FAILED                    = BASE + 83;
+    /** @hide */
+    public static final int FACTORY_RESET_SUCCEEDED                 = BASE + 84;
+
+    /** @hide */
+    public static final int REQUEST_ONGOING_PEER_CONFIG             = BASE + 85;
+    /** @hide */
+    public static final int RESPONSE_ONGOING_PEER_CONFIG            = BASE + 86;
+    /** @hide */
+    public static final int SET_ONGOING_PEER_CONFIG                 = BASE + 87;
+    /** @hide */
+    public static final int SET_ONGOING_PEER_CONFIG_FAILED          = BASE + 88;
+    /** @hide */
+    public static final int SET_ONGOING_PEER_CONFIG_SUCCEEDED       = BASE + 89;
+
+    /** @hide */
+    public static final int REQUEST_P2P_STATE                       = BASE + 90;
+    /** @hide */
+    public static final int RESPONSE_P2P_STATE                      = BASE + 91;
+
+    /** @hide */
+    public static final int REQUEST_DISCOVERY_STATE                 = BASE + 92;
+    /** @hide */
+    public static final int RESPONSE_DISCOVERY_STATE                = BASE + 93;
+
+    /** @hide */
+    public static final int REQUEST_NETWORK_INFO                    = BASE + 94;
+    /** @hide */
+    public static final int RESPONSE_NETWORK_INFO                   = BASE + 95;
+
+    /** @hide */
+    public static final int UPDATE_CHANNEL_INFO                     = BASE + 96;
+
+    /** @hide */
+    public static final int REQUEST_DEVICE_INFO                     = BASE + 97;
+    /** @hide */
+    public static final int RESPONSE_DEVICE_INFO                    = BASE + 98;
 
     /**
      * Create a new WifiP2pManager instance. Applications use
@@ -477,6 +601,7 @@ public class WifiP2pManager {
      * @hide - hide this because it takes in a parameter of type IWifiP2pManager, which
      * is a system private class.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public WifiP2pManager(IWifiP2pManager service) {
         mService = service;
     }
@@ -639,13 +764,18 @@ public class WifiP2pManager {
     }
 
 
-    /** Interface for callback invocation when stored group info list is available {@hide}*/
+    /**
+     * Interface for callback invocation when stored group info list is available
+     *
+     * @hide
+     */
+    @SystemApi
     public interface PersistentGroupInfoListener {
         /**
          * The requested stored p2p group info list is available
          * @param groups Wi-Fi p2p group info list
          */
-        public void onPersistentGroupInfoAvailable(WifiP2pGroupList groups);
+        void onPersistentGroupInfoAvailable(@NonNull WifiP2pGroupList groups);
     }
 
     /**
@@ -656,28 +786,134 @@ public class WifiP2pManager {
         public void onHandoverMessageAvailable(String handoverMessage);
     }
 
+    /** Interface for callback invocation when p2p state is available
+     *  in response to {@link #requestP2pState}.
+     */
+    public interface P2pStateListener {
+        /**
+         * The requested p2p state is available.
+         * @param state Wi-Fi p2p state
+         *        @see #WIFI_P2P_STATE_DISABLED
+         *        @see #WIFI_P2P_STATE_ENABLED
+         */
+        void onP2pStateAvailable(@WifiP2pState int state);
+    }
+
+    /** Interface for callback invocation when p2p state is available
+     *  in response to {@link #requestDiscoveryState}.
+     */
+    public interface DiscoveryStateListener {
+        /**
+         * The requested p2p discovery state is available.
+         * @param state Wi-Fi p2p discovery state
+         *        @see #WIFI_P2P_DISCOVERY_STARTED
+         *        @see #WIFI_P2P_DISCOVERY_STOPPED
+         */
+        void onDiscoveryStateAvailable(@WifiP2pDiscoveryState int state);
+    }
+
+    /** Interface for callback invocation when {@link android.net.NetworkInfo} is available
+     *  in response to {@link #requestNetworkInfo}.
+     */
+    public interface NetworkInfoListener {
+        /**
+         * The requested {@link android.net.NetworkInfo} is available
+         * @param networkInfo Wi-Fi p2p {@link android.net.NetworkInfo}
+         */
+        void onNetworkInfoAvailable(@NonNull NetworkInfo networkInfo);
+    }
+
+    /**
+     * Interface for callback invocation when ongoing peer info is available
+     * @hide
+     */
+    public interface OngoingPeerInfoListener {
+        /**
+         * The requested ongoing WifiP2pConfig is available
+         * @param peerConfig WifiP2pConfig for current connecting session
+         */
+        void onOngoingPeerAvailable(WifiP2pConfig peerConfig);
+    }
+
+    /** Interface for callback invocation when {@link android.net.wifi.p2p.WifiP2pDevice}
+     *  is available in response to {@link #requestDeviceInfo(Channel, DeviceInfoListener)}.
+     */
+    public interface DeviceInfoListener {
+        /**
+         * The requested {@link android.net.wifi.p2p.WifiP2pDevice} is available.
+         * @param wifiP2pDevice Wi-Fi p2p {@link android.net.wifi.p2p.WifiP2pDevice}
+         */
+        void onDeviceInfoAvailable(@Nullable WifiP2pDevice wifiP2pDevice);
+    }
+
     /**
      * A channel that connects the application to the Wifi p2p framework.
      * Most p2p operations require a Channel as an argument. An instance of Channel is obtained
      * by doing a call on {@link #initialize}
      */
-    public static class Channel {
-        Channel(Context context, Looper looper, ChannelListener l) {
+    public static class Channel implements AutoCloseable {
+        /** @hide */
+        public Channel(Context context, Looper looper, ChannelListener l, Binder binder,
+                WifiP2pManager p2pManager) {
             mAsyncChannel = new AsyncChannel();
             mHandler = new P2pHandler(looper);
             mChannelListener = l;
             mContext = context;
+            mBinder = binder;
+            mP2pManager = p2pManager;
+
+            mCloseGuard.open("close");
         }
         private final static int INVALID_LISTENER_KEY = 0;
+        private final WifiP2pManager mP2pManager;
         private ChannelListener mChannelListener;
         private ServiceResponseListener mServRspListener;
         private DnsSdServiceResponseListener mDnsSdServRspListener;
         private DnsSdTxtRecordListener mDnsSdTxtListener;
         private UpnpServiceResponseListener mUpnpServRspListener;
         private HashMap<Integer, Object> mListenerMap = new HashMap<Integer, Object>();
-        private Object mListenerMapLock = new Object();
+        private final Object mListenerMapLock = new Object();
         private int mListenerKey = 0;
 
+        private final CloseGuard mCloseGuard = new CloseGuard();
+
+        /**
+         * Close the current P2P connection and indicate to the P2P service that connections
+         * created by the app can be removed.
+         */
+        public void close() {
+            if (mP2pManager == null) {
+                Log.w(TAG, "Channel.close(): Null mP2pManager!?");
+            } else {
+                try {
+                    mP2pManager.mService.close(mBinder);
+                } catch (RemoteException e) {
+                    throw e.rethrowFromSystemServer();
+                }
+            }
+
+            mAsyncChannel.disconnect();
+            mCloseGuard.close();
+            Reference.reachabilityFence(this);
+        }
+
+        /** @hide */
+        @Override
+        protected void finalize() throws Throwable {
+            try {
+                if (mCloseGuard != null) {
+                    mCloseGuard.warnIfOpen();
+                }
+
+                close();
+            } finally {
+                super.finalize();
+            }
+        }
+
+        /* package */ final Binder mBinder;
+
+        @UnsupportedAppUsage
         private AsyncChannel mAsyncChannel;
         private P2pHandler mHandler;
         Context mContext;
@@ -718,6 +954,8 @@ public class WifiP2pManager {
                     case STOP_LISTEN_FAILED:
                     case SET_CHANNEL_FAILED:
                     case REPORT_NFC_HANDOVER_FAILED:
+                    case FACTORY_RESET_FAILED:
+                    case SET_ONGOING_PEER_CONFIG_FAILED:
                         if (listener != null) {
                             ((ActionListener) listener).onFailure(message.arg1);
                         }
@@ -744,6 +982,8 @@ public class WifiP2pManager {
                     case STOP_LISTEN_SUCCEEDED:
                     case SET_CHANNEL_SUCCEEDED:
                     case REPORT_NFC_HANDOVER_SUCCEEDED:
+                    case FACTORY_RESET_SUCCEEDED:
+                    case SET_ONGOING_PEER_CONFIG_SUCCEEDED:
                         if (listener != null) {
                             ((ActionListener) listener).onSuccess();
                         }
@@ -785,6 +1025,37 @@ public class WifiP2pManager {
                                     : null;
                             ((HandoverMessageListener) listener)
                                     .onHandoverMessageAvailable(handoverMessage);
+                        }
+                        break;
+                    case RESPONSE_ONGOING_PEER_CONFIG:
+                        WifiP2pConfig peerConfig = (WifiP2pConfig) message.obj;
+                        if (listener != null) {
+                            ((OngoingPeerInfoListener) listener)
+                                    .onOngoingPeerAvailable(peerConfig);
+                        }
+                        break;
+                    case RESPONSE_P2P_STATE:
+                        if (listener != null) {
+                            ((P2pStateListener) listener)
+                                    .onP2pStateAvailable(message.arg1);
+                        }
+                        break;
+                    case RESPONSE_DISCOVERY_STATE:
+                        if (listener != null) {
+                            ((DiscoveryStateListener) listener)
+                                    .onDiscoveryStateAvailable(message.arg1);
+                        }
+                        break;
+                    case RESPONSE_NETWORK_INFO:
+                        if (listener != null) {
+                            ((NetworkInfoListener) listener)
+                                    .onNetworkInfoAvailable((NetworkInfo) message.obj);
+                        }
+                        break;
+                    case RESPONSE_DEVICE_INFO:
+                        if (listener != null) {
+                            ((DeviceInfoListener) listener)
+                                    .onDeviceInfoAvailable((WifiP2pDevice) message.obj);
                         }
                         break;
                     default:
@@ -834,6 +1105,7 @@ public class WifiP2pManager {
             }
         }
 
+        @UnsupportedAppUsage
         private int putListener(Object listener) {
             if (listener == null) return INVALID_LISTENER_KEY;
             int key;
@@ -883,7 +1155,10 @@ public class WifiP2pManager {
      * @return Channel instance that is necessary for performing any further p2p operations
      */
     public Channel initialize(Context srcContext, Looper srcLooper, ChannelListener listener) {
-        return initalizeChannel(srcContext, srcLooper, listener, getMessenger());
+        Binder binder = new Binder();
+        Channel channel = initalizeChannel(srcContext, srcLooper, listener, getMessenger(binder),
+                binder);
+        return channel;
     }
 
     /**
@@ -892,18 +1167,26 @@ public class WifiP2pManager {
      */
     public Channel initializeInternal(Context srcContext, Looper srcLooper,
                                       ChannelListener listener) {
-        return initalizeChannel(srcContext, srcLooper, listener, getP2pStateMachineMessenger());
+        return initalizeChannel(srcContext, srcLooper, listener, getP2pStateMachineMessenger(),
+                null);
     }
 
     private Channel initalizeChannel(Context srcContext, Looper srcLooper, ChannelListener listener,
-                                     Messenger messenger) {
+                                     Messenger messenger, Binder binder) {
         if (messenger == null) return null;
 
-        Channel c = new Channel(srcContext, srcLooper, listener);
+        Channel c = new Channel(srcContext, srcLooper, listener, binder, this);
         if (c.mAsyncChannel.connectSync(srcContext, c.mHandler, messenger)
                 == AsyncChannel.STATUS_SUCCESSFUL) {
+            Bundle bundle = new Bundle();
+            bundle.putString(CALLING_PACKAGE, c.mContext.getOpPackageName());
+            bundle.putString(CALLING_FEATURE_ID, c.mContext.getAttributionTag());
+            bundle.putBinder(CALLING_BINDER, binder);
+            c.mAsyncChannel.sendMessage(UPDATE_CHANNEL_INFO, 0,
+                    c.putListener(null), bundle);
             return c;
         } else {
+            c.close();
             return null;
         }
     }
@@ -927,12 +1210,13 @@ public class WifiP2pManager {
      * @param c is the channel created at {@link #initialize}
      * @param listener for callbacks on success or failure. Can be null.
      */
+    @RequiresPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
     public void discoverPeers(Channel c, ActionListener listener) {
         checkChannel(c);
         c.mAsyncChannel.sendMessage(DISCOVER_PEERS, 0, c.putListener(listener));
     }
 
-   /**
+    /**
      * Stop an ongoing peer discovery
      *
      * <p> The function call immediately returns after sending a stop request
@@ -970,6 +1254,7 @@ public class WifiP2pManager {
      * @param config options as described in {@link WifiP2pConfig} class
      * @param listener for callbacks on success or failure. Can be null.
      */
+    @RequiresPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
     public void connect(Channel c, WifiP2pConfig config, ActionListener listener) {
         checkChannel(c);
         checkP2pConfig(config);
@@ -1011,10 +1296,44 @@ public class WifiP2pManager {
      * @param c is the channel created at {@link #initialize}
      * @param listener for callbacks on success or failure. Can be null.
      */
+    @RequiresPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
     public void createGroup(Channel c, ActionListener listener) {
         checkChannel(c);
-        c.mAsyncChannel.sendMessage(CREATE_GROUP, WifiP2pGroup.PERSISTENT_NET_ID,
+        c.mAsyncChannel.sendMessage(CREATE_GROUP, WifiP2pGroup.NETWORK_ID_PERSISTENT,
                 c.putListener(listener));
+    }
+
+    /**
+     * Create a p2p group with the current device as the group owner. This essentially creates
+     * an access point that can accept connections from legacy clients as well as other p2p
+     * devices.
+     *
+     * <p> An app should use {@link WifiP2pConfig.Builder} to build the configuration
+     * for a group.
+     *
+     * <p class="note"><strong>Note:</strong>
+     * This function would normally not be used unless the current device needs
+     * to form a p2p group as a Group Owner and allow peers to join it as either
+     * Group Clients or legacy Wi-Fi STAs.
+     *
+     * <p> The function call immediately returns after sending a group creation request
+     * to the framework. The application is notified of a success or failure to initiate
+     * group creation through listener callbacks {@link ActionListener#onSuccess} or
+     * {@link ActionListener#onFailure}.
+     *
+     * <p> Application can request for the group details with {@link #requestGroupInfo}.
+     *
+     * @param c is the channel created at {@link #initialize}.
+     * @param config the configuration of a p2p group.
+     * @param listener for callbacks on success or failure. Can be null.
+     */
+    @RequiresPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+    public void createGroup(@NonNull Channel c,
+            @Nullable WifiP2pConfig config,
+            @Nullable ActionListener listener) {
+        checkChannel(c);
+        c.mAsyncChannel.sendMessage(CREATE_GROUP, 0,
+                c.putListener(listener), config);
     }
 
     /**
@@ -1033,19 +1352,58 @@ public class WifiP2pManager {
         c.mAsyncChannel.sendMessage(REMOVE_GROUP, 0, c.putListener(listener));
     }
 
-    /** @hide */
-    public void listen(Channel c, boolean enable, ActionListener listener) {
+    /**
+     * Force p2p to enter listen state
+     *
+     * @param c is the channel created at {@link #initialize(Context, Looper, ChannelListener)}
+     * @param listener for callbacks on success or failure. Can be null.
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.NETWORK_SETTINGS)
+    public void startListening(@NonNull Channel c, @Nullable ActionListener listener) {
         checkChannel(c);
-        c.mAsyncChannel.sendMessage(enable ? START_LISTEN : STOP_LISTEN,
-                0, c.putListener(listener));
+        c.mAsyncChannel.sendMessage(START_LISTEN, 0, c.putListener(listener));
     }
 
-    /** @hide */
-    public void setWifiP2pChannels(Channel c, int lc, int oc, ActionListener listener) {
+    /**
+     * Force p2p to exit listen state
+     *
+     * @param c is the channel created at {@link #initialize(Context, Looper, ChannelListener)}
+     * @param listener for callbacks on success or failure. Can be null.
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.NETWORK_SETTINGS)
+    public void stopListening(@NonNull Channel c, @Nullable ActionListener listener) {
+        checkChannel(c);
+        c.mAsyncChannel.sendMessage(STOP_LISTEN, 0, c.putListener(listener));
+    }
+
+    /**
+     * Set P2P listening and operating channel.
+     *
+     * @param c is the channel created at {@link #initialize}
+     * @param listeningChannel the listening channel's Wifi channel number. e.g. 1, 6, 11.
+     * @param operatingChannel the operating channel's Wifi channel number. e.g. 1, 6, 11.
+     * @param listener for callbacks on success or failure. Can be null.
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.NETWORK_SETTINGS,
+            android.Manifest.permission.NETWORK_STACK,
+            android.Manifest.permission.OVERRIDE_WIFI_CONFIG
+    })
+    public void setWifiP2pChannels(@NonNull Channel c, int listeningChannel, int operatingChannel,
+            @Nullable ActionListener listener) {
         checkChannel(c);
         Bundle p2pChannels = new Bundle();
-        p2pChannels.putInt("lc", lc);
-        p2pChannels.putInt("oc", oc);
+        p2pChannels.putInt("lc", listeningChannel);
+        p2pChannels.putInt("oc", operatingChannel);
         c.mAsyncChannel.sendMessage(SET_CHANNEL, 0, c.putListener(listener), p2pChannels);
     }
 
@@ -1059,6 +1417,7 @@ public class WifiP2pManager {
      * {@link ActionListener#onSuccess} or {@link ActionListener#onFailure}.
      * @hide
      */
+    @UnsupportedAppUsage
     public void startWps(Channel c, WpsInfo wps, ActionListener listener) {
         checkChannel(c);
         c.mAsyncChannel.sendMessage(START_WPS, 0, c.putListener(listener), wps);
@@ -1085,6 +1444,7 @@ public class WifiP2pManager {
      * @param servInfo is a local service information.
      * @param listener for callbacks on success or failure. Can be null.
      */
+    @RequiresPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
     public void addLocalService(Channel c, WifiP2pServiceInfo servInfo, ActionListener listener) {
         checkChannel(c);
         checkServiceInfo(servInfo);
@@ -1194,6 +1554,7 @@ public class WifiP2pManager {
      * @param c is the channel created at {@link #initialize}
      * @param listener for callbacks on success or failure. Can be null.
      */
+    @RequiresPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
     public void discoverServices(Channel c, ActionListener listener) {
         checkChannel(c);
         c.mAsyncChannel.sendMessage(DISCOVER_SERVICES, 0, c.putListener(listener));
@@ -1269,6 +1630,7 @@ public class WifiP2pManager {
      * @param c is the channel created at {@link #initialize}
      * @param listener for callback when peer list is available. Can be null.
      */
+    @RequiresPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
     public void requestPeers(Channel c, PeerListListener listener) {
         checkChannel(c);
         c.mAsyncChannel.sendMessage(REQUEST_PEERS, 0, c.putListener(listener));
@@ -1291,6 +1653,7 @@ public class WifiP2pManager {
      * @param c is the channel created at {@link #initialize}
      * @param listener for callback when group info is available. Can be null.
      */
+    @RequiresPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
     public void requestGroupInfo(Channel c, GroupInfoListener listener) {
         checkChannel(c);
         c.mAsyncChannel.sendMessage(REQUEST_GROUP_INFO, 0, c.putListener(listener));
@@ -1298,22 +1661,53 @@ public class WifiP2pManager {
 
     /**
      * Set p2p device name.
-     * @hide
+     *
      * @param c is the channel created at {@link #initialize}
      * @param listener for callback when group info is available. Can be null.
+     *
+     * @hide
      */
-    public void setDeviceName(Channel c, String devName, ActionListener listener) {
+    @SystemApi
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.NETWORK_SETTINGS,
+            android.Manifest.permission.NETWORK_STACK,
+            android.Manifest.permission.OVERRIDE_WIFI_CONFIG
+    })
+    public void setDeviceName(@NonNull Channel c, @NonNull String devName,
+            @Nullable ActionListener listener) {
         checkChannel(c);
         WifiP2pDevice d = new WifiP2pDevice();
         d.deviceName = devName;
         c.mAsyncChannel.sendMessage(SET_DEVICE_NAME, 0, c.putListener(listener), d);
     }
 
+    /**
+     * Set Wifi Display information.
+     *
+     * @param c is the channel created at {@link #initialize}
+     * @param wfdInfo the Wifi Display information to set
+     * @param listener for callbacks on success or failure. Can be null.
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.CONFIGURE_WIFI_DISPLAY)
+    public void setWfdInfo(@NonNull Channel c, @NonNull WifiP2pWfdInfo wfdInfo,
+            @Nullable ActionListener listener) {
+        setWFDInfo(c, wfdInfo, listener);
+    }
+
     /** @hide */
-    public void setWFDInfo(
-            Channel c, WifiP2pWfdInfo wfdInfo,
-            ActionListener listener) {
+    @UnsupportedAppUsage
+    @RequiresPermission(android.Manifest.permission.CONFIGURE_WIFI_DISPLAY)
+    public void setWFDInfo(@NonNull Channel c, @NonNull WifiP2pWfdInfo wfdInfo,
+            @Nullable ActionListener listener) {
         checkChannel(c);
+        try {
+            mService.checkConfigureWifiDisplayPermission();
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
         c.mAsyncChannel.sendMessage(SET_WFD_INFO, 0, c.putListener(listener), wfdInfo);
     }
 
@@ -1331,11 +1725,19 @@ public class WifiP2pManager {
      *  a network id can be obtained by {@link WifiP2pGroup#getNetworkId()}.
      *
      * @param c is the channel created at {@link #initialize}
-     * @param netId he network id of the p2p group.
+     * @param netId the network id of the p2p group.
      * @param listener for callbacks on success or failure. Can be null.
+     *
      * @hide
      */
-    public void deletePersistentGroup(Channel c, int netId, ActionListener listener) {
+    @SystemApi
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.NETWORK_SETTINGS,
+            android.Manifest.permission.NETWORK_STACK,
+            android.Manifest.permission.OVERRIDE_WIFI_CONFIG
+    })
+    public void deletePersistentGroup(@NonNull Channel c, int netId,
+            @Nullable ActionListener listener) {
         checkChannel(c);
         c.mAsyncChannel.sendMessage(DELETE_PERSISTENT_GROUP, netId, c.putListener(listener));
     }
@@ -1345,21 +1747,66 @@ public class WifiP2pManager {
      *
      * @param c is the channel created at {@link #initialize}
      * @param listener for callback when persistent group info list is available. Can be null.
+     *
      * @hide
      */
-    public void requestPersistentGroupInfo(Channel c, PersistentGroupInfoListener listener) {
+    @SystemApi
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.NETWORK_SETTINGS,
+            android.Manifest.permission.NETWORK_STACK,
+            android.Manifest.permission.READ_WIFI_CREDENTIAL
+    })
+    public void requestPersistentGroupInfo(@NonNull Channel c,
+            @Nullable PersistentGroupInfoListener listener) {
         checkChannel(c);
         c.mAsyncChannel.sendMessage(REQUEST_PERSISTENT_GROUP_INFO, 0, c.putListener(listener));
     }
 
     /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = {"MIRACAST_"}, value = {
+            MIRACAST_DISABLED,
+            MIRACAST_SOURCE,
+            MIRACAST_SINK})
+    public @interface MiracastMode {}
+
+    /**
+     * Miracast is disabled.
+     * @hide
+     */
+    @SystemApi
     public static final int MIRACAST_DISABLED = 0;
-    /** @hide */
+    /**
+     * Device acts as a Miracast source.
+     * @hide
+     */
+    @SystemApi
     public static final int MIRACAST_SOURCE   = 1;
-    /** @hide */
+    /**
+     * Device acts as a Miracast sink.
+     * @hide
+     */
+    @SystemApi
     public static final int MIRACAST_SINK     = 2;
-    /** Internal use only @hide */
-    public void setMiracastMode(int mode) {
+
+    /**
+     * This is used to provide information to drivers to optimize performance depending
+     * on the current mode of operation.
+     * {@link #MIRACAST_DISABLED} - disabled
+     * {@link #MIRACAST_SOURCE} - source operation
+     * {@link #MIRACAST_SINK} - sink operation
+     *
+     * As an example, the driver could reduce the channel dwell time during scanning
+     * when acting as a source or sink to minimize impact on Miracast.
+     *
+     * @param mode mode of operation. One of {@link #MIRACAST_DISABLED}, {@link #MIRACAST_SOURCE},
+     * or {@link #MIRACAST_SINK}
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.CONFIGURE_WIFI_DISPLAY)
+    public void setMiracastMode(@MiracastMode int mode) {
         try {
             mService.setMiracastMode(mode);
         } catch (RemoteException e) {
@@ -1371,12 +1818,14 @@ public class WifiP2pManager {
      * Get a reference to WifiP2pService handler. This is used to establish
      * an AsyncChannel communication with WifiService
      *
+     * @param binder A binder for the service to associate with this client.
+     *
      * @return Messenger pointing to the WifiP2pService handler
      * @hide
      */
-    public Messenger getMessenger() {
+    public Messenger getMessenger(Binder binder) {
         try {
-            return mService.getMessenger();
+            return mService.getMessenger(binder);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -1439,5 +1888,147 @@ public class WifiP2pManager {
         bundle.putString(EXTRA_HANDOVER_MESSAGE, handoverRequest);
         c.mAsyncChannel.sendMessage(RESPONDER_REPORT_NFC_HANDOVER, 0,
                 c.putListener(listener), bundle);
+    }
+
+    /**
+     * Removes all saved p2p groups.
+     *
+     * @param c is the channel created at {@link #initialize}.
+     * @param listener for callback on success or failure. Can be null.
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.NETWORK_SETTINGS)
+    public void factoryReset(@NonNull Channel c, @Nullable ActionListener listener) {
+        checkChannel(c);
+        c.mAsyncChannel.sendMessage(FACTORY_RESET, 0, c.putListener(listener));
+    }
+
+    /**
+     * Request saved WifiP2pConfig which used for an ongoing peer connection
+     *
+     * @param c is the channel created at {@link #initialize}
+     * @param listener for callback when ongoing peer config updated. Can't be null.
+     *
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.NETWORK_STACK)
+    public void requestOngoingPeerConfig(@NonNull Channel c,
+            @NonNull OngoingPeerInfoListener listener) {
+        checkChannel(c);
+        c.mAsyncChannel.sendMessage(REQUEST_ONGOING_PEER_CONFIG,
+                Binder.getCallingUid(), c.putListener(listener));
+    }
+
+     /**
+     * Set saved WifiP2pConfig which used for an ongoing peer connection
+     *
+     * @param c is the channel created at {@link #initialize}
+     * @param config used for change an ongoing peer connection
+     * @param listener for callback when ongoing peer config updated. Can be null.
+     *
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.NETWORK_STACK)
+    public void setOngoingPeerConfig(@NonNull Channel c, @NonNull WifiP2pConfig config,
+            @Nullable ActionListener listener) {
+        checkChannel(c);
+        checkP2pConfig(config);
+        c.mAsyncChannel.sendMessage(SET_ONGOING_PEER_CONFIG, 0,
+                c.putListener(listener), config);
+    }
+
+    /**
+     * Request p2p enabled state.
+     *
+     * <p> This state indicates whether Wi-Fi p2p is enabled or disabled.
+     * The valid value is one of {@link #WIFI_P2P_STATE_DISABLED} or
+     * {@link #WIFI_P2P_STATE_ENABLED}. The state is returned using the
+     * {@link P2pStateListener} listener.
+     *
+     * <p> This state is also included in the {@link #WIFI_P2P_STATE_CHANGED_ACTION}
+     * broadcast event with extra {@link #EXTRA_WIFI_STATE}.
+     *
+     * @param c is the channel created at {@link #initialize}.
+     * @param listener for callback when p2p state is available..
+     */
+    public void requestP2pState(@NonNull Channel c,
+            @NonNull P2pStateListener listener) {
+        checkChannel(c);
+        if (listener == null) throw new IllegalArgumentException("This listener cannot be null.");
+        c.mAsyncChannel.sendMessage(REQUEST_P2P_STATE, 0, c.putListener(listener));
+    }
+
+    /**
+     * Request p2p discovery state.
+     *
+     * <p> This state indicates whether p2p discovery has started or stopped.
+     * The valid value is one of {@link #WIFI_P2P_DISCOVERY_STARTED} or
+     * {@link #WIFI_P2P_DISCOVERY_STOPPED}. The state is returned using the
+     * {@link DiscoveryStateListener} listener.
+     *
+     * <p> This state is also included in the {@link #WIFI_P2P_DISCOVERY_CHANGED_ACTION}
+     * broadcast event with extra {@link #EXTRA_DISCOVERY_STATE}.
+     *
+     * @param c is the channel created at {@link #initialize}.
+     * @param listener for callback when discovery state is available..
+     */
+    public void requestDiscoveryState(@NonNull Channel c,
+            @NonNull DiscoveryStateListener listener) {
+        checkChannel(c);
+        if (listener == null) throw new IllegalArgumentException("This listener cannot be null.");
+        c.mAsyncChannel.sendMessage(REQUEST_DISCOVERY_STATE, 0, c.putListener(listener));
+    }
+
+    /**
+     * Request network info.
+     *
+     * <p> This method provides the network info in the form of a {@link android.net.NetworkInfo}.
+     * {@link android.net.NetworkInfo#isAvailable()} indicates the p2p availability and
+     * {@link android.net.NetworkInfo#getDetailedState()} reports the current fine-grained state
+     * of the network. This {@link android.net.NetworkInfo} is returned using the
+     * {@link NetworkInfoListener} listener.
+     *
+     * <p> This information is also included in the {@link #WIFI_P2P_CONNECTION_CHANGED_ACTION}
+     * broadcast event with extra {@link #EXTRA_NETWORK_INFO}.
+     *
+     * @param c is the channel created at {@link #initialize}.
+     * @param listener for callback when network info is available..
+     */
+    public void requestNetworkInfo(@NonNull Channel c,
+            @NonNull NetworkInfoListener listener) {
+        checkChannel(c);
+        if (listener == null) throw new IllegalArgumentException("This listener cannot be null.");
+        c.mAsyncChannel.sendMessage(REQUEST_NETWORK_INFO, 0, c.putListener(listener));
+    }
+
+     /**
+     * Request Device Info
+     *
+     * <p> This method provides the device info
+     * in the form of a {@link android.net.wifi.p2p.WifiP2pDevice}.
+     * Valid {@link android.net.wifi.p2p.WifiP2pDevice} is returned when p2p is enabled.
+     * To get information notifications on P2P getting enabled refers
+     * {@link #WIFI_P2P_STATE_ENABLED}.
+     *
+     * <p> This {@link android.net.wifi.p2p.WifiP2pDevice} is returned using the
+     * {@link DeviceInfoListener} listener.
+     *
+     * <p> {@link android.net.wifi.p2p.WifiP2pDevice#deviceAddress} is only available if the caller
+     * holds the {@code android.Manifest.permission#LOCAL_MAC_ADDRESS} permission, and holds the
+     * anonymized MAC address (02:00:00:00:00:00) otherwise.
+     *
+     * <p> This information is also included in the {@link #WIFI_P2P_THIS_DEVICE_CHANGED_ACTION}
+     * broadcast event with extra {@link #EXTRA_WIFI_P2P_DEVICE}.
+     *
+     * @param c is the channel created at {@link #initialize(Context, Looper, ChannelListener)}.
+     * @param listener for callback when network info is available.
+     */
+    @RequiresPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+    public void requestDeviceInfo(@NonNull Channel c, @NonNull DeviceInfoListener listener) {
+        checkChannel(c);
+        if (listener == null) throw new IllegalArgumentException("This listener cannot be null.");
+        c.mAsyncChannel.sendMessage(REQUEST_DEVICE_INFO, 0, c.putListener(listener));
     }
 }

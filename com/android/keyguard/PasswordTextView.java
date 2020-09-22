@@ -23,12 +23,12 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.os.PowerManager;
 import android.os.SystemClock;
-import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -40,6 +40,9 @@ import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.animation.AnimationUtils;
 import android.view.animation.Interpolator;
+import android.widget.EditText;
+
+import com.android.systemui.R;
 
 import java.util.ArrayList;
 import java.util.Stack;
@@ -77,6 +80,8 @@ public class PasswordTextView extends View {
      * animation of the dot should start
      */
     private static final float OVERSHOOT_TIME_POSITION = 0.5f;
+
+    private static char DOT = '\u2022';
 
     /**
      * The raw text size, will be multiplied by the scaled density when drawn
@@ -126,13 +131,16 @@ public class PasswordTextView extends View {
             mCharPadding = a.getDimensionPixelSize(R.styleable.PasswordTextView_charPadding,
                     getContext().getResources().getDimensionPixelSize(
                             R.dimen.password_char_padding));
+            int textColor = a.getColor(R.styleable.PasswordTextView_android_textColor, Color.WHITE);
+            mDrawPaint.setColor(textColor);
         } finally {
             a.recycle();
         }
         mDrawPaint.setFlags(Paint.SUBPIXEL_TEXT_FLAG | Paint.ANTI_ALIAS_FLAG);
         mDrawPaint.setTextAlign(Paint.Align.CENTER);
-        mDrawPaint.setColor(0xffffffff);
-        mDrawPaint.setTypeface(Typeface.create("sans-serif-light", 0));
+        mDrawPaint.setTypeface(Typeface.create(
+                context.getString(com.android.internal.R.string.config_headlineFontFamily),
+                0));
         mShowPassword = Settings.System.getInt(mContext.getContentResolver(),
                 Settings.System.TEXT_SHOW_PASSWORD, 1) == 1;
         mAppearInterpolator = AnimationUtils.loadInterpolator(mContext,
@@ -156,7 +164,9 @@ public class PasswordTextView extends View {
                 currentDrawPosition = getPaddingLeft();
             }
         } else {
-            currentDrawPosition = getWidth() / 2 - totalDrawingWidth / 2;
+            float maxRight = getWidth() - getPaddingRight() - totalDrawingWidth;
+            float center = getWidth() / 2f - totalDrawingWidth / 2f;
+            currentDrawPosition = center > 0 ? center : maxRight;
         }
         int length = mTextChars.size();
         Rect bounds = getCharBounds();
@@ -205,7 +215,7 @@ public class PasswordTextView extends View {
 
     public void append(char c) {
         int visibleChars = mTextChars.size();
-        String textbefore = mText;
+        CharSequence textbefore = getTransformedText();
         mText = mText + c;
         int newLength = mText.length();
         CharState charState;
@@ -242,18 +252,33 @@ public class PasswordTextView extends View {
 
     public void deleteLastChar() {
         int length = mText.length();
-        String textbefore = mText;
+        CharSequence textbefore = getTransformedText();
         if (length > 0) {
             mText = mText.substring(0, length - 1);
             CharState charState = mTextChars.get(length - 1);
             charState.startRemoveAnimation(0, 0);
+            sendAccessibilityEventTypeViewTextChanged(textbefore, textbefore.length() - 1, 1, 0);
         }
         userActivity();
-        sendAccessibilityEventTypeViewTextChanged(textbefore, textbefore.length() - 1, 1, 0);
     }
 
     public String getText() {
         return mText;
+    }
+
+    private CharSequence getTransformedText() {
+        int textLength = mTextChars.size();
+        StringBuilder stringBuilder = new StringBuilder(textLength);
+        for (int i = 0; i < textLength; i++) {
+            CharState charState = mTextChars.get(i);
+            // If the dot is disappearing, the character is disappearing entirely. Consider
+            // it gone.
+            if (charState.dotAnimator != null && !charState.dotAnimationIsGrowing) {
+                continue;
+            }
+            stringBuilder.append(charState.isCharVisibleForA11y() ? charState.whichChar : DOT);
+        }
+        return stringBuilder;
     }
 
     private CharState obtainCharState(char c) {
@@ -269,7 +294,7 @@ public class PasswordTextView extends View {
     }
 
     public void reset(boolean animated, boolean announce) {
-        String textbefore = mText;
+        CharSequence textbefore = getTransformedText();
         mText = "";
         int length = mTextChars.size();
         int middleIndex = (length - 1) / 2;
@@ -302,19 +327,20 @@ public class PasswordTextView extends View {
         }
     }
 
-    void sendAccessibilityEventTypeViewTextChanged(String beforeText, int fromIndex,
+    void sendAccessibilityEventTypeViewTextChanged(CharSequence beforeText, int fromIndex,
                                                    int removedCount, int addedCount) {
         if (AccessibilityManager.getInstance(mContext).isEnabled() &&
                 (isFocused() || isSelected() && isShown())) {
-            if (!shouldSpeakPasswordsForAccessibility()) {
-                beforeText = null;
-            }
             AccessibilityEvent event =
                     AccessibilityEvent.obtain(AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED);
             event.setFromIndex(fromIndex);
             event.setRemovedCount(removedCount);
             event.setAddedCount(addedCount);
             event.setBeforeText(beforeText);
+            CharSequence transformedText = getTransformedText();
+            if (!TextUtils.isEmpty(transformedText)) {
+                event.getText().add(transformedText);
+            }
             event.setPassword(true);
             sendAccessibilityEventUnchecked(event);
         }
@@ -324,46 +350,21 @@ public class PasswordTextView extends View {
     public void onInitializeAccessibilityEvent(AccessibilityEvent event) {
         super.onInitializeAccessibilityEvent(event);
 
-        event.setClassName(PasswordTextView.class.getName());
+        event.setClassName(EditText.class.getName());
         event.setPassword(true);
-    }
-
-    @Override
-    public void onPopulateAccessibilityEvent(AccessibilityEvent event) {
-        super.onPopulateAccessibilityEvent(event);
-
-        if (shouldSpeakPasswordsForAccessibility()) {
-            final CharSequence text = mText;
-            if (!TextUtils.isEmpty(text)) {
-                event.getText().add(text);
-            }
-        }
     }
 
     @Override
     public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
         super.onInitializeAccessibilityNodeInfo(info);
 
-        info.setClassName(PasswordTextView.class.getName());
+        info.setClassName(EditText.class.getName());
         info.setPassword(true);
-
-        if (shouldSpeakPasswordsForAccessibility()) {
-            info.setText(mText);
-        }
+        info.setText(getTransformedText());
 
         info.setEditable(true);
 
         info.setInputType(InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-    }
-
-    /**
-     * @return true if the user has explicitly allowed accessibility services
-     * to speak passwords.
-     */
-    private boolean shouldSpeakPasswordsForAccessibility() {
-        return (Settings.Secure.getIntForUser(mContext.getContentResolver(),
-                Settings.Secure.ACCESSIBILITY_SPEAK_PASSWORD, 0,
-                UserHandle.USER_CURRENT_OR_SELF) == 1);
     }
 
     private class CharState {
@@ -446,7 +447,19 @@ public class PasswordTextView extends View {
                 = new ValueAnimator.AnimatorUpdateListener() {
             @Override
             public void onAnimationUpdate(ValueAnimator animation) {
+                boolean textVisibleBefore = isCharVisibleForA11y();
+                float beforeTextSizeFactor = currentTextSizeFactor;
                 currentTextSizeFactor = (float) animation.getAnimatedValue();
+                if (textVisibleBefore != isCharVisibleForA11y()) {
+                    currentTextSizeFactor = beforeTextSizeFactor;
+                    CharSequence beforeText = getTransformedText();
+                    currentTextSizeFactor = (float) animation.getAnimatedValue();
+                    int indexOfThisChar = mTextChars.indexOf(CharState.this);
+                    if (indexOfThisChar >= 0) {
+                        sendAccessibilityEventTypeViewTextChanged(
+                                beforeText, indexOfThisChar, 1, 1);
+                    }
+                }
                 invalidate();
             }
         };
@@ -698,6 +711,14 @@ public class PasswordTextView extends View {
                 canvas.restore();
             }
             return charWidth + mCharPadding * currentWidthFactor;
+        }
+
+        public boolean isCharVisibleForA11y() {
+            // The text has size 0 when it is first added, but we want to count it as visible if
+            // it will become visible presently. Count text as visible if an animator
+            // is configured to make it grow.
+            boolean textIsGrowing = textAnimator != null && textAnimationIsGrowing;
+            return (currentTextSizeFactor > 0) || textIsGrowing;
         }
     }
 }

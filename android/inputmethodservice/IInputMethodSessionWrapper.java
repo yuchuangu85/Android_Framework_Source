@@ -16,10 +16,7 @@
 
 package android.inputmethodservice;
 
-import com.android.internal.os.HandlerCaller;
-import com.android.internal.os.SomeArgs;
-import com.android.internal.view.IInputMethodSession;
-
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.Bundle;
@@ -34,15 +31,18 @@ import android.view.InputEventReceiver;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.inputmethod.CompletionInfo;
+import android.view.inputmethod.CursorAnchorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.InputMethodSession;
-import android.view.inputmethod.CursorAnchorInfo;
+
+import com.android.internal.os.HandlerCaller;
+import com.android.internal.os.SomeArgs;
+import com.android.internal.view.IInputMethodSession;
 
 class IInputMethodSessionWrapper extends IInputMethodSession.Stub
         implements HandlerCaller.Callback {
     private static final String TAG = "InputMethodWrapper";
-    
-    private static final int DO_FINISH_INPUT = 60;
+
     private static final int DO_DISPLAY_COMPLETIONS = 65;
     private static final int DO_UPDATE_EXTRACTED_TEXT = 67;
     private static final int DO_UPDATE_SELECTION = 90;
@@ -52,7 +52,10 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
     private static final int DO_TOGGLE_SOFT_INPUT = 105;
     private static final int DO_FINISH_SESSION = 110;
     private static final int DO_VIEW_CLICKED = 115;
+    private static final int DO_NOTIFY_IME_HIDDEN = 120;
+    private static final int DO_REMOVE_IME_SURFACE = 130;
 
+    @UnsupportedAppUsage
     HandlerCaller mCaller;
     InputMethodSession mInputMethodSession;
     InputChannel mChannel;
@@ -89,9 +92,6 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
         }
 
         switch (msg.what) {
-            case DO_FINISH_INPUT:
-                mInputMethodSession.finishInput();
-                return;
             case DO_DISPLAY_COMPLETIONS:
                 mInputMethodSession.displayCompletions((CompletionInfo[])msg.obj);
                 return;
@@ -133,6 +133,14 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
                 mInputMethodSession.viewClicked(msg.arg1 == 1);
                 return;
             }
+            case DO_NOTIFY_IME_HIDDEN: {
+                mInputMethodSession.notifyImeHidden();
+                return;
+            }
+            case DO_REMOVE_IME_SURFACE: {
+                mInputMethodSession.removeImeSurface();
+                return;
+            }
         }
         Log.w(TAG, "Unhandled message code: " + msg.what);
     }
@@ -147,11 +155,6 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
             mChannel.dispose();
             mChannel = null;
         }
-    }
-
-    @Override
-    public void finishInput() {
-        mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_FINISH_INPUT));
     }
 
     @Override
@@ -178,6 +181,16 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
     public void viewClicked(boolean focusChanged) {
         mCaller.executeOrSendMessage(
                 mCaller.obtainMessageI(DO_VIEW_CLICKED, focusChanged ? 1 : 0));
+    }
+
+    @Override
+    public void notifyImeHidden() {
+        mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_NOTIFY_IME_HIDDEN));
+    }
+
+    @Override
+    public void removeImeSurface() {
+        mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_REMOVE_IME_SURFACE));
     }
 
     @Override

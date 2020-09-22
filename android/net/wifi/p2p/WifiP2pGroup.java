@@ -16,15 +16,17 @@
 
 package android.net.wifi.p2p;
 
-import android.os.Parcelable;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
+import android.os.Parcelable;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.regex.Pattern;
+import java.util.List;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * A class representing a Wi-Fi P2p group. A p2p group consists of a single group
@@ -35,15 +37,27 @@ import java.util.regex.Matcher;
  */
 public class WifiP2pGroup implements Parcelable {
 
-    /** The temporary network id.
-     * {@hide} */
-    public static final int TEMPORARY_NET_ID = -1;
+    /**
+     * The temporary network id.
+     * @see #getNetworkId()
+     */
+    public static final int NETWORK_ID_TEMPORARY = -1;
 
-    /** The persistent network id.
+    /**
+     * The temporary network id.
+     *
+     * @hide
+     */
+    @UnsupportedAppUsage
+    public static final int TEMPORARY_NET_ID = NETWORK_ID_TEMPORARY;
+
+    /**
+     * The persistent network id.
      * If a matching persistent profile is found, use it.
      * Otherwise, create a new persistent profile.
-     * {@hide} */
-    public static final int PERSISTENT_NET_ID = -2;
+     * @see #getNetworkId()
+     */
+    public static final int NETWORK_ID_PERSISTENT = -2;
 
     /** The network name */
     private String mNetworkName;
@@ -62,8 +76,11 @@ public class WifiP2pGroup implements Parcelable {
 
     private String mInterface;
 
-    /** The network id in the wpa_supplicant */
+    /** The network ID in wpa_supplicant */
     private int mNetId;
+
+    /** The frequency (in MHz) used by this group */
+    private int mFrequency;
 
     /** P2P group started string pattern */
     private static final Pattern groupStartedPattern = Pattern.compile(
@@ -95,6 +112,7 @@ public class WifiP2pGroup implements Parcelable {
      *  Note: The events formats can be looked up in the wpa_supplicant code
      *  @hide
      */
+    @UnsupportedAppUsage
     public WifiP2pGroup(String supplicantEvent) throws IllegalArgumentException {
 
         String[] tokens = supplicantEvent.split(" ");
@@ -113,19 +131,20 @@ public class WifiP2pGroup implements Parcelable {
             }
 
             mNetworkName = match.group(1);
-            //freq and psk are unused right now
-            //int freq = Integer.parseInt(match.group(2));
+            // It throws NumberFormatException if the string cannot be parsed as an integer.
+            mFrequency = Integer.parseInt(match.group(2));
+            // psk is unused right now
             //String psk = match.group(3);
             mPassphrase = match.group(4);
             mOwner = new WifiP2pDevice(match.group(5));
             if (match.group(6) != null) {
-                mNetId = PERSISTENT_NET_ID;
+                mNetId = NETWORK_ID_PERSISTENT;
             } else {
-                mNetId = TEMPORARY_NET_ID;
+                mNetId = NETWORK_ID_TEMPORARY;
             }
         } else if (tokens[0].equals("P2P-INVITATION-RECEIVED")) {
             String sa = null;
-            mNetId = PERSISTENT_NET_ID;
+            mNetId = NETWORK_ID_PERSISTENT;
             for (String token : tokens) {
                 String[] nameValue = token.split("=");
                 if (nameValue.length != 2) continue;
@@ -169,6 +188,7 @@ public class WifiP2pGroup implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setIsGroupOwner(boolean isGo) {
         mIsGroupOwner = isGo;
     }
@@ -212,14 +232,18 @@ public class WifiP2pGroup implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public boolean isClientListEmpty() {
         return mClients.size() == 0;
     }
 
-    /** @hide Returns {@code true} if the device is part of the group */
-    public boolean contains(WifiP2pDevice device) {
-        if (mOwner.equals(device) || mClients.contains(device)) return true;
-        return false;
+    /**
+     * Returns {@code true} if the device is part of the group, {@code false} otherwise.
+     *
+     * @hide
+     */
+    public boolean contains(@Nullable WifiP2pDevice device) {
+        return mOwner.equals(device) || mClients.contains(device);
     }
 
     /** Get the list of clients currently part of the p2p group */
@@ -242,6 +266,7 @@ public class WifiP2pGroup implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setInterface(String intf) {
         mInterface = intf;
     }
@@ -251,14 +276,25 @@ public class WifiP2pGroup implements Parcelable {
         return mInterface;
     }
 
-    /** @hide */
+    /** The network ID of the P2P group in wpa_supplicant. */
     public int getNetworkId() {
         return mNetId;
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setNetworkId(int netId) {
         this.mNetId = netId;
+    }
+
+    /** Get the operating frequency (in MHz) of the p2p group */
+    public int getFrequency() {
+        return mFrequency;
+    }
+
+    /** @hide */
+    public void setFrequency(int freq) {
+        this.mFrequency = freq;
     }
 
     public String toString() {
@@ -271,6 +307,7 @@ public class WifiP2pGroup implements Parcelable {
         }
         sbuf.append("\n interface: ").append(mInterface);
         sbuf.append("\n networkId: ").append(mNetId);
+        sbuf.append("\n frequency: ").append(mFrequency);
         return sbuf.toString();
     }
 
@@ -289,6 +326,7 @@ public class WifiP2pGroup implements Parcelable {
             mPassphrase = source.getPassphrase();
             mInterface = source.getInterface();
             mNetId = source.getNetworkId();
+            mFrequency = source.getFrequency();
         }
     }
 
@@ -304,10 +342,11 @@ public class WifiP2pGroup implements Parcelable {
         dest.writeString(mPassphrase);
         dest.writeString(mInterface);
         dest.writeInt(mNetId);
+        dest.writeInt(mFrequency);
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<WifiP2pGroup> CREATOR =
+    public static final @android.annotation.NonNull Creator<WifiP2pGroup> CREATOR =
         new Creator<WifiP2pGroup>() {
             public WifiP2pGroup createFromParcel(Parcel in) {
                 WifiP2pGroup group = new WifiP2pGroup();
@@ -321,6 +360,7 @@ public class WifiP2pGroup implements Parcelable {
                 group.setPassphrase(in.readString());
                 group.setInterface(in.readString());
                 group.setNetworkId(in.readInt());
+                group.setFrequency(in.readInt());
                 return group;
             }
 

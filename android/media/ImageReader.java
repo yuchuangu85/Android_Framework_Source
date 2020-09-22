@@ -16,11 +16,15 @@
 
 package android.media;
 
+import android.annotation.IntRange;
+import android.annotation.NonNull;
 import android.graphics.ImageFormat;
+import android.graphics.ImageFormat.Format;
+import android.hardware.HardwareBuffer;
+import android.hardware.HardwareBuffer.Usage;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
-import android.util.Log;
 import android.view.Surface;
 
 import dalvik.system.VMRuntime;
@@ -120,14 +124,134 @@ public class ImageReader implements AutoCloseable {
      *            Must be greater than 0.
      * @see Image
      */
-    public static ImageReader newInstance(int width, int height, int format, int maxImages) {
-        return new ImageReader(width, height, format, maxImages);
+    public static @NonNull ImageReader newInstance(
+            @IntRange(from = 1) int width,
+            @IntRange(from = 1) int height,
+            @Format             int format,
+            @IntRange(from = 1) int maxImages) {
+        // If the format is private don't default to USAGE_CPU_READ_OFTEN since it may not
+        // work, and is inscrutable anyway
+        return new ImageReader(width, height, format, maxImages,
+                format == ImageFormat.PRIVATE ? 0 : HardwareBuffer.USAGE_CPU_READ_OFTEN);
+    }
+
+    /**
+     * <p>
+     * Create a new reader for images of the desired size, format and consumer usage flag.
+     * </p>
+     * <p>
+     * The {@code maxImages} parameter determines the maximum number of {@link Image} objects that
+     * can be be acquired from the {@code ImageReader} simultaneously. Requesting more buffers will
+     * use up more memory, so it is important to use only the minimum number necessary for the use
+     * case.
+     * </p>
+     * <p>
+     * The valid sizes and formats depend on the source of the image data.
+     * </p>
+     * <p>
+     * The format and usage flag combination describes how the buffer will be used by
+     * consumer end-points. For example, if the application intends to send the images to
+     * {@link android.media.MediaCodec} or {@link android.media.MediaRecorder} for hardware video
+     * encoding, the format and usage flag combination needs to be
+     * {@link ImageFormat#PRIVATE PRIVATE} and {@link HardwareBuffer#USAGE_VIDEO_ENCODE}. When an
+     * {@link ImageReader} object is created with a valid size and such format/usage flag
+     * combination, the application can send the {@link Image images} to an {@link ImageWriter} that
+     * is created with the input {@link android.view.Surface} provided by the
+     * {@link android.media.MediaCodec} or {@link android.media.MediaRecorder}.
+     * </p>
+     * <p>
+     * If the {@code format} is {@link ImageFormat#PRIVATE PRIVATE}, the created {@link ImageReader}
+     * will produce images that are not directly accessible by the application. The application can
+     * still acquire images from this {@link ImageReader}, and send them to the
+     * {@link android.hardware.camera2.CameraDevice camera} for reprocessing, or to the
+     * {@link android.media.MediaCodec} / {@link android.media.MediaRecorder} for hardware video
+     * encoding via {@link ImageWriter} interface. However, the {@link Image#getPlanes()
+     * getPlanes()} will return an empty array for {@link ImageFormat#PRIVATE PRIVATE} format
+     * images. The application can check if an existing reader's format by calling
+     * {@link #getImageFormat()}.
+     * </p>
+     * <p>
+     * {@link ImageFormat#PRIVATE PRIVATE} format {@link ImageReader ImageReaders} are more
+     * efficient to use when application access to image data is not necessary, compared to
+     * ImageReaders using other format such as {@link ImageFormat#YUV_420_888 YUV_420_888}.
+     * </p>
+     * <p>
+     * Note that not all format and usage flag combinations are supported by the
+     * {@link ImageReader}. Below are the supported combinations by the {@link ImageReader}
+     * (assuming the consumer end-points support the such image consumption, e.g., hardware video
+     * encoding).
+     * <table>
+     * <tr>
+     *   <th>Format</th>
+     *   <th>Compatible usage flags</th>
+     * </tr>
+     * <tr>
+     *   <td>non-{@link android.graphics.ImageFormat#PRIVATE PRIVATE} formats defined by
+     *   {@link android.graphics.ImageFormat ImageFormat} or
+     *   {@link android.graphics.PixelFormat PixelFormat}</td>
+     *   <td>{@link HardwareBuffer#USAGE_CPU_READ_RARELY} or
+     *   {@link HardwareBuffer#USAGE_CPU_READ_OFTEN}</td>
+     * </tr>
+     * <tr>
+     *   <td>{@link android.graphics.ImageFormat#PRIVATE}</td>
+     *   <td>{@link HardwareBuffer#USAGE_VIDEO_ENCODE} or
+     *   {@link HardwareBuffer#USAGE_GPU_SAMPLED_IMAGE}, or combined</td>
+     * </tr>
+     * </table>
+     * Using other combinations may result in {@link IllegalArgumentException}.
+     * </p>
+     * <p>
+     * If the {@link ImageReader} is used as an output target for a {@link
+     * android.hardware.camera2.CameraDevice}, and if the usage flag contains
+     * {@link HardwareBuffer#USAGE_VIDEO_ENCODE}, the timestamps of the
+     * {@link Image images} produced by the {@link ImageReader} won't be in the same timebase as
+     * {@link android.os.SystemClock#elapsedRealtimeNanos}, even if
+     * {@link android.hardware.camera2.CameraCharacteristics#SENSOR_INFO_TIMESTAMP_SOURCE} is
+     * {@link android.hardware.camera2.CameraCharacteristics#SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME}.
+     * Instead, the timestamps will be roughly in the same timebase as in
+     * {@link android.os.SystemClock#uptimeMillis}, so that A/V synchronization could work for
+     * video recording. In this case, the timestamps from the {@link ImageReader} with
+     * {@link HardwareBuffer#USAGE_VIDEO_ENCODE} usage flag may not be directly comparable with
+     * timestamps of other streams or capture result metadata.
+     * </p>
+     * @param width The default width in pixels of the Images that this reader will produce.
+     * @param height The default height in pixels of the Images that this reader will produce.
+     * @param format The format of the Image that this reader will produce. This must be one of the
+     *            {@link android.graphics.ImageFormat} or {@link android.graphics.PixelFormat}
+     *            constants. Note that not all formats are supported, like ImageFormat.NV21.
+     * @param maxImages The maximum number of images the user will want to access simultaneously.
+     *            This should be as small as possible to limit memory use. Once maxImages Images are
+     *            obtained by the user, one of them has to be released before a new Image will
+     *            become available for access through {@link #acquireLatestImage()} or
+     *            {@link #acquireNextImage()}. Must be greater than 0.
+     * @param usage The intended usage of the images produced by this ImageReader. See the usages
+     *              on {@link HardwareBuffer} for a list of valid usage bits. See also
+     *              {@link HardwareBuffer#isSupported(int, int, int, int, long)} for checking
+     *              if a combination is supported. If it's not supported this will throw
+     *              an {@link IllegalArgumentException}.
+     * @see Image
+     * @see HardwareBuffer
+     */
+    public static @NonNull ImageReader newInstance(
+            @IntRange(from = 1) int width,
+            @IntRange(from = 1) int height,
+            @Format             int format,
+            @IntRange(from = 1) int maxImages,
+            @Usage              long usage) {
+        // TODO: Check this - can't do it just yet because format support is different
+        // Unify formats! The only reliable way to validate usage is to just try it and see.
+
+//        if (!HardwareBuffer.isSupported(width, height, format, 1, usage)) {
+//            throw new IllegalArgumentException("The given format=" + Integer.toHexString(format)
+//                + " & usage=" + Long.toHexString(usage) + " is not supported");
+//        }
+        return new ImageReader(width, height, format, maxImages, usage);
     }
 
     /**
      * @hide
      */
-    protected ImageReader(int width, int height, int format, int maxImages) {
+    protected ImageReader(int width, int height, int format, int maxImages, long usage) {
         mWidth = width;
         mHeight = height;
         mFormat = format;
@@ -149,7 +273,7 @@ public class ImageReader implements AutoCloseable {
 
         mNumPlanes = ImageUtils.getNumPlanesForFormat(mFormat);
 
-        nativeInit(new WeakReference<ImageReader>(this), width, height, format, maxImages);
+        nativeInit(new WeakReference<>(this), width, height, format, maxImages, usage);
 
         mSurface = nativeGetSurface();
 
@@ -541,7 +665,6 @@ public class ImageReader implements AutoCloseable {
      * The ImageReader continues to be usable after this call, but may need to reallocate buffers
      * when more buffers are needed for rendering.
      * </p>
-     * @hide
      */
     public void discardFreeBuffers() {
         synchronized (mCloseLock) {
@@ -606,6 +729,8 @@ public class ImageReader implements AutoCloseable {
         }
 
         nativeDetachImage(image);
+        si.clearSurfacePlanes();
+        si.mPlanes = null;
         si.setDetached(true);
     }
 
@@ -655,7 +780,7 @@ public class ImageReader implements AutoCloseable {
     private ListenerHandler mListenerHandler;
     // Keep track of the successfully acquired Images. This need to be thread safe as the images
     // could be closed by different threads (e.g., application thread and GC thread).
-    private List<Image> mAcquiredImages = new CopyOnWriteArrayList<Image>();
+    private List<Image> mAcquiredImages = new CopyOnWriteArrayList<>();
 
     /**
      * This field is used by native code, do not access or modify.
@@ -721,6 +846,8 @@ public class ImageReader implements AutoCloseable {
                 case ImageFormat.JPEG:
                 case ImageFormat.DEPTH_POINT_CLOUD:
                 case ImageFormat.RAW_PRIVATE:
+                case ImageFormat.DEPTH_JPEG:
+                case ImageFormat.HEIC:
                     width = ImageReader.this.getWidth();
                     break;
                 default:
@@ -737,6 +864,8 @@ public class ImageReader implements AutoCloseable {
                 case ImageFormat.JPEG:
                 case ImageFormat.DEPTH_POINT_CLOUD:
                 case ImageFormat.RAW_PRIVATE:
+                case ImageFormat.DEPTH_JPEG:
+                case ImageFormat.HEIC:
                     height = ImageReader.this.getHeight();
                     break;
                 default:
@@ -749,6 +878,24 @@ public class ImageReader implements AutoCloseable {
         public long getTimestamp() {
             throwISEIfImageIsInvalid();
             return mTimestamp;
+        }
+
+        @Override
+        public int getTransform() {
+            throwISEIfImageIsInvalid();
+            return mTransform;
+        }
+
+        @Override
+        public int getScalingMode() {
+            throwISEIfImageIsInvalid();
+            return mScalingMode;
+        }
+
+        @Override
+        public HardwareBuffer getHardwareBuffer() {
+            throwISEIfImageIsInvalid();
+            return nativeGetHardwareBuffer();
         }
 
         @Override
@@ -879,9 +1026,11 @@ public class ImageReader implements AutoCloseable {
         private long mNativeBuffer;
 
         /**
-         * This field is set by native code during nativeImageSetup().
+         * These fields are set by native code during nativeImageSetup().
          */
         private long mTimestamp;
+        private int mTransform;
+        private int mScalingMode;
 
         private SurfacePlane[] mPlanes;
         private int mFormat = ImageFormat.UNKNOWN;
@@ -893,10 +1042,11 @@ public class ImageReader implements AutoCloseable {
         private synchronized native int nativeGetWidth();
         private synchronized native int nativeGetHeight();
         private synchronized native int nativeGetFormat(int readerFormat);
+        private synchronized native HardwareBuffer nativeGetHardwareBuffer();
     }
 
     private synchronized native void nativeInit(Object weakSelf, int w, int h,
-                                                    int fmt, int maxImgs);
+                                                    int fmt, int maxImgs, long consumerUsage);
     private synchronized native void nativeClose();
     private synchronized native void nativeReleaseImage(Image i);
     private synchronized native Surface nativeGetSurface();

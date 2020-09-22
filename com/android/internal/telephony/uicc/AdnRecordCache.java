@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
@@ -32,7 +33,9 @@ import java.util.Iterator;
 public class AdnRecordCache extends Handler implements IccConstants {
     //***** Instance Variables
 
+    @UnsupportedAppUsage
     private IccFileHandler mFh;
+    @UnsupportedAppUsage
     private UsimPhoneBookManager mUsimPhoneBookManager;
 
     // Indexed by EF ID
@@ -40,10 +43,12 @@ public class AdnRecordCache extends Handler implements IccConstants {
         = new SparseArray<ArrayList<AdnRecord>>();
 
     // People waiting for ADN-like files to be loaded
+    @UnsupportedAppUsage
     SparseArray<ArrayList<Message>> mAdnLikeWaiters
         = new SparseArray<ArrayList<Message>>();
 
     // People waiting for adn record to be updated
+    @UnsupportedAppUsage
     SparseArray<Message> mUserWriteResponse = new SparseArray<Message>();
 
     //***** Event Constants
@@ -65,6 +70,7 @@ public class AdnRecordCache extends Handler implements IccConstants {
     /**
      * Called from SIMRecords.onRadioNotAvailable and SIMRecords.handleSimRefresh.
      */
+    @UnsupportedAppUsage
     public void reset() {
         mAdnLikeFiles.clear();
         mUsimPhoneBookManager.reset();
@@ -96,6 +102,7 @@ public class AdnRecordCache extends Handler implements IccConstants {
      * @return List of AdnRecords for efid if we've already loaded them this
      * radio session, or null if we haven't
      */
+    @UnsupportedAppUsage
     public ArrayList<AdnRecord>
     getRecordsIfLoaded(int efid) {
         return mAdnLikeFiles.get(efid);
@@ -107,6 +114,7 @@ public class AdnRecordCache extends Handler implements IccConstants {
      *
      * See 3GPP TS 51.011 for this mapping
      */
+    @UnsupportedAppUsage
     public int extensionEfForEf(int efid) {
         switch (efid) {
             case EF_MBDN: return EF_EXT6;
@@ -119,6 +127,7 @@ public class AdnRecordCache extends Handler implements IccConstants {
         }
     }
 
+    @UnsupportedAppUsage
     private void sendErrorResponse(Message response, String errString) {
         if (response != null) {
             Exception e = new RuntimeException(errString);
@@ -137,6 +146,7 @@ public class AdnRecordCache extends Handler implements IccConstants {
      * @param response message to be posted when done
      *        response.exception hold the exception in error
      */
+    @UnsupportedAppUsage
     public void updateAdnByIndex(int efid, AdnRecord adn, int recordIndex, String pin2,
             Message response) {
 
@@ -359,8 +369,12 @@ public class AdnRecordCache extends Handler implements IccConstants {
                 Message response = mUserWriteResponse.get(efid);
                 mUserWriteResponse.delete(efid);
 
-                AsyncResult.forMessage(response, null, ar.exception);
-                response.sendToTarget();
+                // response may be cleared when simrecord is reset,
+                // so we should check if it is null.
+                if (response != null) {
+                    AsyncResult.forMessage(response, null, ar.exception);
+                    response.sendToTarget();
+                }
                 break;
         }
     }

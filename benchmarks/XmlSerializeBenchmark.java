@@ -81,14 +81,14 @@ public class XmlSerializeBenchmark {
     @SuppressWarnings("unchecked")
     @BeforeExperiment
     protected void setUp() throws Exception {
-        kxmlConstructor = (Constructor) Class.forName("org.kxml2.io.KXmlSerializer")
+        kxmlConstructor = (Constructor) Class.forName("com.android.org.kxml2.io.KXmlSerializer")
                 .getConstructor();
         fastConstructor = (Constructor) Class.forName("com.android.internal.util.FastXmlSerializer")
                 .getConstructor();
         String[] splitted = datasetAsString.split(" ");
         dataset = new double[splitted.length];
         for (int i = 0; i < splitted.length; i++) {
-            dataset[i] = Double.valueOf(splitted[i]);
+            dataset[i] = Double.parseDouble(splitted[i]);
         }
     }
 

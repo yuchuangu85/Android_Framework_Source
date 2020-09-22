@@ -30,56 +30,55 @@ public class AtomicLongFieldUpdaterTest extends JSR166TestCase {
     // }
 
     // for testing subclass access
-    // android-note: Removed because android doesn't restrict reflection access
-    // static class AtomicLongFieldUpdaterTestSubclass extends AtomicLongFieldUpdaterTest {
-    //     public void checkPrivateAccess() {
-    //         try {
-    //             AtomicLongFieldUpdater<AtomicLongFieldUpdaterTest> a =
-    //                 AtomicLongFieldUpdater.newUpdater
-    //                 (AtomicLongFieldUpdaterTest.class, "privateField");
-    //             shouldThrow();
-    //         } catch (RuntimeException success) {
-    //             assertNotNull(success.getCause());
-    //         }
-    //     }
+    static class AtomicLongFieldUpdaterTestSubclass extends AtomicLongFieldUpdaterTest {
+        public void checkPrivateAccess() {
+            try {
+                AtomicLongFieldUpdater<AtomicLongFieldUpdaterTest> a =
+                    AtomicLongFieldUpdater.newUpdater
+                    (AtomicLongFieldUpdaterTest.class, "privateField");
+                shouldThrow();
+            } catch (RuntimeException success) {
+                assertNotNull(success.getCause());
+            }
+        }
 
-    //     public void checkCompareAndSetProtectedSub() {
-    //         AtomicLongFieldUpdater<AtomicLongFieldUpdaterTest> a =
-    //             AtomicLongFieldUpdater.newUpdater
-    //             (AtomicLongFieldUpdaterTest.class, "protectedField");
-    //         this.protectedField = 1;
-    //         assertTrue(a.compareAndSet(this, 1, 2));
-    //         assertTrue(a.compareAndSet(this, 2, -4));
-    //         assertEquals(-4, a.get(this));
-    //         assertFalse(a.compareAndSet(this, -5, 7));
-    //         assertEquals(-4, a.get(this));
-    //         assertTrue(a.compareAndSet(this, -4, 7));
-    //         assertEquals(7, a.get(this));
-    //     }
-    // }
+        public void checkCompareAndSetProtectedSub() {
+            AtomicLongFieldUpdater<AtomicLongFieldUpdaterTest> a =
+                AtomicLongFieldUpdater.newUpdater
+                (AtomicLongFieldUpdaterTest.class, "protectedField");
+            this.protectedField = 1;
+            assertTrue(a.compareAndSet(this, 1, 2));
+            assertTrue(a.compareAndSet(this, 2, -4));
+            assertEquals(-4, a.get(this));
+            assertFalse(a.compareAndSet(this, -5, 7));
+            assertEquals(-4, a.get(this));
+            assertTrue(a.compareAndSet(this, -4, 7));
+            assertEquals(7, a.get(this));
+        }
+    }
 
-    // static class UnrelatedClass {
-    //     public void checkPackageAccess(AtomicLongFieldUpdaterTest obj) {
-    //         obj.x = 72L;
-    //         AtomicLongFieldUpdater<AtomicLongFieldUpdaterTest> a =
-    //             AtomicLongFieldUpdater.newUpdater
-    //             (AtomicLongFieldUpdaterTest.class, "x");
-    //         assertEquals(72L, a.get(obj));
-    //         assertTrue(a.compareAndSet(obj, 72L, 73L));
-    //         assertEquals(73L, a.get(obj));
-    //     }
+    static class UnrelatedClass {
+        public void checkPackageAccess(AtomicLongFieldUpdaterTest obj) {
+            obj.x = 72L;
+            AtomicLongFieldUpdater<AtomicLongFieldUpdaterTest> a =
+                AtomicLongFieldUpdater.newUpdater
+                (AtomicLongFieldUpdaterTest.class, "x");
+            assertEquals(72L, a.get(obj));
+            assertTrue(a.compareAndSet(obj, 72L, 73L));
+            assertEquals(73L, a.get(obj));
+        }
 
-    //     public void checkPrivateAccess(AtomicLongFieldUpdaterTest obj) {
-    //         try {
-    //             AtomicLongFieldUpdater<AtomicLongFieldUpdaterTest> a =
-    //                 AtomicLongFieldUpdater.newUpdater
-    //                 (AtomicLongFieldUpdaterTest.class, "privateField");
-    //             throw new AssertionError("should throw");
-    //         } catch (RuntimeException success) {
-    //             assertNotNull(success.getCause());
-    //         }
-    //     }
-    // }
+        public void checkPrivateAccess(AtomicLongFieldUpdaterTest obj) {
+            try {
+                AtomicLongFieldUpdater<AtomicLongFieldUpdaterTest> a =
+                    AtomicLongFieldUpdater.newUpdater
+                    (AtomicLongFieldUpdaterTest.class, "privateField");
+                throw new AssertionError("should throw");
+            } catch (RuntimeException success) {
+                assertNotNull(success.getCause());
+            }
+        }
+    }
 
     AtomicLongFieldUpdater<AtomicLongFieldUpdaterTest> updaterFor(String fieldName) {
         return AtomicLongFieldUpdater.newUpdater
@@ -121,22 +120,20 @@ public class AtomicLongFieldUpdaterTest extends JSR166TestCase {
     /**
      * construction using private field from subclass throws RuntimeException
      */
-    // android-note: Removed because android doesn't restrict reflection access
-    // public void testPrivateFieldInSubclass() {
-    //     AtomicLongFieldUpdaterTestSubclass s =
-    //         new AtomicLongFieldUpdaterTestSubclass();
-    //     s.checkPrivateAccess();
-    // }
+    public void testPrivateFieldInSubclass() {
+        AtomicLongFieldUpdaterTestSubclass s =
+            new AtomicLongFieldUpdaterTestSubclass();
+        s.checkPrivateAccess();
+    }
 
     /**
      * construction from unrelated class; package access is allowed,
      * private access is not
      */
-    // android-note: Removed because android doesn't restrict reflection access
-    // public void testUnrelatedClassAccess() {
-    //     new UnrelatedClass().checkPackageAccess(this);
-    //     new UnrelatedClass().checkPrivateAccess(this);
-    // }
+    public void testUnrelatedClassAccess() {
+        new UnrelatedClass().checkPackageAccess(this);
+        new UnrelatedClass().checkPrivateAccess(this);
+    }
 
     /**
      * get returns the last value set or assigned
@@ -203,12 +200,11 @@ public class AtomicLongFieldUpdaterTest extends JSR166TestCase {
      * compareAndSet succeeds in changing protected field value if
      * equal to expected else fails
      */
-    // android-note: Removed because android doesn't restrict reflection access
-    // public void testCompareAndSetProtectedInSubclass() {
-    //     AtomicLongFieldUpdaterTestSubclass s =
-    //         new AtomicLongFieldUpdaterTestSubclass();
-    //     s.checkCompareAndSetProtectedSub();
-    // }
+    public void testCompareAndSetProtectedInSubclass() {
+        AtomicLongFieldUpdaterTestSubclass s =
+            new AtomicLongFieldUpdaterTestSubclass();
+        s.checkCompareAndSetProtectedSub();
+    }
 
     /**
      * compareAndSet in one thread enables another waiting for value

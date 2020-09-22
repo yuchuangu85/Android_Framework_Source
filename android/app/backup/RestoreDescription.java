@@ -16,6 +16,7 @@
 
 package android.app.backup;
 
+import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -34,7 +35,7 @@ public class RestoreDescription implements Parcelable {
     private final String mPackageName;
     private final int mDataType;
 
-    private static final String NO_MORE_PACKAGES_SENTINEL = "";
+    private static final String NO_MORE_PACKAGES_SENTINEL = "NO_MORE_PACKAGES";
 
     /**
      * Return this constant RestoreDescription from BackupTransport.nextRestorePackage()
@@ -52,6 +53,7 @@ public class RestoreDescription implements Parcelable {
     /** This package's restore data is a tarball-type full data stream */
     public static final int TYPE_FULL_STREAM = 2;
 
+    @NonNull
     @Override
     public String toString() {
         return "RestoreDescription{" + mPackageName + " : "
@@ -89,7 +91,7 @@ public class RestoreDescription implements Parcelable {
         out.writeInt(mDataType);
     }
 
-    public static final Parcelable.Creator<RestoreDescription> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<RestoreDescription> CREATOR
             = new Parcelable.Creator<RestoreDescription>() {
         public RestoreDescription createFromParcel(Parcel in) {
             final RestoreDescription unparceled = new RestoreDescription(in);

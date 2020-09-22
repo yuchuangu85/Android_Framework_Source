@@ -19,7 +19,7 @@ package com.android.ex.chips;
 import android.net.Uri;
 import android.provider.ContactsContract.CommonDataKinds.Email;
 import android.provider.ContactsContract.DisplayNameSources;
-import android.support.annotation.DrawableRes;
+import androidx.annotation.DrawableRes;
 import android.text.util.Rfc822Token;
 import android.text.util.Rfc822Tokenizer;
 
@@ -94,6 +94,9 @@ public class RecipientEntry {
 
     /** Should be used when type is {@link #ENTRY_TYPE_PERMISSION_REQUEST}. */
     private final String[] mPermissions;
+
+    /** Whether RecipientEntry is in a replaced chip or not. */
+    private boolean mInReplacedChip;
 
     protected RecipientEntry(int entryType, String displayName, String destination,
         int destinationType, String destinationLabel, long contactId, Long directoryId,
@@ -355,5 +358,20 @@ public class RecipientEntry {
      */
     public void setIndicatorText(String indicatorText) {
         mIndicatorText = indicatorText;
+    }
+
+    /**
+     * Get whether this RecipientEntry is in a replaced chip or not. Replaced chip only occurs
+     * if {@link RecipientEditTextView} uses a replacement chip for the entry.
+     */
+    public boolean getInReplacedChip() {
+        return mInReplacedChip;
+    }
+
+    /**
+     * Sets {@link #mInReplacedChip} to {@param inReplacedChip}.
+     */
+    public void setInReplacedChip(boolean inReplacedChip) {
+        mInReplacedChip = inReplacedChip;
     }
 }

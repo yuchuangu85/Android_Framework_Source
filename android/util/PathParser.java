@@ -14,7 +14,10 @@
 
 package android.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Path;
+
+import dalvik.annotation.optimization.FastNative;
 
 /**
  * @hide
@@ -26,6 +29,7 @@ public class PathParser {
      * @param pathString The string representing a path, the same as "d" string in svg file.
      * @return the generated Path object.
      */
+    @UnsupportedAppUsage
     public static Path createPathFromPathData(String pathString) {
         if (pathString == null) {
             throw new IllegalArgumentException("Path string can not be null.");
@@ -119,14 +123,24 @@ public class PathParser {
     // Native functions are defined below.
     private static native void nParseStringForPath(long pathPtr, String pathString,
             int stringLength);
-    private static native void nCreatePathFromPathData(long outPathPtr, long pathData);
-    private static native long nCreateEmptyPathData();
-    private static native long nCreatePathData(long nativePtr);
     private static native long nCreatePathDataFromString(String pathString, int stringLength);
+
+    // ----------------- @FastNative -----------------------
+
+    @FastNative
+    private static native void nCreatePathFromPathData(long outPathPtr, long pathData);
+    @FastNative
+    private static native long nCreateEmptyPathData();
+    @FastNative
+    private static native long nCreatePathData(long nativePtr);
+    @FastNative
     private static native boolean nInterpolatePathData(long outDataPtr, long fromDataPtr,
             long toDataPtr, float fraction);
+    @FastNative
     private static native void nFinalize(long nativePtr);
+    @FastNative
     private static native boolean nCanMorph(long fromDataPtr, long toDataPtr);
+    @FastNative
     private static native void nSetPathData(long outDataPtr, long fromDataPtr);
 }
 

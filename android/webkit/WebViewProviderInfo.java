@@ -17,10 +17,11 @@
 package android.webkit;
 
 import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.pm.Signature;
 import android.os.Parcel;
 import android.os.Parcelable;
-
-import java.util.Arrays;
+import android.util.Base64;
 
 /**
  * @hide
@@ -34,11 +35,18 @@ public final class WebViewProviderInfo implements Parcelable {
         this.description = description;
         this.availableByDefault = availableByDefault;
         this.isFallback = isFallback;
-        this.signatures = signatures;
+        if (signatures == null) {
+            this.signatures = new Signature[0];
+        } else {
+            this.signatures = new Signature[signatures.length];
+            for (int n = 0; n < signatures.length; n++) {
+                this.signatures[n] = new Signature(Base64.decode(signatures[n], Base64.DEFAULT));
+            }
+        }
     }
 
     // aidl stuff
-    public static final Parcelable.Creator<WebViewProviderInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<WebViewProviderInfo> CREATOR =
         new Parcelable.Creator<WebViewProviderInfo>() {
             public WebViewProviderInfo createFromParcel(Parcel in) {
                 return new WebViewProviderInfo(in);
@@ -49,12 +57,13 @@ public final class WebViewProviderInfo implements Parcelable {
             }
         };
 
+    @UnsupportedAppUsage
     private WebViewProviderInfo(Parcel in) {
         packageName = in.readString();
         description = in.readString();
         availableByDefault = (in.readInt() > 0);
         isFallback = (in.readInt() > 0);
-        signatures = in.createStringArray();
+        signatures = in.createTypedArray(Signature.CREATOR);
     }
 
     @Override
@@ -68,7 +77,7 @@ public final class WebViewProviderInfo implements Parcelable {
         out.writeString(description);
         out.writeInt(availableByDefault ? 1 : 0);
         out.writeInt(isFallback ? 1 : 0);
-        out.writeStringArray(signatures);
+        out.writeTypedArray(signatures, 0);
     }
 
     // fields read from framework resource
@@ -76,5 +85,5 @@ public final class WebViewProviderInfo implements Parcelable {
     public final String description;
     public final boolean availableByDefault;
     public final boolean isFallback;
-    public final String[] signatures;
+    public final Signature[] signatures;
 }

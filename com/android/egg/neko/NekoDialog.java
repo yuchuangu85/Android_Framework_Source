@@ -1,32 +1,34 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2020 The Android Open Source Project
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
- * except in compliance with the License. You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
  *      http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software distributed under the
- * License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied. See the License for the specific language governing
- * permissions and limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.android.egg.neko;
 
-import android.support.annotation.NonNull;
 import android.app.Dialog;
 import android.content.Context;
-import android.support.v7.widget.GridLayoutManager;
-import android.support.v7.widget.RecyclerView;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
 import com.android.egg.R;
-import com.android.internal.logging.MetricsLogger;
 
 import java.util.ArrayList;
 
@@ -52,7 +54,7 @@ public class NekoDialog extends Dialog {
         if (currentState == 0 && food.getType() != 0) {
             NekoService.registerJob(getContext(), food.getInterval(getContext()));
         }
-        MetricsLogger.histogram(getContext(), "egg_neko_offered_food", food.getType());
+//        MetricsLogger.histogram(getContext(), "egg_neko_offered_food", food.getType());
         prefs.setFoodState(food.getType());
         dismiss();
     }

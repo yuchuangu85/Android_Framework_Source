@@ -17,6 +17,7 @@
 package android.media;
 
 import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.net.Uri;
 import android.os.PowerManager;
@@ -163,6 +164,7 @@ public class AsyncPlayer {
      * @deprecated use {@link #play(Context, Uri, boolean, AudioAttributes)} instead
      */
     public void play(Context context, Uri uri, boolean looping, int stream) {
+        PlayerBase.deprecateStreamTypeForPlayback(stream, "AsyncPlayer", "play()");
         if (context == null || uri == null) {
             return;
         }
@@ -246,6 +248,7 @@ public class AsyncPlayer {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void setUsesWakeLock(Context context) {
         if (mWakeLock != null || mThread != null) {
             // if either of these has happened, we've already played something.

@@ -36,7 +36,7 @@ public class ParcelableCallAnalytics implements Parcelable {
         public static final int RECEIVE_REMOTE_SESSION_MODIFY_REQUEST = 2;
         public static final int RECEIVE_REMOTE_SESSION_MODIFY_RESPONSE = 3;
 
-        public static final Parcelable.Creator<VideoEvent> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<VideoEvent> CREATOR =
                 new Parcelable.Creator<VideoEvent> () {
 
                     @Override
@@ -135,7 +135,7 @@ public class ParcelableCallAnalytics implements Parcelable {
         public static final int REQUEST_PULL = 500;
 
 
-        public static final Parcelable.Creator<AnalyticsEvent> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<AnalyticsEvent> CREATOR =
                 new Parcelable.Creator<AnalyticsEvent> () {
 
                     @Override
@@ -195,10 +195,12 @@ public class ParcelableCallAnalytics implements Parcelable {
         public static final int BLOCK_CHECK_FINISHED_TIMING = 9;
         public static final int FILTERING_COMPLETED_TIMING = 10;
         public static final int FILTERING_TIMED_OUT_TIMING = 11;
+        /** {@hide} */
+        public static final int START_CONNECTION_TO_REQUEST_DISCONNECT_TIMING = 12;
 
         public static final int INVALID = 999999;
 
-        public static final Parcelable.Creator<EventTiming> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<EventTiming> CREATOR =
                 new Parcelable.Creator<EventTiming> () {
 
                     @Override
@@ -261,7 +263,7 @@ public class ParcelableCallAnalytics implements Parcelable {
 
     public static final int STILL_CONNECTED = -1;
 
-    public static final Parcelable.Creator<ParcelableCallAnalytics> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<ParcelableCallAnalytics> CREATOR =
             new Parcelable.Creator<ParcelableCallAnalytics> () {
 
                 @Override
@@ -319,6 +321,9 @@ public class ParcelableCallAnalytics implements Parcelable {
     // A list of video events that have occurred.
     private List<VideoEvent> videoEvents;
 
+    // The source where user initiated this call. ONE OF the CALL_SOURCE_* constants.
+    private int callSource = TelecomManager.CALL_SOURCE_UNSPECIFIED;
+
     public ParcelableCallAnalytics(long startTimeMillis, long callDurationMillis, int callType,
             boolean isAdditionalCall, boolean isInterrupted, int callTechnologies,
             int callTerminationCode, boolean isEmergencyCall, String connectionService,
@@ -356,6 +361,7 @@ public class ParcelableCallAnalytics implements Parcelable {
         isVideoCall = readByteAsBoolean(in);
         videoEvents = new LinkedList<>();
         in.readTypedList(videoEvents, VideoEvent.CREATOR);
+        callSource = in.readInt();
     }
 
     public void writeToParcel(Parcel out, int flags) {
@@ -373,6 +379,7 @@ public class ParcelableCallAnalytics implements Parcelable {
         out.writeTypedList(eventTimings);
         writeBooleanAsByte(out, isVideoCall);
         out.writeTypedList(videoEvents);
+        out.writeInt(callSource);
     }
 
     /** {@hide} */
@@ -383,6 +390,11 @@ public class ParcelableCallAnalytics implements Parcelable {
     /** {@hide} */
     public void setVideoEvents(List<VideoEvent> videoEvents) {
         this.videoEvents = videoEvents;
+    }
+
+    /** {@hide} */
+    public void setCallSource(int callSource) {
+        this.callSource = callSource;
     }
 
     public long getStartTimeMillis() {
@@ -441,6 +453,11 @@ public class ParcelableCallAnalytics implements Parcelable {
     /** {@hide} */
     public List<VideoEvent> getVideoEvents() {
         return videoEvents;
+    }
+
+    /** {@hide} */
+    public int getCallSource() {
+        return callSource;
     }
 
     @Override

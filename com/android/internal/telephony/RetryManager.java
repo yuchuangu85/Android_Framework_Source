@@ -16,19 +16,19 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
-import android.os.Build;
 import android.os.PersistableBundle;
 import android.os.SystemProperties;
 import android.telephony.CarrierConfigManager;
-import android.telephony.Rlog;
+import android.telephony.data.ApnSetting;
 import android.text.TextUtils;
 import android.util.Pair;
 
-import com.android.internal.telephony.dataconnection.ApnSetting;
+import com.android.internal.telephony.util.TelephonyUtils;
+import com.android.telephony.Rlog;
 
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Random;
 
@@ -112,6 +112,11 @@ public class RetryManager {
     private static final long DEFAULT_INTER_APN_DELAY_FOR_PROVISIONING = 3000;
 
     /**
+     * The default value (in milliseconds) for retrying APN after disconnect
+     */
+    private static final long DEFAULT_APN_RETRY_AFTER_DISCONNECT_DELAY = 10000;
+
+    /**
      * The value indicating no retry is needed
      */
     public static final long NO_RETRY = -1;
@@ -132,13 +137,21 @@ public class RetryManager {
     /**
      * The delay (in milliseconds) between APN trying within the same round
      */
+    @UnsupportedAppUsage
     private long mInterApnDelay;
 
     /**
      * The delay (in milliseconds) between APN trying within the same round when we are in
      * fail fast mode
      */
+    @UnsupportedAppUsage
     private long mFailFastInterApnDelay;
+
+    /**
+     * The delay (in milliseconds) for APN retrying after disconnect (e.g. Modem suddenly reports
+     * data call lost)
+     */
+    private long mApnRetryAfterDisconnectDelay;
 
     /**
      * Modem suggested delay for retrying the current APN
@@ -168,6 +181,7 @@ public class RetryManager {
      */
     private ArrayList<RetryRec> mRetryArray = new ArrayList<RetryRec>();
 
+    @UnsupportedAppUsage
     private Phone mPhone;
 
     /**
@@ -210,6 +224,7 @@ public class RetryManager {
     /**
      * Apn context type. Could be "default, "mms", "supl", etc...
      */
+    @UnsupportedAppUsage
     private String mApnType;
 
     /**
@@ -229,6 +244,7 @@ public class RetryManager {
      *
      * @return true if successful
      */
+    @UnsupportedAppUsage
     private boolean configure(String configStr) {
         // Strip quotes if present.
         if ((configStr.startsWith("\"") && configStr.endsWith("\""))) {
@@ -318,7 +334,7 @@ public class RetryManager {
         String otherConfigString = null;
 
         try {
-            if (Build.IS_DEBUGGABLE) {
+            if (TelephonyUtils.IS_DEBUGGABLE) {
                 // Using system properties is easier for testing from command line.
                 String config = SystemProperties.get("test.data_retry_config");
                 if (!TextUtils.isEmpty(config)) {
@@ -337,6 +353,9 @@ public class RetryManager {
             mFailFastInterApnDelay = b.getLong(
                     CarrierConfigManager.KEY_CARRIER_DATA_CALL_APN_DELAY_FASTER_LONG,
                     DEFAULT_INTER_APN_DELAY_FOR_PROVISIONING);
+            mApnRetryAfterDisconnectDelay = b.getLong(
+                    CarrierConfigManager.KEY_CARRIER_DATA_CALL_APN_RETRY_AFTER_DISCONNECT_LONG,
+                    DEFAULT_APN_RETRY_AFTER_DISCONNECT_DELAY);
 
             // Load all retry patterns for all different APNs.
             String[] allConfigStrings = b.getStringArray(
@@ -393,6 +412,7 @@ public class RetryManager {
     /**
      * Return the timer that should be used to trigger the data reconnection
      */
+    @UnsupportedAppUsage
     private int getRetryTimer() {
         int index;
         if (mRetryCount < mRetryArray.size()) {
@@ -468,10 +488,9 @@ public class RetryManager {
 
     /**
      * Get the next APN setting for data call setup.
-     * @return APN setting to try
+     * @return APN setting to try. {@code null} if cannot find any APN,
      */
-    public ApnSetting getNextApnSetting() {
-
+    public @Nullable ApnSetting getNextApnSetting() {
         if (mWaitingApns == null || mWaitingApns.size() == 0) {
             log("Waiting APN list is null or empty.");
             return null;
@@ -479,9 +498,10 @@ public class RetryManager {
 
         // If the modem had suggested a retry delay, we should retry the current APN again
         // (up to MAX_SAME_APN_RETRY times) instead of getting the next APN setting from
-        // our own list.
-        if (mModemSuggestedDelay != NO_SUGGESTED_RETRY_DELAY &&
-                mSameApnRetryCount < MAX_SAME_APN_RETRY) {
+        // our own list. If the APN waiting list has been reset before a setup data responses
+        // arrive (i.e. mCurrentApnIndex=-1), then ignore the modem suggested retry.
+        if (mCurrentApnIndex != -1 && mModemSuggestedDelay != NO_SUGGESTED_RETRY_DELAY
+                && mSameApnRetryCount < MAX_SAME_APN_RETRY) {
             mSameApnRetryCount++;
             return mWaitingApns.get(mCurrentApnIndex);
         }
@@ -494,10 +514,14 @@ public class RetryManager {
             if (++index == mWaitingApns.size()) index = 0;
 
             // Stop if we find the non-failed APN.
-            if (mWaitingApns.get(index).permanentFailed == false) break;
+            if (!mWaitingApns.get(index).getPermanentFailed()) {
+                break;
+            }
 
-            // If we've already cycled through all the APNs, that means there is no APN we can try
-            if (index == mCurrentApnIndex) return null;
+            // If all APNs have permanently failed, bail out.
+            if (mWaitingApns.stream().allMatch(ApnSetting::getPermanentFailed)) {
+                return null;
+            }
         }
 
         mCurrentApnIndex = index;
@@ -541,11 +565,12 @@ public class RetryManager {
             if (++index >= mWaitingApns.size()) index = 0;
 
             // Stop if we find the non-failed APN.
-            if (mWaitingApns.get(index).permanentFailed == false) break;
+            if (!mWaitingApns.get(index).getPermanentFailed()) {
+                break;
+            }
 
-            // If we've already cycled through all the APNs, that means all APNs have
-            // permanently failed
-            if (index == mCurrentApnIndex) {
+            // If all APNs have permanently failed, bail out.
+            if (mWaitingApns.stream().allMatch(ApnSetting::getPermanentFailed)) {
                 log("All APNs have permanently failed.");
                 return NO_RETRY;
             }
@@ -582,7 +607,7 @@ public class RetryManager {
      * */
     public void markApnPermanentFailed(ApnSetting apn) {
         if (apn != null) {
-            apn.permanentFailed = true;
+            apn.setPermanentFailed(true);
         }
     }
 
@@ -615,7 +640,7 @@ public class RetryManager {
         configureRetry();
 
         for (ApnSetting apn : mWaitingApns) {
-            apn.permanentFailed = false;
+            apn.setPermanentFailed(false);
         }
 
         log("Setting " + mWaitingApns.size() + " waiting APNs.");
@@ -641,50 +666,32 @@ public class RetryManager {
      * @param delay The delay in milliseconds
      */
     public void setModemSuggestedDelay(long delay) {
+        if (mCurrentApnIndex == -1) {
+            log("Waiting APN list has been reset. Ignore the value from modem.");
+            return;
+        }
         mModemSuggestedDelay = delay;
     }
 
     /**
-     * Get the delay between APN setting trying. This is the fixed delay used for APN setting trying
-     * within the same round, comparing to the exponential delay used for different rounds.
-     * @param failFastEnabled True if fail fast mode enabled, which a shorter delay will be used
+     * Get the delay in milliseconds for APN retry after disconnect
      * @return The delay in milliseconds
      */
-    public long getInterApnDelay(boolean failFastEnabled) {
-        return (failFastEnabled) ? mFailFastInterApnDelay : mInterApnDelay;
+    public long getRetryAfterDisconnectDelay() {
+        return mApnRetryAfterDisconnectDelay;
     }
 
     public String toString() {
-        return "mApnType=" + mApnType + " mRetryCount=" + mRetryCount +
-                " mMaxRetryCount=" + mMaxRetryCount + " mCurrentApnIndex=" + mCurrentApnIndex +
-                " mSameApnRtryCount=" + mSameApnRetryCount + " mModemSuggestedDelay=" +
-                mModemSuggestedDelay + " mRetryForever=" + mRetryForever +
-                " mConfig={" + mConfig + "}";
+        if (mConfig == null) return "";
+        return "RetryManager: mApnType=" + mApnType + " mRetryCount=" + mRetryCount
+                + " mMaxRetryCount=" + mMaxRetryCount + " mCurrentApnIndex=" + mCurrentApnIndex
+                + " mSameApnRtryCount=" + mSameApnRetryCount + " mModemSuggestedDelay="
+                + mModemSuggestedDelay + " mRetryForever=" + mRetryForever + " mInterApnDelay="
+                + mInterApnDelay + " mApnRetryAfterDisconnectDelay=" + mApnRetryAfterDisconnectDelay
+                + " mConfig={" + mConfig + "}";
     }
 
-    public void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
-        pw.println("  RetryManager");
-        pw.println("***************************************");
-
-        pw.println("    config = " + mConfig);
-        pw.println("    mApnType = " + mApnType);
-        pw.println("    mCurrentApnIndex = " + mCurrentApnIndex);
-        pw.println("    mRetryCount = " + mRetryCount);
-        pw.println("    mMaxRetryCount = " + mMaxRetryCount);
-        pw.println("    mSameApnRetryCount = " + mSameApnRetryCount);
-        pw.println("    mModemSuggestedDelay = " + mModemSuggestedDelay);
-
-        if (mWaitingApns != null) {
-            pw.println("    APN list: ");
-            for (int i = 0; i < mWaitingApns.size(); i++) {
-                pw.println("      [" + i + "]=" + mWaitingApns.get(i));
-            }
-        }
-
-        pw.println("***************************************");
-        pw.flush();
-    }
-
+    @UnsupportedAppUsage
     private void log(String s) {
         Rlog.d(LOG_TAG, "[" + mApnType + "] " + s);
     }

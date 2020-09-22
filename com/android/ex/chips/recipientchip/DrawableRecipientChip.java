@@ -30,6 +30,12 @@ public interface DrawableRecipientChip extends BaseRecipientChip {
     Rect getBounds();
 
     /**
+     * Gets the bounds of the warning icon on the chip; may be 0,0 if not visibly rendered or if
+     * there is no warning icon.
+     */
+    Rect getWarningIconBounds();
+
+    /**
      * Draw the chip.
      */
     void draw(Canvas canvas);

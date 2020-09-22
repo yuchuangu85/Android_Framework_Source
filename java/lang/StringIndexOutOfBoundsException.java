@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1994, 2008, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,7 +27,7 @@
 package java.lang;
 
 /**
- * Thrown by <code>String</code> methods to indicate that an index
+ * Thrown by {@code String} methods to indicate that an index
  * is either negative or greater than the size of the string.  For
  * some methods such as the charAt method, this exception also is
  * thrown when the index is equal to the size of the string.
@@ -41,7 +41,7 @@ class StringIndexOutOfBoundsException extends IndexOutOfBoundsException {
     private static final long serialVersionUID = -6762910422159637258L;
 
     /**
-     * Constructs a <code>StringIndexOutOfBoundsException</code> with no
+     * Constructs a {@code StringIndexOutOfBoundsException} with no
      * detail message.
      *
      * @since   JDK1.0.
@@ -51,7 +51,7 @@ class StringIndexOutOfBoundsException extends IndexOutOfBoundsException {
     }
 
     /**
-     * Constructs a <code>StringIndexOutOfBoundsException</code> with
+     * Constructs a {@code StringIndexOutOfBoundsException} with
      * the specified detail message.
      *
      * @param   s   the detail message.
@@ -61,7 +61,7 @@ class StringIndexOutOfBoundsException extends IndexOutOfBoundsException {
     }
 
     /**
-     * Constructs a new <code>StringIndexOutOfBoundsException</code>
+     * Constructs a new {@code StringIndexOutOfBoundsException}
      * class with an argument indicating the illegal index.
      *
      * @param   index   the illegal index.
@@ -70,11 +70,12 @@ class StringIndexOutOfBoundsException extends IndexOutOfBoundsException {
         super("String index out of range: " + index);
     }
 
+    // BEGIN Android-added: Additional constructors for internal use.
     /**
      * Used internally for consistent high-quality error reporting.
      * @hide
      */
-    public StringIndexOutOfBoundsException(String s, int index) {
+    StringIndexOutOfBoundsException(String s, int index) {
         this(s.length(), index);
     }
 
@@ -82,7 +83,7 @@ class StringIndexOutOfBoundsException extends IndexOutOfBoundsException {
      * Used internally for consistent high-quality error reporting.
      * @hide
      */
-    public StringIndexOutOfBoundsException(int sourceLength, int index) {
+    StringIndexOutOfBoundsException(int sourceLength, int index) {
         super("length=" + sourceLength + "; index=" + index);
     }
 
@@ -90,7 +91,7 @@ class StringIndexOutOfBoundsException extends IndexOutOfBoundsException {
      * Used internally for consistent high-quality error reporting.
      * @hide
      */
-    public StringIndexOutOfBoundsException(String s, int offset, int count) {
+    StringIndexOutOfBoundsException(String s, int offset, int count) {
         this(s.length(), offset, count);
     }
 
@@ -98,9 +99,10 @@ class StringIndexOutOfBoundsException extends IndexOutOfBoundsException {
      * Used internally for consistent high-quality error reporting.
      * @hide
      */
-    public StringIndexOutOfBoundsException(int sourceLength, int offset,
+    StringIndexOutOfBoundsException(int sourceLength, int offset,
             int count) {
         super("length=" + sourceLength + "; regionStart=" + offset
                 + "; regionLength=" + count);
     }
+    // END Android-added: Additional constructors for internal use.
 }

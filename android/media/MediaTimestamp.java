@@ -16,6 +16,8 @@
 
 package android.media;
 
+import android.annotation.FloatRange;
+
 /**
  * An immutable object that represents the linear correlation between the media time
  * and the system time. It contains the media clock rate, together with the media timestamp
@@ -37,6 +39,11 @@ package android.media;
 public final class MediaTimestamp
 {
     /**
+     * An unknown media timestamp value
+     */
+    public static final MediaTimestamp TIMESTAMP_UNKNOWN = new MediaTimestamp(-1, -1, 0.0f);
+
+    /**
      * Get the media time of the anchor in microseconds.
      */
     public long getAnchorMediaTimeUs() {
@@ -46,8 +53,18 @@ public final class MediaTimestamp
     /**
      * Get the {@link java.lang.System#nanoTime system time} corresponding to the media time
      * in nanoseconds.
+     * @deprecated use {@link #getAnchorSystemNanoTime} instead.
      */
+    @Deprecated
     public long getAnchorSytemNanoTime() {
+        return getAnchorSystemNanoTime();
+    }
+
+    /**
+     * Get the {@link java.lang.System#nanoTime system time} corresponding to the media time
+     * in nanoseconds.
+     */
+    public long getAnchorSystemNanoTime() {
         return nanoTime;
     }
 
@@ -58,6 +75,7 @@ public final class MediaTimestamp
      * greater than 1.0 if media clock is faster than the system clock;
      * less than 1.0 if media clock is slower than the system clock.
      */
+    @FloatRange(from = 0.0f, to = Float.MAX_VALUE)
     public float getMediaClockRate() {
         return clockRate;
     }
@@ -69,11 +87,19 @@ public final class MediaTimestamp
     /** @hide - accessor shorthand */
     public final float clockRate;
 
-    /** @hide */
-    MediaTimestamp(long mediaUs, long systemNs, float rate) {
-        mediaTimeUs = mediaUs;
-        nanoTime = systemNs;
-        clockRate = rate;
+    /**
+     * Constructor.
+     *
+     * @param mediaTimeUs the media time of the anchor in microseconds
+     * @param nanoTimeNs the {@link java.lang.System#nanoTime system time} corresponding to the
+     *                  media time in nanoseconds.
+     * @param clockRate the rate of the media clock in relation to the system time.
+     */
+    public MediaTimestamp(long mediaTimeUs, long nanoTimeNs,
+            @FloatRange(from = 0.0f, to = Float.MAX_VALUE) float clockRate) {
+        this.mediaTimeUs = mediaTimeUs;
+        this.nanoTime = nanoTimeNs;
+        this.clockRate = clockRate;
     }
 
     /** @hide */
@@ -81,5 +107,25 @@ public final class MediaTimestamp
         mediaTimeUs = 0;
         nanoTime = 0;
         clockRate = 1.0f;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+
+        final MediaTimestamp that = (MediaTimestamp) obj;
+        return (this.mediaTimeUs == that.mediaTimeUs)
+                && (this.nanoTime == that.nanoTime)
+                && (this.clockRate == that.clockRate);
+    }
+
+    @Override
+    public String toString() {
+        return getClass().getName()
+                + "{AnchorMediaTimeUs=" + mediaTimeUs
+                + " AnchorSystemNanoTime=" + nanoTime
+                + " clockRate=" + clockRate
+                + "}";
     }
 }

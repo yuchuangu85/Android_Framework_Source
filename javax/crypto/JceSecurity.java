@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2009, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,13 +57,21 @@ final class JceSecurity {
     // Map<Provider,?> of the providers we already have verified
     // value == PROVIDER_VERIFIED is successfully verified
     // value is failure cause Exception in error case
-    private final static Map verificationResults = new IdentityHashMap();
+    private final static Map<Provider, Object> verificationResults =
+            new IdentityHashMap<>();
 
     // Map<Provider,?> of the providers currently being verified
-    private final static Map verifyingProviders = new IdentityHashMap();
+    private final static Map<Provider, Object> verifyingProviders =
+            new IdentityHashMap<>();
 
-    // Set the default value. May be changed in the static initializer.
-    private static boolean isRestricted = true;
+    // Android-removed: JCE crypto strength restrictions are never in place on Android.
+    // private static final boolean isRestricted = true;
+
+    // Android-removed: This debugging mechanism is not used in Android.
+    /*
+    private static final Debug debug =
+                        Debug.getInstance("jca", "Cipher");
+    */
 
     /*
      * Don't let anyone instantiate this.
@@ -71,29 +79,29 @@ final class JceSecurity {
     private JceSecurity() {
     }
 
-    /* ----- BEGIN android -----
+    // BEGIN Android-removed: JCE crypto strength restrictions are never in place on Android.
+    /*
     static {
         try {
-            AccessController.doPrivileged(new PrivilegedExceptionAction() {
-                public Object run() throws Exception {
-                    setupJurisdictionPolicies();
-                    return null;
-                }
-            });
+            AccessController.doPrivileged(
+                new PrivilegedExceptionAction<Object>() {
+                    public Object run() throws Exception {
+                        setupJurisdictionPolicies();
+                        return null;
+                    }
+                });
 
             isRestricted = defaultPolicy.implies(
                 CryptoAllPermission.INSTANCE) ? false : true;
         } catch (Exception e) {
-            SecurityException se =
-                new SecurityException(
-                    "Can not initialize cryptographic mechanism");
-            se.initCause(e);
-            throw se;
+            throw new SecurityException(
+                    "Can not initialize cryptographic mechanism", e);
         }
     }
-    ----- END android ----- */
+    */
+    // END Android-removed: JCE crypto strength restrictions are never in place on Android.
 
-    static Instance getInstance(String type, Class clazz, String algorithm,
+    static Instance getInstance(String type, Class<?> clazz, String algorithm,
             String provider) throws NoSuchAlgorithmException,
             NoSuchProviderException {
         Service s = GetInstance.getService(type, algorithm, provider);
@@ -106,7 +114,7 @@ final class JceSecurity {
         return GetInstance.getInstance(s, clazz);
     }
 
-    static Instance getInstance(String type, Class clazz, String algorithm,
+    static Instance getInstance(String type, Class<?> clazz, String algorithm,
             Provider provider) throws NoSuchAlgorithmException {
         Service s = GetInstance.getService(type, algorithm, provider);
         Exception ve = JceSecurity.getVerificationResult(provider);
@@ -118,12 +126,11 @@ final class JceSecurity {
         return GetInstance.getInstance(s, clazz);
     }
 
-    static Instance getInstance(String type, Class clazz, String algorithm)
+    static Instance getInstance(String type, Class<?> clazz, String algorithm)
             throws NoSuchAlgorithmException {
-        List services = GetInstance.getServices(type, algorithm);
+        List<Service> services = GetInstance.getServices(type, algorithm);
         NoSuchAlgorithmException failure = null;
-        for (Iterator t = services.iterator(); t.hasNext(); ) {
-            Service s = (Service)t.next();
+        for (Service s : services) {
             if (canUseProvider(s.getProvider()) == false) {
                 // allow only signed providers
                 continue;
@@ -200,11 +207,10 @@ final class JceSecurity {
 
     // return whether this provider is properly signed and can be used by JCE
     static boolean canUseProvider(Provider p) {
-        /* ----- BEGIN android
-        return getVerificationResult(p) == null;
-        */
+        // BEGIN Android-changed: All providers are available.
+        // return getVerificationResult(p) == null;
         return true;
-        // ----- END android -----
+        // END Android-changed: All providers are available.
     }
 
     // dummy object to represent null
@@ -219,31 +225,36 @@ final class JceSecurity {
     }
 
     // reference to a Map we use as a cache for codebases
-    private static final Map codeBaseCacheRef = new WeakHashMap();
+    private static final Map<Class<?>, URL> codeBaseCacheRef =
+            new WeakHashMap<>();
 
     /*
-     * Retuns the CodeBase for the given class.
+     * Returns the CodeBase for the given class.
      */
-    static URL getCodeBase(final Class clazz) {
-        URL url = (URL)codeBaseCacheRef.get(clazz);
-        if (url == null) {
-            url = (URL)AccessController.doPrivileged(new PrivilegedAction() {
-                public Object run() {
-                    ProtectionDomain pd = clazz.getProtectionDomain();
-                    if (pd != null) {
-                        CodeSource cs = pd.getCodeSource();
-                        if (cs != null) {
-                            return cs.getLocation();
+    static URL getCodeBase(final Class<?> clazz) {
+        synchronized (codeBaseCacheRef) {
+            URL url = codeBaseCacheRef.get(clazz);
+            if (url == null) {
+                url = AccessController.doPrivileged(new PrivilegedAction<URL>() {
+                    public URL run() {
+                        ProtectionDomain pd = clazz.getProtectionDomain();
+                        if (pd != null) {
+                            CodeSource cs = pd.getCodeSource();
+                            if (cs != null) {
+                                return cs.getLocation();
+                            }
                         }
+                        return NULL_URL;
                     }
-                    return NULL_URL;
-                }
-            });
-            codeBaseCacheRef.put(clazz, url);
+                });
+                codeBaseCacheRef.put(clazz, url);
+            }
+            return (url == NULL_URL) ? null : url;
         }
-        return (url == NULL_URL) ? null : url;
     }
 
+    // BEGIN Android-removed: JCE crypto strength restrictions are never in place on Android.
+    /*
     private static void setupJurisdictionPolicies() throws Exception {
         String javaHomeDir = System.getProperty("java.home");
         String sep = File.separator;
@@ -284,6 +295,8 @@ final class JceSecurity {
             exemptPolicy = exemptExport.getMinimum(exemptImport);
         }
     }
+    */
+    // END Android-removed: JCE crypto strength restrictions are never in place on Android.
 
     /**
      * Load the policies from the specified file. Also checks that the
@@ -296,9 +309,9 @@ final class JceSecurity {
 
         JarFile jf = new JarFile(jarPathName);
 
-        Enumeration entries = jf.entries();
+        Enumeration<JarEntry> entries = jf.entries();
         while (entries.hasMoreElements()) {
-            JarEntry je = (JarEntry)entries.nextElement();
+            JarEntry je = entries.nextElement();
             InputStream is = null;
             try {
                 if (je.getName().startsWith("default_")) {
@@ -334,7 +347,8 @@ final class JceSecurity {
         return exemptPolicy;
     }
 
-    static boolean isRestricted() {
-        return isRestricted;
-    }
+    // Android-removed: JCE crypto strength restrictions are never in place on Android.
+    // static boolean isRestricted() {
+    //     return isRestricted;
+    // }
 }

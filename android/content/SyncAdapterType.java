@@ -17,9 +17,11 @@
 package android.content;
 
 import android.annotation.Nullable;
-import android.text.TextUtils;
-import android.os.Parcelable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
+import android.os.Parcelable;
+import android.text.TextUtils;
 
 /**
  * Value type that represents a SyncAdapterType. This object overrides {@link #equals} and
@@ -29,10 +31,15 @@ public class SyncAdapterType implements Parcelable {
     public final String authority;
     public final String accountType;
     public final boolean isKey;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final boolean userVisible;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final boolean supportsUploading;
+    @UnsupportedAppUsage
     private final boolean isAlwaysSyncable;
+    @UnsupportedAppUsage
     private final boolean allowParallelSyncs;
+    @UnsupportedAppUsage
     private final String settingsActivity;
     private final String packageName;
 
@@ -79,6 +86,7 @@ public class SyncAdapterType implements Parcelable {
         this.packageName = packageName;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private SyncAdapterType(String authority, String accountType) {
         if (TextUtils.isEmpty(authority)) {
             throw new IllegalArgumentException("the authority must not be empty: " + authority);
@@ -233,7 +241,7 @@ public class SyncAdapterType implements Parcelable {
                 source.readString());
     }
 
-    public static final Creator<SyncAdapterType> CREATOR = new Creator<SyncAdapterType>() {
+    public static final @android.annotation.NonNull Creator<SyncAdapterType> CREATOR = new Creator<SyncAdapterType>() {
         public SyncAdapterType createFromParcel(Parcel source) {
             return new SyncAdapterType(source);
         }

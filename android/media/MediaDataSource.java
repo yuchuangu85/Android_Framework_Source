@@ -34,8 +34,8 @@ public abstract class MediaDataSource implements Closeable {
     /**
      * Called to request data from the given position.
      *
-     * Implementations should should write up to {@code size} bytes into
-     * {@code buffer}, and return the number of bytes written.
+     * Implementations should fill {@code buffer} with up to {@code size}
+     * bytes of data, and return the number of valid bytes in the buffer.
      *
      * Return {@code 0} if size is zero (thus no bytes are read).
      *
@@ -46,7 +46,7 @@ public abstract class MediaDataSource implements Closeable {
      * @param offset the offset within buffer to read the data into.
      * @param size the number of bytes to read.
      * @throws IOException on fatal errors.
-     * @return the number of bytes read, or -1 if there was an error.
+     * @return the number of bytes read, or -1 if end of stream is reached.
      */
     public abstract int readAt(long position, byte[] buffer, int offset, int size)
             throws IOException;

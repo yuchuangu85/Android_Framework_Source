@@ -16,11 +16,15 @@
 
 package java.lang.ref;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import dalvik.annotation.optimization.FastNative;
+
 /**
  * @hide
  */
 public final class FinalizerReference<T> extends Reference<T> {
     // This queue contains those objects eligible for finalization.
+    @UnsupportedAppUsage
     public static final ReferenceQueue<Object> queue = new ReferenceQueue<Object>();
 
     // Guards the list (not the queue).
@@ -28,10 +32,12 @@ public final class FinalizerReference<T> extends Reference<T> {
 
     // This list contains a FinalizerReference for every finalizable object in the heap.
     // Objects in this list may or may not be eligible for finalization yet.
+    @UnsupportedAppUsage
     private static FinalizerReference<?> head = null;
 
     // The links used to construct the list.
     private FinalizerReference<?> prev;
+    @UnsupportedAppUsage
     private FinalizerReference<?> next;
 
     // When the GC wants something finalized, it moves it from the 'referent' field to
@@ -50,6 +56,7 @@ public final class FinalizerReference<T> extends Reference<T> {
         zombie = null;
     }
 
+    @UnsupportedAppUsage
     public static void add(Object referent) {
         FinalizerReference<?> reference = new FinalizerReference<Object>(referent, queue);
         synchronized (LIST_LOCK) {
@@ -62,6 +69,7 @@ public final class FinalizerReference<T> extends Reference<T> {
         }
     }
 
+    @UnsupportedAppUsage
     public static void remove(FinalizerReference<?> reference) {
         synchronized (LIST_LOCK) {
             FinalizerReference<?> next = reference.next;
@@ -100,9 +108,12 @@ public final class FinalizerReference<T> extends Reference<T> {
             // We search the list for that FinalizerReference (it should be at or near the head),
             // and then put it on the queue so that it can be finalized.
             for (FinalizerReference<?> r = head; r != null; r = r.next) {
-                if (r.referent == sentinel) {
+                // Use getReferent() instead of directly accessing the referent field not to race
+                // with GC reference processing. Can't use get() either because it's overridden to
+                // return the zombie.
+                if (r.getReferent() == sentinel) {
                     FinalizerReference<Sentinel> sentinelReference = (FinalizerReference<Sentinel>) r;
-                    sentinelReference.referent = null;
+                    sentinelReference.clearReferent();
                     sentinelReference.zombie = sentinel;
                     // Make a single element list, then enqueue the reference on the daemon unenqueued
                     // list. This is required instead of enqueuing directly on the finalizer queue
@@ -126,6 +137,9 @@ public final class FinalizerReference<T> extends Reference<T> {
         throw new AssertionError("newly-created live Sentinel not on list!");
     }
 
+    @FastNative
+    private final native T getReferent();
+    @FastNative
     private native boolean makeCircularListIfUnenqueued();
 
     /**

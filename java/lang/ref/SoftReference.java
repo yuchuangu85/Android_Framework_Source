@@ -25,7 +25,7 @@
 
 package java.lang.ref;
 
-
+// Android-changed: Javadoc change to recommend against using SoftReferences for caches.
 /**
  * Soft reference objects, which are cleared at the discretion of the garbage
  * collector in response to memory demand.

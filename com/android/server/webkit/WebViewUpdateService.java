@@ -20,21 +20,26 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.PackageManagerInternal;
 import android.os.Binder;
 import android.os.PatternMatcher;
 import android.os.Process;
 import android.os.ResultReceiver;
+import android.os.ShellCallback;
 import android.os.UserHandle;
 import android.util.Slog;
 import android.webkit.IWebViewUpdateService;
-import android.webkit.WebViewFactory;
 import android.webkit.WebViewProviderInfo;
 import android.webkit.WebViewProviderResponse;
 
+import com.android.internal.util.DumpUtils;
+import com.android.server.LocalServices;
 import com.android.server.SystemService;
 
 import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.Arrays;
 
 /**
@@ -89,8 +94,11 @@ public class WebViewUpdateService extends SystemService {
                                     (intent.getExtras().getBoolean(Intent.EXTRA_REPLACING)
                                      ? PACKAGE_ADDED_REPLACED : PACKAGE_ADDED), userId);
                             break;
-                        case Intent.ACTION_USER_ADDED:
+                        case Intent.ACTION_USER_STARTED:
                             mImpl.handleNewUser(userId);
+                            break;
+                        case Intent.ACTION_USER_REMOVED:
+                            mImpl.handleUserRemoved(userId);
                             break;
                     }
                 }
@@ -109,7 +117,8 @@ public class WebViewUpdateService extends SystemService {
                 null /* broadcast permission */, null /* handler */);
 
         IntentFilter userAddedFilter = new IntentFilter();
-        userAddedFilter.addAction(Intent.ACTION_USER_ADDED);
+        userAddedFilter.addAction(Intent.ACTION_USER_STARTED);
+        userAddedFilter.addAction(Intent.ACTION_USER_REMOVED);
         getContext().registerReceiverAsUser(mWebViewUpdatedReceiver, UserHandle.ALL,
                 userAddedFilter, null /* broadcast permission */, null /* handler */);
 
@@ -140,9 +149,10 @@ public class WebViewUpdateService extends SystemService {
 
         @Override
         public void onShellCommand(FileDescriptor in, FileDescriptor out,
-                FileDescriptor err, String[] args, ResultReceiver resultReceiver) {
+                FileDescriptor err, String[] args, ShellCallback callback,
+                ResultReceiver resultReceiver) {
             (new WebViewUpdateServiceShellCommand(this)).exec(
-                    this, in, out, err, args, resultReceiver);
+                    this, in, out, err, args, callback, resultReceiver);
         }
 
 
@@ -183,7 +193,27 @@ public class WebViewUpdateService extends SystemService {
                 throw new IllegalStateException("Cannot create a WebView from the SystemServer");
             }
 
-            return WebViewUpdateService.this.mImpl.waitForAndGetProvider();
+            final WebViewProviderResponse webViewProviderResponse =
+                    WebViewUpdateService.this.mImpl.waitForAndGetProvider();
+            if (webViewProviderResponse.packageInfo != null) {
+                grantVisibilityToCaller(
+                        webViewProviderResponse.packageInfo.packageName, Binder.getCallingUid());
+            }
+            return webViewProviderResponse;
+        }
+
+        /**
+         * Grants app visibility of the webViewPackageName to the currently bound caller.
+         * @param webViewPackageName
+         */
+        private void grantVisibilityToCaller(String webViewPackageName, int callingUid) {
+            final PackageManagerInternal pmInternal = LocalServices.getService(
+                    PackageManagerInternal.class);
+            final int webviewUid = pmInternal.getPackageUidInternal(
+                    webViewPackageName, 0, UserHandle.getUserId(callingUid));
+            pmInternal.grantImplicitAccess(UserHandle.getUserId(callingUid), null,
+                    UserHandle.getAppId(callingUid), webviewUid,
+                    true /*direct*/);
         }
 
         /**
@@ -223,20 +253,31 @@ public class WebViewUpdateService extends SystemService {
 
         @Override // Binder call
         public String getCurrentWebViewPackageName() {
-            return WebViewUpdateService.this.mImpl.getCurrentWebViewPackageName();
+            PackageInfo pi = getCurrentWebViewPackage();
+            return pi == null ? null : pi.packageName;
         }
 
         @Override // Binder call
-        public boolean isFallbackPackage(String packageName) {
-            return WebViewUpdateService.this.mImpl.isFallbackPackage(packageName);
+        public PackageInfo getCurrentWebViewPackage() {
+            final PackageInfo currentWebViewPackage =
+                    WebViewUpdateService.this.mImpl.getCurrentWebViewPackage();
+            if (currentWebViewPackage != null) {
+                grantVisibilityToCaller(currentWebViewPackage.packageName, Binder.getCallingUid());
+            }
+            return currentWebViewPackage;
         }
 
         @Override // Binder call
-        public void enableFallbackLogic(boolean enable) {
+        public boolean isMultiProcessEnabled() {
+            return WebViewUpdateService.this.mImpl.isMultiProcessEnabled();
+        }
+
+        @Override // Binder call
+        public void enableMultiProcess(boolean enable) {
             if (getContext().checkCallingPermission(
                         android.Manifest.permission.WRITE_SECURE_SETTINGS)
                     != PackageManager.PERMISSION_GRANTED) {
-                String msg = "Permission Denial: enableFallbackLogic() from pid="
+                String msg = "Permission Denial: enableMultiProcess() from pid="
                         + Binder.getCallingPid()
                         + ", uid=" + Binder.getCallingUid()
                         + " requires " + android.Manifest.permission.WRITE_SECURE_SETTINGS;
@@ -246,10 +287,16 @@ public class WebViewUpdateService extends SystemService {
 
             long callingId = Binder.clearCallingIdentity();
             try {
-                WebViewUpdateService.this.mImpl.enableFallbackLogic(enable);
+                WebViewUpdateService.this.mImpl.enableMultiProcess(enable);
             } finally {
                 Binder.restoreCallingIdentity(callingId);
             }
+        }
+
+        @Override
+        protected void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
+            if (!DumpUtils.checkDumpPermission(getContext(), TAG, pw)) return;
+            WebViewUpdateService.this.mImpl.dumpState(pw);
         }
     }
 }

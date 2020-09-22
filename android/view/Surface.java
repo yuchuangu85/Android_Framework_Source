@@ -16,20 +16,30 @@
 
 package android.view;
 
+import static android.system.OsConstants.EINVAL;
+
+import android.annotation.FloatRange;
 import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.CompatibilityInfo.Translator;
 import android.graphics.Canvas;
+import android.graphics.ColorSpace;
+import android.graphics.GraphicBuffer;
+import android.graphics.HardwareRenderer;
 import android.graphics.Matrix;
+import android.graphics.RecordingCanvas;
 import android.graphics.Rect;
+import android.graphics.RenderNode;
 import android.graphics.SurfaceTexture;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
 
+import dalvik.system.CloseGuard;
+
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-
-import dalvik.system.CloseGuard;
 
 /**
  * Handle onto a raw buffer that is being managed by the screen compositor.
@@ -51,12 +61,16 @@ public class Surface implements Parcelable {
 
     private static native long nativeCreateFromSurfaceTexture(SurfaceTexture surfaceTexture)
             throws OutOfResourcesException;
+
     private static native long nativeCreateFromSurfaceControl(long surfaceControlNativeObject);
+    private static native long nativeGetFromSurfaceControl(long surfaceObject,
+            long surfaceControlNativeObject);
 
     private static native long nativeLockCanvas(long nativeObject, Canvas canvas, Rect dirty)
             throws OutOfResourcesException;
     private static native void nativeUnlockCanvasAndPost(long nativeObject, Canvas canvas);
 
+    @UnsupportedAppUsage
     private static native void nativeRelease(long nativeObject);
     private static native boolean nativeIsValid(long nativeObject);
     private static native boolean nativeIsConsumerRunningBehind(long nativeObject);
@@ -70,10 +84,17 @@ public class Surface implements Parcelable {
 
     private static native long nativeGetNextFrameNumber(long nativeObject);
     private static native int nativeSetScalingMode(long nativeObject, int scalingMode);
-    private static native void nativeSetBuffersTransform(long nativeObject, long transform);
     private static native int nativeForceScopedDisconnect(long nativeObject);
+    private static native int nativeAttachAndQueueBufferWithColorSpace(long nativeObject,
+            GraphicBuffer buffer, int colorSpaceId);
 
-    public static final Parcelable.Creator<Surface> CREATOR =
+    private static native int nativeSetSharedBufferModeEnabled(long nativeObject, boolean enabled);
+    private static native int nativeSetAutoRefreshEnabled(long nativeObject, boolean enabled);
+
+    private static native int nativeSetFrameRate(
+            long nativeObject, float frameRate, int compatibility);
+
+    public static final @android.annotation.NonNull Parcelable.Creator<Surface> CREATOR =
             new Parcelable.Creator<Surface>() {
         @Override
         public Surface createFromParcel(Parcel source) {
@@ -96,9 +117,13 @@ public class Surface implements Parcelable {
     private final CloseGuard mCloseGuard = CloseGuard.get();
 
     // Guarded state.
+    @UnsupportedAppUsage
     final Object mLock = new Object(); // protects the native state
+    @UnsupportedAppUsage
     private String mName;
+    @UnsupportedAppUsage
     long mNativeObject; // package scope only for SurfaceControl access
+    @UnsupportedAppUsage
     private long mLockedObject;
     private int mGenerationId; // incremented each time mNativeObject changes
     private final Canvas mCanvas = new CompatibleCanvas();
@@ -110,11 +135,17 @@ public class Surface implements Parcelable {
     private HwuiContext mHwuiContext;
 
     private boolean mIsSingleBuffered;
+    private boolean mIsSharedBufferModeEnabled;
+    private boolean mIsAutoRefreshEnabled;
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef({SCALING_MODE_FREEZE, SCALING_MODE_SCALE_TO_WINDOW,
-                    SCALING_MODE_SCALE_CROP, SCALING_MODE_NO_SCALE_CROP})
+    @IntDef(prefix = { "SCALING_MODE_" }, value = {
+            SCALING_MODE_FREEZE,
+            SCALING_MODE_SCALE_TO_WINDOW,
+            SCALING_MODE_SCALE_CROP,
+            SCALING_MODE_NO_SCALE_CROP
+    })
     public @interface ScalingMode {}
     // From system/window.h
     /** @hide */
@@ -127,7 +158,12 @@ public class Surface implements Parcelable {
     public static final int SCALING_MODE_NO_SCALE_CROP = 3;
 
     /** @hide */
-    @IntDef({ROTATION_0, ROTATION_90, ROTATION_180, ROTATION_270})
+    @IntDef(prefix = { "ROTATION_" }, value = {
+            ROTATION_0,
+            ROTATION_90,
+            ROTATION_180,
+            ROTATION_270
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Rotation {}
 
@@ -151,11 +187,49 @@ public class Surface implements Parcelable {
      */
     public static final int ROTATION_270 = 3;
 
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = {"FRAME_RATE_COMPATIBILITY_"},
+            value = {FRAME_RATE_COMPATIBILITY_DEFAULT, FRAME_RATE_COMPATIBILITY_FIXED_SOURCE})
+    public @interface FrameRateCompatibility {}
+
+    // From native_window.h. Keep these in sync.
+    /**
+     * There are no inherent restrictions on the frame rate of this surface. When the
+     * system selects a frame rate other than what the app requested, the app will be able
+     * to run at the system frame rate without requiring pull down. This value should be
+     * used when displaying game content, UIs, and anything that isn't video.
+     */
+    public static final int FRAME_RATE_COMPATIBILITY_DEFAULT = 0;
+
+    /**
+     * This surface is being used to display content with an inherently fixed frame rate,
+     * e.g. a video that has a specific frame rate. When the system selects a frame rate
+     * other than what the app requested, the app will need to do pull down or use some
+     * other technique to adapt to the system's frame rate. The user experience is likely
+     * to be worse (e.g. more frame stuttering) than it would be if the system had chosen
+     * the app's requested frame rate. This value should be used for video content.
+     */
+    public static final int FRAME_RATE_COMPATIBILITY_FIXED_SOURCE = 1;
+
     /**
      * Create an empty surface, which will later be filled in by readFromParcel().
      * @hide
      */
+    @UnsupportedAppUsage
     public Surface() {
+    }
+
+    /**
+     * Create a Surface assosciated with a given {@link SurfaceControl}. Buffers submitted to this
+     * surface will be displayed by the system compositor according to the parameters
+     * specified by the control. Multiple surfaces may be constructed from one SurfaceControl,
+     * but only one can be connected (e.g. have an active EGL context) at a time.
+     *
+     * @param from The SurfaceControl to assosciate this Surface with
+     */
+    public Surface(@NonNull SurfaceControl from) {
+        copyFrom(from);
     }
 
     /**
@@ -164,6 +238,11 @@ public class Surface implements Parcelable {
      * Images drawn to the Surface will be made available to the {@link
      * SurfaceTexture}, which can attach them to an OpenGL ES texture via {@link
      * SurfaceTexture#updateTexImage}.
+     *
+     * Please note that holding onto the Surface created here is not enough to
+     * keep the provided SurfaceTexture from being reclaimed.  In that sense,
+     * the Surface will act like a
+     * {@link java.lang.ref.WeakReference weak reference} to the SurfaceTexture.
      *
      * @param surfaceTexture The {@link SurfaceTexture} that is updated by this
      * Surface.
@@ -181,6 +260,7 @@ public class Surface implements Parcelable {
     }
 
     /* called from android_view_Surface_createFromIGraphicBufferProducer() */
+    @UnsupportedAppUsage
     private Surface(long nativeObject) {
         synchronized (mLock) {
             setNativeObjectLocked(nativeObject);
@@ -206,13 +286,13 @@ public class Surface implements Parcelable {
      */
     public void release() {
         synchronized (mLock) {
-            if (mNativeObject != 0) {
-                nativeRelease(mNativeObject);
-                setNativeObjectLocked(0);
-            }
             if (mHwuiContext != null) {
                 mHwuiContext.destroy();
                 mHwuiContext = null;
+            }
+            if (mNativeObject != 0) {
+                nativeRelease(mNativeObject);
+                setNativeObjectLocked(0);
             }
         }
     }
@@ -223,12 +303,25 @@ public class Surface implements Parcelable {
      * called from the process that created the service.
      * @hide
      */
+    @UnsupportedAppUsage
     public void destroy() {
         release();
     }
 
     /**
-     * Returns true if this object holds a valid（有效的） surface.
+     * Destroys the HwuiContext without completely
+     * releasing the Surface.
+     * @hide
+     */
+    public void hwuiDestroy() {
+        if (mHwuiContext != null) {
+            mHwuiContext.destroy();
+            mHwuiContext = null;
+        }
+    }
+
+    /**
+     * Returns true if this object holds a valid surface.
      *
      * @return True if it holds a physical surface, so lockCanvas() will succeed.
      * Otherwise returns false.
@@ -259,8 +352,10 @@ public class Surface implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public long getNextFrameNumber() {
         synchronized (mLock) {
+            checkNotReleasedLocked();
             return nativeGetNextFrameNumber(mNativeObject);
         }
     }
@@ -373,7 +468,44 @@ public class Surface implements Parcelable {
         synchronized (mLock) {
             checkNotReleasedLocked();
             if (mHwuiContext == null) {
-                mHwuiContext = new HwuiContext();
+                mHwuiContext = new HwuiContext(false);
+            }
+            return mHwuiContext.lockCanvas(
+                    nativeGetWidth(mNativeObject),
+                    nativeGetHeight(mNativeObject));
+        }
+    }
+
+    /**
+     * Gets a {@link Canvas} for drawing into this surface that supports wide color gamut.
+     *
+     * After drawing into the provided {@link Canvas}, the caller must
+     * invoke {@link #unlockCanvasAndPost} to post the new contents to the surface.
+     *
+     * Unlike {@link #lockCanvas(Rect)} and {@link #lockHardwareCanvas()},
+     * this will return a hardware-accelerated canvas that supports wide color gamut.
+     * See the <a href="{@docRoot}guide/topics/graphics/hardware-accel.html#unsupported">
+     * unsupported drawing operations</a> for a list of what is and isn't
+     * supported in a hardware-accelerated canvas. It is also required to
+     * fully cover the surface every time {@link #lockHardwareCanvas()} is
+     * called as the buffer is not preserved between frames. Partial updates
+     * are not supported.
+     *
+     * @return A canvas for drawing into the surface.
+     *
+     * @throws IllegalStateException If the canvas cannot be locked.
+     *
+     * @hide
+     */
+    public Canvas lockHardwareWideColorGamutCanvas() {
+        synchronized (mLock) {
+            checkNotReleasedLocked();
+            if (mHwuiContext != null && !mHwuiContext.isWideColorGamut()) {
+                mHwuiContext.destroy();
+                mHwuiContext = null;
+            }
+            if (mHwuiContext == null) {
+                mHwuiContext = new HwuiContext(true);
             }
             return mHwuiContext.lockCanvas(
                     nativeGetWidth(mNativeObject),
@@ -408,8 +540,11 @@ public class Surface implements Parcelable {
      * back from a client, converting it from the representation being managed
      * by the window manager to the representation the client uses to draw
      * in to it.
+     *
+     * @param other {@link SurfaceControl} to copy from.
      * @hide
      */
+    @UnsupportedAppUsage
     public void copyFrom(SurfaceControl other) {
         if (other == null) {
             throw new IllegalArgumentException("other must not be null");
@@ -418,7 +553,42 @@ public class Surface implements Parcelable {
         long surfaceControlPtr = other.mNativeObject;
         if (surfaceControlPtr == 0) {
             throw new NullPointerException(
-                    "SurfaceControl native object is null. Are you using a released SurfaceControl?");
+                    "null SurfaceControl native object. Are you using a released SurfaceControl?");
+        }
+        long newNativeObject = nativeGetFromSurfaceControl(mNativeObject, surfaceControlPtr);
+
+        synchronized (mLock) {
+            if (newNativeObject == mNativeObject) {
+                return;
+            }
+            if (mNativeObject != 0) {
+                nativeRelease(mNativeObject);
+            }
+            setNativeObjectLocked(newNativeObject);
+        }
+    }
+
+    /**
+     * Gets a reference a surface created from this one.  This surface now holds a reference
+     * to the same data as the original surface, and is -not- the owner.
+     * This is for use by the window manager when returning a window surface
+     * back from a client, converting it from the representation being managed
+     * by the window manager to the representation the client uses to draw
+     * in to it.
+     *
+     * @param other {@link SurfaceControl} to create surface from.
+     *
+     * @hide
+     */
+    public void createFrom(SurfaceControl other) {
+        if (other == null) {
+            throw new IllegalArgumentException("other must not be null");
+        }
+
+        long surfaceControlPtr = other.mNativeObject;
+        if (surfaceControlPtr == 0) {
+            throw new NullPointerException(
+                    "null SurfaceControl native object. Are you using a released SurfaceControl?");
         }
         long newNativeObject = nativeCreateFromSurfaceControl(surfaceControlPtr);
 
@@ -437,6 +607,7 @@ public class Surface implements Parcelable {
      * @deprecated
      */
     @Deprecated
+    @UnsupportedAppUsage
     public void transferFrom(Surface other) {
         if (other == null) {
             throw new IllegalArgumentException("other must not be null");
@@ -562,11 +733,183 @@ public class Surface implements Parcelable {
     }
 
     /**
+     * Transfer ownership of buffer with a color space and present it on the Surface.
+     * The supported color spaces are SRGB and Display P3, other color spaces will be
+     * treated as SRGB.
+     * @hide
+     */
+    public void attachAndQueueBufferWithColorSpace(GraphicBuffer buffer, ColorSpace colorSpace) {
+        synchronized (mLock) {
+            checkNotReleasedLocked();
+            if (colorSpace == null) {
+                colorSpace = ColorSpace.get(ColorSpace.Named.SRGB);
+            }
+            int err = nativeAttachAndQueueBufferWithColorSpace(mNativeObject, buffer,
+                    colorSpace.getId());
+            if (err != 0) {
+                throw new RuntimeException(
+                        "Failed to attach and queue buffer to Surface (bad object?), "
+                        + "native error: " + err);
+            }
+        }
+    }
+
+    /**
+     * Deprecated, use attachAndQueueBufferWithColorSpace instead.
+     * Transfer ownership of buffer and present it on the Surface.
+     * The color space of the buffer is treated as SRGB.
+     * @hide
+     */
+    public void attachAndQueueBuffer(GraphicBuffer buffer) {
+        attachAndQueueBufferWithColorSpace(buffer, ColorSpace.get(ColorSpace.Named.SRGB));
+    }
+
+    /**
      * Returns whether or not this Surface is backed by a single-buffered SurfaceTexture
      * @hide
      */
     public boolean isSingleBuffered() {
         return mIsSingleBuffered;
+    }
+
+    /**
+     * <p>The shared buffer mode allows both the application and the surface compositor
+     * (SurfaceFlinger) to concurrently access this surface's buffer. While the
+     * application is still required to issue a present request
+     * (see {@link #unlockCanvasAndPost(Canvas)}) to the compositor when an update is required,
+     * the compositor may trigger an update at any time. Since the surface's buffer is shared
+     * between the application and the compositor, updates triggered by the compositor may
+     * cause visible tearing.</p>
+     *
+     * <p>The shared buffer mode can be used with
+     * {@link #setAutoRefreshEnabled(boolean) auto-refresh} to avoid the overhead of
+     * issuing present requests.</p>
+     *
+     * <p>If the application uses the shared buffer mode to reduce latency, it is
+     * recommended to use software rendering (see {@link #lockCanvas(Rect)} to ensure
+     * the graphics workloads are not affected by other applications and/or the system
+     * using the GPU. When using software rendering, the application should update the
+     * smallest possible region of the surface required.</p>
+     *
+     * <p class="note">The shared buffer mode might not be supported by the underlying
+     * hardware. Enabling shared buffer mode on hardware that does not support it will
+     * not yield an error but the application will not benefit from lower latency (and
+     * tearing will not be visible).</p>
+     *
+     * <p class="note">Depending on how many and what kind of surfaces are visible, the
+     * surface compositor may need to copy the shared buffer before it is displayed. When
+     * this happens, the latency benefits of shared buffer mode will be reduced.</p>
+     *
+     * @param enabled True to enable the shared buffer mode on this surface, false otherwise
+     *
+     * @see #isSharedBufferModeEnabled()
+     * @see #setAutoRefreshEnabled(boolean)
+     *
+     * @hide
+     */
+    public void setSharedBufferModeEnabled(boolean enabled) {
+        if (mIsSharedBufferModeEnabled != enabled) {
+            int error = nativeSetSharedBufferModeEnabled(mNativeObject, enabled);
+            if (error != 0) {
+                throw new RuntimeException(
+                        "Failed to set shared buffer mode on Surface (bad object?)");
+            } else {
+                mIsSharedBufferModeEnabled = enabled;
+            }
+        }
+    }
+
+    /**
+     * @return True if shared buffer mode is enabled on this surface, false otherwise
+     *
+     * @see #setSharedBufferModeEnabled(boolean)
+     *
+     * @hide
+     */
+    public boolean isSharedBufferModeEnabled() {
+        return mIsSharedBufferModeEnabled;
+    }
+
+    /**
+     * <p>When auto-refresh is enabled, the surface compositor (SurfaceFlinger)
+     * automatically updates the display on a regular refresh cycle. The application
+     * can continue to issue present requests but it is not required. Enabling
+     * auto-refresh may result in visible tearing.</p>
+     *
+     * <p>Auto-refresh has no effect if the {@link #setSharedBufferModeEnabled(boolean)
+     * shared buffer mode} is not enabled.</p>
+     *
+     * <p>Because auto-refresh will trigger continuous updates of the display, it is
+     * recommended to turn it on only when necessary. For example, in a drawing/painting
+     * application auto-refresh should be enabled on finger/pen down and disabled on
+     * finger/pen up.</p>
+     *
+     * @param enabled True to enable auto-refresh on this surface, false otherwise
+     *
+     * @see #isAutoRefreshEnabled()
+     * @see #setSharedBufferModeEnabled(boolean)
+     *
+     * @hide
+     */
+    public void setAutoRefreshEnabled(boolean enabled) {
+        if (mIsAutoRefreshEnabled != enabled) {
+            int error = nativeSetAutoRefreshEnabled(mNativeObject, enabled);
+            if (error != 0) {
+                throw new RuntimeException("Failed to set auto refresh on Surface (bad object?)");
+            } else {
+                mIsAutoRefreshEnabled = enabled;
+            }
+        }
+    }
+
+    /**
+     * @return True if auto-refresh is enabled on this surface, false otherwise
+     *
+     * @hide
+     */
+    public boolean isAutoRefreshEnabled() {
+        return mIsAutoRefreshEnabled;
+    }
+
+    /**
+     * Sets the intended frame rate for this surface.
+     *
+     * <p>On devices that are capable of running the display at different refresh rates,
+     * the system may choose a display refresh rate to better match this surface's frame
+     * rate. Usage of this API won't introduce frame rate throttling, or affect other
+     * aspects of the application's frame production pipeline. However, because the system
+     * may change the display refresh rate, calls to this function may result in changes
+     * to Choreographer callback timings, and changes to the time interval at which the
+     * system releases buffers back to the application.</p>
+     *
+     * <p>Note that this only has an effect for surfaces presented on the display. If this
+     * surface is consumed by something other than the system compositor, e.g. a media
+     * codec, this call has no effect.</p>
+     *
+     * @param frameRate The intended frame rate of this surface, in frames per second. 0
+     * is a special value that indicates the app will accept the system's choice for the
+     * display frame rate, which is the default behavior if this function isn't
+     * called. The frameRate param does <em>not</em> need to be a valid refresh rate for
+     * this device's display - e.g., it's fine to pass 30fps to a device that can only run
+     * the display at 60fps.
+     *
+     * @param compatibility The frame rate compatibility of this surface. The
+     * compatibility value may influence the system's choice of display frame rate. See
+     * the FRAME_RATE_COMPATIBILITY_* values for more info.
+     *
+     * @throws IllegalArgumentException If frameRate or compatibility are invalid.
+     */
+    public void setFrameRate(
+            @FloatRange(from = 0.0) float frameRate, @FrameRateCompatibility int compatibility) {
+        synchronized (mLock) {
+            checkNotReleasedLocked();
+            int error = nativeSetFrameRate(mNativeObject, frameRate, compatibility);
+            if (error == -EINVAL) {
+                throw new IllegalArgumentException("Invalid argument to Surface.setFrameRate()");
+            } else if (error != 0) {
+                throw new RuntimeException("Failed to set frame rate on Surface");
+            }
+        }
     }
 
     /**
@@ -596,16 +939,16 @@ public class Surface implements Parcelable {
                 return "ROTATION_0";
             }
             case Surface.ROTATION_90: {
-                return "ROATATION_90";
+                return "ROTATION_90";
             }
             case Surface.ROTATION_180: {
-                return "ROATATION_180";
+                return "ROTATION_180";
             }
             case Surface.ROTATION_270: {
-                return "ROATATION_270";
+                return "ROTATION_270";
             }
             default: {
-                throw new IllegalArgumentException("Invalid rotation: " + rotation);
+                return Integer.toString(rotation);
             }
         }
     }
@@ -655,20 +998,29 @@ public class Surface implements Parcelable {
 
     private final class HwuiContext {
         private final RenderNode mRenderNode;
-        private long mHwuiRenderer;
-        private DisplayListCanvas mCanvas;
+        private HardwareRenderer mHardwareRenderer;
+        private RecordingCanvas mCanvas;
+        private final boolean mIsWideColorGamut;
 
-        HwuiContext() {
+        HwuiContext(boolean isWideColorGamut) {
             mRenderNode = RenderNode.create("HwuiCanvas", null);
             mRenderNode.setClipToBounds(false);
-            mHwuiRenderer = nHwuiCreate(mRenderNode.mNativeRenderNode, mNativeObject);
+            mRenderNode.setForceDarkAllowed(false);
+            mIsWideColorGamut = isWideColorGamut;
+
+            mHardwareRenderer = new HardwareRenderer();
+            mHardwareRenderer.setContentRoot(mRenderNode);
+            mHardwareRenderer.setSurface(Surface.this, true);
+            mHardwareRenderer.setWideGamut(isWideColorGamut);
+            mHardwareRenderer.setLightSourceAlpha(0.0f, 0.0f);
+            mHardwareRenderer.setLightSourceGeometry(0.0f, 0.0f, 0.0f, 0.0f);
         }
 
         Canvas lockCanvas(int width, int height) {
             if (mCanvas != null) {
                 throw new IllegalStateException("Surface was already locked!");
             }
-            mCanvas = mRenderNode.start(width, height);
+            mCanvas = mRenderNode.beginRecording(width, height);
             return mCanvas;
         }
 
@@ -677,25 +1029,23 @@ public class Surface implements Parcelable {
                 throw new IllegalArgumentException("canvas object must be the same instance that "
                         + "was previously returned by lockCanvas");
             }
-            mRenderNode.end(mCanvas);
+            mRenderNode.endRecording();
             mCanvas = null;
-            nHwuiDraw(mHwuiRenderer);
+            mHardwareRenderer.createRenderRequest()
+                    .setVsyncTime(System.nanoTime())
+                    .syncAndDraw();
         }
 
         void updateSurface() {
-            nHwuiSetSurface(mHwuiRenderer, mNativeObject);
+            mHardwareRenderer.setSurface(Surface.this, true);
         }
 
         void destroy() {
-            if (mHwuiRenderer != 0) {
-                nHwuiDestroy(mHwuiRenderer);
-                mHwuiRenderer = 0;
-            }
+            mHardwareRenderer.destroy();
+        }
+
+        boolean isWideColorGamut() {
+            return mIsWideColorGamut;
         }
     }
-
-    private static native long nHwuiCreate(long rootNode, long surface);
-    private static native void nHwuiSetSurface(long renderer, long surface);
-    private static native void nHwuiDraw(long renderer);
-    private static native void nHwuiDestroy(long renderer);
 }

@@ -16,14 +16,15 @@
 
 package android.net;
 
-import java.io.IOException;
+import java.io.Closeable;
 import java.io.FileDescriptor;
+import java.io.IOException;
 
 /**
  * Non-standard class for creating an inbound UNIX-domain socket
  * in the Linux abstract namespace.
  */
-public class LocalServerSocket {
+public class LocalServerSocket implements Closeable {
     private final LocalSocketImpl impl;
     private final LocalSocketAddress localAddress;
 
@@ -87,9 +88,9 @@ public class LocalServerSocket {
     {
         LocalSocketImpl acceptedImpl = new LocalSocketImpl();
 
-        impl.accept (acceptedImpl);
+        impl.accept(acceptedImpl);
 
-        return new LocalSocket(acceptedImpl, LocalSocket.SOCKET_UNKNOWN);
+        return LocalSocket.createLocalSocketForAccept(acceptedImpl);
     }
 
     /**
@@ -106,7 +107,7 @@ public class LocalServerSocket {
      * 
      * @throws IOException
      */
-    public void close() throws IOException
+    @Override public void close() throws IOException
     {
         impl.close();
     }

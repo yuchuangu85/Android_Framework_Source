@@ -2,8 +2,8 @@ package com.android.ex.photo;
 
 import android.database.Cursor;
 import android.os.Bundle;
-import android.support.v4.app.Fragment;
-import android.support.v4.content.Loader;
+import androidx.fragment.app.Fragment;
+import androidx.loader.content.Loader;
 
 import com.android.ex.photo.adapters.PhotoPagerAdapter;
 import com.android.ex.photo.fragments.PhotoViewFragment;

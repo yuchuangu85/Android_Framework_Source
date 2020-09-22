@@ -16,7 +16,10 @@
 
 package android.media;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.annotation.TestApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -26,15 +29,22 @@ import java.util.Objects;
  * @hide
  * A class to encapsulate information about an audio focus owner or request.
  */
+@TestApi
 @SystemApi
 public final class AudioFocusInfo implements Parcelable {
 
-    private AudioAttributes mAttributes;
-    private String mClientId;
-    private String mPackageName;
+    private final @NonNull AudioAttributes mAttributes;
+    private final int mClientUid;
+    private final @NonNull String mClientId;
+    private final @NonNull String mPackageName;
+    private final int mSdkTarget;
     private int mGainRequest;
     private int mLossReceived;
     private int mFlags;
+
+    // generation count for the validity of a request/response async exchange between
+    // external focus policy and MediaFocusControl
+    private long mGenCount = -1;
 
 
     /**
@@ -47,14 +57,26 @@ public final class AudioFocusInfo implements Parcelable {
      * @param flags
      * @hide
      */
-    public AudioFocusInfo(AudioAttributes aa, String clientId, String packageName,
-            int gainRequest, int lossReceived, int flags) {
+    public AudioFocusInfo(AudioAttributes aa, int clientUid, String clientId, String packageName,
+            int gainRequest, int lossReceived, int flags, int sdk) {
         mAttributes = aa == null ? new AudioAttributes.Builder().build() : aa;
+        mClientUid = clientUid;
         mClientId = clientId == null ? "" : clientId;
         mPackageName = packageName == null ? "" : packageName;
         mGainRequest = gainRequest;
         mLossReceived = lossReceived;
         mFlags = flags;
+        mSdkTarget = sdk;
+    }
+
+    /** @hide */
+    public void setGen(long g) {
+        mGenCount = g;
+    }
+
+    /** @hide */
+    public long getGen() {
+        return mGenCount;
     }
 
 
@@ -62,14 +84,21 @@ public final class AudioFocusInfo implements Parcelable {
      * The audio attributes for the audio focus request.
      * @return non-null {@link AudioAttributes}.
      */
-    @SystemApi
-    public AudioAttributes getAttributes() { return mAttributes; }
+    public @NonNull AudioAttributes getAttributes() {
+        return mAttributes;
+    }
 
-    @SystemApi
-    public String getClientId() { return mClientId; }
+    public int getClientUid() {
+        return mClientUid;
+    }
 
-    @SystemApi
-    public String getPackageName() { return mPackageName; }
+    public @NonNull String getClientId() {
+        return mClientId;
+    }
+
+    public @NonNull String getPackageName() {
+        return mPackageName;
+    }
 
     /**
      * The type of audio focus gain request.
@@ -78,7 +107,6 @@ public final class AudioFocusInfo implements Parcelable {
      *     {@link AudioManager#AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK},
      *     {@link AudioManager#AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE}.
      */
-    @SystemApi
     public int getGainRequest() { return mGainRequest; }
 
     /**
@@ -88,8 +116,10 @@ public final class AudioFocusInfo implements Parcelable {
      *   {@link AudioManager#AUDIOFOCUS_LOSS_TRANSIENT} or
      *   {@link AudioManager#AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK}.
      */
-    @SystemApi
     public int getLossReceived() { return mLossReceived; }
+
+    /** @hide */
+    public int getSdkTarget() { return mSdkTarget; }
 
     /** @hide */
     public void clearLossReceived() { mLossReceived = 0; }
@@ -100,7 +130,6 @@ public final class AudioFocusInfo implements Parcelable {
      *     {@link AudioManager#AUDIOFOCUS_FLAG_PAUSES_ON_DUCKABLE_LOSS}, and
      *     {@link AudioManager#AUDIOFOCUS_FLAG_LOCK}.
      */
-    @SystemApi
     public int getFlags() { return mFlags; }
 
     @Override
@@ -111,22 +140,23 @@ public final class AudioFocusInfo implements Parcelable {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         mAttributes.writeToParcel(dest, flags);
+        dest.writeInt(mClientUid);
         dest.writeString(mClientId);
         dest.writeString(mPackageName);
         dest.writeInt(mGainRequest);
         dest.writeInt(mLossReceived);
         dest.writeInt(mFlags);
+        dest.writeInt(mSdkTarget);
+        dest.writeLong(mGenCount);
     }
 
-    @SystemApi
     @Override
     public int hashCode() {
-        return Objects.hash(mAttributes, mClientId, mPackageName, mGainRequest, mFlags);
+        return Objects.hash(mAttributes, mClientUid, mClientId, mPackageName, mGainRequest, mFlags);
     }
 
-    @SystemApi
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj)
             return true;
         if (obj == null)
@@ -135,6 +165,9 @@ public final class AudioFocusInfo implements Parcelable {
             return false;
         AudioFocusInfo other = (AudioFocusInfo) obj;
         if (!mAttributes.equals(other.mAttributes)) {
+            return false;
+        }
+        if (mClientUid != other.mClientUid) {
             return false;
         }
         if (!mClientId.equals(other.mClientId)) {
@@ -152,21 +185,30 @@ public final class AudioFocusInfo implements Parcelable {
         if (mFlags != other.mFlags) {
             return false;
         }
+        if (mSdkTarget != other.mSdkTarget) {
+            return false;
+        }
+        // mGenCount is not used to verify equality between two focus holds as multiple requests
+        // (hence of different generations) could correspond to the same hold
         return true;
     }
 
-    public static final Parcelable.Creator<AudioFocusInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<AudioFocusInfo> CREATOR
             = new Parcelable.Creator<AudioFocusInfo>() {
 
         public AudioFocusInfo createFromParcel(Parcel in) {
-            return new AudioFocusInfo(
+            final AudioFocusInfo afi = new AudioFocusInfo(
                     AudioAttributes.CREATOR.createFromParcel(in), //AudioAttributes aa
+                    in.readInt(), // int clientUid
                     in.readString(), //String clientId
                     in.readString(), //String packageName
                     in.readInt(), //int gainRequest
                     in.readInt(), //int lossReceived
-                    in.readInt() //int flags
+                    in.readInt(), //int flags
+                    in.readInt()  //int sdkTarget
                     );
+            afi.setGen(in.readLong());
+            return afi;
         }
 
         public AudioFocusInfo[] newArray(int size) {

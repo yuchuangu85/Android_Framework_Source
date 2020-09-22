@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -25,8 +26,9 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.PowerManager;
 import android.provider.Telephony.Sms.Intents;
-import android.telephony.Rlog;
 import android.telephony.SubscriptionManager;
+
+import com.android.telephony.Rlog;
 
 /**
  * Monitors the device and ICC storage, and sends the appropriate events.
@@ -58,6 +60,7 @@ public class SmsStorageMonitor extends Handler {
     /** it is use to put in to extra value for SIM_FULL_ACTION and SMS_REJECTED_ACTION */
     Phone mPhone;
 
+    @UnsupportedAppUsage
     final CommandsInterface mCi;                            // accessed from inner class
     boolean mStorageAvailable = true;                       // accessed from inner class
 
@@ -137,12 +140,13 @@ public class SmsStorageMonitor extends Handler {
     }
 
     /**
-     * Called when SIM_FULL message is received from the RIL.  Notifies interested
-     * parties that SIM storage for SMS messages is full.
+     * Called when SIM_FULL message is received from the RIL. Notifies the default SMS application
+     * that SIM storage for SMS messages is full.
      */
     private void handleIccFull() {
         // broadcast SIM_FULL intent
         Intent intent = new Intent(Intents.SIM_FULL_ACTION);
+        intent.setComponent(SmsApplication.getDefaultSimFullApplication(mContext, false));
         mWakeLock.acquire(WAKE_LOCK_TIMEOUT);
         SubscriptionManager.putPhoneIdAndSubIdExtra(intent, mPhone.getPhoneId());
         mContext.sendBroadcast(intent, android.Manifest.permission.RECEIVE_SMS);

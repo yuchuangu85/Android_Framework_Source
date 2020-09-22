@@ -17,6 +17,7 @@
 package android.app;
 
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -46,8 +47,10 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.AutoCompleteTextView;
+import android.widget.Filterable;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ListPopupWindow;
 import android.widget.SearchView;
 import android.widget.TextView;
 
@@ -165,7 +168,7 @@ public class SearchDialog extends Dialog {
         setContentView(com.android.internal.R.layout.search_bar);
 
         // get the view elements for local access
-        mSearchView = (SearchView) findViewById(com.android.internal.R.id.search_view);
+        mSearchView = findViewById(com.android.internal.R.id.search_view);
         mSearchView.setIconified(false);
         mSearchView.setOnCloseListener(mOnCloseListener);
         mSearchView.setOnQueryTextListener(mOnQueryChangeListener);
@@ -184,7 +187,7 @@ public class SearchDialog extends Dialog {
         mBadgeLabel = (TextView) mSearchView.findViewById(com.android.internal.R.id.search_badge);
         mSearchAutoComplete = (AutoCompleteTextView)
                 mSearchView.findViewById(com.android.internal.R.id.search_src_text);
-        mAppIcon = (ImageView) findViewById(com.android.internal.R.id.search_app_icon);
+        mAppIcon = findViewById(com.android.internal.R.id.search_app_icon);
         mSearchPlate = mSearchView.findViewById(com.android.internal.R.id.search_plate);
         mWorkingSpinner = getContext().getDrawable(com.android.internal.R.drawable.search_spinner);
         // TODO: Restore the spinner for slow suggestion lookups
@@ -312,6 +315,7 @@ public class SearchDialog extends Dialog {
      * 
      * @param working true to show spinner, false to hide spinner
      */
+    @UnsupportedAppUsage
     public void setWorking(boolean working) {
         mWorkingSpinner.setAlpha(working ? 255 : 0);
         mWorkingSpinner.setVisible(working, false);
@@ -368,14 +372,27 @@ public class SearchDialog extends Dialog {
             updateSearchAppIcon();
             updateSearchBadge();
             if (isLandscapeMode(getContext())) {
-                mSearchAutoComplete.ensureImeVisible(true);
+                mSearchAutoComplete.setInputMethodMode(ListPopupWindow.INPUT_METHOD_NEEDED);
+                if (mSearchAutoComplete.isDropDownAlwaysVisible() || enoughToFilter()) {
+                    mSearchAutoComplete.showDropDown();
+                }
             }
         }
     }
 
+    @UnsupportedAppUsage
     static boolean isLandscapeMode(Context context) {
         return context.getResources().getConfiguration().orientation
                 == Configuration.ORIENTATION_LANDSCAPE;
+    }
+
+    private boolean enoughToFilter() {
+        Filterable filterableAdapter = (Filterable) mSearchAutoComplete.getAdapter();
+        if (filterableAdapter == null || filterableAdapter.getFilter() == null) {
+            return false;
+        }
+
+        return mSearchAutoComplete.enoughToFilter();
     }
 
     /**
@@ -517,6 +534,7 @@ public class SearchDialog extends Dialog {
     /**
      * Launch a search for the text in the query text field.
      */
+    @UnsupportedAppUsage
     public void launchQuerySearch() {
         launchQuerySearch(KeyEvent.KEYCODE_UNKNOWN, null);
     }
@@ -529,6 +547,7 @@ public class SearchDialog extends Dialog {
      * @param actionMsg The message for the action key that was pressed,
      *        or <code>null</code> if none.
      */
+    @UnsupportedAppUsage
     protected void launchQuerySearch(int actionKey, String actionMsg) {
         String query = mSearchAutoComplete.getText().toString();
         String action = Intent.ACTION_SEARCH;

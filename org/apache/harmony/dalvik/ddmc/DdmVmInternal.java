@@ -16,9 +16,15 @@
 
 package org.apache.harmony.dalvik.ddmc;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import dalvik.annotation.optimization.FastNative;
+
 /**
  * Declarations for some VM-internal DDM stuff.
+ *
+ * @hide
  */
+@libcore.api.CorePlatformApi
 public class DdmVmInternal {
 
     /* do not instantiate */
@@ -29,6 +35,7 @@ public class DdmVmInternal {
      *
      * This is built into the VM, since that's where threads get managed.
      */
+    @libcore.api.CorePlatformApi
     native public static void threadNotify(boolean enable);
 
     /**
@@ -40,6 +47,8 @@ public class DdmVmInternal {
      * @return true on success.  false if 'when' is bad or if there was
      *         an internal error.
      */
+    @libcore.api.CorePlatformApi
+    @FastNative
     native public static boolean heapInfoNotify(int when);
 
     /**
@@ -48,6 +57,7 @@ public class DdmVmInternal {
      *
      * This is built into the VM, since that's where the heap is managed.
      */
+    @libcore.api.CorePlatformApi
     native public static boolean heapSegmentNotify(int when, int what,
         boolean isNative);
 
@@ -57,28 +67,36 @@ public class DdmVmInternal {
      * Returns a byte array with the THST data, or null if something
      * went wrong.
      */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
     native public static byte[] getThreadStats();
 
     /**
      * Get a stack trace for the specified thread ID.  The ID can be found
      * in the data from getThreadStats.
      */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
     native public static StackTraceElement[] getStackTraceById(int threadId);
 
     /**
      * Enable or disable "recent allocation" tracking.
      */
+    @libcore.api.CorePlatformApi
     native public static void enableRecentAllocations(boolean enable);
 
     /*
      * Return a boolean indicating whether or not the "recent allocation"
      * feature is currently enabled.
      */
+    @libcore.api.CorePlatformApi
+    @FastNative
     native public static boolean getRecentAllocationStatus();
 
     /**
      * Fill a buffer with data on recent heap allocations.
      */
+    @libcore.api.CorePlatformApi
+    @FastNative
     native public static byte[] getRecentAllocations();
 }
-

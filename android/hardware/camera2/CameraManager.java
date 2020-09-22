@@ -16,42 +16,59 @@
 
 package android.hardware.camera2;
 
-import android.annotation.RequiresPermission;
+import android.annotation.CallbackExecutor;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
+import android.annotation.SystemService;
+import android.annotation.TestApi;
 import android.content.Context;
+import android.hardware.CameraInfo;
+import android.hardware.CameraStatus;
 import android.hardware.ICameraService;
 import android.hardware.ICameraServiceListener;
-import android.hardware.CameraInfo;
+import android.hardware.camera2.impl.CameraDeviceImpl;
 import android.hardware.camera2.impl.CameraMetadataNative;
 import android.hardware.camera2.legacy.CameraDeviceUserShim;
 import android.hardware.camera2.legacy.LegacyMetadataMapper;
-import android.os.IBinder;
+import android.hardware.camera2.params.SessionConfiguration;
+import android.hardware.camera2.utils.CameraIdAndSessionConfiguration;
+import android.hardware.camera2.utils.ConcurrentCameraIdCombination;
+import android.hardware.display.DisplayManager;
 import android.os.Binder;
 import android.os.DeadObjectException;
 import android.os.Handler;
-import android.os.Looper;
+import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.ServiceSpecificException;
-import android.util.Log;
+import android.os.SystemProperties;
 import android.util.ArrayMap;
+import android.util.ArraySet;
+import android.util.Log;
+import android.util.Size;
+import android.view.Display;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * <p>A system service manager for detecting, characterizing, and connecting to
  * {@link CameraDevice CameraDevices}.</p>
  *
- * <p>You can get an instance of this class by calling
- * {@link android.content.Context#getSystemService(String) Context.getSystemService()}.</p>
- *
- * <pre>CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);</pre>
- *
  * <p>For more details about communicating with camera devices, read the Camera
  * developer guide or the {@link android.hardware.camera2 camera2}
  * package documentation.</p>
  */
+@SystemService(Context.CAMERA_SERVICE)
 public final class CameraManager {
 
     private static final String TAG = "CameraManager";
@@ -88,15 +105,117 @@ public final class CameraManager {
      * identifiers, while removable cameras have a unique identifier for each
      * individual device, even if they are the same model.</p>
      *
+     * <p>This list doesn't contain physical cameras that can only be used as part of a logical
+     * multi-camera device.</p>
+     *
      * @return The list of currently connected camera devices.
      */
     @NonNull
     public String[] getCameraIdList() throws CameraAccessException {
-        synchronized (mLock) {
-            // ID list creation handles various known failures in device enumeration, so only
-            // exceptions it'll throw are unexpected, and should be propagated upward.
-            return getOrCreateDeviceIdListLocked().toArray(new String[0]);
-        }
+        return CameraManagerGlobal.get().getCameraIdList();
+    }
+
+    /**
+     * Similar to getCameraIdList(). However, getCamerIdListNoLazy() necessarily communicates with
+     * cameraserver in order to get the list of camera ids. This is to faciliate testing since some
+     * camera ids may go 'offline' without callbacks from cameraserver because of changes in
+     * SYSTEM_CAMERA permissions (though this is not a changeable permission, tests may call
+     * adopt(drop)ShellPermissionIdentity() and effectively change their permissions). This call
+     * affects the camera ids returned by getCameraIdList() as well. Tests which do adopt shell
+     * permission identity should not mix getCameraIdList() and getCameraListNoLazyCalls().
+     */
+    /** @hide */
+    @TestApi
+    public String[] getCameraIdListNoLazy() throws CameraAccessException {
+        return CameraManagerGlobal.get().getCameraIdListNoLazy();
+    }
+
+    /**
+     * Return the set of combinations of currently connected camera device identifiers, which
+     * support configuring camera device sessions concurrently.
+     *
+     * <p>The devices in these combinations can be concurrently configured by the same
+     * client camera application. Using these camera devices concurrently by two different
+     * applications is not guaranteed to be supported, however.</p>
+     *
+     * <p>For concurrent operation, in chronological order :
+     * - Applications must first close any open cameras that have sessions configured, using
+     *   {@link CameraDevice#close}.
+     * - All camera devices intended to be operated concurrently, must be opened using
+     *   {@link #openCamera}, before configuring sessions on any of the camera devices.</p>
+     *
+     * <p>Each device in a combination, is guaranteed to support stream combinations which may be
+     * obtained by querying {@link #getCameraCharacteristics} for the key
+     * {@link android.hardware.camera2.CameraCharacteristics#SCALER_MANDATORY_CONCURRENT_STREAM_COMBINATIONS}.</p>
+     *
+     * <p>For concurrent operation, if a camera device has a non null zoom ratio range as specified
+     * by
+     * {@link android.hardware.camera2.CameraCharacteristics#CONTROL_ZOOM_RATIO_RANGE},
+     * its complete zoom ratio range may not apply. Applications can use
+     * {@link android.hardware.camera2.CaptureRequest#CONTROL_ZOOM_RATIO} >=1 and  <=
+     * {@link android.hardware.camera2.CameraCharacteristics#SCALER_AVAILABLE_MAX_DIGITAL_ZOOM}
+     * during concurrent operation.
+     * <p>
+     *
+     * <p>The set of combinations may include camera devices that may be in use by other camera API
+     * clients.</p>
+     *
+     * <p>The set of combinations doesn't contain physical cameras that can only be used as
+     * part of a logical multi-camera device.</p>
+     *
+     * <p> If a new camera id becomes available through
+     * {@link AvailabilityCallback#onCameraUnavailable(String)}, clients can call
+     * this method to check if new combinations of camera ids which can stream concurrently are
+     * available.
+     *
+     * @return The set of combinations of currently connected camera devices, that may have
+     *         sessions configured concurrently. The set of combinations will be empty if no such
+     *         combinations are supported by the camera subsystem.
+     *
+     * @throws CameraAccessException if the camera device has been disconnected.
+     */
+    @NonNull
+    public Set<Set<String>> getConcurrentCameraIds() throws CameraAccessException {
+        return CameraManagerGlobal.get().getConcurrentCameraIds();
+    }
+
+    /**
+     * Checks whether the provided set of camera devices and their corresponding
+     * {@link SessionConfiguration} can be configured concurrently.
+     *
+     * <p>This method performs a runtime check of the given {@link SessionConfiguration} and camera
+     * id combinations. The result confirms whether or not the passed session configurations can be
+     * successfully used to create camera capture sessions concurrently, on the given camera
+     * devices using {@link CameraDevice#createCaptureSession(SessionConfiguration)}.
+     * </p>
+     *
+     * <p>The method can be called at any point before, during and after active capture sessions.
+     * It will not impact normal camera behavior in any way and must complete significantly
+     * faster than creating a regular or constrained capture session.</p>
+     *
+     * <p>Although this method is faster than creating a new capture session, it is not intended
+     * to be used for exploring the entire space of supported concurrent stream combinations. The
+     * available mandatory concurrent stream combinations may be obtained by querying
+     * {@link #getCameraCharacteristics} for the key
+     * {@link android.hardware.camera2.CameraCharacteristics#SCALER_MANDATORY_CONCURRENT_STREAM_COMBINATIONS}. </p>
+     *
+     * <p>Note that session parameters will be ignored and calls to
+     * {@link SessionConfiguration#setSessionParameters} are not required.</p>
+     *
+     * @return {@code true} if the given combination of session configurations and corresponding
+     *                      camera ids are concurrently supported by the camera sub-system,
+     *         {@code false} otherwise OR if the set of camera devices provided is not a subset of
+     *                       those returned by {@link #getConcurrentCameraIds}.
+     *
+     * @throws CameraAccessException if one of the camera devices queried is no longer connected.
+     *
+     */
+    @RequiresPermission(android.Manifest.permission.CAMERA)
+    public boolean isConcurrentSessionConfigurationSupported(
+            @NonNull Map<String, SessionConfiguration> cameraIdAndSessionConfig)
+            throws CameraAccessException {
+        return CameraManagerGlobal.get().isConcurrentSessionConfigurationSupported(
+                cameraIdAndSessionConfig);
     }
 
     /**
@@ -128,16 +247,29 @@ public final class CameraManager {
      */
     public void registerAvailabilityCallback(@NonNull AvailabilityCallback callback,
             @Nullable Handler handler) {
-        if (handler == null) {
-            Looper looper = Looper.myLooper();
-            if (looper == null) {
-                throw new IllegalArgumentException(
-                        "No handler given, and current thread has no looper!");
-            }
-            handler = new Handler(looper);
-        }
+        CameraManagerGlobal.get().registerAvailabilityCallback(callback,
+                CameraDeviceImpl.checkAndWrapHandler(handler));
+    }
 
-        CameraManagerGlobal.get().registerAvailabilityCallback(callback, handler);
+    /**
+     * Register a callback to be notified about camera device availability.
+     *
+     * <p>The behavior of this method matches that of
+     * {@link #registerAvailabilityCallback(AvailabilityCallback, Handler)},
+     * except that it uses {@link java.util.concurrent.Executor} as an argument
+     * instead of {@link android.os.Handler}.</p>
+     *
+     * @param executor The executor which will be used to invoke the callback.
+     * @param callback the new callback to send camera availability notices to
+     *
+     * @throws IllegalArgumentException if the executor is {@code null}.
+     */
+    public void registerAvailabilityCallback(@NonNull @CallbackExecutor Executor executor,
+            @NonNull AvailabilityCallback callback) {
+        if (executor == null) {
+            throw new IllegalArgumentException("executor was null");
+        }
+        CameraManagerGlobal.get().registerAvailabilityCallback(callback, executor);
     }
 
     /**
@@ -175,15 +307,29 @@ public final class CameraManager {
      *             no looper.
      */
     public void registerTorchCallback(@NonNull TorchCallback callback, @Nullable Handler handler) {
-        if (handler == null) {
-            Looper looper = Looper.myLooper();
-            if (looper == null) {
-                throw new IllegalArgumentException(
-                        "No handler given, and current thread has no looper!");
-            }
-            handler = new Handler(looper);
+        CameraManagerGlobal.get().registerTorchCallback(callback,
+                CameraDeviceImpl.checkAndWrapHandler(handler));
+    }
+
+    /**
+     * Register a callback to be notified about torch mode status.
+     *
+     * <p>The behavior of this method matches that of
+     * {@link #registerTorchCallback(TorchCallback, Handler)},
+     * except that it uses {@link java.util.concurrent.Executor} as an argument
+     * instead of {@link android.os.Handler}.</p>
+     *
+     * @param executor The executor which will be used to invoke the callback
+     * @param callback The new callback to send torch mode status to
+     *
+     * @throws IllegalArgumentException if the executor is {@code null}.
+     */
+    public void registerTorchCallback(@NonNull @CallbackExecutor Executor executor,
+            @NonNull TorchCallback callback) {
+        if (executor == null) {
+            throw new IllegalArgumentException("executor was null");
         }
-        CameraManagerGlobal.get().registerTorchCallback(callback, handler);
+        CameraManagerGlobal.get().registerTorchCallback(callback, executor);
     }
 
     /**
@@ -198,11 +344,50 @@ public final class CameraManager {
         CameraManagerGlobal.get().unregisterTorchCallback(callback);
     }
 
+    // TODO(b/147726300): Investigate how to support foldables/multi-display devices.
+    private Size getDisplaySize() {
+        Size ret = new Size(0, 0);
+
+        try {
+            DisplayManager displayManager =
+                    (DisplayManager) mContext.getSystemService(Context.DISPLAY_SERVICE);
+            Display display = displayManager.getDisplay(Display.DEFAULT_DISPLAY);
+            if (display != null) {
+                int width = display.getWidth();
+                int height = display.getHeight();
+
+                if (height > width) {
+                    height = width;
+                    width = display.getHeight();
+                }
+
+                ret = new Size(width, height);
+            } else {
+                Log.e(TAG, "Invalid default display!");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "getDisplaySize Failed. " + e.toString());
+        }
+
+        return ret;
+    }
+
     /**
      * <p>Query the capabilities of a camera device. These capabilities are
      * immutable for a given camera.</p>
      *
-     * @param cameraId The id of the camera device to query
+     * <p>From API level 29, this function can also be used to query the capabilities of physical
+     * cameras that can only be used as part of logical multi-camera. These cameras cannot be
+     * opened directly via {@link #openCamera}</p>
+     *
+     * <p>Also starting with API level 29, while most basic camera information is still available
+     * even without the CAMERA permission, some values are not available to apps that do not hold
+     * that permission. The keys not available are listed by
+     * {@link CameraCharacteristics#getKeysNeedingPermission}.</p>
+     *
+     * @param cameraId The id of the camera device to query. This could be either a standalone
+     * camera ID which can be directly opened by {@link #openCamera}, or a physical camera ID that
+     * can only used as part of a logical multi-camera.
      * @return The properties of the given camera
      *
      * @throws IllegalArgumentException if the cameraId does not match any
@@ -216,38 +401,48 @@ public final class CameraManager {
     public CameraCharacteristics getCameraCharacteristics(@NonNull String cameraId)
             throws CameraAccessException {
         CameraCharacteristics characteristics = null;
-
+        if (CameraManagerGlobal.sCameraServiceDisabled) {
+            throw new IllegalArgumentException("No cameras available on device");
+        }
         synchronized (mLock) {
-            if (!getOrCreateDeviceIdListLocked().contains(cameraId)) {
-                throw new IllegalArgumentException(String.format("Camera id %s does not match any" +
-                        " currently connected camera device", cameraId));
-            }
-
-            int id = Integer.parseInt(cameraId);
-
             /*
              * Get the camera characteristics from the camera service directly if it supports it,
              * otherwise get them from the legacy shim instead.
              */
-
             ICameraService cameraService = CameraManagerGlobal.get().getCameraService();
             if (cameraService == null) {
                 throw new CameraAccessException(CameraAccessException.CAMERA_DISCONNECTED,
                         "Camera service is currently unavailable");
             }
             try {
-                if (!supportsCamera2ApiLocked(cameraId)) {
+                Size displaySize = getDisplaySize();
+
+                // First check isHiddenPhysicalCamera to avoid supportsCamera2ApiLocked throwing
+                // exception in case cameraId is a hidden physical camera.
+                if (!isHiddenPhysicalCamera(cameraId) && !supportsCamera2ApiLocked(cameraId)) {
                     // Legacy backwards compatibility path; build static info from the camera
                     // parameters
+                    int id = Integer.parseInt(cameraId);
+
                     String parameters = cameraService.getLegacyParameters(id);
 
                     CameraInfo info = cameraService.getCameraInfo(id);
 
-                    characteristics = LegacyMetadataMapper.createCharacteristics(parameters, info);
+                    characteristics = LegacyMetadataMapper.createCharacteristics(parameters, info,
+                            id, displaySize);
                 } else {
                     // Normal path: Get the camera characteristics directly from the camera service
-                    CameraMetadataNative info = cameraService.getCameraCharacteristics(id);
-
+                    CameraMetadataNative info = cameraService.getCameraCharacteristics(cameraId);
+                    try {
+                        info.setCameraId(Integer.parseInt(cameraId));
+                    } catch (NumberFormatException e) {
+                        // For external camera, reaching here is expected.
+                        Log.v(TAG, "Failed to parse camera Id " + cameraId + " to integer");
+                    }
+                    boolean hasConcurrentStreams =
+                            CameraManagerGlobal.get().cameraIdHasConcurrentStreamsLocked(cameraId);
+                    info.setHasMandatoryConcurrentStreams(hasConcurrentStreams);
+                    info.setDisplaySize(displaySize);
                     characteristics = new CameraCharacteristics(info);
                 }
             } catch (ServiceSpecificException e) {
@@ -266,7 +461,7 @@ public final class CameraManager {
      *
      * @param cameraId The unique identifier of the camera device to open
      * @param callback The callback for the camera. Must not be null.
-     * @param handler  The handler to invoke the callback on. Must not be null.
+     * @param executor The executor to invoke the callback with. Must not be null.
      * @param uid      The UID of the application actually opening the camera.
      *                 Must be USE_CALLING_UID unless the caller is a service
      *                 that is trusted to open the device on behalf of an
@@ -285,7 +480,7 @@ public final class CameraManager {
      * @see android.app.admin.DevicePolicyManager#setCameraDisabled
      */
     private CameraDevice openCameraDeviceUserAsync(String cameraId,
-            CameraDevice.StateCallback callback, Handler handler, final int uid)
+            CameraDevice.StateCallback callback, Executor executor, final int uid)
             throws CameraAccessException {
         CameraCharacteristics characteristics = getCameraCharacteristics(cameraId);
         CameraDevice device = null;
@@ -298,18 +493,11 @@ public final class CameraManager {
                     new android.hardware.camera2.impl.CameraDeviceImpl(
                         cameraId,
                         callback,
-                        handler,
-                        characteristics);
+                        executor,
+                        characteristics,
+                        mContext.getApplicationInfo().targetSdkVersion);
 
             ICameraDeviceCallbacks callbacks = deviceImpl.getCallbacks();
-
-            int id;
-            try {
-                id = Integer.parseInt(cameraId);
-            } catch (NumberFormatException e) {
-                throw new IllegalArgumentException("Expected cameraId to be numeric, but it was: "
-                        + cameraId);
-            }
 
             try {
                 if (supportsCamera2ApiLocked(cameraId)) {
@@ -320,12 +508,21 @@ public final class CameraManager {
                             ICameraService.ERROR_DISCONNECTED,
                             "Camera service is currently unavailable");
                     }
-                    cameraUser = cameraService.connectDevice(callbacks, id,
-                            mContext.getOpPackageName(), uid);
+                    cameraUser = cameraService.connectDevice(callbacks, cameraId,
+                            mContext.getOpPackageName(), mContext.getAttributionTag(), uid);
                 } else {
                     // Use legacy camera implementation for HAL1 devices
+                    int id;
+                    try {
+                        id = Integer.parseInt(cameraId);
+                    } catch (NumberFormatException e) {
+                        throw new IllegalArgumentException("Expected cameraId to be numeric, but it was: "
+                                + cameraId);
+                    }
+
                     Log.i(TAG, "Using legacy camera HAL.");
-                    cameraUser = CameraDeviceUserShim.connectBinderShim(callbacks, id);
+                    cameraUser = CameraDeviceUserShim.connectBinderShim(callbacks, id,
+                            getDisplaySize());
                 }
             } catch (ServiceSpecificException e) {
                 if (e.errorCode == ICameraService.ERROR_DEPRECATED_HAL) {
@@ -389,12 +586,26 @@ public final class CameraManager {
      * priority when accessing the camera, and this method will succeed even if the camera device is
      * in use by another camera API client. Any lower-priority application that loses control of the
      * camera in this way will receive an
-     * {@link android.hardware.camera2.CameraDevice.StateCallback#onDisconnected} callback.</p>
+     * {@link android.hardware.camera2.CameraDevice.StateCallback#onDisconnected} callback.
+     * Opening the same camera ID twice in the same application will similarly cause the
+     * {@link android.hardware.camera2.CameraDevice.StateCallback#onDisconnected} callback
+     * being fired for the {@link CameraDevice} from the first open call and all ongoing tasks
+     * being droppped.</p>
      *
      * <p>Once the camera is successfully opened, {@link CameraDevice.StateCallback#onOpened} will
      * be invoked with the newly opened {@link CameraDevice}. The camera device can then be set up
      * for operation by calling {@link CameraDevice#createCaptureSession} and
      * {@link CameraDevice#createCaptureRequest}</p>
+     *
+     * <p>Before API level 30, when the application tries to open multiple {@link CameraDevice} of
+     * different IDs and the device does not support opening such combination, either the
+     * {@link #openCamera} will fail and throw a {@link CameraAccessException} or one or more of
+     * already opened {@link CameraDevice} will be disconnected and receive
+     * {@link android.hardware.camera2.CameraDevice.StateCallback#onDisconnected} callback. Which
+     * behavior will happen depends on the device implementation and can vary on different devices.
+     * Starting in API level 30, if the device does not support the combination of cameras being
+     * opened, it is guaranteed the {@link #openCamera} call will fail and none of existing
+     * {@link CameraDevice} will be disconnected.</p>
      *
      * <!--
      * <p>Since the camera device will be opened asynchronously, any asynchronous operations done
@@ -421,11 +632,12 @@ public final class CameraManager {
      *             {@code null} to use the current thread's {@link android.os.Looper looper}.
      *
      * @throws CameraAccessException if the camera is disabled by device policy,
-     * has been disconnected, or is being used by a higher-priority camera API client.
+     * has been disconnected, is being used by a higher-priority camera API client, or the device
+     * has reached its maximal resource and cannot open this camera device.
      *
      * @throws IllegalArgumentException if cameraId or the callback was null,
      * or the cameraId does not match any currently or previously available
-     * camera device.
+     * camera device returned by {@link #getCameraIdList}.
      *
      * @throws SecurityException if the application does not have permission to
      * access the camera
@@ -438,7 +650,47 @@ public final class CameraManager {
             @NonNull final CameraDevice.StateCallback callback, @Nullable Handler handler)
             throws CameraAccessException {
 
-        openCameraForUid(cameraId, callback, handler, USE_CALLING_UID);
+        openCameraForUid(cameraId, callback, CameraDeviceImpl.checkAndWrapHandler(handler),
+                USE_CALLING_UID);
+    }
+
+    /**
+     * Open a connection to a camera with the given ID.
+     *
+     * <p>The behavior of this method matches that of
+     * {@link #openCamera(String, StateCallback, Handler)}, except that it uses
+     * {@link java.util.concurrent.Executor} as an argument instead of
+     * {@link android.os.Handler}.</p>
+     *
+     * @param cameraId
+     *             The unique identifier of the camera device to open
+     * @param executor
+     *             The executor which will be used when invoking the callback.
+     * @param callback
+     *             The callback which is invoked once the camera is opened
+     *
+     * @throws CameraAccessException if the camera is disabled by device policy,
+     * has been disconnected, or is being used by a higher-priority camera API client.
+     *
+     * @throws IllegalArgumentException if cameraId, the callback or the executor was null,
+     * or the cameraId does not match any currently or previously available
+     * camera device.
+     *
+     * @throws SecurityException if the application does not have permission to
+     * access the camera
+     *
+     * @see #getCameraIdList
+     * @see android.app.admin.DevicePolicyManager#setCameraDisabled
+     */
+    @RequiresPermission(android.Manifest.permission.CAMERA)
+    public void openCamera(@NonNull String cameraId,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull final CameraDevice.StateCallback callback)
+            throws CameraAccessException {
+        if (executor == null) {
+            throw new IllegalArgumentException("executor was null");
+        }
+        openCameraForUid(cameraId, callback, executor, USE_CALLING_UID);
     }
 
     /**
@@ -457,7 +709,7 @@ public final class CameraManager {
      * @hide
      */
     public void openCameraForUid(@NonNull String cameraId,
-            @NonNull final CameraDevice.StateCallback callback, @Nullable Handler handler,
+            @NonNull final CameraDevice.StateCallback callback, @NonNull Executor executor,
             int clientUid)
             throws CameraAccessException {
 
@@ -465,16 +717,12 @@ public final class CameraManager {
             throw new IllegalArgumentException("cameraId was null");
         } else if (callback == null) {
             throw new IllegalArgumentException("callback was null");
-        } else if (handler == null) {
-            if (Looper.myLooper() != null) {
-                handler = new Handler();
-            } else {
-                throw new IllegalArgumentException(
-                        "Handler argument is null, but no looper exists in the calling thread");
-            }
+        }
+        if (CameraManagerGlobal.sCameraServiceDisabled) {
+            throw new IllegalArgumentException("No cameras available on device");
         }
 
-        openCameraDeviceUserAsync(cameraId, callback, handler, clientUid);
+        openCameraDeviceUserAsync(cameraId, callback, executor, clientUid);
     }
 
     /**
@@ -518,6 +766,9 @@ public final class CameraManager {
      */
     public void setTorchMode(@NonNull String cameraId, boolean enabled)
             throws CameraAccessException {
+        if (CameraManagerGlobal.sCameraServiceDisabled) {
+            throw new IllegalArgumentException("No cameras available on device");
+        }
         CameraManagerGlobal.get().setTorchMode(cameraId, enabled);
     }
 
@@ -560,6 +811,104 @@ public final class CameraManager {
          * @param cameraId The unique identifier of the disconnected camera.
          */
         public void onCameraUnavailable(@NonNull String cameraId) {
+            // default empty implementation
+        }
+
+        /**
+         * Called whenever camera access priorities change.
+         *
+         * <p>Notification that camera access priorities have changed and the camera may
+         * now be openable. An application that was previously denied camera access due to
+         * a higher-priority user already using the camera, or that was disconnected from an
+         * active camera session due to a higher-priority user trying to open the camera,
+         * should try to open the camera again if it still wants to use it.  Note that
+         * multiple applications may receive this callback at the same time, and only one of
+         * them will succeed in opening the camera in practice, depending on exact access
+         * priority levels and timing. This method is useful in cases where multiple
+         * applications may be in the resumed state at the same time, and the user switches
+         * focus between them, or if the current camera-using application moves between
+         * full-screen and Picture-in-Picture (PiP) states. In such cases, the camera
+         * available/unavailable callbacks will not be invoked, but another application may
+         * now have higher priority for camera access than the current camera-using
+         * application.</p>
+         *
+         * <p>The default implementation of this method does nothing.</p>
+         *
+         */
+        public void onCameraAccessPrioritiesChanged() {
+            // default empty implementation
+        }
+
+        /**
+         * A physical camera has become available for use again.
+         *
+         * <p>By default, all of the physical cameras of a logical multi-camera are
+         * available, so {@link #onPhysicalCameraAvailable} is not called for any of the physical
+         * cameras of a logical multi-camera, when {@link #onCameraAvailable} for the logical
+         * multi-camera is invoked. However, if some specific physical cameras are unavailable
+         * to begin with, {@link #onPhysicalCameraUnavailable} may be invoked after
+         * {@link #onCameraAvailable}.</p>
+         *
+         * <p>The default implementation of this method does nothing.</p>
+         *
+         * @param cameraId The unique identifier of the logical multi-camera.
+         * @param physicalCameraId The unique identifier of the physical camera.
+         *
+         * @see #onCameraAvailable
+         * @see #onPhysicalCameraUnavailable
+         */
+        public void onPhysicalCameraAvailable(@NonNull String cameraId,
+                @NonNull String physicalCameraId) {
+            // default empty implementation
+        }
+
+        /**
+         * A previously-available physical camera has become unavailable for use.
+         *
+         * <p>By default, all of the physical cameras of a logical multi-camera are
+         * available, so {@link #onPhysicalCameraAvailable} is not called for any of the physical
+         * cameras of a logical multi-camera, when {@link #onCameraAvailable} for the logical
+         * multi-camera is invoked. If some specific physical cameras are unavailable
+         * to begin with, {@link #onPhysicalCameraUnavailable} may be invoked after
+         * {@link #onCameraAvailable}.</p>
+         *
+         * <p>The default implementation of this method does nothing.</p>
+         *
+         * @param cameraId The unique identifier of the logical multi-camera.
+         * @param physicalCameraId The unique identifier of the physical camera.
+         *
+         * @see #onCameraAvailable
+         * @see #onPhysicalCameraAvailable
+         */
+        public void onPhysicalCameraUnavailable(@NonNull String cameraId,
+                @NonNull String physicalCameraId) {
+            // default empty implementation
+        }
+
+        /**
+         * A camera device has been opened by an application.
+         *
+         * <p>The default implementation of this method does nothing.</p>
+         *
+         * @param cameraId The unique identifier of the new camera.
+         * @param packageId The package Id of the application opening the camera.
+         *
+         * @see #onCameraClosed
+         */
+        /** @hide */
+        public void onCameraOpened(@NonNull String cameraId, @NonNull String packageId) {
+            // default empty implementation
+        }
+
+        /**
+         * A previously-opened camera has been closed.
+         *
+         * <p>The default implementation of this method does nothing.</p>
+         *
+         * @param cameraId The unique identifier of the closed camera.
+         */
+        /** @hide */
+        public void onCameraClosed(@NonNull String cameraId) {
             // default empty implementation
         }
     }
@@ -672,69 +1021,6 @@ public final class CameraManager {
     }
 
     /**
-     * Return or create the list of currently connected camera devices.
-     *
-     * <p>In case of errors connecting to the camera service, will return an empty list.</p>
-     */
-    private ArrayList<String> getOrCreateDeviceIdListLocked() throws CameraAccessException {
-        if (mDeviceIdList == null) {
-            int numCameras = 0;
-            ICameraService cameraService = CameraManagerGlobal.get().getCameraService();
-            ArrayList<String> deviceIdList = new ArrayList<>();
-
-            // If no camera service, then no devices
-            if (cameraService == null) {
-                return deviceIdList;
-            }
-
-            try {
-                numCameras = cameraService.getNumberOfCameras(CAMERA_TYPE_ALL);
-            } catch(ServiceSpecificException e) {
-                throwAsPublicException(e);
-            } catch (RemoteException e) {
-                // camera service just died - if no camera service, then no devices
-                return deviceIdList;
-            }
-
-            for (int i = 0; i < numCameras; ++i) {
-                // Non-removable cameras use integers starting at 0 for their
-                // identifiers
-                boolean isDeviceSupported = false;
-                try {
-                    CameraMetadataNative info = cameraService.getCameraCharacteristics(i);
-                    if (!info.isEmpty()) {
-                        isDeviceSupported = true;
-                    } else {
-                        throw new AssertionError("Expected to get non-empty characteristics");
-                    }
-                } catch(ServiceSpecificException e) {
-                    // DISCONNECTED means that the HAL reported an low-level error getting the
-                    // device info; ILLEGAL_ARGUMENT means that this devices is not supported.
-                    // Skip listing the device.  Other errors,
-                    // propagate exception onward
-                    if (e.errorCode != ICameraService.ERROR_DISCONNECTED ||
-                            e.errorCode != ICameraService.ERROR_ILLEGAL_ARGUMENT) {
-                        throwAsPublicException(e);
-                    }
-                } catch(RemoteException e) {
-                    // Camera service died - no devices to list
-                    deviceIdList.clear();
-                    return deviceIdList;
-                }
-
-                if (isDeviceSupported) {
-                    deviceIdList.add(String.valueOf(i));
-                } else {
-                    Log.w(TAG, "Error querying camera device " + i + " for listing.");
-                }
-
-            }
-            mDeviceIdList = deviceIdList;
-        }
-        return mDeviceIdList;
-    }
-
-    /**
      * Queries the camera service if it supports the camera2 api directly, or needs a shim.
      *
      * @param cameraId a non-{@code null} camera identifier
@@ -752,8 +1038,6 @@ public final class CameraManager {
      * @return {@code true} if connecting will work for that device version.
      */
     private boolean supportsCameraApiLocked(String cameraId, int apiVersion) {
-        int id = Integer.parseInt(cameraId);
-
         /*
          * Possible return values:
          * - NO_ERROR => CameraX API is supported
@@ -767,7 +1051,32 @@ public final class CameraManager {
             // If no camera service, no support
             if (cameraService == null) return false;
 
-            return cameraService.supportsCameraApi(id, apiVersion);
+            return cameraService.supportsCameraApi(cameraId, apiVersion);
+        } catch (RemoteException e) {
+            // Camera service is now down, no support for any API level
+        }
+        return false;
+    }
+
+    /**
+     * Queries the camera service if a cameraId is a hidden physical camera that belongs to a
+     * logical camera device.
+     *
+     * A hidden physical camera is a camera that cannot be opened by the application. But it
+     * can be used as part of a logical camera.
+     *
+     * @param cameraId a non-{@code null} camera identifier
+     * @return {@code true} if cameraId is a hidden physical camera device
+     *
+     * @hide
+     */
+    public static boolean isHiddenPhysicalCamera(String cameraId) {
+        try {
+            ICameraService cameraService = CameraManagerGlobal.get().getCameraService();
+            // If no camera service, no support
+            if (cameraService == null) return false;
+
+            return cameraService.isHiddenPhysicalCamera(cameraId);
         } catch (RemoteException e) {
             // Camera service is now down, no support for any API level
         }
@@ -795,12 +1104,19 @@ public final class CameraManager {
          */
         private static final String CAMERA_SERVICE_BINDER_NAME = "media.camera";
 
+        private final ScheduledExecutorService mScheduler = Executors.newScheduledThreadPool(1);
         // Camera ID -> Status map
         private final ArrayMap<String, Integer> mDeviceStatus = new ArrayMap<String, Integer>();
+        // Camera ID -> (physical camera ID -> Status map)
+        private final ArrayMap<String, ArrayList<String>> mUnavailablePhysicalDevices =
+                new ArrayMap<String, ArrayList<String>>();
 
-        // Registered availablility callbacks and their handlers
-        private final ArrayMap<AvailabilityCallback, Handler> mCallbackMap =
-            new ArrayMap<AvailabilityCallback, Handler>();
+        private final Set<Set<String>> mConcurrentCameraIdCombinations =
+                new ArraySet<Set<String>>();
+
+        // Registered availablility callbacks and their executors
+        private final ArrayMap<AvailabilityCallback, Executor> mCallbackMap =
+            new ArrayMap<AvailabilityCallback, Executor>();
 
         // torch client binder to set the torch mode with.
         private Binder mTorchClientBinder = new Binder();
@@ -808,9 +1124,9 @@ public final class CameraManager {
         // Camera ID -> Torch status map
         private final ArrayMap<String, Integer> mTorchStatus = new ArrayMap<String, Integer>();
 
-        // Registered torch callbacks and their handlers
-        private final ArrayMap<TorchCallback, Handler> mTorchCallbackMap =
-                new ArrayMap<TorchCallback, Handler>();
+        // Registered torch callbacks and their executors
+        private final ArrayMap<TorchCallback, Executor> mTorchCallbackMap =
+                new ArrayMap<TorchCallback, Executor>();
 
         private final Object mLock = new Object();
 
@@ -820,6 +1136,9 @@ public final class CameraManager {
         // Singleton, don't allow construction
         private CameraManagerGlobal() {
         }
+
+        public static final boolean sCameraServiceDisabled =
+                SystemProperties.getBoolean("config.disable_cameraservice", false);
 
         public static CameraManagerGlobal get() {
             return gCameraManager;
@@ -840,7 +1159,7 @@ public final class CameraManager {
         public ICameraService getCameraService() {
             synchronized(mLock) {
                 connectCameraServiceLocked();
-                if (mCameraService == null) {
+                if (mCameraService == null && !sCameraServiceDisabled) {
                     Log.e(TAG, "Camera service is unavailable");
                 }
                 return mCameraService;
@@ -855,7 +1174,7 @@ public final class CameraManager {
          */
         private void connectCameraServiceLocked() {
             // Only reconnect if necessary
-            if (mCameraService != null) return;
+            if (mCameraService != null || sCameraServiceDisabled) return;
 
             Log.i(TAG, "Connecting to camera service");
 
@@ -880,7 +1199,18 @@ public final class CameraManager {
             }
 
             try {
-                cameraService.addListener(this);
+                CameraStatus[] cameraStatuses = cameraService.addListener(this);
+                for (CameraStatus c : cameraStatuses) {
+                    onStatusChangedLocked(c.status, c.cameraId);
+
+                    if (c.unavailablePhysicalCameras != null) {
+                        for (String unavailPhysicalCamera : c.unavailablePhysicalCameras) {
+                            onPhysicalCameraStatusChangedLocked(
+                                    ICameraServiceListener.STATUS_NOT_PRESENT,
+                                    c.cameraId, unavailPhysicalCamera);
+                        }
+                    }
+                }
                 mCameraService = cameraService;
             } catch(ServiceSpecificException e) {
                 // Unexpected failure
@@ -888,6 +1218,278 @@ public final class CameraManager {
             } catch (RemoteException e) {
                 // Camera service is now down, leave mCameraService as null
             }
+
+            try {
+                ConcurrentCameraIdCombination[] cameraIdCombinations =
+                        cameraService.getConcurrentCameraIds();
+                for (ConcurrentCameraIdCombination comb : cameraIdCombinations) {
+                    mConcurrentCameraIdCombinations.add(comb.getConcurrentCameraIdCombination());
+                }
+            } catch (ServiceSpecificException e) {
+                // Unexpected failure
+                throw new IllegalStateException("Failed to get concurrent camera id combinations",
+                        e);
+            } catch (RemoteException e) {
+                // Camera service died in all probability
+            }
+        }
+
+        private String[] extractCameraIdListLocked() {
+            String[] cameraIds = null;
+            int idCount = 0;
+            for (int i = 0; i < mDeviceStatus.size(); i++) {
+                int status = mDeviceStatus.valueAt(i);
+                if (status == ICameraServiceListener.STATUS_NOT_PRESENT
+                        || status == ICameraServiceListener.STATUS_ENUMERATING) continue;
+                idCount++;
+            }
+            cameraIds = new String[idCount];
+            idCount = 0;
+            for (int i = 0; i < mDeviceStatus.size(); i++) {
+                int status = mDeviceStatus.valueAt(i);
+                if (status == ICameraServiceListener.STATUS_NOT_PRESENT
+                        || status == ICameraServiceListener.STATUS_ENUMERATING) continue;
+                cameraIds[idCount] = mDeviceStatus.keyAt(i);
+                idCount++;
+            }
+            return cameraIds;
+        }
+
+        private Set<Set<String>> extractConcurrentCameraIdListLocked() {
+            Set<Set<String>> concurrentCameraIds = new ArraySet<Set<String>>();
+            for (Set<String> cameraIds : mConcurrentCameraIdCombinations) {
+                Set<String> extractedCameraIds = new ArraySet<String>();
+                for (String cameraId : cameraIds) {
+                    // if the camera id status is NOT_PRESENT or ENUMERATING; skip the device.
+                    // TODO: Would a device status NOT_PRESENT ever be in the map ? it gets removed
+                    // in the callback anyway.
+                    Integer status = mDeviceStatus.get(cameraId);
+                    if (status == null) {
+                        // camera id not present
+                        continue;
+                    }
+                    if (status == ICameraServiceListener.STATUS_ENUMERATING
+                            || status == ICameraServiceListener.STATUS_NOT_PRESENT) {
+                        continue;
+                    }
+                    extractedCameraIds.add(cameraId);
+                }
+                concurrentCameraIds.add(extractedCameraIds);
+            }
+            return concurrentCameraIds;
+        }
+
+        private static void sortCameraIds(String[] cameraIds) {
+            // The sort logic must match the logic in
+            // libcameraservice/common/CameraProviderManager.cpp::getAPI1CompatibleCameraDeviceIds
+            Arrays.sort(cameraIds, new Comparator<String>() {
+                    @Override
+                    public int compare(String s1, String s2) {
+                        int s1Int = 0, s2Int = 0;
+                        try {
+                            s1Int = Integer.parseInt(s1);
+                        } catch (NumberFormatException e) {
+                            s1Int = -1;
+                        }
+
+                        try {
+                            s2Int = Integer.parseInt(s2);
+                        } catch (NumberFormatException e) {
+                            s2Int = -1;
+                        }
+
+                        // Uint device IDs first
+                        if (s1Int >= 0 && s2Int >= 0) {
+                            return s1Int - s2Int;
+                        } else if (s1Int >= 0) {
+                            return -1;
+                        } else if (s2Int >= 0) {
+                            return 1;
+                        } else {
+                            // Simple string compare if both id are not uint
+                            return s1.compareTo(s2);
+                        }
+                    }});
+
+        }
+
+        public static boolean cameraStatusesContains(CameraStatus[] cameraStatuses, String id) {
+            for (CameraStatus c : cameraStatuses) {
+                if (c.cameraId.equals(id)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public String[] getCameraIdListNoLazy() {
+            if (sCameraServiceDisabled) {
+                return new String[] {};
+            }
+
+            CameraStatus[] cameraStatuses;
+            ICameraServiceListener.Stub testListener = new ICameraServiceListener.Stub() {
+                @Override
+                public void onStatusChanged(int status, String id) throws RemoteException {
+                }
+                @Override
+                public void onPhysicalCameraStatusChanged(int status,
+                        String id, String physicalId) throws RemoteException {
+                }
+                @Override
+                public void onTorchStatusChanged(int status, String id) throws RemoteException {
+                }
+                @Override
+                public void onCameraAccessPrioritiesChanged() {
+                }
+                @Override
+                public void onCameraOpened(String id, String clientPackageId) {
+                }
+                @Override
+                public void onCameraClosed(String id) {
+                }};
+
+            String[] cameraIds = null;
+            synchronized (mLock) {
+                connectCameraServiceLocked();
+                try {
+                    // The purpose of the addListener, removeListener pair here is to get a fresh
+                    // list of camera ids from cameraserver. We do this since for in test processes,
+                    // changes can happen w.r.t non-changeable permissions (eg: SYSTEM_CAMERA
+                    // permissions can be effectively changed by calling
+                    // adopt(drop)ShellPermissionIdentity()).
+                    // Camera devices, which have their discovery affected by these permission
+                    // changes, will not have clients get callbacks informing them about these
+                    // devices going offline (in real world scenarios, these permissions aren't
+                    // changeable). Future calls to getCameraIdList() will reflect the changes in
+                    // the camera id list after getCameraIdListNoLazy() is called.
+                    cameraStatuses = mCameraService.addListener(testListener);
+                    mCameraService.removeListener(testListener);
+                    for (CameraStatus c : cameraStatuses) {
+                        onStatusChangedLocked(c.status, c.cameraId);
+                    }
+                    Set<String> deviceCameraIds = mDeviceStatus.keySet();
+                    ArrayList<String> deviceIdsToRemove = new ArrayList<String>();
+                    for (String deviceCameraId : deviceCameraIds) {
+                        // Its possible that a device id was removed without a callback notifying
+                        // us. This may happen in case a process 'drops' system camera permissions
+                        // (even though the permission isn't a changeable one, tests may call
+                        // adoptShellPermissionIdentity() and then dropShellPermissionIdentity().
+                        if (!cameraStatusesContains(cameraStatuses, deviceCameraId)) {
+                            deviceIdsToRemove.add(deviceCameraId);
+                        }
+                    }
+                    for (String id : deviceIdsToRemove) {
+                        onStatusChangedLocked(ICameraServiceListener.STATUS_NOT_PRESENT, id);
+                    }
+                } catch (ServiceSpecificException e) {
+                    // Unexpected failure
+                    throw new IllegalStateException("Failed to register a camera service listener",
+                            e);
+                } catch (RemoteException e) {
+                    // Camera service is now down, leave mCameraService as null
+                }
+                cameraIds = extractCameraIdListLocked();
+            }
+            sortCameraIds(cameraIds);
+            return cameraIds;
+        }
+
+        /**
+         * Get a list of all camera IDs that are at least PRESENT; ignore devices that are
+         * NOT_PRESENT or ENUMERATING, since they cannot be used by anyone.
+         */
+        public String[] getCameraIdList() {
+            String[] cameraIds = null;
+            synchronized (mLock) {
+                // Try to make sure we have an up-to-date list of camera devices.
+                connectCameraServiceLocked();
+                cameraIds = extractCameraIdListLocked();
+            }
+            sortCameraIds(cameraIds);
+            return cameraIds;
+        }
+
+        public @NonNull Set<Set<String>> getConcurrentCameraIds() {
+            Set<Set<String>> concurrentStreamingCameraIds = null;
+            synchronized (mLock) {
+                // Try to make sure we have an up-to-date list of concurrent camera devices.
+                connectCameraServiceLocked();
+                concurrentStreamingCameraIds = extractConcurrentCameraIdListLocked();
+            }
+            // TODO: Some sort of sorting  ?
+            return concurrentStreamingCameraIds;
+        }
+
+        public boolean isConcurrentSessionConfigurationSupported(
+                @NonNull Map<String, SessionConfiguration> cameraIdsAndSessionConfigurations)
+                throws CameraAccessException {
+
+            if (cameraIdsAndSessionConfigurations == null) {
+                throw new IllegalArgumentException("cameraIdsAndSessionConfigurations was null");
+            }
+
+            int size = cameraIdsAndSessionConfigurations.size();
+            if (size == 0) {
+                throw new IllegalArgumentException("camera id and session combination is empty");
+            }
+
+            synchronized (mLock) {
+                // Go through all the elements and check if the camera ids are valid at least /
+                // belong to one of the combinations returned by getConcurrentCameraIds()
+                boolean subsetFound = false;
+                for (Set<String> combination : mConcurrentCameraIdCombinations) {
+                    if (combination.containsAll(cameraIdsAndSessionConfigurations.keySet())) {
+                        subsetFound = true;
+                    }
+                }
+                if (!subsetFound) {
+                    Log.v(TAG, "isConcurrentSessionConfigurationSupported called with a subset of"
+                            + "camera ids not returned by getConcurrentCameraIds");
+                    return false;
+                }
+                CameraIdAndSessionConfiguration [] cameraIdsAndConfigs =
+                        new CameraIdAndSessionConfiguration[size];
+                int i = 0;
+                for (Map.Entry<String, SessionConfiguration> pair :
+                        cameraIdsAndSessionConfigurations.entrySet()) {
+                    cameraIdsAndConfigs[i] =
+                            new CameraIdAndSessionConfiguration(pair.getKey(), pair.getValue());
+                    i++;
+                }
+                try {
+                    return mCameraService.isConcurrentSessionConfigurationSupported(
+                            cameraIdsAndConfigs);
+                } catch (ServiceSpecificException e) {
+                   throwAsPublicException(e);
+                } catch (RemoteException e) {
+                  // Camera service died - act as if the camera was disconnected
+                  throw new CameraAccessException(CameraAccessException.CAMERA_DISCONNECTED,
+                          "Camera service is currently unavailable", e);
+                }
+            }
+
+            return false;
+        }
+
+      /**
+        * Helper function to find out if a camera id is in the set of combinations returned by
+        * getConcurrentCameraIds()
+        * @param cameraId the unique identifier of the camera device to query
+        * @return Whether the camera device was found in the set of combinations returned by
+        *         getConcurrentCameraIds
+        */
+        public boolean cameraIdHasConcurrentStreamsLocked(String cameraId) {
+            if (!mDeviceStatus.containsKey(cameraId)) {
+                Log.e(TAG, "cameraIdHasConcurrentStreamsLocked called on non existing camera id");
+                return false;
+            }
+            for (Set<String> comb : mConcurrentCameraIdCombinations) {
+                if (comb.contains(cameraId)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         public void setTorchMode(String cameraId, boolean enabled) throws CameraAccessException {
@@ -956,49 +1558,119 @@ public final class CameraManager {
             }
         }
 
-        private void postSingleUpdate(final AvailabilityCallback callback, final Handler handler,
-                final String id, final int status) {
-            if (isAvailable(status)) {
-                handler.post(
+        private void postSingleAccessPriorityChangeUpdate(final AvailabilityCallback callback,
+                final Executor executor) {
+            final long ident = Binder.clearCallingIdentity();
+            try {
+                executor.execute(
                     new Runnable() {
                         @Override
                         public void run() {
-                            callback.onCameraAvailable(id);
+                            callback.onCameraAccessPrioritiesChanged();
                         }
                     });
-            } else {
-                handler.post(
-                    new Runnable() {
-                        @Override
-                        public void run() {
-                            callback.onCameraUnavailable(id);
-                        }
-                    });
+            } finally {
+                Binder.restoreCallingIdentity(ident);
             }
         }
 
-        private void postSingleTorchUpdate(final TorchCallback callback, final Handler handler,
+        private void postSingleCameraOpenedUpdate(final AvailabilityCallback callback,
+                final Executor executor, final String id, final String packageId) {
+            final long ident = Binder.clearCallingIdentity();
+            try {
+                executor.execute(
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            callback.onCameraOpened(id, packageId);
+                        }
+                    });
+            } finally {
+                Binder.restoreCallingIdentity(ident);
+            }
+        }
+
+        private void postSingleCameraClosedUpdate(final AvailabilityCallback callback,
+                final Executor executor, final String id) {
+            final long ident = Binder.clearCallingIdentity();
+            try {
+                executor.execute(
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            callback.onCameraClosed(id);
+                        }
+                    });
+            } finally {
+                Binder.restoreCallingIdentity(ident);
+            }
+        }
+
+        private void postSingleUpdate(final AvailabilityCallback callback, final Executor executor,
+                final String id, final String physicalId, final int status) {
+            if (isAvailable(status)) {
+                final long ident = Binder.clearCallingIdentity();
+                try {
+                    executor.execute(
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                if (physicalId == null) {
+                                    callback.onCameraAvailable(id);
+                                } else {
+                                    callback.onPhysicalCameraAvailable(id, physicalId);
+                                }
+                            }
+                        });
+                } finally {
+                    Binder.restoreCallingIdentity(ident);
+                }
+            } else {
+                final long ident = Binder.clearCallingIdentity();
+                try {
+                    executor.execute(
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                if (physicalId == null) {
+                                    callback.onCameraUnavailable(id);
+                                } else {
+                                    callback.onPhysicalCameraUnavailable(id, physicalId);
+                                }
+                            }
+                        });
+                } finally {
+                    Binder.restoreCallingIdentity(ident);
+                }
+            }
+        }
+
+        private void postSingleTorchUpdate(final TorchCallback callback, final Executor executor,
                 final String id, final int status) {
             switch(status) {
                 case ICameraServiceListener.TORCH_STATUS_AVAILABLE_ON:
-                case ICameraServiceListener.TORCH_STATUS_AVAILABLE_OFF:
-                    handler.post(
-                            new Runnable() {
-                                @Override
-                                public void run() {
-                                    callback.onTorchModeChanged(id, status ==
-                                            ICameraServiceListener.TORCH_STATUS_AVAILABLE_ON);
-                                }
+                case ICameraServiceListener.TORCH_STATUS_AVAILABLE_OFF: {
+                        final long ident = Binder.clearCallingIdentity();
+                        try {
+                            executor.execute(() -> {
+                                callback.onTorchModeChanged(id, status ==
+                                        ICameraServiceListener.TORCH_STATUS_AVAILABLE_ON);
                             });
+                        } finally {
+                            Binder.restoreCallingIdentity(ident);
+                        }
+                    }
                     break;
-                default:
-                    handler.post(
-                            new Runnable() {
-                                @Override
-                                public void run() {
-                                    callback.onTorchModeUnavailable(id);
-                                }
+                default: {
+                        final long ident = Binder.clearCallingIdentity();
+                        try {
+                            executor.execute(() -> {
+                                callback.onTorchModeUnavailable(id);
                             });
+                        } finally {
+                            Binder.restoreCallingIdentity(ident);
+                        }
+                    }
                     break;
             }
         }
@@ -1007,11 +1679,20 @@ public final class CameraManager {
          * Send the state of all known cameras to the provided listener, to initialize
          * the listener's knowledge of camera state.
          */
-        private void updateCallbackLocked(AvailabilityCallback callback, Handler handler) {
+        private void updateCallbackLocked(AvailabilityCallback callback, Executor executor) {
             for (int i = 0; i < mDeviceStatus.size(); i++) {
                 String id = mDeviceStatus.keyAt(i);
                 Integer status = mDeviceStatus.valueAt(i);
-                postSingleUpdate(callback, handler, id, status);
+                postSingleUpdate(callback, executor, id, null /*physicalId*/, status);
+
+                // Send the NOT_PRESENT state for unavailable physical cameras
+                if (isAvailable(status) && mUnavailablePhysicalDevices.containsKey(id)) {
+                    ArrayList<String> unavailableIds = mUnavailablePhysicalDevices.get(id);
+                    for (String unavailableId : unavailableIds) {
+                        postSingleUpdate(callback, executor, id, unavailableId,
+                                ICameraServiceListener.STATUS_NOT_PRESENT);
+                    }
+                }
             }
         }
 
@@ -1027,7 +1708,16 @@ public final class CameraManager {
                 return;
             }
 
-            Integer oldStatus = mDeviceStatus.put(id, status);
+            Integer oldStatus;
+            if (status == ICameraServiceListener.STATUS_NOT_PRESENT) {
+                oldStatus = mDeviceStatus.remove(id);
+                mUnavailablePhysicalDevices.remove(id);
+            } else {
+                oldStatus = mDeviceStatus.put(id, status);
+                if (oldStatus == null) {
+                    mUnavailablePhysicalDevices.put(id, new ArrayList<String>());
+                }
+            }
 
             if (oldStatus != null && oldStatus == status) {
                 if (DEBUG) {
@@ -1065,18 +1755,70 @@ public final class CameraManager {
 
             final int callbackCount = mCallbackMap.size();
             for (int i = 0; i < callbackCount; i++) {
-                Handler handler = mCallbackMap.valueAt(i);
+                Executor executor = mCallbackMap.valueAt(i);
                 final AvailabilityCallback callback = mCallbackMap.keyAt(i);
 
-                postSingleUpdate(callback, handler, id, status);
+                postSingleUpdate(callback, executor, id, null /*physicalId*/, status);
             }
         } // onStatusChangedLocked
 
-        private void updateTorchCallbackLocked(TorchCallback callback, Handler handler) {
+        private void onPhysicalCameraStatusChangedLocked(int status,
+                String id, String physicalId) {
+            if (DEBUG) {
+                Log.v(TAG,
+                        String.format("Camera id %s physical camera id %s has status "
+                        + "changed to 0x%x", id, physicalId, status));
+            }
+
+            if (!validStatus(status)) {
+                Log.e(TAG, String.format(
+                        "Ignoring invalid device %s physical device %s status 0x%x", id,
+                        physicalId, status));
+                return;
+            }
+
+            //TODO: Do we need to treat this as error?
+            if (!mDeviceStatus.containsKey(id) || !isAvailable(mDeviceStatus.get(id))
+                    || !mUnavailablePhysicalDevices.containsKey(id)) {
+                Log.e(TAG, String.format("Camera %s is not available. Ignore physical camera "
+                        + "status change", id));
+                return;
+            }
+
+            ArrayList<String> unavailablePhysicalDevices = mUnavailablePhysicalDevices.get(id);
+            if (!isAvailable(status)
+                    && !unavailablePhysicalDevices.contains(physicalId)) {
+                unavailablePhysicalDevices.add(physicalId);
+            } else if (isAvailable(status)
+                    && unavailablePhysicalDevices.contains(physicalId)) {
+                unavailablePhysicalDevices.remove(physicalId);
+            } else {
+                if (DEBUG) {
+                    Log.v(TAG,
+                            String.format(
+                                "Physical camera device status was previously available (%b), "
+                                + " and is now again available (%b)"
+                                + "so no new client visible update will be sent",
+                                !unavailablePhysicalDevices.contains(physicalId),
+                                isAvailable(status)));
+                }
+                return;
+            }
+
+            final int callbackCount = mCallbackMap.size();
+            for (int i = 0; i < callbackCount; i++) {
+                Executor executor = mCallbackMap.valueAt(i);
+                final AvailabilityCallback callback = mCallbackMap.keyAt(i);
+
+                postSingleUpdate(callback, executor, id, physicalId, status);
+            }
+        } // onPhysicalCameraStatusChangedLocked
+
+        private void updateTorchCallbackLocked(TorchCallback callback, Executor executor) {
             for (int i = 0; i < mTorchStatus.size(); i++) {
                 String id = mTorchStatus.keyAt(i);
                 Integer status = mTorchStatus.valueAt(i);
-                postSingleTorchUpdate(callback, handler, id, status);
+                postSingleTorchUpdate(callback, executor, id, status);
             }
         }
 
@@ -1104,9 +1846,9 @@ public final class CameraManager {
 
             final int callbackCount = mTorchCallbackMap.size();
             for (int i = 0; i < callbackCount; i++) {
-                final Handler handler = mTorchCallbackMap.valueAt(i);
+                final Executor executor = mTorchCallbackMap.valueAt(i);
                 final TorchCallback callback = mTorchCallbackMap.keyAt(i);
-                postSingleTorchUpdate(callback, handler, id, status);
+                postSingleTorchUpdate(callback, executor, id, status);
             }
         } // onTorchStatusChangedLocked
 
@@ -1115,16 +1857,16 @@ public final class CameraManager {
          * global listener singleton.
          *
          * @param callback the new callback to send camera availability notices to
-         * @param handler The handler on which the callback should be invoked. May not be null.
+         * @param executor The executor which should invoke the callback. May not be null.
          */
-        public void registerAvailabilityCallback(AvailabilityCallback callback, Handler handler) {
+        public void registerAvailabilityCallback(AvailabilityCallback callback, Executor executor) {
             synchronized (mLock) {
                 connectCameraServiceLocked();
 
-                Handler oldHandler = mCallbackMap.put(callback, handler);
+                Executor oldExecutor = mCallbackMap.put(callback, executor);
                 // For new callbacks, provide initial availability information
-                if (oldHandler == null) {
-                    updateCallbackLocked(callback, handler);
+                if (oldExecutor == null) {
+                    updateCallbackLocked(callback, executor);
                 }
 
                 // If not connected to camera service, schedule a reconnect to camera service.
@@ -1146,14 +1888,14 @@ public final class CameraManager {
             }
         }
 
-        public void registerTorchCallback(TorchCallback callback, Handler handler) {
+        public void registerTorchCallback(TorchCallback callback, Executor executor) {
             synchronized(mLock) {
                 connectCameraServiceLocked();
 
-                Handler oldHandler = mTorchCallbackMap.put(callback, handler);
+                Executor oldExecutor = mTorchCallbackMap.put(callback, executor);
                 // For new callbacks, provide initial torch information
-                if (oldHandler == null) {
-                    updateTorchCallbackLocked(callback, handler);
+                if (oldExecutor == null) {
+                    updateTorchCallbackLocked(callback, executor);
                 }
 
                 // If not connected to camera service, schedule a reconnect to camera service.
@@ -1173,9 +1915,17 @@ public final class CameraManager {
          * Callback from camera service notifying the process about camera availability changes
          */
         @Override
-        public void onStatusChanged(int status, int cameraId) throws RemoteException {
+        public void onStatusChanged(int status, String cameraId) throws RemoteException {
             synchronized(mLock) {
-                onStatusChangedLocked(status, String.valueOf(cameraId));
+                onStatusChangedLocked(status, cameraId);
+            }
+        }
+
+        @Override
+        public void onPhysicalCameraStatusChanged(int status, String cameraId,
+                String physicalCameraId) throws RemoteException {
+            synchronized (mLock) {
+                onPhysicalCameraStatusChangedLocked(status, cameraId, physicalCameraId);
             }
         }
 
@@ -1186,18 +1936,51 @@ public final class CameraManager {
             }
         }
 
+        @Override
+        public void onCameraAccessPrioritiesChanged() {
+            synchronized (mLock) {
+                final int callbackCount = mCallbackMap.size();
+                for (int i = 0; i < callbackCount; i++) {
+                    Executor executor = mCallbackMap.valueAt(i);
+                    final AvailabilityCallback callback = mCallbackMap.keyAt(i);
+
+                    postSingleAccessPriorityChangeUpdate(callback, executor);
+                }
+            }
+        }
+
+        @Override
+        public void onCameraOpened(String cameraId, String clientPackageId) {
+            synchronized (mLock) {
+                final int callbackCount = mCallbackMap.size();
+                for (int i = 0; i < callbackCount; i++) {
+                    Executor executor = mCallbackMap.valueAt(i);
+                    final AvailabilityCallback callback = mCallbackMap.keyAt(i);
+
+                    postSingleCameraOpenedUpdate(callback, executor, cameraId, clientPackageId);
+                }
+            }
+        }
+
+        @Override
+        public void onCameraClosed(String cameraId) {
+            synchronized (mLock) {
+                final int callbackCount = mCallbackMap.size();
+                for (int i = 0; i < callbackCount; i++) {
+                    Executor executor = mCallbackMap.valueAt(i);
+                    final AvailabilityCallback callback = mCallbackMap.keyAt(i);
+
+                    postSingleCameraClosedUpdate(callback, executor, cameraId);
+                }
+            }
+        }
+
         /**
          * Try to connect to camera service after some delay if any client registered camera
          * availability callback or torch status callback.
          */
         private void scheduleCameraServiceReconnectionLocked() {
-            final Handler handler;
-
-            if (mCallbackMap.size() > 0) {
-                handler = mCallbackMap.valueAt(0);
-            } else if (mTorchCallbackMap.size() > 0) {
-                handler = mTorchCallbackMap.valueAt(0);
-            } else {
+            if (mCallbackMap.isEmpty() && mTorchCallbackMap.isEmpty()) {
                 // Not necessary to reconnect camera service if no client registers a callback.
                 return;
             }
@@ -1207,22 +1990,21 @@ public final class CameraManager {
                         " ms");
             }
 
-            handler.postDelayed(
-                    new Runnable() {
-                        @Override
-                        public void run() {
-                            ICameraService cameraService = getCameraService();
-                            if (cameraService == null) {
-                                synchronized(mLock) {
-                                    if (DEBUG) {
-                                        Log.v(TAG, "Reconnecting Camera Service failed.");
-                                    }
-                                    scheduleCameraServiceReconnectionLocked();
-                                }
+            try {
+                mScheduler.schedule(() -> {
+                    ICameraService cameraService = getCameraService();
+                    if (cameraService == null) {
+                        synchronized(mLock) {
+                            if (DEBUG) {
+                                Log.v(TAG, "Reconnecting Camera Service failed.");
                             }
+                            scheduleCameraServiceReconnectionLocked();
                         }
-                    },
-                    CAMERA_SERVICE_RECONNECT_DELAY_MS);
+                    }
+                }, CAMERA_SERVICE_RECONNECT_DELAY_MS, TimeUnit.MILLISECONDS);
+            } catch (RejectedExecutionException e) {
+                Log.e(TAG, "Failed to schedule camera service re-connect: " + e);
+            }
         }
 
         /**
@@ -1251,6 +2033,8 @@ public final class CameraManager {
                     onTorchStatusChangedLocked(ICameraServiceListener.TORCH_STATUS_NOT_AVAILABLE,
                             cameraId);
                 }
+
+                mConcurrentCameraIdCombinations.clear();
 
                 scheduleCameraServiceReconnectionLocked();
             }

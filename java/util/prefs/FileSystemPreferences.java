@@ -34,6 +34,7 @@ import java.security.PrivilegedActionException;
 
 import sun.util.logging.PlatformLogger;
 
+// Android-changed: @hide.
 /**
  * Preferences implementation for Unix.  Preferences are stored in the file
  * system, with one directory per preferences node.  All of the preferences
@@ -50,7 +51,6 @@ import sun.util.logging.PlatformLogger;
  *
  * @hide
  */
-// Android changed: @hide.
 public class FileSystemPreferences extends AbstractPreferences {
     /**
      * Returns logger for error messages. Backing store exceptions are logged at
@@ -469,7 +469,7 @@ public class FileSystemPreferences extends AbstractPreferences {
     }
 
     /** @hide for unit testing only */
-    // Android added constructor for testing.
+    // Android-added constructor for testing.
     public FileSystemPreferences(String path, File lockFile, boolean isUserNode) {
         super(null, "");
         this.isUserNode = isUserNode;
@@ -587,7 +587,7 @@ public class FileSystemPreferences extends AbstractPreferences {
                 getLogger().warning("Prefs file removed in background "
                                     + prefsFile.getPath());
             } else {
-                // Android added: This exception may be ignored by some callers,
+                // Android-added: This exception may be ignored by some callers,
                 // added a logger entry to prevent omitting it completely.
                 getLogger().warning("Exception while reading cache: "
                                     + e.getMessage());

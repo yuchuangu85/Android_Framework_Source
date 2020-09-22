@@ -16,14 +16,16 @@
 
 package com.android.server.display;
 
+import android.hardware.display.DeviceProductInfo;
 import android.hardware.display.DisplayViewport;
 import android.util.DisplayMetrics;
 import android.view.Display;
+import android.view.DisplayAddress;
+import android.view.DisplayCutout;
 import android.view.Surface;
 
 import java.util.Arrays;
-
-import libcore.util.Objects;
+import java.util.Objects;
 
 /**
  * Describes the characteristics of a physical display device.
@@ -93,6 +95,41 @@ final class DisplayDeviceInfo {
     public static final int FLAG_ROUND = 1 << 8;
 
     /**
+     * Flag: This display can show its content when non-secure keyguard is shown.
+     */
+    // TODO (b/114338689): Remove the flag and use IWindowManager#shouldShowWithInsecureKeyguard
+    public static final int FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD = 1 << 9;
+
+    /**
+     * Flag: This display will destroy its content on removal.
+     * @hide
+     */
+    // TODO (b/114338689): Remove the flag and use WindowManager#REMOVE_CONTENT_MODE_DESTROY
+    public static final int FLAG_DESTROY_CONTENT_ON_REMOVAL = 1 << 10;
+
+    /**
+     * Flag: The display cutout of this display is masked.
+     * @hide
+     */
+    public static final int FLAG_MASK_DISPLAY_CUTOUT = 1 << 11;
+
+    /**
+     * Flag: This flag identifies secondary displays that should show system decorations, such as
+     * status bar, navigation bar, home activity or IME.
+     * <p>Note that this flag doesn't work without {@link #FLAG_TRUSTED}</p>
+     * @hide
+     */
+    // TODO (b/114338689): Remove the flag and use IWindowManager#setShouldShowSystemDecors
+    public static final int FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS = 1 << 12;
+
+    /**
+     * Flag: The display is trusted to show system decorations and receive inputs without users'
+     * touch.
+     * @see #FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS
+     */
+    public static final int FLAG_TRUSTED = 1 << 13;
+
+    /**
      * Touch attachment: Display does not receive touch.
      */
     public static final int TOUCH_NONE = 0;
@@ -106,6 +143,13 @@ final class DisplayDeviceInfo {
      * Touch attachment: Touch input is via an external interface, such as USB.
      */
     public static final int TOUCH_EXTERNAL = 2;
+
+    /**
+     * Touch attachment: Touch input is via an input device matching {@link VirtualDisplay}'s
+     * uniqueId.
+     * @hide
+     */
+    public static final int TOUCH_VIRTUAL = 3;
 
     /**
      * Diff result: The {@link #state} fields differ.
@@ -172,6 +216,16 @@ final class DisplayDeviceInfo {
     public Display.HdrCapabilities hdrCapabilities;
 
     /**
+     * Indicates whether this display supports Auto Low Latency Mode.
+     */
+    public boolean allmSupported;
+
+    /**
+     * Indicates whether this display suppors Game content type.
+     */
+    public boolean gameContentTypeSupported;
+
+    /**
      * The nominal apparent density of the display in DPI used for layout calculations.
      * This density is sensitive to the viewing distance.  A big TV and a tablet may have
      * the same apparent density even though the pixels on the TV are much bigger than
@@ -211,6 +265,11 @@ final class DisplayDeviceInfo {
     public int flags;
 
     /**
+     * The {@link DisplayCutout} if present or {@code null} otherwise.
+     */
+    public DisplayCutout displayCutout;
+
+    /**
      * The touch attachment, per {@link DisplayViewport#touch}.
      */
     public int touch;
@@ -235,7 +294,14 @@ final class DisplayDeviceInfo {
      * Display address, or null if none.
      * Interpretation varies by display type.
      */
-    public String address;
+    public DisplayAddress address;
+
+    /**
+     * Product-specific information about the display or the directly connected device on the
+     * display chain. For example, if the display is transitively connected, this field may contain
+     * product information about the intermediate device.
+     */
+    public DeviceProductInfo deviceProductInfo;
 
     /**
      * Display state.
@@ -288,27 +354,31 @@ final class DisplayDeviceInfo {
         if (colorMode != other.colorMode) {
             diff |= DIFF_COLOR_MODE;
         }
-        if (!Objects.equal(name, other.name)
-                || !Objects.equal(uniqueId, other.uniqueId)
+        if (!Objects.equals(name, other.name)
+                || !Objects.equals(uniqueId, other.uniqueId)
                 || width != other.width
                 || height != other.height
                 || modeId != other.modeId
                 || defaultModeId != other.defaultModeId
                 || !Arrays.equals(supportedModes, other.supportedModes)
                 || !Arrays.equals(supportedColorModes, other.supportedColorModes)
-                || !Objects.equal(hdrCapabilities, other.hdrCapabilities)
+                || !Objects.equals(hdrCapabilities, other.hdrCapabilities)
+                || allmSupported != other.allmSupported
+                || gameContentTypeSupported != other.gameContentTypeSupported
                 || densityDpi != other.densityDpi
                 || xDpi != other.xDpi
                 || yDpi != other.yDpi
                 || appVsyncOffsetNanos != other.appVsyncOffsetNanos
                 || presentationDeadlineNanos != other.presentationDeadlineNanos
                 || flags != other.flags
+                || !Objects.equals(displayCutout, other.displayCutout)
                 || touch != other.touch
                 || rotation != other.rotation
                 || type != other.type
-                || !Objects.equal(address, other.address)
+                || !Objects.equals(address, other.address)
+                || !Objects.equals(deviceProductInfo, other.deviceProductInfo)
                 || ownerUid != other.ownerUid
-                || !Objects.equal(ownerPackageName, other.ownerPackageName)) {
+                || !Objects.equals(ownerPackageName, other.ownerPackageName)) {
             diff |= DIFF_OTHER;
         }
         return diff;
@@ -330,16 +400,20 @@ final class DisplayDeviceInfo {
         colorMode = other.colorMode;
         supportedColorModes = other.supportedColorModes;
         hdrCapabilities = other.hdrCapabilities;
+        allmSupported = other.allmSupported;
+        gameContentTypeSupported = other.gameContentTypeSupported;
         densityDpi = other.densityDpi;
         xDpi = other.xDpi;
         yDpi = other.yDpi;
         appVsyncOffsetNanos = other.appVsyncOffsetNanos;
         presentationDeadlineNanos = other.presentationDeadlineNanos;
         flags = other.flags;
+        displayCutout = other.displayCutout;
         touch = other.touch;
         rotation = other.rotation;
         type = other.type;
         address = other.address;
+        deviceProductInfo = other.deviceProductInfo;
         state = other.state;
         ownerUid = other.ownerUid;
         ownerPackageName = other.ownerPackageName;
@@ -358,16 +432,22 @@ final class DisplayDeviceInfo {
         sb.append(", colorMode ").append(colorMode);
         sb.append(", supportedColorModes ").append(Arrays.toString(supportedColorModes));
         sb.append(", HdrCapabilities ").append(hdrCapabilities);
+        sb.append(", allmSupported ").append(allmSupported);
+        sb.append(", gameContentTypeSupported ").append(gameContentTypeSupported);
         sb.append(", density ").append(densityDpi);
         sb.append(", ").append(xDpi).append(" x ").append(yDpi).append(" dpi");
         sb.append(", appVsyncOff ").append(appVsyncOffsetNanos);
         sb.append(", presDeadline ").append(presentationDeadlineNanos);
+        if (displayCutout != null) {
+            sb.append(", cutout ").append(displayCutout);
+        }
         sb.append(", touch ").append(touchToString(touch));
         sb.append(", rotation ").append(rotation);
         sb.append(", type ").append(Display.typeToString(type));
         if (address != null) {
             sb.append(", address ").append(address);
         }
+        sb.append(", deviceProductInfo ").append(deviceProductInfo);
         sb.append(", state ").append(Display.stateToString(state));
         if (ownerUid != 0 || ownerPackageName != null) {
             sb.append(", owner ").append(ownerPackageName);
@@ -386,6 +466,8 @@ final class DisplayDeviceInfo {
                 return "INTERNAL";
             case TOUCH_EXTERNAL:
                 return "EXTERNAL";
+            case TOUCH_VIRTUAL:
+                return "VIRTUAL";
             default:
                 return Integer.toString(touch);
         }
@@ -419,6 +501,12 @@ final class DisplayDeviceInfo {
         }
         if ((flags & FLAG_ROUND) != 0) {
             msg.append(", FLAG_ROUND");
+        }
+        if ((flags & FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD) != 0) {
+            msg.append(", FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD");
+        }
+        if ((flags & FLAG_MASK_DISPLAY_CUTOUT) != 0) {
+            msg.append(", FLAG_MASK_DISPLAY_CUTOUT");
         }
         return msg.toString();
     }

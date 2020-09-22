@@ -16,6 +16,7 @@
 
 package android.app.backup;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.res.XmlResourceParser;
@@ -56,6 +57,7 @@ public class FullBackup {
 
     public static final String APK_TREE_TOKEN = "a";
     public static final String OBB_TREE_TOKEN = "obb";
+    public static final String KEY_VALUE_DATA_TOKEN = "k";
 
     public static final String ROOT_TREE_TOKEN = "r";
     public static final String FILES_TREE_TOKEN = "f";
@@ -81,9 +83,15 @@ public class FullBackup {
     public static final String FULL_RESTORE_INTENT_ACTION = "fullrest";
     public static final String CONF_TOKEN_INTENT_EXTRA = "conftoken";
 
+    public static final String FLAG_REQUIRED_CLIENT_SIDE_ENCRYPTION = "clientSideEncryption";
+    public static final String FLAG_REQUIRED_DEVICE_TO_DEVICE_TRANSFER = "deviceToDeviceTransfer";
+    public static final String FLAG_REQUIRED_FAKE_CLIENT_SIDE_ENCRYPTION =
+            "fakeClientSideEncryption";
+
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     static public native int backupToTar(String packageName, String domain,
             String linkdomain, String rootpath, String path, FullBackupDataOutput output);
 
@@ -223,6 +231,9 @@ public class FullBackup {
 
         private final File EXTERNAL_DIR;
 
+        private final static String TAG_INCLUDE = "include";
+        private final static String TAG_EXCLUDE = "exclude";
+
         final int mFullBackupContent;
         final PackageManager mPackageManager;
         final StorageManager mStorageManager;
@@ -302,15 +313,45 @@ public class FullBackup {
         }
 
         /**
-        * A map of domain -> list of canonical file names in that domain that are to be included.
-        * We keep track of the domain so that we can go through the file system in order later on.
-        */
-        Map<String, Set<String>> mIncludes;
-        /**e
-         * List that will be populated with the canonical names of each file or directory that is
-         * to be excluded.
+         * Represents a path attribute specified in an <include /> rule along with optional
+         * transport flags required from the transport to include file(s) under that path as
+         * specified by requiredFlags attribute. If optional requiredFlags attribute is not
+         * provided, default requiredFlags to 0.
+         * Note: since our parsing codepaths were the same for <include /> and <exclude /> tags,
+         * this structure is also used for <exclude /> tags to preserve that, however you can expect
+         * the getRequiredFlags() to always return 0 for exclude rules.
          */
-        ArraySet<String> mExcludes;
+        public static class PathWithRequiredFlags {
+            private final String mPath;
+            private final int mRequiredFlags;
+
+            public PathWithRequiredFlags(String path, int requiredFlags) {
+                mPath = path;
+                mRequiredFlags = requiredFlags;
+            }
+
+            public String getPath() {
+                return mPath;
+            }
+
+            public int getRequiredFlags() {
+                return mRequiredFlags;
+            }
+        }
+
+        /**
+         * A map of domain -> set of pairs (canonical file; required transport flags) in that
+         * domain that are to be included if the transport has decared the required flags.
+         * We keep track of the domain so that we can go through the file system in order later on.
+         */
+        Map<String, Set<PathWithRequiredFlags>> mIncludes;
+
+        /**
+         * Set that will be populated with pairs (canonical file; requiredFlags=0) for each file or
+         * directory that is to be excluded. Note that for excludes, the requiredFlags attribute is
+         * ignored and the value should be always set to 0.
+         */
+        ArraySet<PathWithRequiredFlags> mExcludes;
 
         BackupScheme(Context context) {
             mFullBackupContent = context.getApplicationInfo().fullBackupContent;
@@ -355,13 +396,14 @@ public class FullBackup {
         }
 
         /**
-         * @return A mapping of domain -> canonical paths within that domain. Each of these paths
-         * specifies a file that the client has explicitly included in their backup set. If this
-         * map is empty we will back up the entire data directory (including managed external
-         * storage).
+         * @return A mapping of domain -> set of pairs (canonical file; required transport flags)
+         * in that domain that are to be included if the transport has decared the required flags.
+         * Each of these paths specifies a file that the client has explicitly included in their
+         * backup set. If this map is empty we will back up the entire data directory (including
+         * managed external storage).
          */
-        public synchronized Map<String, Set<String>> maybeParseAndGetCanonicalIncludePaths()
-                throws IOException, XmlPullParserException {
+        public synchronized Map<String, Set<PathWithRequiredFlags>>
+                maybeParseAndGetCanonicalIncludePaths() throws IOException, XmlPullParserException {
             if (mIncludes == null) {
                 maybeParseBackupSchemeLocked();
             }
@@ -369,9 +411,10 @@ public class FullBackup {
         }
 
         /**
-         * @return A set of canonical paths that are to be excluded from the backup/restore set.
+         * @return A set of (canonical paths; requiredFlags=0) that are to be excluded from the
+         * backup/restore set.
          */
-        public synchronized ArraySet<String> maybeParseAndGetCanonicalExcludePaths()
+        public synchronized ArraySet<PathWithRequiredFlags> maybeParseAndGetCanonicalExcludePaths()
                 throws IOException, XmlPullParserException {
             if (mExcludes == null) {
                 maybeParseBackupSchemeLocked();
@@ -381,8 +424,8 @@ public class FullBackup {
 
         private void maybeParseBackupSchemeLocked() throws IOException, XmlPullParserException {
             // This not being null is how we know that we've tried to parse the xml already.
-            mIncludes = new ArrayMap<String, Set<String>>();
-            mExcludes = new ArraySet<String>();
+            mIncludes = new ArrayMap<String, Set<PathWithRequiredFlags>>();
+            mExcludes = new ArraySet<PathWithRequiredFlags>();
 
             if (mFullBackupContent == 0) {
                 // android:fullBackupContent="true" which means that we'll do everything.
@@ -414,8 +457,8 @@ public class FullBackup {
 
         @VisibleForTesting
         public void parseBackupSchemeFromXmlLocked(XmlPullParser parser,
-                                                   Set<String> excludes,
-                                                   Map<String, Set<String>> includes)
+                                                   Set<PathWithRequiredFlags> excludes,
+                                                   Map<String, Set<PathWithRequiredFlags>> includes)
                 throws IOException, XmlPullParserException {
             int event = parser.getEventType(); // START_DOCUMENT
             while (event != XmlPullParser.START_TAG) {
@@ -440,8 +483,7 @@ public class FullBackup {
                     case XmlPullParser.START_TAG:
                         validateInnerTagContents(parser);
                         final String domainFromXml = parser.getAttributeValue(null, "domain");
-                        final File domainDirectory =
-                                getDirectoryForCriteriaDomain(domainFromXml);
+                        final File domainDirectory = getDirectoryForCriteriaDomain(domainFromXml);
                         if (domainDirectory == null) {
                             if (Log.isLoggable(TAG_XML_PARSER, Log.VERBOSE)) {
                                 Log.v(TAG_XML_PARSER, "...parsing \"" + parser.getName() + "\": "
@@ -456,12 +498,23 @@ public class FullBackup {
                             break;
                         }
 
-                        Set<String> activeSet = parseCurrentTagForDomain(
+                        int requiredFlags = 0; // no transport flags are required by default
+                        if (TAG_INCLUDE.equals(parser.getName())) {
+                            // requiredFlags are only supported for <include /> tag, for <exclude />
+                            // we should always leave them as the default = 0
+                            requiredFlags = getRequiredFlagsFromString(
+                                    parser.getAttributeValue(null, "requireFlags"));
+                        }
+
+                        // retrieve the include/exclude set we'll be adding this rule to
+                        Set<PathWithRequiredFlags> activeSet = parseCurrentTagForDomain(
                                 parser, excludes, includes, domainFromXml);
-                        activeSet.add(canonicalFile.getCanonicalPath());
+                        activeSet.add(new PathWithRequiredFlags(canonicalFile.getCanonicalPath(),
+                                requiredFlags));
                         if (Log.isLoggable(TAG_XML_PARSER, Log.VERBOSE)) {
                             Log.v(TAG_XML_PARSER, "...parsed " + canonicalFile.getCanonicalPath()
-                                    + " for domain \"" + domainFromXml + "\"");
+                                    + " for domain \"" + domainFromXml + "\", requiredFlags + \""
+                                    + requiredFlags + "\"");
                         }
 
                         // Special case journal files (not dirs) for sqlite database. frowny-face.
@@ -471,14 +524,16 @@ public class FullBackup {
                         if ("database".equals(domainFromXml) && !canonicalFile.isDirectory()) {
                             final String canonicalJournalPath =
                                     canonicalFile.getCanonicalPath() + "-journal";
-                            activeSet.add(canonicalJournalPath);
+                            activeSet.add(new PathWithRequiredFlags(canonicalJournalPath,
+                                    requiredFlags));
                             if (Log.isLoggable(TAG_XML_PARSER, Log.VERBOSE)) {
                                 Log.v(TAG_XML_PARSER, "...automatically generated "
                                         + canonicalJournalPath + ". Ignore if nonexistent.");
                             }
                             final String canonicalWalPath =
                                     canonicalFile.getCanonicalPath() + "-wal";
-                            activeSet.add(canonicalWalPath);
+                            activeSet.add(new PathWithRequiredFlags(canonicalWalPath,
+                                    requiredFlags));
                             if (Log.isLoggable(TAG_XML_PARSER, Log.VERBOSE)) {
                                 Log.v(TAG_XML_PARSER, "...automatically generated "
                                         + canonicalWalPath + ". Ignore if nonexistent.");
@@ -490,7 +545,8 @@ public class FullBackup {
                             !canonicalFile.getCanonicalPath().endsWith(".xml")) {
                             final String canonicalXmlPath =
                                     canonicalFile.getCanonicalPath() + ".xml";
-                            activeSet.add(canonicalXmlPath);
+                            activeSet.add(new PathWithRequiredFlags(canonicalXmlPath,
+                                    requiredFlags));
                             if (Log.isLoggable(TAG_XML_PARSER, Log.VERBOSE)) {
                                 Log.v(TAG_XML_PARSER, "...automatically generated "
                                         + canonicalXmlPath + ". Ignore if nonexistent.");
@@ -507,10 +563,12 @@ public class FullBackup {
                     Log.v(TAG_XML_PARSER, "  ...nothing specified (This means the entirety of app"
                             + " data minus excludes)");
                 } else {
-                    for (Map.Entry<String, Set<String>> entry : includes.entrySet()) {
+                    for (Map.Entry<String, Set<PathWithRequiredFlags>> entry
+                            : includes.entrySet()) {
                         Log.v(TAG_XML_PARSER, "  domain=" + entry.getKey());
-                        for (String includeData : entry.getValue()) {
-                            Log.v(TAG_XML_PARSER, "  " + includeData);
+                        for (PathWithRequiredFlags includeData : entry.getValue()) {
+                            Log.v(TAG_XML_PARSER, " path: " + includeData.getPath()
+                                    + " requiredFlags: " + includeData.getRequiredFlags());
                         }
                     }
                 }
@@ -519,8 +577,9 @@ public class FullBackup {
                 if (excludes.isEmpty()) {
                     Log.v(TAG_XML_PARSER, "  ...nothing to exclude.");
                 } else {
-                    for (String excludeData : excludes) {
-                        Log.v(TAG_XML_PARSER, "  " + excludeData);
+                    for (PathWithRequiredFlags excludeData : excludes) {
+                        Log.v(TAG_XML_PARSER, " path: " + excludeData.getPath()
+                                + " requiredFlags: " + excludeData.getRequiredFlags());
                     }
                 }
 
@@ -530,20 +589,43 @@ public class FullBackup {
             }
         }
 
-        private Set<String> parseCurrentTagForDomain(XmlPullParser parser,
-                                                     Set<String> excludes,
-                                                     Map<String, Set<String>> includes,
-                                                     String domain)
+        private int getRequiredFlagsFromString(String requiredFlags) {
+            int flags = 0;
+            if (requiredFlags == null || requiredFlags.length() == 0) {
+                // requiredFlags attribute was missing or empty in <include /> tag
+                return flags;
+            }
+            String[] flagsStr = requiredFlags.split("\\|");
+            for (String f : flagsStr) {
+                switch (f) {
+                    case FLAG_REQUIRED_CLIENT_SIDE_ENCRYPTION:
+                        flags |= BackupAgent.FLAG_CLIENT_SIDE_ENCRYPTION_ENABLED;
+                        break;
+                    case FLAG_REQUIRED_DEVICE_TO_DEVICE_TRANSFER:
+                        flags |= BackupAgent.FLAG_DEVICE_TO_DEVICE_TRANSFER;
+                        break;
+                    case FLAG_REQUIRED_FAKE_CLIENT_SIDE_ENCRYPTION:
+                        flags |= BackupAgent.FLAG_FAKE_CLIENT_SIDE_ENCRYPTION_ENABLED;
+                    default:
+                        Log.w(TAG, "Unrecognized requiredFlag provided, value: \"" + f + "\"");
+                }
+            }
+            return flags;
+        }
+
+        private Set<PathWithRequiredFlags> parseCurrentTagForDomain(XmlPullParser parser,
+                Set<PathWithRequiredFlags> excludes,
+                Map<String, Set<PathWithRequiredFlags>> includes, String domain)
                 throws XmlPullParserException {
-            if ("include".equals(parser.getName())) {
+            if (TAG_INCLUDE.equals(parser.getName())) {
                 final String domainToken = getTokenForXmlDomain(domain);
-                Set<String> includeSet = includes.get(domainToken);
+                Set<PathWithRequiredFlags> includeSet = includes.get(domainToken);
                 if (includeSet == null) {
-                    includeSet = new ArraySet<String>();
+                    includeSet = new ArraySet<PathWithRequiredFlags>();
                     includes.put(domainToken, includeSet);
                 }
                 return includeSet;
-            } else if ("exclude".equals(parser.getName())) {
+            } else if (TAG_EXCLUDE.equals(parser.getName())) {
                 return excludes;
             } else {
                 // Unrecognised tag => hard failure.
@@ -588,8 +670,8 @@ public class FullBackup {
         /**
          *
          * @param domain Directory where the specified file should exist. Not null.
-         * @param filePathFromXml parsed from xml. Not sanitised before calling this function so may be
-         *                        null.
+         * @param filePathFromXml parsed from xml. Not sanitised before calling this function so may
+         *                        be null.
          * @return The canonical path of the file specified or null if no such file exists.
          */
         private File extractCanonicalFile(File domain, String filePathFromXml) {
@@ -649,15 +731,27 @@ public class FullBackup {
          * Let's be strict about the type of xml the client can write. If we see anything untoward,
          * throw an XmlPullParserException.
          */
-        private void validateInnerTagContents(XmlPullParser parser)
-                throws XmlPullParserException {
-            if (parser.getAttributeCount() > 2) {
-                throw new XmlPullParserException("At most 2 tag attributes allowed for \""
-                        + parser.getName() + "\" tag (\"domain\" & \"path\".");
+        private void validateInnerTagContents(XmlPullParser parser) throws XmlPullParserException {
+            if (parser == null) {
+                return;
             }
-            if (!"include".equals(parser.getName()) && !"exclude".equals(parser.getName())) {
-                throw new XmlPullParserException("A valid tag is one of \"<include/>\" or" +
-                        " \"<exclude/>. You provided \"" + parser.getName() + "\"");
+            switch (parser.getName()) {
+                case TAG_INCLUDE:
+                    if (parser.getAttributeCount() > 3) {
+                        throw new XmlPullParserException("At most 3 tag attributes allowed for "
+                                + "\"include\" tag (\"domain\" & \"path\""
+                                + " & optional \"requiredFlags\").");
+                    }
+                    break;
+                case TAG_EXCLUDE:
+                    if (parser.getAttributeCount() > 2) {
+                        throw new XmlPullParserException("At most 2 tag attributes allowed for "
+                                + "\"exclude\" tag (\"domain\" & \"path\".");
+                    }
+                    break;
+                default:
+                    throw new XmlPullParserException("A valid tag is one of \"<include/>\" or" +
+                            " \"<exclude/>. You provided \"" + parser.getName() + "\"");
             }
         }
     }

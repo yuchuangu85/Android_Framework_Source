@@ -23,12 +23,15 @@ import android.content.IntentFilter;
 import android.content.res.TypedArray;
 import android.icu.text.DateFormat;
 import android.icu.text.DisplayContext;
+import android.os.Handler;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.widget.TextView;
 
+import com.android.systemui.Dependency;
 import com.android.systemui.R;
+import com.android.systemui.broadcast.BroadcastDispatcher;
 
-import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
@@ -40,10 +43,17 @@ public class DateView extends TextView {
     private DateFormat mDateFormat;
     private String mLastText;
     private String mDatePattern;
+    private final BroadcastDispatcher mBroadcastDispatcher;
 
     private BroadcastReceiver mIntentReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+            // If the handler is null, it means we received a broadcast while the view has not
+            // finished being attached or in the process of being detached.
+            // In that case, do not post anything.
+            Handler handler = getHandler();
+            if (handler == null) return;
+
             final String action = intent.getAction();
             if (Intent.ACTION_TIME_TICK.equals(action)
                     || Intent.ACTION_TIME_CHANGED.equals(action)
@@ -52,9 +62,9 @@ public class DateView extends TextView {
                 if (Intent.ACTION_LOCALE_CHANGED.equals(action)
                         || Intent.ACTION_TIMEZONE_CHANGED.equals(action)) {
                     // need to get a fresh date format
-                    mDateFormat = null;
+                    handler.post(() -> mDateFormat = null);
                 }
-                updateClock();
+                handler.post(() -> updateClock());
             }
         }
     };
@@ -74,6 +84,7 @@ public class DateView extends TextView {
         if (mDatePattern == null) {
             mDatePattern = getContext().getString(R.string.system_ui_date_pattern);
         }
+        mBroadcastDispatcher = Dependency.get(BroadcastDispatcher.class);
     }
 
     @Override
@@ -85,7 +96,8 @@ public class DateView extends TextView {
         filter.addAction(Intent.ACTION_TIME_CHANGED);
         filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         filter.addAction(Intent.ACTION_LOCALE_CHANGED);
-        getContext().registerReceiver(mIntentReceiver, filter, null, null);
+        mBroadcastDispatcher.registerReceiverWithHandler(mIntentReceiver, filter,
+                Dependency.get(Dependency.TIME_TICK_HANDLER));
 
         updateClock();
     }
@@ -95,7 +107,7 @@ public class DateView extends TextView {
         super.onDetachedFromWindow();
 
         mDateFormat = null; // reload the locale next time
-        getContext().unregisterReceiver(mIntentReceiver);
+        mBroadcastDispatcher.unregisterReceiver(mIntentReceiver);
     }
 
     protected void updateClock() {
@@ -112,6 +124,17 @@ public class DateView extends TextView {
         if (!text.equals(mLastText)) {
             setText(text);
             mLastText = text;
+        }
+    }
+
+    public void setDatePattern(String pattern) {
+        if (TextUtils.equals(pattern, mDatePattern)) {
+            return;
+        }
+        mDatePattern = pattern;
+        mDateFormat = null;
+        if (isAttachedToWindow()) {
+            updateClock();
         }
     }
 }

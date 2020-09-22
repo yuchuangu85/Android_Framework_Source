@@ -19,7 +19,8 @@ package com.android.systemui.statusbar;
 import android.view.View;
 
 import com.android.systemui.Interpolators;
-import com.android.systemui.statusbar.stack.StackStateAnimator;
+import com.android.systemui.R;
+import com.android.systemui.statusbar.notification.stack.StackStateAnimator;
 
 /**
  * A helper to fade views in and out.
@@ -27,19 +28,31 @@ import com.android.systemui.statusbar.stack.StackStateAnimator;
 public class CrossFadeHelper {
     public static final long ANIMATION_DURATION_LENGTH = 210;
 
+    public static void fadeOut(final View view) {
+        fadeOut(view, null);
+    }
+
     public static void fadeOut(final View view, final Runnable endRunnable) {
+        fadeOut(view, ANIMATION_DURATION_LENGTH, 0, endRunnable);
+    }
+
+    public static void fadeOut(final View view, long duration, int delay,
+            final Runnable endRunnable) {
         view.animate().cancel();
         view.animate()
                 .alpha(0f)
-                .setDuration(ANIMATION_DURATION_LENGTH)
+                .setDuration(duration)
                 .setInterpolator(Interpolators.ALPHA_OUT)
+                .setStartDelay(delay)
                 .withEndAction(new Runnable() {
                     @Override
                     public void run() {
                         if (endRunnable != null) {
                             endRunnable.run();
                         }
-                        view.setVisibility(View.INVISIBLE);
+                        if (view.getVisibility() != View.GONE) {
+                            view.setVisibility(View.INVISIBLE);
+                        }
                     }
                 });
         if (view.hasOverlappingRendering()) {
@@ -64,7 +77,7 @@ public class CrossFadeHelper {
      */
     public static void fadeOut(View view, float fadeOutAmount, boolean remap) {
         view.animate().cancel();
-        if (fadeOutAmount == 1.0f) {
+        if (fadeOutAmount == 1.0f && view.getVisibility() != View.GONE) {
             view.setVisibility(View.INVISIBLE);
         } else if (view.getVisibility() == View.INVISIBLE) {
             view.setVisibility(View.VISIBLE);
@@ -86,13 +99,23 @@ public class CrossFadeHelper {
 
     private static void updateLayerType(View view, float alpha) {
         if (view.hasOverlappingRendering() && alpha > 0.0f && alpha < 1.0f) {
-            view.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-        } else if (view.getLayerType() == View.LAYER_TYPE_HARDWARE) {
-            view.setLayerType(View.LAYER_TYPE_NONE, null);
+            if (view.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+                view.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+                view.setTag(R.id.cross_fade_layer_type_changed_tag, true);
+            }
+        } else if (view.getLayerType() == View.LAYER_TYPE_HARDWARE
+                && view.getTag(R.id.cross_fade_layer_type_changed_tag) != null) {
+            if (view.getTag(R.id.cross_fade_layer_type_changed_tag) != null) {
+                view.setLayerType(View.LAYER_TYPE_NONE, null);
+            }
         }
     }
 
     public static void fadeIn(final View view) {
+        fadeIn(view, ANIMATION_DURATION_LENGTH, 0);
+    }
+
+    public static void fadeIn(final View view, long duration, int delay) {
         view.animate().cancel();
         if (view.getVisibility() == View.INVISIBLE) {
             view.setAlpha(0.0f);
@@ -100,16 +123,17 @@ public class CrossFadeHelper {
         }
         view.animate()
                 .alpha(1f)
-                .setDuration(ANIMATION_DURATION_LENGTH)
+                .setDuration(duration)
+                .setStartDelay(delay)
                 .setInterpolator(Interpolators.ALPHA_IN)
                 .withEndAction(null);
-        if (view.hasOverlappingRendering()) {
+        if (view.hasOverlappingRendering() && view.getLayerType() != View.LAYER_TYPE_HARDWARE) {
             view.animate().withLayer();
         }
     }
 
     public static void fadeIn(View view, float fadeInAmount) {
-        fadeIn(view, fadeInAmount, true /* remap */);
+        fadeIn(view, fadeInAmount, false /* remap */);
     }
 
     /**

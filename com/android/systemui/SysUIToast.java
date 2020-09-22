@@ -15,17 +15,20 @@
  */
 package com.android.systemui;
 
+import static android.widget.Toast.Duration;
+
+import android.annotation.StringRes;
 import android.content.Context;
-import android.view.WindowManager;
 import android.widget.Toast;
 
 public class SysUIToast {
 
-    public static Toast makeText(Context context, CharSequence text, int duration) {
-        Toast toast = Toast.makeText(context, text, duration);
-        toast.getWindowParams().privateFlags |=
-                WindowManager.LayoutParams.PRIVATE_FLAG_SHOW_FOR_ALL_USERS;
-        return toast;
+    public static Toast makeText(Context context, @StringRes int resId, @Duration int duration) {
+        return makeText(context, context.getString(resId), duration);
+    }
+
+    public static Toast makeText(Context context, CharSequence text, @Duration int duration) {
+        return Toast.makeText(context, text, duration);
     }
 
 }

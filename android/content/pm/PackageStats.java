@@ -16,19 +16,30 @@
 
 package android.content.pm;
 
+import android.app.usage.StorageStatsManager;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.UserHandle;
+import android.text.TextUtils;
+
+import java.util.Objects;
 
 /**
- * implementation of PackageStats associated with a
- * application package.
+ * implementation of PackageStats associated with a application package.
+ *
+ * @deprecated this class is an orphan that could never be obtained from a valid
+ *             public API. If you need package storage statistics use the new
+ *             {@link StorageStatsManager} APIs.
  */
+@Deprecated
 public class PackageStats implements Parcelable {
     /** Name of the package to which this stats applies. */
     public String packageName;
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public int userHandle;
 
     /** Size of the code (e.g., APK) */
@@ -68,7 +79,7 @@ public class PackageStats implements Parcelable {
     /** Size of the package's OBBs placed on external media. */
     public long externalObbSize;
 
-    public static final Parcelable.Creator<PackageStats> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<PackageStats> CREATOR
             = new Parcelable.Creator<PackageStats>() {
         public PackageStats createFromParcel(Parcel in) {
             return new PackageStats(in);
@@ -173,4 +184,31 @@ public class PackageStats implements Parcelable {
         dest.writeLong(externalMediaSize);
         dest.writeLong(externalObbSize);
     }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof PackageStats)) {
+            return false;
+        }
+
+        final PackageStats otherStats = (PackageStats) obj;
+        return ((TextUtils.equals(packageName, otherStats.packageName))
+                && userHandle == otherStats.userHandle
+                && codeSize == otherStats.codeSize
+                && dataSize == otherStats.dataSize
+                && cacheSize == otherStats.cacheSize
+                && externalCodeSize == otherStats.externalCodeSize
+                && externalDataSize == otherStats.externalDataSize
+                && externalCacheSize == otherStats.externalCacheSize
+                && externalMediaSize == otherStats.externalMediaSize
+                && externalObbSize == otherStats.externalObbSize);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(packageName, userHandle, codeSize, dataSize,
+                cacheSize, externalCodeSize, externalDataSize, externalCacheSize, externalMediaSize,
+                externalObbSize);
+    }
+
 }

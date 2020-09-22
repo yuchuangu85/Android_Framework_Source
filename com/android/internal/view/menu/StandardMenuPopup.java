@@ -35,7 +35,7 @@ import android.widget.TextView;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.PopupWindow.OnDismissListener;
 
-import com.android.internal.util.Preconditions;
+import java.util.Objects;
 
 /**
  * A standard menu popup in which when a submenu is opened, it replaces its parent menu in the
@@ -43,6 +43,7 @@ import com.android.internal.util.Preconditions;
  */
 final class StandardMenuPopup extends MenuPopup implements OnDismissListener, OnItemClickListener,
         MenuPresenter, OnKeyListener {
+    private static final int ITEM_LAYOUT = com.android.internal.R.layout.popup_menu_item_layout;
 
     private final Context mContext;
 
@@ -112,11 +113,11 @@ final class StandardMenuPopup extends MenuPopup implements OnDismissListener, On
 
     public StandardMenuPopup(Context context, MenuBuilder menu, View anchorView, int popupStyleAttr,
             int popupStyleRes, boolean overflowOnly) {
-        mContext = Preconditions.checkNotNull(context);
+        mContext = Objects.requireNonNull(context);
         mMenu = menu;
         mOverflowOnly = overflowOnly;
         final LayoutInflater inflater = LayoutInflater.from(context);
-        mAdapter = new MenuAdapter(menu, inflater, mOverflowOnly);
+        mAdapter = new MenuAdapter(menu, inflater, mOverflowOnly, ITEM_LAYOUT);
         mPopupStyleAttr = popupStyleAttr;
         mPopupStyleRes = popupStyleRes;
 
@@ -272,8 +273,17 @@ final class StandardMenuPopup extends MenuPopup implements OnDismissListener, On
             mMenu.close(false /* closeAllMenus */);
 
             // Show the new sub-menu popup at the same location as this popup.
-            final int horizontalOffset = mPopup.getHorizontalOffset();
+            int horizontalOffset = mPopup.getHorizontalOffset();
             final int verticalOffset = mPopup.getVerticalOffset();
+
+            // As xOffset of parent menu popup is subtracted with Anchor width for Gravity.RIGHT,
+            // So, again to display sub-menu popup in same xOffset, add the Anchor width.
+            final int hgrav = Gravity.getAbsoluteGravity(mDropDownGravity,
+                mAnchorView.getLayoutDirection()) & Gravity.HORIZONTAL_GRAVITY_MASK;
+            if (hgrav == Gravity.RIGHT) {
+              horizontalOffset += mAnchorView.getWidth();
+            }
+
             if (subPopup.tryShow(horizontalOffset, verticalOffset)) {
                 if (mPresenterCallback != null) {
                     mPresenterCallback.onOpenSubMenu(subMenu);

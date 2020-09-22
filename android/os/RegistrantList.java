@@ -16,7 +16,7 @@
 
 package android.os;
 
-import android.os.Handler;         
+import android.compat.annotation.UnsupportedAppUsage;
 
 import java.util.ArrayList;
 
@@ -25,12 +25,18 @@ public class RegistrantList
 {
     ArrayList   registrants = new ArrayList();      // of Registrant
 
+    @UnsupportedAppUsage
+    public RegistrantList() {
+    }
+
+    @UnsupportedAppUsage
     public synchronized void
     add(Handler h, int what, Object obj)
     {
         add(new Registrant(h, what, obj));
     }
 
+    @UnsupportedAppUsage
     public synchronized void
     addUnique(Handler h, int what, Object obj)
     {
@@ -39,6 +45,7 @@ public class RegistrantList
         add(new Registrant(h, what, obj));        
     }
     
+    @UnsupportedAppUsage
     public synchronized void
     add(Registrant r)
     {
@@ -46,6 +53,7 @@ public class RegistrantList
         registrants.add(r);
     }
 
+    @UnsupportedAppUsage
     public synchronized void
     removeCleared()
     {
@@ -58,12 +66,18 @@ public class RegistrantList
         }
     }
 
+    public synchronized void removeAll() {
+        registrants.clear();
+    }
+
+    @UnsupportedAppUsage
     public synchronized int
     size()
     {
         return registrants.size();
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public synchronized Object
     get(int index)
     {
@@ -79,6 +93,7 @@ public class RegistrantList
        }
     }
     
+    @UnsupportedAppUsage
     public /*synchronized*/ void
     notifyRegistrants()
     {
@@ -91,6 +106,7 @@ public class RegistrantList
         internalNotifyRegistrants (null, exception);
     }
 
+    @UnsupportedAppUsage
     public /*synchronized*/ void
     notifyResult(Object result)
     {
@@ -98,12 +114,14 @@ public class RegistrantList
     }
 
     
+    @UnsupportedAppUsage
     public /*synchronized*/ void
     notifyRegistrants(AsyncResult ar)
     {
         internalNotifyRegistrants(ar.result, ar.exception);
     }
     
+    @UnsupportedAppUsage
     public synchronized void
     remove(Handler h)
     {

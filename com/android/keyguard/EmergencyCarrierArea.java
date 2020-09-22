@@ -21,6 +21,8 @@ import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 
+import com.android.systemui.R;
+
 public class EmergencyCarrierArea extends AlphaOptimizedLinearLayout {
 
     private CarrierText mCarrierText;
@@ -37,8 +39,8 @@ public class EmergencyCarrierArea extends AlphaOptimizedLinearLayout {
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
-        mCarrierText = (CarrierText) findViewById(R.id.carrier_text);
-        mEmergencyButton = (EmergencyButton) findViewById(R.id.emergency_call_button);
+        mCarrierText = findViewById(R.id.carrier_text);
+        mEmergencyButton = findViewById(R.id.emergency_call_button);
 
         // The emergency button overlaps the carrier text, only noticeable when highlighted.
         // So temporarily hide the carrier text while the emergency button is pressed.

@@ -29,18 +29,13 @@
 
 package com.android.ims;
 
-import java.util.HashMap;
-import java.util.Map;
-
-import android.os.AsyncResult;
-import android.os.Bundle;
-import android.os.Message;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.RemoteException;
-import android.telephony.Rlog;
+import android.telephony.ims.ImsReasonInfo;
 
 import com.android.ims.internal.IImsEcbm;
 import com.android.ims.internal.IImsEcbmListener;
-import com.android.ims.ImsEcbmStateListener;
+import com.android.telephony.Rlog;
 
 /**
  * Provides APIs for the supplementary service settings using IMS (Ut interface).
@@ -69,6 +64,7 @@ public class ImsEcbm {
         }
     }
 
+    @UnsupportedAppUsage
     public void exitEmergencyCallbackMode() throws ImsException {
         try {
             miEcbm.exitEmergencyCallbackMode();
@@ -76,6 +72,10 @@ public class ImsEcbm {
             throw new ImsException("exitEmergencyCallbackMode()", e,
                     ImsReasonInfo.CODE_LOCAL_IMS_SERVICE_DOWN);
         }
+    }
+
+    public boolean isBinderAlive() {
+        return miEcbm.asBinder().isBinderAlive();
     }
 
     /**

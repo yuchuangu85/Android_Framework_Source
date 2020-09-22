@@ -23,7 +23,18 @@ import java.util.Objects;
 
 /** @hide */
 public final class VolumePolicy implements Parcelable {
-    public static final VolumePolicy DEFAULT = new VolumePolicy(false, false, true, 400);
+    public static final VolumePolicy DEFAULT = new VolumePolicy(false, false, false, 400);
+
+    /**
+     * Accessibility volume policy where the STREAM_MUSIC volume (i.e. media volume) affects
+     * the STREAM_ACCESSIBILITY volume, and vice-versa.
+     */
+    public static final int A11Y_MODE_MEDIA_A11Y_VOLUME = 0;
+    /**
+     * Accessibility volume policy where the STREAM_ACCESSIBILITY volume is independent from
+     * any other volume.
+     */
+    public static final int A11Y_MODE_INDEPENDENT_A11Y_VOLUME = 1;
 
     /** Allow volume adjustments lower from vibrate to enter ringer mode = silent */
     public final boolean volumeDownToEnterSilent;
@@ -84,7 +95,7 @@ public final class VolumePolicy implements Parcelable {
         dest.writeInt(vibrateToSilentDebounce);
     }
 
-    public static final Parcelable.Creator<VolumePolicy> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<VolumePolicy> CREATOR
             = new Parcelable.Creator<VolumePolicy>() {
         @Override
         public VolumePolicy createFromParcel(Parcel p) {

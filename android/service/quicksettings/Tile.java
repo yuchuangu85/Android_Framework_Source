@@ -15,6 +15,7 @@
  */
 package android.service.quicksettings;
 
+import android.annotation.Nullable;
 import android.graphics.drawable.Icon;
 import android.os.IBinder;
 import android.os.Parcel;
@@ -62,9 +63,11 @@ public final class Tile implements Parcelable {
     private IBinder mToken;
     private Icon mIcon;
     private CharSequence mLabel;
+    private CharSequence mSubtitle;
     private CharSequence mContentDescription;
-    // Default to active until clients of the new API can update.
-    private int mState = STATE_ACTIVE;
+    private CharSequence mStateDescription;
+    // Default to inactive until clients of the new API can update.
+    private int mState = STATE_INACTIVE;
 
     private IQSService mService;
 
@@ -152,10 +155,34 @@ public final class Tile implements Parcelable {
     }
 
     /**
+     * Gets the current subtitle for the tile.
+     */
+    @Nullable
+    public CharSequence getSubtitle() {
+        return mSubtitle;
+    }
+
+    /**
+     * Set the subtitle for the tile. Will be displayed as the secondary label.
+     * @param subtitle the subtitle to show.
+     */
+    public void setSubtitle(@Nullable CharSequence subtitle) {
+        this.mSubtitle = subtitle;
+    }
+
+    /**
      * Gets the current content description for the tile.
      */
     public CharSequence getContentDescription() {
         return mContentDescription;
+    }
+
+    /**
+     * Gets the current state description for the tile.
+     */
+    @Nullable
+    public CharSequence getStateDescription() {
+        return mStateDescription;
     }
 
     /**
@@ -167,6 +194,17 @@ public final class Tile implements Parcelable {
      */
     public void setContentDescription(CharSequence contentDescription) {
         this.mContentDescription = contentDescription;
+    }
+
+    /**
+     * Sets the current state description for the tile.
+     *
+     * Does not take effect until {@link #updateTile()} is called.
+     *
+     * @param stateDescription New state description to use.
+     */
+    public void setStateDescription(@Nullable CharSequence stateDescription) {
+        this.mStateDescription = stateDescription;
     }
 
     @Override
@@ -195,7 +233,9 @@ public final class Tile implements Parcelable {
         }
         dest.writeInt(mState);
         TextUtils.writeToParcel(mLabel, dest, flags);
+        TextUtils.writeToParcel(mSubtitle, dest, flags);
         TextUtils.writeToParcel(mContentDescription, dest, flags);
+        TextUtils.writeToParcel(mStateDescription, dest, flags);
     }
 
     private void readFromParcel(Parcel source) {
@@ -206,10 +246,12 @@ public final class Tile implements Parcelable {
         }
         mState = source.readInt();
         mLabel = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(source);
+        mSubtitle = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(source);
         mContentDescription = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(source);
+        mStateDescription = TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(source);
     }
 
-    public static final Creator<Tile> CREATOR = new Creator<Tile>() {
+    public static final @android.annotation.NonNull Creator<Tile> CREATOR = new Creator<Tile>() {
         @Override
         public Tile createFromParcel(Parcel source) {
             return new Tile(source);

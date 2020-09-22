@@ -23,22 +23,25 @@ import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.Interpolator;
 
 import com.android.systemui.Interpolators;
 import com.android.systemui.R;
 import com.android.systemui.statusbar.notification.TransformState;
-import com.android.systemui.statusbar.stack.StackStateAnimator;
+import com.android.systemui.statusbar.notification.stack.StackStateAnimator;
 
 import java.util.Stack;
 
 /**
  * A view that can be transformed to and from.
  */
-public class ViewTransformationHelper implements TransformableView {
+public class ViewTransformationHelper implements TransformableView,
+        TransformState.TransformInfo {
 
     private static final int TAG_CONTAINS_TRANSFORMED_VIEW = R.id.contains_transformed_view;
 
     private ArrayMap<Integer, View> mTransformedViews = new ArrayMap<>();
+    private ArraySet<Integer> mKeysTransformingToSimilar = new ArraySet<>();
     private ArrayMap<Integer, CustomTransformation> mCustomTransformations = new ArrayMap<>();
     private ValueAnimator mViewTransformationAnimation;
 
@@ -46,8 +49,38 @@ public class ViewTransformationHelper implements TransformableView {
         mTransformedViews.put(key, transformedView);
     }
 
+    public void addTransformedView(View transformedView) {
+        int key = transformedView.getId();
+        if (key == View.NO_ID) {
+            throw new IllegalArgumentException("View argument does not have a valid id");
+        }
+        addTransformedView(key, transformedView);
+    }
+
+    /**
+     * Add a view that transforms to a similar sibling, meaning that we should consider any mapping
+     * found treated as the same viewType. This is useful for imageViews, where it's hard to compare
+     * if the source images are the same when they are bitmap based.
+     *
+     * @param key The key how this is added
+     * @param transformedView the view that is added
+     */
+    public void addViewTransformingToSimilar(int key, View transformedView) {
+        addTransformedView(key, transformedView);
+        mKeysTransformingToSimilar.add(key);
+    }
+
+    public void addViewTransformingToSimilar(View transformedView) {
+        int key = transformedView.getId();
+        if (key == View.NO_ID) {
+            throw new IllegalArgumentException("View argument does not have a valid id");
+        }
+        addViewTransformingToSimilar(key, transformedView);
+    }
+
     public void reset() {
         mTransformedViews.clear();
+        mKeysTransformingToSimilar.clear();
     }
 
     public void setCustomTransformation(CustomTransformation transformation, int viewType) {
@@ -58,7 +91,11 @@ public class ViewTransformationHelper implements TransformableView {
     public TransformState getCurrentState(int fadingView) {
         View view = mTransformedViews.get(fadingView);
         if (view != null && view.getVisibility() != View.GONE) {
-            return TransformState.createFrom(view);
+            TransformState transformState = TransformState.createFrom(view, this);
+            if (mKeysTransformingToSimilar.contains(fadingView)) {
+                transformState.setIsSameAsAnyView(true);
+            }
+            return transformState;
         }
         return null;
     }
@@ -87,6 +124,7 @@ public class ViewTransformationHelper implements TransformableView {
                         endRunnable.run();
                     }
                     setVisible(false);
+                    mViewTransformationAnimation = null;
                 } else {
                     abortTransformations();
                 }
@@ -223,9 +261,6 @@ public class ViewTransformationHelper implements TransformableView {
         stack.push(viewRoot);
         while (!stack.isEmpty()) {
             View child = stack.pop();
-            if (child.getVisibility() == View.GONE) {
-                continue;
-            }
             Boolean containsView = (Boolean) child.getTag(TAG_CONTAINS_TRANSFORMED_VIEW);
             if (containsView == null) {
                 // This one is unhandled, let's add it to our list.
@@ -247,7 +282,7 @@ public class ViewTransformationHelper implements TransformableView {
     }
 
     public void resetTransformedView(View view) {
-        TransformState state = TransformState.createFrom(view);
+        TransformState state = TransformState.createFrom(view, this);
         state.setVisible(true /* visible */, true /* force */);
         state.recycle();
     }
@@ -257,6 +292,11 @@ public class ViewTransformationHelper implements TransformableView {
      */
     public ArraySet<View> getAllTransformingViews() {
         return new ArraySet<>(mTransformedViews.values());
+    }
+
+    @Override
+    public boolean isAnimating() {
+        return mViewTransformationAnimation != null && mViewTransformationAnimation.isRunning();
     }
 
     public static abstract class CustomTransformation {
@@ -297,6 +337,15 @@ public class ViewTransformationHelper implements TransformableView {
         public boolean customTransformTarget(TransformState ownState,
                 TransformState otherState) {
             return false;
+        }
+
+        /**
+         * Get a custom interpolator for this animation
+         * @param interpolationType the type of the interpolation, i.e TranslationX / TranslationY
+         * @param isFrom true if this transformation from the other view
+         */
+        public Interpolator getCustomInterpolator(int interpolationType, boolean isFrom) {
+            return null;
         }
     }
 }

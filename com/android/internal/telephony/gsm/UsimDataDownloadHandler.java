@@ -22,14 +22,15 @@ import android.os.Handler;
 import android.os.Message;
 import android.provider.Telephony.Sms.Intents;
 import android.telephony.PhoneNumberUtils;
-import android.telephony.Rlog;
 import android.telephony.SmsManager;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.cat.ComprehensionTlvTag;
+import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.uicc.IccIoResult;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.UsimServiceTable;
+import com.android.telephony.Rlog;
 
 /**
  * Handler for SMS-PP data download messages.
@@ -57,9 +58,11 @@ public class UsimDataDownloadHandler extends Handler {
     private static final int EVENT_WRITE_SMS_COMPLETE = 3;
 
     private final CommandsInterface mCi;
+    private final int mPhoneId;
 
-    public UsimDataDownloadHandler(CommandsInterface commandsInterface) {
+    public UsimDataDownloadHandler(CommandsInterface commandsInterface, int phoneId) {
         mCi = commandsInterface;
+        mPhoneId = phoneId;
     }
 
     /**
@@ -89,6 +92,7 @@ public class UsimDataDownloadHandler extends Handler {
             mCi.writeSmsToSim(SmsManager.STATUS_ON_ICC_UNREAD, smsc,
                     IccUtils.bytesToHexString(smsMessage.getPdu()),
                     obtainMessage(EVENT_WRITE_SMS_COMPLETE));
+            addUsimDataDownloadToMetrics(false);
             return Activity.RESULT_OK;  // acknowledge after response from write to USIM
         }
 
@@ -162,12 +166,15 @@ public class UsimDataDownloadHandler extends Handler {
         if (index != envelope.length) {
             Rlog.e(TAG, "startDataDownload() calculated incorrect envelope length, aborting.");
             acknowledgeSmsWithError(CommandsInterface.GSM_SMS_FAIL_CAUSE_UNSPECIFIED_ERROR);
+            addUsimDataDownloadToMetrics(false);
             return;
         }
 
         String encodedEnvelope = IccUtils.bytesToHexString(envelope);
         mCi.sendEnvelopeWithStatus(encodedEnvelope, obtainMessage(
                 EVENT_SEND_ENVELOPE_RESPONSE, new int[]{ dcs, pid }));
+
+        addUsimDataDownloadToMetrics(true);
     }
 
     /**
@@ -270,6 +277,16 @@ public class UsimDataDownloadHandler extends Handler {
     private static boolean is7bitDcs(int dcs) {
         // See 3GPP TS 23.038 section 4
         return ((dcs & 0x8C) == 0x00) || ((dcs & 0xF4) == 0xF0);
+    }
+
+    /**
+     * Add the SMS-PP data to the telephony metrics, indicating if the message was forwarded
+     * to the USIM. The metrics does not cover the case where the SMS-PP might be rejected
+     * by the USIM itself.
+     */
+    private void addUsimDataDownloadToMetrics(boolean result) {
+        TelephonyMetrics metrics = TelephonyMetrics.getInstance();
+        metrics.writeIncomingSMSPP(mPhoneId, android.telephony.SmsMessage.FORMAT_3GPP, result);
     }
 
     /**

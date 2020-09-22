@@ -54,7 +54,7 @@ import android.view.accessibility.AccessibilityEvent;
  * For example, if it received a down motion event followed by a cancel motion
  * event, it should not handle subsequent move and up events until it gets a down.
  */
-interface EventStreamTransformation {
+public interface EventStreamTransformation {
 
     /**
      * Receives a motion event. Passed are the event transformed by previous
@@ -65,7 +65,12 @@ interface EventStreamTransformation {
      * @param rawEvent The raw motion event.
      * @param policyFlags Policy flags for the event.
      */
-    public void onMotionEvent(MotionEvent event, MotionEvent rawEvent, int policyFlags);
+    default void onMotionEvent(MotionEvent event, MotionEvent rawEvent, int policyFlags) {
+        EventStreamTransformation next = getNext();
+        if (next != null) {
+            next.onMotionEvent(event, rawEvent, policyFlags);
+        }
+    }
 
     /**
      * Receives a key event.
@@ -73,14 +78,24 @@ interface EventStreamTransformation {
      * @param event The key event.
      * @param policyFlags Policy flags for the event.
      */
-    public void onKeyEvent(KeyEvent event, int policyFlags);
+    default void onKeyEvent(KeyEvent event, int policyFlags) {
+        EventStreamTransformation next = getNext();
+        if (next != null) {
+            next.onKeyEvent(event, policyFlags);
+        }
+    }
 
     /**
      * Receives an accessibility event.
      *
      * @param event The accessibility event.
      */
-    public void onAccessibilityEvent(AccessibilityEvent event);
+    default void onAccessibilityEvent(AccessibilityEvent event) {
+        EventStreamTransformation next = getNext();
+        if (next != null) {
+            next.onAccessibilityEvent(event);
+        }
+    };
 
     /**
      * Sets the next transformation.
@@ -90,14 +105,26 @@ interface EventStreamTransformation {
     public void setNext(EventStreamTransformation next);
 
     /**
+     * Gets the next transformation.
+     *
+     * @return The next transformation.
+     */
+    public EventStreamTransformation getNext();
+
+    /**
      * Clears internal state associated with events from specific input source.
      *
      * @param inputSource The input source class for which transformation state should be cleared.
      */
-    public void clearEvents(int inputSource);
+    default void clearEvents(int inputSource) {
+        EventStreamTransformation next = getNext();
+        if (next != null) {
+            next.clearEvents(inputSource);
+        }
+    }
 
     /**
      * Destroys this transformation.
      */
-    public void onDestroy();
+    default void onDestroy() {}
 }

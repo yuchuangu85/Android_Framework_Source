@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -27,10 +28,14 @@ abstract class ValueObject {
  * Class for Command Details object of proactive commands from SIM.
  * {@hide}
  */
-class CommandDetails extends ValueObject implements Parcelable {
+public class CommandDetails extends ValueObject implements Parcelable {
+    @UnsupportedAppUsage
     public boolean compRequired;
+    @UnsupportedAppUsage
     public int commandNumber;
+    @UnsupportedAppUsage
     public int typeOfCommand;
+    @UnsupportedAppUsage
     public int commandQualifier;
 
     @Override
@@ -92,6 +97,7 @@ class CommandDetails extends ValueObject implements Parcelable {
 
 class DeviceIdentities extends ValueObject {
     public int sourceId;
+    @UnsupportedAppUsage
     public int destinationId;
 
     @Override
@@ -102,6 +108,7 @@ class DeviceIdentities extends ValueObject {
 
 // Container class to hold icon identifier value.
 class IconId extends ValueObject {
+    @UnsupportedAppUsage
     int recordNumber;
     boolean selfExplanatory;
 

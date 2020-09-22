@@ -16,12 +16,11 @@
 
 package com.android.internal.app;
 
-import com.android.internal.R;
-
-import android.app.ActivityManagerNative;
+import android.app.ActivityManager;
 import android.app.IActivityManager;
 import android.app.ListFragment;
 import android.app.backup.BackupManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -37,11 +36,13 @@ import android.widget.ArrayAdapter;
 import android.widget.ListView;
 import android.widget.TextView;
 
+import com.android.internal.R;
+
 import java.text.Collator;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.ArrayList;
 
 public class LocalePicker extends ListFragment {
     private static final String TAG = "LocalePicker";
@@ -70,6 +71,7 @@ public class LocalePicker extends ListFragment {
             return label;
         }
 
+        @UnsupportedAppUsage
         public Locale getLocale() {
             return locale;
         }
@@ -93,23 +95,12 @@ public class LocalePicker extends ListFragment {
         return context.getResources().getStringArray(R.array.supported_locales);
     }
 
-    public static String[] getPseudoLocales() {
-        return pseudoLocales;
-    }
-
     public static List<LocaleInfo> getAllAssetLocales(Context context, boolean isInDeveloperMode) {
         final Resources resources = context.getResources();
 
         final String[] locales = getSystemAssetLocales();
         List<String> localeList = new ArrayList<String>(locales.length);
         Collections.addAll(localeList, locales);
-
-        // Don't show the pseudolocales unless we're in developer mode. http://b/17190407.
-        if (!isInDeveloperMode) {
-            for (String locale : pseudoLocales) {
-                localeList.remove(locale);
-            }
-        }
 
         Collections.sort(localeList);
         final String[] specialLocaleCodes = resources.getStringArray(R.array.special_locale_codes);
@@ -120,6 +111,10 @@ public class LocalePicker extends ListFragment {
             final Locale l = Locale.forLanguageTag(locale.replace('_', '-'));
             if (l == null || "und".equals(l.getLanguage())
                     || l.getLanguage().isEmpty() || l.getCountry().isEmpty()) {
+                continue;
+            }
+            // Don't show the pseudolocales unless we're in developer mode. http://b/17190407.
+            if (!isInDeveloperMode && LocaleList.isPseudoLocale(l)) {
                 continue;
             }
 
@@ -258,6 +253,7 @@ public class LocalePicker extends ListFragment {
      *
      * @see #updateLocales(LocaleList)
      */
+    @UnsupportedAppUsage
     public static void updateLocale(Locale locale) {
         updateLocales(new LocaleList(locale));
     }
@@ -267,9 +263,10 @@ public class LocalePicker extends ListFragment {
      * Note that the system looks halted for a while during the Locale migration,
      * so the caller need to take care of it.
      */
+    @UnsupportedAppUsage
     public static void updateLocales(LocaleList locales) {
         try {
-            final IActivityManager am = ActivityManagerNative.getDefault();
+            final IActivityManager am = ActivityManager.getService();
             final Configuration config = am.getConfiguration();
 
             config.setLocales(locales);
@@ -288,9 +285,10 @@ public class LocalePicker extends ListFragment {
      *
      * @return The locale list.
      */
+    @UnsupportedAppUsage
     public static LocaleList getLocales() {
         try {
-            return ActivityManagerNative.getDefault()
+            return ActivityManager.getService()
                     .getConfiguration().getLocales();
         } catch (RemoteException e) {
             // If something went wrong

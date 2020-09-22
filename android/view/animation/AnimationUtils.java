@@ -16,19 +16,21 @@
 
 package android.view.animation;
 
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-
 import android.annotation.AnimRes;
 import android.annotation.InterpolatorRes;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
+import android.content.res.Resources.NotFoundException;
 import android.content.res.Resources.Theme;
 import android.content.res.XmlResourceParser;
-import android.content.res.Resources.NotFoundException;
+import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.util.Xml;
-import android.os.SystemClock;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
 
@@ -58,14 +60,43 @@ public class AnimationUtils {
         }
     };
 
-    /** @hide */
+    /**
+     * Locks AnimationUtils{@link #currentAnimationTimeMillis()} to a fixed value for the current
+     * thread. This is used by {@link android.view.Choreographer} to ensure that all accesses
+     * during a vsync update are synchronized to the timestamp of the vsync.
+     *
+     * It is also exposed to tests to allow for rapid, flake-free headless testing.
+     *
+     * Must be followed by a call to {@link #unlockAnimationClock()} to allow time to
+     * progress. Failing to do this will result in stuck animations, scrolls, and flings.
+     *
+     * Note that time is not allowed to "rewind" and must perpetually flow forward. So the
+     * lock may fail if the time is in the past from a previously returned value, however
+     * time will be frozen for the duration of the lock. The clock is a thread-local, so
+     * ensure that {@link #lockAnimationClock(long)}, {@link #unlockAnimationClock()}, and
+     * {@link #currentAnimationTimeMillis()} are all called on the same thread.
+     *
+     * This is also not reference counted in any way. Any call to {@link #unlockAnimationClock()}
+     * will unlock the clock for everyone on the same thread. It is therefore recommended
+     * for tests to use their own thread to ensure that there is no collision with any existing
+     * {@link android.view.Choreographer} instance.
+     *
+     * @hide
+     * */
+    @TestApi
     public static void lockAnimationClock(long vsyncMillis) {
         AnimationState state = sAnimationState.get();
         state.animationClockLocked = true;
         state.currentVsyncTimeMillis = vsyncMillis;
     }
 
-    /** @hide */
+    /**
+     * Frees the time lock set in place by {@link #lockAnimationClock(long)}. Must be called
+     * to allow the animation clock to self-update.
+     *
+     * @hide
+     */
+    @TestApi
     public static void unlockAnimationClock() {
         sAnimationState.get().animationClockLocked = false;
     }
@@ -96,7 +127,7 @@ public class AnimationUtils {
      *
      * @param context Application context used to access resources
      * @param id The resource id of the animation to load
-     * @return The animation object reference by the specified id
+     * @return The animation object referenced by the specified id
      * @throws NotFoundException when the animation cannot be loaded
      */
     public static Animation loadAnimation(Context context, @AnimRes int id)
@@ -127,6 +158,7 @@ public class AnimationUtils {
         return createAnimationFromXml(c, parser, null, Xml.asAttributeSet(parser));
     }
 
+    @UnsupportedAppUsage
     private static Animation createAnimationFromXml(Context c, XmlPullParser parser,
             AnimationSet parent, AttributeSet attrs) throws XmlPullParserException, IOException {
 
@@ -156,6 +188,8 @@ public class AnimationUtils {
                 anim = new RotateAnimation(c, attrs);
             }  else if (name.equals("translate")) {
                 anim = new TranslateAnimation(c, attrs);
+            } else if (name.equals("cliprect")) {
+                anim = new ClipRectAnimation(c, attrs);
             } else {
                 throw new RuntimeException("Unknown animation name: " + parser.getName());
             }
@@ -174,7 +208,7 @@ public class AnimationUtils {
      *
      * @param context Application context used to access resources
      * @param id The resource id of the animation to load
-     * @return The animation object reference by the specified id
+     * @return The animation controller object referenced by the specified id
      * @throws NotFoundException when the layout animation controller cannot be loaded
      */
     public static LayoutAnimationController loadLayoutAnimation(Context context, @AnimRes int id)
@@ -297,7 +331,7 @@ public class AnimationUtils {
      *
      * @param context Application context used to access resources
      * @param id The resource id of the animation to load
-     * @return The animation object reference by the specified id
+     * @return The interpolator object referenced by the specified id
      * @throws NotFoundException
      */
     public static Interpolator loadInterpolator(Context context, @AnimRes @InterpolatorRes int id)
@@ -327,7 +361,7 @@ public class AnimationUtils {
      *
      * @param res The resources
      * @param id The resource id of the animation to load
-     * @return The interpolator object reference by the specified id
+     * @return The interpolator object referenced by the specified id
      * @throws NotFoundException
      * @hide
      */

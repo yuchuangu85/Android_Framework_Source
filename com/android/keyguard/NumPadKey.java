@@ -29,18 +29,20 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 
 import com.android.internal.widget.LockPatternUtils;
+import com.android.systemui.R;
 
 public class NumPadKey extends ViewGroup {
     // list of "ABC", etc per digit, starting with '0'
     static String sKlondike[];
 
+    private final TextView mDigitText;
+    private final TextView mKlondikeText;
+    private final LockPatternUtils mLockPatternUtils;
+    private final PowerManager mPM;
+
     private int mDigit = -1;
     private int mTextViewResId;
     private PasswordTextView mTextView;
-    private TextView mDigitText;
-    private TextView mKlondikeText;
-    private boolean mEnableHaptics;
-    private PowerManager mPM;
 
     private View.OnClickListener mListener = new View.OnClickListener() {
         @Override
@@ -54,7 +56,7 @@ public class NumPadKey extends ViewGroup {
             if (mTextView != null && mTextView.isEnabled()) {
                 mTextView.append(Character.forDigit(mDigit, 10));
             }
-            userActivity();;
+            userActivity();
         }
     };
 
@@ -89,10 +91,8 @@ public class NumPadKey extends ViewGroup {
 
         setOnClickListener(mListener);
         setOnHoverListener(new LiftToActivateListener(context));
-        setAccessibilityDelegate(new ObscureSpeechDelegate(context));
 
-        mEnableHaptics = new LockPatternUtils(context).isTactileFeedbackEnabled();
-
+        mLockPatternUtils = new LockPatternUtils(context);
         mPM = (PowerManager) mContext.getSystemService(Context.POWER_SERVICE);
         LayoutInflater inflater = (LayoutInflater) getContext().getSystemService(
                 Context.LAYOUT_INFLATER_SERVICE);
@@ -119,7 +119,7 @@ public class NumPadKey extends ViewGroup {
 
         a = context.obtainStyledAttributes(attrs, android.R.styleable.View);
         if (!a.hasValueOrEmpty(android.R.styleable.View_background)) {
-            setBackground(mContext.getDrawable(R.drawable.ripple_drawable));
+            setBackground(mContext.getDrawable(R.drawable.ripple_drawable_pin));
         }
         a.recycle();
         setContentDescription(mDigitText.getText().toString());
@@ -131,14 +131,6 @@ public class NumPadKey extends ViewGroup {
             doHapticKeyClick();
         }
         return super.onTouchEvent(event);
-    }
-
-    @Override
-    public void onDetachedFromWindow() {
-        super.onDetachedFromWindow();
-
-        // Reset the "announced headset" flag when detached.
-        ObscureSpeechDelegate.sAnnouncedHeadset = false;
     }
 
     @Override
@@ -171,7 +163,7 @@ public class NumPadKey extends ViewGroup {
 
     // Cause a VIRTUAL_KEY vibration
     public void doHapticKeyClick() {
-        if (mEnableHaptics) {
+        if (mLockPatternUtils.isTactileFeedbackEnabled()) {
             performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY,
                     HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
                     | HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING);

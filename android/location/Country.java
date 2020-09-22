@@ -16,6 +16,7 @@
 
 package android.location;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.SystemClock;
@@ -78,6 +79,7 @@ public class Country implements Parcelable {
      *        <li>{@link #COUNTRY_SOURCE_LOCALE}</li>
      *        </ul>
      */
+    @UnsupportedAppUsage
     public Country(final String countryIso, final int source) {
         if (countryIso == null || source < COUNTRY_SOURCE_NETWORK
                 || source > COUNTRY_SOURCE_LOCALE) {
@@ -107,6 +109,7 @@ public class Country implements Parcelable {
     /**
      * @return the ISO 3166-1 two letters country code
      */
+    @UnsupportedAppUsage
     public final String getCountryIso() {
         return mCountryIso;
     }
@@ -121,6 +124,7 @@ public class Country implements Parcelable {
      *         <li>{@link #COUNTRY_SOURCE_LOCALE}</li>
      *         </ul>
      */
+    @UnsupportedAppUsage
     public final int getSource() {
         return mSource;
     }
@@ -133,7 +137,7 @@ public class Country implements Parcelable {
         return mTimestamp;
     }
 
-    public static final Parcelable.Creator<Country> CREATOR = new Parcelable.Creator<Country>() {
+    public static final @android.annotation.NonNull Parcelable.Creator<Country> CREATOR = new Parcelable.Creator<Country>() {
         public Country createFromParcel(Parcel in) {
             return new Country(in.readString(), in.readInt(), in.readLong());
         }

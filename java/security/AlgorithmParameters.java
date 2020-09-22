@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,81 +29,131 @@ import java.io.*;
 import java.security.spec.AlgorithmParameterSpec;
 import java.security.spec.InvalidParameterSpecException;
 
+import sun.security.jca.Providers;
+
 /**
  * This class is used as an opaque representation of cryptographic parameters.
  *
- * <p>An <code>AlgorithmParameters</code> object for managing the parameters
+ * <p>An {@code AlgorithmParameters} object for managing the parameters
  * for a particular algorithm can be obtained by
- * calling one of the <code>getInstance</code> factory methods
+ * calling one of the {@code getInstance} factory methods
  * (static methods that return instances of a given class).
  *
- * <p>Once an <code>AlgorithmParameters</code> object is obtained, it must be
- * initialized via a call to <code>init</code>, using an appropriate parameter
+ * <p>Once an {@code AlgorithmParameters} object is obtained, it must be
+ * initialized via a call to {@code init}, using an appropriate parameter
  * specification or parameter encoding.
  *
  * <p>A transparent parameter specification is obtained from an
- * <code>AlgorithmParameters</code> object via a call to
- * <code>getParameterSpec</code>, and a byte encoding of the parameters is
- * obtained via a call to <code>getEncoded</code>.
+ * {@code AlgorithmParameters} object via a call to
+ * {@code getParameterSpec}, and a byte encoding of the parameters is
+ * obtained via a call to {@code getEncoded}.
  *
  * <p> Android provides the following <code>AlgorithmParameters</code> algorithms:
  * <table>
- *     <thead>
- *         <tr>
- *             <th>Name</th>
- *             <th>Supported (API Levels)</th>
- *         </tr>
- *     </thead>
- *     <tbody>
- *         <tr>
- *             <td>AES</td>
- *             <td>1+</td>
- *         </tr>
- *         <tr>
- *             <td>Blowfish</td>
- *             <td>10+</td>
- *         </tr>
- *         <tr>
- *             <td>DES</td>
- *             <td>1+</td>
- *         </tr>
- *         <tr>
- *             <td>DESede</td>
- *             <td>1+</td>
- *         </tr>
- *         <tr>
- *             <td>DH</td>
- *             <td>1+</td>
- *         </tr>
- *         <tr>
- *             <td>DSA</td>
- *             <td>1+</td>
- *         </tr>
- *         <tr>
- *             <td>GCM</td>
- *             <td>22+</td>
- *         </tr>
- *         <tr>
- *             <td>IES</td>
- *             <td>1&ndash;8</td>
- *         </tr>
- *         <tr>
- *             <td>OAEP</td>
- *             <td>1+</td>
- *         </tr>
- *         <tr>
- *             <td>PKCS12PBE</td>
- *             <td>1+</td>
- *         </tr>
- *         <tr>
- *             <td>PSS</td>
- *             <td>1&ndash;8, 24+</td>
- *         </tr>
- *     </tbody>
+ *   <thead>
+ *     <tr>
+ *       <th>Algorithm</th>
+ *       <th>Supported API Levels</th>
+ *     </tr>
+ *   </thead>
+ *   <tbody>
+ *     <tr>
+ *       <td>AES</td>
+ *       <td>1+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>BLOWFISH</td>
+ *       <td>10+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>ChaCha20</td>
+ *       <td>28+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>DES</td>
+ *       <td>1+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>DESede</td>
+ *       <td>1+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>DH</td>
+ *       <td>1+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>DSA</td>
+ *       <td>1+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>EC</td>
+ *       <td>26+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>GCM</td>
+ *       <td>22+</td>
+ *     </tr>
+ *     <tr class="deprecated">
+ *       <td>IES</td>
+ *       <td>1-8</td>
+ *     </tr>
+ *     <tr>
+ *       <td>OAEP</td>
+ *       <td>1+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>PBEwithHmacSHA1AndAES_128</td>
+ *       <td>26+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>PBEwithHmacSHA1AndAES_256</td>
+ *       <td>26+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>PBEwithHmacSHA224AndAES_128</td>
+ *       <td>26+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>PBEwithHmacSHA224AndAES_256</td>
+ *       <td>26+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>PBEwithHmacSHA256AndAES_128</td>
+ *       <td>26+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>PBEwithHmacSHA256AndAES_256</td>
+ *       <td>26+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>PBEwithHmacSHA384AndAES_128</td>
+ *       <td>26+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>PBEwithHmacSHA384AndAES_256</td>
+ *       <td>26+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>PBEwithHmacSHA512AndAES_128</td>
+ *       <td>26+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>PBEwithHmacSHA512AndAES_256</td>
+ *       <td>26+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>PKCS12PBE</td>
+ *       <td>1+</td>
+ *     </tr>
+ *     <tr>
+ *       <td>PSS</td>
+ *       <td>1-8,24+</td>
+ *     </tr>
+ *   </tbody>
  * </table>
  *
  * These algorithms are described in the <a href=
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#AlgorithmParameters">
+ * "{@docRoot}/../technotes/guides/security/StandardNames.html#AlgorithmParameters">
  * AlgorithmParameters section</a> of the
  * Java Cryptography Architecture Standard Algorithm Name Documentation.
  *
@@ -168,12 +218,12 @@ public class AlgorithmParameters {
      * the {@link Security#getProviders() Security.getProviders()} method.
      *
      * <p> The returned parameter object must be initialized via a call to
-     * <code>init</code>, using an appropriate parameter specification or
+     * {@code init}, using an appropriate parameter specification or
      * parameter encoding.
      *
      * @param algorithm the name of the algorithm requested.
      * See the AlgorithmParameters section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#AlgorithmParameters">
+     * "{@docRoot}/../technotes/guides/security/StandardNames.html#AlgorithmParameters">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
@@ -210,12 +260,12 @@ public class AlgorithmParameters {
      * the {@link Security#getProviders() Security.getProviders()} method.
      *
      * <p>The returned parameter object must be initialized via a call to
-     * <code>init</code>, using an appropriate parameter specification or
+     * {@code init}, using an appropriate parameter specification or
      * parameter encoding.
      *
      * @param algorithm the name of the algorithm requested.
      * See the AlgorithmParameters section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#AlgorithmParameters">
+     * "{@docRoot}/../technotes/guides/security/StandardNames.html#AlgorithmParameters">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
@@ -241,6 +291,8 @@ public class AlgorithmParameters {
     {
         if (provider == null || provider.length() == 0)
             throw new IllegalArgumentException("missing provider");
+        // Android-added: Check for Bouncy Castle deprecation
+        Providers.checkBouncyCastleDeprecation(provider, "AlgorithmParameters", algorithm);
         Object[] objs = Security.getImpl(algorithm, "AlgorithmParameters",
                                          provider);
         return new AlgorithmParameters((AlgorithmParametersSpi)objs[0],
@@ -257,12 +309,12 @@ public class AlgorithmParameters {
      * does not have to be registered in the provider list.
      *
      * <p>The returned parameter object must be initialized via a call to
-     * <code>init</code>, using an appropriate parameter specification or
+     * {@code init}, using an appropriate parameter specification or
      * parameter encoding.
      *
      * @param algorithm the name of the algorithm requested.
      * See the AlgorithmParameters section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#AlgorithmParameters">
+     * "{@docRoot}/../technotes/guides/security/StandardNames.html#AlgorithmParameters">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
@@ -286,6 +338,8 @@ public class AlgorithmParameters {
     {
         if (provider == null)
             throw new IllegalArgumentException("missing provider");
+        // Android-added: Check for Bouncy Castle deprecation
+        Providers.checkBouncyCastleDeprecation(provider, "AlgorithmParameters", algorithm);
         Object[] objs = Security.getImpl(algorithm, "AlgorithmParameters",
                                          provider);
         return new AlgorithmParameters((AlgorithmParametersSpi)objs[0],
@@ -304,7 +358,7 @@ public class AlgorithmParameters {
 
     /**
      * Initializes this parameter object using the parameters
-     * specified in <code>paramSpec</code>.
+     * specified in {@code paramSpec}.
      *
      * @param paramSpec the parameter specification.
      *
@@ -340,9 +394,9 @@ public class AlgorithmParameters {
     }
 
     /**
-     * Imports the parameters from <code>params</code> and decodes them
+     * Imports the parameters from {@code params} and decodes them
      * according to the specified decoding scheme.
-     * If <code>format</code> is null, the
+     * If {@code format} is null, the
      * primary decoding format for parameters is used. The primary decoding
      * format is ASN.1, if an ASN.1 specification for these parameters
      * exists.
@@ -363,12 +417,13 @@ public class AlgorithmParameters {
 
     /**
      * Returns a (transparent) specification of this parameter object.
-     * <code>paramSpec</code> identifies the specification class in which
+     * {@code paramSpec} identifies the specification class in which
      * the parameters should be returned. It could, for example, be
-     * <code>DSAParameterSpec.class</code>, to indicate that the
+     * {@code DSAParameterSpec.class}, to indicate that the
      * parameters should be returned in an instance of the
-     * <code>DSAParameterSpec</code> class.
+     * {@code DSAParameterSpec} class.
      *
+     * @param <T> the type of the parameter specification to be returrned
      * @param paramSpec the specification class in which
      * the parameters should be returned.
      *
@@ -408,7 +463,7 @@ public class AlgorithmParameters {
 
     /**
      * Returns the parameters encoded in the specified scheme.
-     * If <code>format</code> is null, the
+     * If {@code format} is null, the
      * primary encoding format for parameters is used. The primary encoding
      * format is ASN.1, if an ASN.1 specification for these parameters
      * exists.

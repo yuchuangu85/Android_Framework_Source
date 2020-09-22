@@ -16,17 +16,22 @@
 
 package org.apache.harmony.dalvik.ddmc;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 
+import dalvik.annotation.optimization.FastNative;
+
 
 /**
  * This represents our connection to the DDM Server.
+ *
+ * @hide
  */
+@libcore.api.CorePlatformApi
 public class DdmServer {
-
-    public static final int CLIENT_PROTOCOL_VERSION = 1;
 
     private static HashMap<Integer,ChunkHandler> mHandlerMap =
         new HashMap<Integer,ChunkHandler>();
@@ -49,6 +54,7 @@ public class DdmServer {
      *
      * Throws an exception if the type already has a handler registered.
      */
+    @libcore.api.CorePlatformApi
     public static void registerHandler(int type, ChunkHandler handler) {
         if (handler == null) {
             throw new NullPointerException("handler == null");
@@ -77,6 +83,7 @@ public class DdmServer {
      * The application must call here after it finishes registering
      * handlers.
      */
+    @libcore.api.CorePlatformApi
     public static void registrationComplete() {
         // sync on mHandlerMap because it's convenient and makes a kind of
         // sense
@@ -92,17 +99,21 @@ public class DdmServer {
      *
      * Use this for "unsolicited" chunks.
      */
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
     public static void sendChunk(Chunk chunk) {
         nativeSendChunk(chunk.type, chunk.data, chunk.offset, chunk.length);
     }
 
     /* send a chunk to the DDM server */
+    @FastNative
     native private static void nativeSendChunk(int type, byte[] data,
         int offset, int length);
 
     /*
      * Called by the VM when the DDM server connects or disconnects.
      */
+    @UnsupportedAppUsage
     private static void broadcast(int event)
     {
         synchronized (mHandlerMap) {

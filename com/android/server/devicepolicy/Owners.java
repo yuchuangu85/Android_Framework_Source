@@ -17,11 +17,17 @@
 package com.android.server.devicepolicy;
 
 import android.annotation.Nullable;
+import android.app.ActivityManagerInternal;
+import android.app.AppOpsManagerInternal;
+import android.app.admin.SystemUpdateInfo;
 import android.app.admin.SystemUpdatePolicy;
 import android.content.ComponentName;
+import android.content.pm.PackageManager;
 import android.content.pm.PackageManagerInternal;
 import android.content.pm.UserInfo;
+import android.os.Binder;
 import android.os.Environment;
+import android.os.Process;
 import android.os.UserHandle;
 import android.os.UserManager;
 import android.os.UserManagerInternal;
@@ -31,9 +37,16 @@ import android.util.Log;
 import android.util.Pair;
 import android.util.Slog;
 import android.util.SparseArray;
+import android.util.SparseIntArray;
 import android.util.Xml;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.FastXmlSerializer;
+import com.android.internal.util.IndentingPrintWriter;
+import com.android.server.LocalServices;
+import com.android.server.wm.ActivityTaskManagerInternal;
+
+import libcore.io.IoUtils;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -43,17 +56,16 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
-import libcore.io.IoUtils;
-
 /**
- * Stores and restores state for the Device and Profile owners. By definition there can be
- * only one device owner, but there may be a profile owner for each user.
+ * Stores and restores state for the Device and Profile owners and related device-wide information.
+ * By definition there can be only one device owner, but there may be a profile owner for each user.
  *
  * <p>This class is thread safe, so individual methods can safely be called without locking.
  * However, caller must still synchronize on their side to ensure integrity between multiple calls.
@@ -65,6 +77,7 @@ class Owners {
 
     private static final String DEVICE_OWNER_XML_LEGACY = "device_owner.xml";
 
+    // XML storing device owner info, system update policy and pending OTA update information.
     private static final String DEVICE_OWNER_XML = "device_owner_2.xml";
 
     private static final String PROFILE_OWNER_XML = "profile_owner.xml";
@@ -73,6 +86,9 @@ class Owners {
 
     private static final String TAG_DEVICE_OWNER = "device-owner";
     private static final String TAG_DEVICE_INITIALIZER = "device-initializer";
+    private static final String TAG_SYSTEM_UPDATE_POLICY = "system-update-policy";
+    private static final String TAG_FREEZE_PERIOD_RECORD = "freeze-record";
+    private static final String TAG_PENDING_OTA_INFO = "pending-ota-info";
     private static final String TAG_PROFILE_OWNER = "profile-owner";
     // Holds "context" for device-owner, this must not be show up before device-owner.
     private static final String TAG_DEVICE_OWNER_CONTEXT = "device-owner-context";
@@ -84,12 +100,22 @@ class Owners {
     private static final String ATTR_REMOTE_BUGREPORT_HASH = "remoteBugreportHash";
     private static final String ATTR_USERID = "userId";
     private static final String ATTR_USER_RESTRICTIONS_MIGRATED = "userRestrictionsMigrated";
-
-    private static final String TAG_SYSTEM_UPDATE_POLICY = "system-update-policy";
+    private static final String ATTR_FREEZE_RECORD_START = "start";
+    private static final String ATTR_FREEZE_RECORD_END = "end";
+    // Legacy attribute, its presence would mean the profile owner associated with it is
+    // managing a profile on an organization-owned device.
+    private static final String ATTR_CAN_ACCESS_DEVICE_IDS = "canAccessDeviceIds";
+    // New attribute for profile owner of organization-owned device.
+    private static final String ATTR_PROFILE_OWNER_OF_ORG_OWNED_DEVICE =
+            "isPoOrganizationOwnedDevice";
 
     private final UserManager mUserManager;
     private final UserManagerInternal mUserManagerInternal;
     private final PackageManagerInternal mPackageManagerInternal;
+    private final ActivityTaskManagerInternal mActivityTaskManagerInternal;
+    private final ActivityManagerInternal mActivityManagerInternal;
+
+    private boolean mSystemReady;
 
     // Internal state for the device owner package.
     private OwnerInfo mDeviceOwner;
@@ -101,15 +127,38 @@ class Owners {
 
     // Local system update policy controllable by device owner.
     private SystemUpdatePolicy mSystemUpdatePolicy;
+    private LocalDate mSystemUpdateFreezeStart;
+    private LocalDate mSystemUpdateFreezeEnd;
+
+    // Pending OTA info if there is one.
+    @Nullable
+    private SystemUpdateInfo mSystemUpdateInfo;
 
     private final Object mLock = new Object();
+    private final Injector mInjector;
 
     public Owners(UserManager userManager,
             UserManagerInternal userManagerInternal,
-            PackageManagerInternal packageManagerInternal) {
+            PackageManagerInternal packageManagerInternal,
+            ActivityTaskManagerInternal activityTaskManagerInternal,
+            ActivityManagerInternal activitykManagerInternal) {
+        this(userManager, userManagerInternal, packageManagerInternal,
+                activityTaskManagerInternal, activitykManagerInternal, new Injector());
+    }
+
+    @VisibleForTesting
+    Owners(UserManager userManager,
+            UserManagerInternal userManagerInternal,
+            PackageManagerInternal packageManagerInternal,
+            ActivityTaskManagerInternal activityTaskManagerInternal,
+            ActivityManagerInternal activityManagerInternal,
+            Injector injector) {
         mUserManager = userManager;
         mUserManagerInternal = userManagerInternal;
         mPackageManagerInternal = packageManagerInternal;
+        mActivityTaskManagerInternal = activityTaskManagerInternal;
+        mActivityManagerInternal = activityManagerInternal;
+        mInjector = injector;
     }
 
     /**
@@ -118,7 +167,7 @@ class Owners {
     void load() {
         synchronized (mLock) {
             // First, try to read from the legacy file.
-            final File legacy = getLegacyConfigFileWithTestOverride();
+            final File legacy = getLegacyConfigFile();
 
             final List<UserInfo> users = mUserManager.getUsers(true);
 
@@ -155,6 +204,8 @@ class Owners {
                         getDeviceOwnerUserId()));
             }
             pushToPackageManagerLocked();
+            pushToActivityTaskManagerLocked();
+            pushToAppOpsLocked();
         }
     }
 
@@ -166,6 +217,15 @@ class Owners {
         mPackageManagerInternal.setDeviceAndProfileOwnerPackages(
                 mDeviceOwnerUserId, (mDeviceOwner != null ? mDeviceOwner.packageName : null),
                 po);
+    }
+
+    private void pushToActivityTaskManagerLocked() {
+        final int uid = mDeviceOwner != null ? mPackageManagerInternal.getPackageUid(
+                mDeviceOwner.packageName,
+                PackageManager.MATCH_ALL | PackageManager.MATCH_KNOWN_PACKAGES, mDeviceOwnerUserId)
+                : Process.INVALID_UID;
+        mActivityTaskManagerInternal.setDeviceOwnerUid(uid);
+        mActivityManagerInternal.setDeviceOwnerUid(uid);
     }
 
     String getDeviceOwnerPackageName() {
@@ -232,12 +292,18 @@ class Owners {
     void setDeviceOwnerWithRestrictionsMigrated(ComponentName admin, String ownerName, int userId,
             boolean userRestrictionsMigrated) {
         synchronized (mLock) {
+            // A device owner is allowed to access device identifiers. Even though this flag
+            // is not currently checked for device owner, it is set to true here so that it is
+            // semantically compatible with the meaning of this flag.
             mDeviceOwner = new OwnerInfo(ownerName, admin, userRestrictionsMigrated,
-                    /* remoteBugreportUri =*/ null, /* remoteBugreportHash =*/ null);
+                    /* remoteBugreportUri =*/ null, /* remoteBugreportHash =*/
+                    null, /* isOrganizationOwnedDevice =*/true);
             mDeviceOwnerUserId = userId;
 
             mUserManagerInternal.setDeviceManaged(true);
             pushToPackageManagerLocked();
+            pushToActivityTaskManagerLocked();
+            pushToAppOpsLocked();
         }
     }
 
@@ -248,6 +314,8 @@ class Owners {
 
             mUserManagerInternal.setDeviceManaged(false);
             pushToPackageManagerLocked();
+            pushToActivityTaskManagerLocked();
+            pushToAppOpsLocked();
         }
     }
 
@@ -256,9 +324,10 @@ class Owners {
             // For a newly set PO, there's no need for migration.
             mProfileOwners.put(userId, new OwnerInfo(ownerName, admin,
                     /* userRestrictionsMigrated =*/ true, /* remoteBugreportUri =*/ null,
-                    /* remoteBugreportHash =*/ null));
+                    /* remoteBugreportHash =*/ null, /* isOrganizationOwnedDevice =*/ false));
             mUserManagerInternal.setUserManaged(userId, true);
             pushToPackageManagerLocked();
+            pushToAppOpsLocked();
         }
     }
 
@@ -267,6 +336,34 @@ class Owners {
             mProfileOwners.remove(userId);
             mUserManagerInternal.setUserManaged(userId, false);
             pushToPackageManagerLocked();
+            pushToAppOpsLocked();
+        }
+    }
+
+    void transferProfileOwner(ComponentName target, int userId) {
+        synchronized (mLock) {
+            final OwnerInfo ownerInfo = mProfileOwners.get(userId);
+            final OwnerInfo newOwnerInfo = new OwnerInfo(target.getPackageName(), target,
+                    ownerInfo.userRestrictionsMigrated, ownerInfo.remoteBugreportUri,
+                    ownerInfo.remoteBugreportHash, /* isOrganizationOwnedDevice =*/
+                    ownerInfo.isOrganizationOwnedDevice);
+            mProfileOwners.put(userId, newOwnerInfo);
+            pushToPackageManagerLocked();
+            pushToAppOpsLocked();
+        }
+    }
+
+    void transferDeviceOwnership(ComponentName target) {
+        synchronized (mLock) {
+            // We don't set a name because it's not used anyway.
+            // See DevicePolicyManagerService#getDeviceOwnerName
+            mDeviceOwner = new OwnerInfo(null, target,
+                    mDeviceOwner.userRestrictionsMigrated, mDeviceOwner.remoteBugreportUri,
+                    mDeviceOwner.remoteBugreportHash, /* isOrganizationOwnedDevice =*/
+                    mDeviceOwner.isOrganizationOwnedDevice);
+            pushToPackageManagerLocked();
+            pushToActivityTaskManagerLocked();
+            pushToAppOpsLocked();
         }
     }
 
@@ -288,6 +385,17 @@ class Owners {
         synchronized (mLock) {
             OwnerInfo profileOwner = mProfileOwners.get(userId);
             return profileOwner != null ? profileOwner.packageName : null;
+        }
+    }
+
+    /**
+     * Returns true if {@code userId} has a profile owner and that profile owner is on an
+     * organization-owned device, as indicated by the provisioning flow.
+     */
+    boolean isProfileOwnerOfOrganizationOwnedDevice(int userId) {
+        synchronized (mLock) {
+            OwnerInfo profileOwner = mProfileOwners.get(userId);
+            return profileOwner != null ? profileOwner.isOrganizationOwnedDevice : false;
         }
     }
 
@@ -313,6 +421,47 @@ class Owners {
         synchronized (mLock) {
             mSystemUpdatePolicy = null;
         }
+    }
+
+    Pair<LocalDate, LocalDate> getSystemUpdateFreezePeriodRecord() {
+        synchronized (mLock) {
+            return new Pair<>(mSystemUpdateFreezeStart, mSystemUpdateFreezeEnd);
+        }
+    }
+
+    String getSystemUpdateFreezePeriodRecordAsString() {
+        StringBuilder freezePeriodRecord = new StringBuilder();
+        freezePeriodRecord.append("start: ");
+        if (mSystemUpdateFreezeStart != null) {
+            freezePeriodRecord.append(mSystemUpdateFreezeStart.toString());
+        } else {
+            freezePeriodRecord.append("null");
+        }
+        freezePeriodRecord.append("; end: ");
+        if (mSystemUpdateFreezeEnd != null) {
+            freezePeriodRecord.append(mSystemUpdateFreezeEnd.toString());
+        } else {
+            freezePeriodRecord.append("null");
+        }
+        return freezePeriodRecord.toString();
+    }
+
+    /**
+     * Returns {@code true} if the freeze period record is changed, {@code false} otherwise.
+     */
+    boolean setSystemUpdateFreezePeriodRecord(LocalDate start, LocalDate end) {
+        boolean changed = false;
+        synchronized (mLock) {
+            if (!Objects.equals(mSystemUpdateFreezeStart, start)) {
+                mSystemUpdateFreezeStart = start;
+                changed = true;
+            }
+            if (!Objects.equals(mSystemUpdateFreezeEnd, end)) {
+                mSystemUpdateFreezeEnd = end;
+                changed = true;
+            }
+        }
+        return changed;
     }
 
     boolean hasDeviceOwner() {
@@ -385,6 +534,21 @@ class Owners {
         }
     }
 
+    /** Sets the indicator that the profile owner manages an organization-owned device,
+     * then write to file. */
+    void markProfileOwnerOfOrganizationOwnedDevice(int userId) {
+        synchronized (mLock) {
+            OwnerInfo profileOwner = mProfileOwners.get(userId);
+            if (profileOwner != null) {
+                profileOwner.isOrganizationOwnedDevice = true;
+            } else {
+                Slog.e(TAG, String.format(
+                        "No profile owner for user %d to set as org-owned.", userId));
+            }
+            writeProfileOwner(userId);
+        }
+    }
+
     private boolean readLegacyOwnerFileLocked(File file) {
         if (!file.exists()) {
             // Already migrated or the device has no owners.
@@ -406,7 +570,7 @@ class Owners {
                     String packageName = parser.getAttributeValue(null, ATTR_PACKAGE);
                     mDeviceOwner = new OwnerInfo(name, packageName,
                             /* userRestrictionsMigrated =*/ false, /* remoteBugreportUri =*/ null,
-                            /* remoteBugreportHash =*/ null);
+                            /* remoteBugreportHash =*/ null, /* isOrganizationOwnedDevice =*/ true);
                     mDeviceOwnerUserId = UserHandle.USER_SYSTEM;
                 } else if (tag.equals(TAG_DEVICE_INITIALIZER)) {
                     // Deprecated tag
@@ -422,7 +586,8 @@ class Owners {
                                 profileOwnerComponentStr);
                         if (admin != null) {
                             profileOwnerInfo = new OwnerInfo(profileOwnerName, admin,
-                                /* userRestrictionsMigrated =*/ false, null, null);
+                                    /* userRestrictionsMigrated =*/ false, null,
+                                    null, /* isOrganizationOwnedDevice =*/ false);
                         } else {
                             // This shouldn't happen but switch from package name -> component name
                             // might have written bad device owner files. b/17652534
@@ -433,7 +598,8 @@ class Owners {
                     if (profileOwnerInfo == null) {
                         profileOwnerInfo = new OwnerInfo(profileOwnerName, profileOwnerPackageName,
                                 /* userRestrictionsMigrated =*/ false,
-                                /* remoteBugreportUri =*/ null, /* remoteBugreportHash =*/ null);
+                                /* remoteBugreportUri =*/ null, /* remoteBugreportHash =*/
+                                null, /* isOrganizationOwnedDevice =*/ false);
                     }
                     mProfileOwners.put(userId, profileOwnerInfo);
                 } else if (TAG_SYSTEM_UPDATE_POLICY.equals(tag)) {
@@ -465,6 +631,74 @@ class Owners {
                 Log.d(TAG, "Writing to profile owner file for user " + userId);
             }
             new ProfileOwnerReadWriter(userId).writeToFileLocked();
+        }
+    }
+
+    /**
+     * Saves the given {@link SystemUpdateInfo} if it is different from the existing one, or if
+     * none exists.
+     *
+     * @return Whether the saved system update information has changed.
+     */
+    boolean saveSystemUpdateInfo(@Nullable SystemUpdateInfo newInfo) {
+        synchronized (mLock) {
+            // Check if we already have the same update information.
+            if (Objects.equals(newInfo, mSystemUpdateInfo)) {
+                return false;
+            }
+
+            mSystemUpdateInfo = newInfo;
+            new DeviceOwnerReadWriter().writeToFileLocked();
+            return true;
+        }
+    }
+
+    @Nullable
+    public SystemUpdateInfo getSystemUpdateInfo() {
+        synchronized (mLock) {
+            return mSystemUpdateInfo;
+        }
+    }
+
+    void pushToAppOpsLocked() {
+        if (!mSystemReady) {
+            return;
+        }
+        final long ident = Binder.clearCallingIdentity();
+        try {
+            final SparseIntArray owners = new SparseIntArray();
+            if (mDeviceOwner != null) {
+                final int uid = mPackageManagerInternal.getPackageUid(mDeviceOwner.packageName,
+                        PackageManager.MATCH_ALL | PackageManager.MATCH_KNOWN_PACKAGES,
+                        mDeviceOwnerUserId);
+                if (uid >= 0) {
+                    owners.put(mDeviceOwnerUserId, uid);
+                }
+            }
+            if (mProfileOwners != null) {
+                for (int poi = mProfileOwners.size() - 1; poi >= 0; poi--) {
+                    final int uid = mPackageManagerInternal.getPackageUid(
+                            mProfileOwners.valueAt(poi).packageName,
+                            PackageManager.MATCH_ALL | PackageManager.MATCH_KNOWN_PACKAGES,
+                            mProfileOwners.keyAt(poi));
+                    if (uid >= 0) {
+                        owners.put(mProfileOwners.keyAt(poi), uid);
+                    }
+                }
+            }
+            AppOpsManagerInternal appops = LocalServices.getService(AppOpsManagerInternal.class);
+            if (appops != null) {
+                appops.setDeviceAndProfileOwners(owners.size() > 0 ? owners : null);
+            }
+        } finally {
+            Binder.restoreCallingIdentity(ident);
+        }
+    }
+
+    public void systemReady() {
+        synchronized (mLock) {
+            mSystemReady = true;
+            pushToAppOpsLocked();
         }
     }
 
@@ -573,7 +807,7 @@ class Owners {
                     }
                 }
             } catch (XmlPullParserException | IOException e) {
-                Slog.e(TAG, "Error parsing device-owner file", e);
+                Slog.e(TAG, "Error parsing owners information file", e);
             } finally {
                 IoUtils.closeQuietly(input);
             }
@@ -587,12 +821,13 @@ class Owners {
     private class DeviceOwnerReadWriter extends FileReadWriter {
 
         protected DeviceOwnerReadWriter() {
-            super(getDeviceOwnerFileWithTestOverride());
+            super(getDeviceOwnerFile());
         }
 
         @Override
         boolean shouldWrite() {
-            return (mDeviceOwner != null) || (mSystemUpdatePolicy != null);
+            return (mDeviceOwner != null) || (mSystemUpdatePolicy != null)
+                    || (mSystemUpdateInfo != null);
         }
 
         @Override
@@ -608,6 +843,22 @@ class Owners {
                 out.startTag(null, TAG_SYSTEM_UPDATE_POLICY);
                 mSystemUpdatePolicy.saveToXml(out);
                 out.endTag(null, TAG_SYSTEM_UPDATE_POLICY);
+            }
+
+            if (mSystemUpdateInfo != null) {
+                mSystemUpdateInfo.writeToXml(out, TAG_PENDING_OTA_INFO);
+            }
+
+            if (mSystemUpdateFreezeStart != null || mSystemUpdateFreezeEnd != null) {
+                out.startTag(null, TAG_FREEZE_PERIOD_RECORD);
+                if (mSystemUpdateFreezeStart != null) {
+                    out.attribute(null, ATTR_FREEZE_RECORD_START,
+                            mSystemUpdateFreezeStart.toString());
+                }
+                if (mSystemUpdateFreezeEnd != null) {
+                    out.attribute(null, ATTR_FREEZE_RECORD_END, mSystemUpdateFreezeEnd.toString());
+                }
+                out.endTag(null, TAG_FREEZE_PERIOD_RECORD);
             }
         }
 
@@ -637,6 +888,22 @@ class Owners {
                 case TAG_SYSTEM_UPDATE_POLICY:
                     mSystemUpdatePolicy = SystemUpdatePolicy.restoreFromXml(parser);
                     break;
+                case TAG_PENDING_OTA_INFO:
+                    mSystemUpdateInfo = SystemUpdateInfo.readFromXml(parser);
+                    break;
+                case TAG_FREEZE_PERIOD_RECORD:
+                    String startDate = parser.getAttributeValue(null, ATTR_FREEZE_RECORD_START);
+                    String endDate = parser.getAttributeValue(null, ATTR_FREEZE_RECORD_END);
+                    if (startDate != null && endDate != null) {
+                        mSystemUpdateFreezeStart = LocalDate.parse(startDate);
+                        mSystemUpdateFreezeEnd = LocalDate.parse(endDate);
+                        if (mSystemUpdateFreezeStart.isAfter(mSystemUpdateFreezeEnd)) {
+                            Slog.e(TAG, "Invalid system update freeze record loaded");
+                            mSystemUpdateFreezeStart = null;
+                            mSystemUpdateFreezeEnd = null;
+                        }
+                    }
+                    break;
                 default:
                     Slog.e(TAG, "Unexpected tag: " + tag);
                     return false;
@@ -650,7 +917,7 @@ class Owners {
         private final int mUserId;
 
         ProfileOwnerReadWriter(int userId) {
-            super(getProfileOwnerFileWithTestOverride(userId));
+            super(getProfileOwnerFile(userId));
             mUserId = userId;
         }
 
@@ -692,25 +959,30 @@ class Owners {
         public boolean userRestrictionsMigrated;
         public String remoteBugreportUri;
         public String remoteBugreportHash;
+        public boolean isOrganizationOwnedDevice;
 
         public OwnerInfo(String name, String packageName, boolean userRestrictionsMigrated,
-                String remoteBugreportUri, String remoteBugreportHash) {
+                String remoteBugreportUri, String remoteBugreportHash,
+                boolean isOrganizationOwnedDevice) {
             this.name = name;
             this.packageName = packageName;
             this.admin = new ComponentName(packageName, "");
             this.userRestrictionsMigrated = userRestrictionsMigrated;
             this.remoteBugreportUri = remoteBugreportUri;
             this.remoteBugreportHash = remoteBugreportHash;
+            this.isOrganizationOwnedDevice = isOrganizationOwnedDevice;
         }
 
         public OwnerInfo(String name, ComponentName admin, boolean userRestrictionsMigrated,
-                String remoteBugreportUri, String remoteBugreportHash) {
+                String remoteBugreportUri, String remoteBugreportHash,
+                boolean isOrganizationOwnedDevice) {
             this.name = name;
             this.admin = admin;
             this.packageName = admin.getPackageName();
             this.userRestrictionsMigrated = userRestrictionsMigrated;
             this.remoteBugreportUri = remoteBugreportUri;
             this.remoteBugreportHash = remoteBugreportHash;
+            this.isOrganizationOwnedDevice = isOrganizationOwnedDevice;
         }
 
         public void writeToXml(XmlSerializer out, String tag) throws IOException {
@@ -730,6 +1002,10 @@ class Owners {
             if (remoteBugreportHash != null) {
                 out.attribute(null, ATTR_REMOTE_BUGREPORT_HASH, remoteBugreportHash);
             }
+            if (isOrganizationOwnedDevice) {
+                out.attribute(null, ATTR_PROFILE_OWNER_OF_ORG_OWNED_DEVICE,
+                        String.valueOf(isOrganizationOwnedDevice));
+            }
             out.endTag(null, tag);
         }
 
@@ -746,13 +1022,21 @@ class Owners {
                     ATTR_REMOTE_BUGREPORT_URI);
             final String remoteBugreportHash = parser.getAttributeValue(null,
                     ATTR_REMOTE_BUGREPORT_HASH);
+            final String canAccessDeviceIdsStr =
+                    parser.getAttributeValue(null, ATTR_CAN_ACCESS_DEVICE_IDS);
+            final boolean canAccessDeviceIds =
+                    ("true".equals(canAccessDeviceIdsStr));
+            final String isOrgOwnedDeviceStr =
+                    parser.getAttributeValue(null, ATTR_PROFILE_OWNER_OF_ORG_OWNED_DEVICE);
+            final boolean isOrgOwnedDevice =
+                    ("true".equals(isOrgOwnedDeviceStr)) | canAccessDeviceIds;
 
             // Has component name?  If so, return [name, component]
             if (componentName != null) {
                 final ComponentName admin = ComponentName.unflattenFromString(componentName);
                 if (admin != null) {
                     return new OwnerInfo(name, admin, userRestrictionsMigrated,
-                            remoteBugreportUri, remoteBugreportHash);
+                            remoteBugreportUri, remoteBugreportHash, isOrgOwnedDevice);
                 } else {
                     // This shouldn't happen but switch from package name -> component name
                     // might have written bad device owner files. b/17652534
@@ -763,54 +1047,86 @@ class Owners {
 
             // Else, build with [name, package]
             return new OwnerInfo(name, packageName, userRestrictionsMigrated, remoteBugreportUri,
-                    remoteBugreportHash);
+                    remoteBugreportHash, isOrgOwnedDevice);
         }
 
-        public void dump(String prefix, PrintWriter pw) {
-            pw.println(prefix + "admin=" + admin);
-            pw.println(prefix + "name=" + name);
-            pw.println(prefix + "package=" + packageName);
+        public void dump(IndentingPrintWriter pw) {
+            pw.println("admin=" + admin);
+            pw.println("name=" + name);
+            pw.println("package=" + packageName);
+            pw.println("isOrganizationOwnedDevice=" + isOrganizationOwnedDevice);
         }
     }
 
-    public void dump(String prefix, PrintWriter pw) {
+    public void dump(IndentingPrintWriter pw) {
         boolean needBlank = false;
         if (mDeviceOwner != null) {
-            pw.println(prefix + "Device Owner: ");
-            mDeviceOwner.dump(prefix + "  ", pw);
-            pw.println(prefix + "  User ID: " + mDeviceOwnerUserId);
+            pw.println("Device Owner: ");
+            pw.increaseIndent();
+            mDeviceOwner.dump(pw);
+            pw.println("User ID: " + mDeviceOwnerUserId);
+            pw.decreaseIndent();
             needBlank = true;
         }
         if (mSystemUpdatePolicy != null) {
             if (needBlank) {
-                needBlank = false;
                 pw.println();
             }
-            pw.println(prefix + "System Update Policy: " + mSystemUpdatePolicy);
+            pw.println("System Update Policy: " + mSystemUpdatePolicy);
             needBlank = true;
         }
         if (mProfileOwners != null) {
             for (Map.Entry<Integer, OwnerInfo> entry : mProfileOwners.entrySet()) {
                 if (needBlank) {
-                    needBlank = false;
                     pw.println();
                 }
-                pw.println(prefix + "Profile Owner (User " + entry.getKey() + "): ");
-                entry.getValue().dump(prefix + "  ", pw);
+                pw.println("Profile Owner (User " + entry.getKey() + "): ");
+                pw.increaseIndent();
+                entry.getValue().dump(pw);
+                pw.decreaseIndent();
                 needBlank = true;
             }
         }
+        if (mSystemUpdateInfo != null) {
+            if (needBlank) {
+                pw.println();
+            }
+            pw.println("Pending System Update: " + mSystemUpdateInfo);
+            needBlank = true;
+        }
+        if (mSystemUpdateFreezeStart != null || mSystemUpdateFreezeEnd != null) {
+            if (needBlank) {
+                pw.println();
+            }
+            pw.println("System update freeze record: "
+                    + getSystemUpdateFreezePeriodRecordAsString());
+            needBlank = true;
+        }
     }
 
-    File getLegacyConfigFileWithTestOverride() {
-        return new File(Environment.getDataSystemDirectory(), DEVICE_OWNER_XML_LEGACY);
+    @VisibleForTesting
+    File getLegacyConfigFile() {
+        return new File(mInjector.environmentGetDataSystemDirectory(), DEVICE_OWNER_XML_LEGACY);
     }
 
-    File getDeviceOwnerFileWithTestOverride() {
-        return new File(Environment.getDataSystemDirectory(), DEVICE_OWNER_XML);
+    @VisibleForTesting
+    File getDeviceOwnerFile() {
+        return new File(mInjector.environmentGetDataSystemDirectory(), DEVICE_OWNER_XML);
     }
 
-    File getProfileOwnerFileWithTestOverride(int userId) {
-        return new File(Environment.getUserSystemDirectory(userId), PROFILE_OWNER_XML);
+    @VisibleForTesting
+    File getProfileOwnerFile(int userId) {
+        return new File(mInjector.environmentGetUserSystemDirectory(userId), PROFILE_OWNER_XML);
+    }
+
+    @VisibleForTesting
+    public static class Injector {
+        File environmentGetDataSystemDirectory() {
+            return Environment.getDataSystemDirectory();
+        }
+
+        File environmentGetUserSystemDirectory(int userId) {
+            return Environment.getUserSystemDirectory(userId);
+        }
     }
 }

@@ -16,6 +16,7 @@
 
 package android.provider;
 
+import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.content.Context;
 
@@ -56,6 +57,8 @@ public abstract class SearchIndexableData {
     /**
      * The key for the data. This is application specific. Should be unique per data as the data
      * should be able to be retrieved by the key.
+     * <p/>
+     * This is required for indexing to work.
      */
     public String key;
 
@@ -137,6 +140,7 @@ public abstract class SearchIndexableData {
         context = ctx;
     }
 
+    @NonNull
     @Override
     public String toString() {
         final StringBuilder sb = new StringBuilder();

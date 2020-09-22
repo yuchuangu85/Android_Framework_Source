@@ -16,10 +16,13 @@
 
 package android.webkit;
 
+import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+
+import java.util.List;
 
 /**
  * This is the main entry-point into the WebView back end implementations, which the WebView
@@ -74,6 +77,26 @@ public interface WebViewFactoryProvider {
          * {@link android.webkit.WebChromeClient.FileChooserParams#parseResult(int, Intent)}
          */
         Uri[] parseFileChooserResult(int resultCode, Intent intent);
+
+        /**
+         * Implement the API method
+         * {@link android.webkit.WebView#startSafeBrowsing(Context , ValueCallback<Boolean>)}
+         */
+        void initSafeBrowsing(Context context, ValueCallback<Boolean> callback);
+
+        /**
+        * Implement the API method
+        * {@link android.webkit.WebView#setSafeBrowsingWhitelist(List<String>,
+        * ValueCallback<Boolean>)}
+        */
+        void setSafeBrowsingWhitelist(List<String> hosts, ValueCallback<Boolean> callback);
+
+        /**
+         * Implement the API method
+         * {@link android.webkit.WebView#getSafeBrowsingPrivacyPolicyUrl()}
+         */
+        @NonNull
+        Uri getSafeBrowsingPrivacyPolicyUrl();
     }
 
     Statics getStatics();
@@ -106,9 +129,18 @@ public interface WebViewFactoryProvider {
      * Gets the TokenBindingService instance for this WebView implementation. The
      * implementation must return the same instance on subsequent calls.
      *
-     * @return the TokenBindingService instance
+     * @deprecated this method only returns {@code null}
+     * @return the TokenBindingService instance (which is always {@code null})
      */
     TokenBindingService getTokenBindingService();
+
+    /**
+     * Gets the TracingController instance for this WebView implementation. The
+     * implementation must return the same instance on subsequent calls.
+     *
+     * @return the TracingController instance
+     */
+    TracingController getTracingController();
 
     /**
      * Gets the ServiceWorkerController instance for this WebView implementation. The
@@ -141,4 +173,19 @@ public interface WebViewFactoryProvider {
      * @return the singleton WebViewDatabase instance
      */
     WebViewDatabase getWebViewDatabase(Context context);
+
+    /**
+     * Gets the singleton PacProcessor instance.
+     * @return the PacProcessor instance
+     */
+    @NonNull
+    default PacProcessor getPacProcessor() {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
+     * Gets the classloader used to load internal WebView implementation classes. This interface
+     * should only be used by the WebView Support Library.
+     */
+    ClassLoader getWebViewClassLoader();
 }

@@ -17,13 +17,12 @@
 package android.widget;
 
 import android.R;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Rect;
-import android.os.Handler;
-import android.os.Message;
 import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
@@ -106,14 +105,17 @@ public class SlidingDrawer extends ViewGroup {
 
     private final Rect mFrame = new Rect();
     private final Rect mInvalidate = new Rect();
+    @UnsupportedAppUsage
     private boolean mTracking;
     private boolean mLocked;
 
+    @UnsupportedAppUsage
     private VelocityTracker mVelocityTracker;
 
     private boolean mVertical;
     private boolean mExpanded;
     private int mBottomOffset;
+    @UnsupportedAppUsage
     private int mTopOffset;
     private int mHandleHeight;
     private int mHandleWidth;
@@ -127,6 +129,7 @@ public class SlidingDrawer extends ViewGroup {
     private float mAnimationPosition;
     private long mAnimationLastTime;
     private long mCurrentAnimationTime;
+    @UnsupportedAppUsage
     private int mTouchDelta;
     private boolean mAnimating;
     private boolean mAllowSingleTap;
@@ -215,6 +218,8 @@ public class SlidingDrawer extends ViewGroup {
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, R.styleable.SlidingDrawer, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.SlidingDrawer,
+                attrs, a, defStyleAttr, defStyleRes);
 
         int orientation = a.getInt(R.styleable.SlidingDrawer_orientation, ORIENTATION_VERTICAL);
         mVertical = orientation == ORIENTATION_VERTICAL;
@@ -475,19 +480,19 @@ public class SlidingDrawer extends ViewGroup {
                                 playSoundEffect(SoundEffectConstants.CLICK);
 
                                 if (mExpanded) {
-                                    animateClose(vertical ? top : left);
+                                    animateClose(vertical ? top : left, true);
                                 } else {
-                                    animateOpen(vertical ? top : left);
+                                    animateOpen(vertical ? top : left, true);
                                 }
                             } else {
-                                performFling(vertical ? top : left, velocity, false);
+                                performFling(vertical ? top : left, velocity, false, true);
                             }
 
                         } else {
-                            performFling(vertical ? top : left, velocity, false);
+                            performFling(vertical ? top : left, velocity, false, true);
                         }
                     } else {
-                        performFling(vertical ? top : left, velocity, false);
+                        performFling(vertical ? top : left, velocity, false, true);
                     }
                 }
                 break;
@@ -497,17 +502,18 @@ public class SlidingDrawer extends ViewGroup {
         return mTracking || mAnimating || super.onTouchEvent(event);
     }
 
-    private void animateClose(int position) {
+    private void animateClose(int position, boolean notifyScrollListener) {
         prepareTracking(position);
-        performFling(position, mMaximumAcceleration, true);
+        performFling(position, mMaximumAcceleration, true, notifyScrollListener);
     }
 
-    private void animateOpen(int position) {
+    private void animateOpen(int position, boolean notifyScrollListener) {
         prepareTracking(position);
-        performFling(position, -mMaximumAcceleration, true);
+        performFling(position, -mMaximumAcceleration, true, notifyScrollListener);
     }
 
-    private void performFling(int position, float velocity, boolean always) {
+    private void performFling(int position, float velocity, boolean always,
+            boolean notifyScrollListener) {
         mAnimationPosition = position;
         mAnimatedVelocity = velocity;
 
@@ -553,9 +559,10 @@ public class SlidingDrawer extends ViewGroup {
         mAnimating = true;
         removeCallbacks(mSlidingRunnable);
         postDelayed(mSlidingRunnable, ANIMATION_FRAME_DURATION);
-        stopTracking();
+        stopTracking(notifyScrollListener);
     }
 
+    @UnsupportedAppUsage
     private void prepareTracking(int position) {
         mTracking = true;
         mVelocityTracker = VelocityTracker.obtain();
@@ -647,6 +654,7 @@ public class SlidingDrawer extends ViewGroup {
         }
     }
 
+    @UnsupportedAppUsage
     private void prepareContent() {
         if (mAnimating) {
             return;
@@ -681,11 +689,11 @@ public class SlidingDrawer extends ViewGroup {
         content.setVisibility(View.GONE);        
     }
 
-    private void stopTracking() {
+    private void stopTracking(boolean notifyScrollListener) {
         mHandle.setPressed(false);
         mTracking = false;
 
-        if (mOnDrawerScrollListener != null) {
+        if (notifyScrollListener && mOnDrawerScrollListener != null) {
             mOnDrawerScrollListener.onScrollEnded();
         }
 
@@ -802,7 +810,7 @@ public class SlidingDrawer extends ViewGroup {
         if (scrollListener != null) {
             scrollListener.onScrollStarted();
         }
-        animateClose(mVertical ? mHandle.getTop() : mHandle.getLeft());
+        animateClose(mVertical ? mHandle.getTop() : mHandle.getLeft(), false);
 
         if (scrollListener != null) {
             scrollListener.onScrollEnded();
@@ -824,7 +832,7 @@ public class SlidingDrawer extends ViewGroup {
         if (scrollListener != null) {
             scrollListener.onScrollStarted();
         }
-        animateOpen(mVertical ? mHandle.getTop() : mHandle.getLeft());
+        animateOpen(mVertical ? mHandle.getTop() : mHandle.getLeft(), false);
 
         sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
 

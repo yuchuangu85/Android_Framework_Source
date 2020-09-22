@@ -17,6 +17,7 @@ package android.media;
 
 import android.annotation.NonNull;
 import android.annotation.StringDef;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentResolver;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -33,6 +34,7 @@ import android.util.SparseArray;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -44,34 +46,61 @@ public final class MediaMetadata implements Parcelable {
     /**
      * @hide
      */
-    @StringDef({METADATA_KEY_TITLE, METADATA_KEY_ARTIST, METADATA_KEY_ALBUM, METADATA_KEY_AUTHOR,
-            METADATA_KEY_WRITER, METADATA_KEY_COMPOSER, METADATA_KEY_COMPILATION,
-            METADATA_KEY_DATE, METADATA_KEY_GENRE, METADATA_KEY_ALBUM_ARTIST, METADATA_KEY_ART_URI,
-            METADATA_KEY_ALBUM_ART_URI, METADATA_KEY_DISPLAY_TITLE, METADATA_KEY_DISPLAY_SUBTITLE,
-            METADATA_KEY_DISPLAY_DESCRIPTION, METADATA_KEY_DISPLAY_ICON_URI,
-            METADATA_KEY_MEDIA_ID})
+    @StringDef(prefix = { "METADATA_KEY_" }, value = {
+            METADATA_KEY_TITLE,
+            METADATA_KEY_ARTIST,
+            METADATA_KEY_ALBUM,
+            METADATA_KEY_AUTHOR,
+            METADATA_KEY_WRITER,
+            METADATA_KEY_COMPOSER,
+            METADATA_KEY_COMPILATION,
+            METADATA_KEY_DATE,
+            METADATA_KEY_GENRE,
+            METADATA_KEY_ALBUM_ARTIST,
+            METADATA_KEY_ART_URI,
+            METADATA_KEY_ALBUM_ART_URI,
+            METADATA_KEY_DISPLAY_TITLE,
+            METADATA_KEY_DISPLAY_SUBTITLE,
+            METADATA_KEY_DISPLAY_DESCRIPTION,
+            METADATA_KEY_DISPLAY_ICON_URI,
+            METADATA_KEY_MEDIA_ID,
+            METADATA_KEY_MEDIA_URI,
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface TextKey {}
 
     /**
      * @hide
      */
-    @StringDef({METADATA_KEY_DURATION, METADATA_KEY_YEAR, METADATA_KEY_TRACK_NUMBER,
-            METADATA_KEY_NUM_TRACKS, METADATA_KEY_DISC_NUMBER})
+    @StringDef(prefix = { "METADATA_KEY_" }, value = {
+            METADATA_KEY_DURATION,
+            METADATA_KEY_YEAR,
+            METADATA_KEY_TRACK_NUMBER,
+            METADATA_KEY_NUM_TRACKS,
+            METADATA_KEY_DISC_NUMBER,
+            METADATA_KEY_BT_FOLDER_TYPE,
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface LongKey {}
 
     /**
      * @hide
      */
-    @StringDef({METADATA_KEY_ART, METADATA_KEY_ALBUM_ART, METADATA_KEY_DISPLAY_ICON})
+    @StringDef(prefix = { "METADATA_KEY_" }, value = {
+            METADATA_KEY_ART,
+            METADATA_KEY_ALBUM_ART,
+            METADATA_KEY_DISPLAY_ICON,
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface BitmapKey {}
 
     /**
      * @hide
      */
-    @StringDef({METADATA_KEY_USER_RATING, METADATA_KEY_RATING})
+    @StringDef(prefix = { "METADATA_KEY_" }, value = {
+            METADATA_KEY_USER_RATING,
+            METADATA_KEY_RATING,
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface RatingKey {}
 
@@ -221,16 +250,16 @@ public final class MediaMetadata implements Parcelable {
      * second line for media described by this metadata this should be preferred
      * to other fields if present.
      */
-    public static final String METADATA_KEY_DISPLAY_SUBTITLE
-            = "android.media.metadata.DISPLAY_SUBTITLE";
+    public static final String METADATA_KEY_DISPLAY_SUBTITLE =
+            "android.media.metadata.DISPLAY_SUBTITLE";
 
     /**
      * A description that is suitable for display to the user. When displaying
      * more information for media described by this metadata this should be
      * preferred to other fields if present.
      */
-    public static final String METADATA_KEY_DISPLAY_DESCRIPTION
-            = "android.media.metadata.DISPLAY_DESCRIPTION";
+    public static final String METADATA_KEY_DISPLAY_DESCRIPTION =
+            "android.media.metadata.DISPLAY_DESCRIPTION";
 
     /**
      * An icon or thumbnail that is suitable for display to the user. When
@@ -241,8 +270,8 @@ public final class MediaMetadata implements Parcelable {
      * if it is too large. For higher resolution artwork
      * {@link #METADATA_KEY_DISPLAY_ICON_URI} should be used instead.
      */
-    public static final String METADATA_KEY_DISPLAY_ICON
-            = "android.media.metadata.DISPLAY_ICON";
+    public static final String METADATA_KEY_DISPLAY_ICON =
+            "android.media.metadata.DISPLAY_ICON";
 
     /**
      * A Uri formatted String for an icon or thumbnail that is suitable for
@@ -256,8 +285,8 @@ public final class MediaMetadata implements Parcelable {
      * {@link ContentResolver#EXTRA_SIZE} for retrieving scaled artwork through
      * {@link ContentResolver#openTypedAssetFileDescriptor(Uri, String, Bundle)}.
      */
-    public static final String METADATA_KEY_DISPLAY_ICON_URI
-            = "android.media.metadata.DISPLAY_ICON_URI";
+    public static final String METADATA_KEY_DISPLAY_ICON_URI =
+            "android.media.metadata.DISPLAY_ICON_URI";
 
     /**
      * A String key for identifying the content. This value is specific to the
@@ -268,6 +297,31 @@ public final class MediaMetadata implements Parcelable {
      * the same app.
      */
     public static final String METADATA_KEY_MEDIA_ID = "android.media.metadata.MEDIA_ID";
+
+    /**
+     * A Uri formatted String representing the content. This value is specific to the
+     * service providing the content. It may be used with
+     * {@link MediaController.TransportControls#playFromUri(Uri, Bundle)}
+     * to initiate playback when provided by a {@link MediaBrowser} connected to
+     * the same app.
+     */
+    public static final String METADATA_KEY_MEDIA_URI = "android.media.metadata.MEDIA_URI";
+
+    /**
+     * The bluetooth folder type of the media specified in the section 6.10.2.2 of the Bluetooth
+     * AVRCP 1.5. It should be one of the following:
+     * <ul>
+     * <li>{@link MediaDescription#BT_FOLDER_TYPE_MIXED}</li>
+     * <li>{@link MediaDescription#BT_FOLDER_TYPE_TITLES}</li>
+     * <li>{@link MediaDescription#BT_FOLDER_TYPE_ALBUMS}</li>
+     * <li>{@link MediaDescription#BT_FOLDER_TYPE_ARTISTS}</li>
+     * <li>{@link MediaDescription#BT_FOLDER_TYPE_GENRES}</li>
+     * <li>{@link MediaDescription#BT_FOLDER_TYPE_PLAYLISTS}</li>
+     * <li>{@link MediaDescription#BT_FOLDER_TYPE_YEARS}</li>
+     * </ul>
+     */
+    public static final String METADATA_KEY_BT_FOLDER_TYPE =
+            "android.media.metadata.BT_FOLDER_TYPE";
 
     private static final @TextKey String[] PREFERRED_DESCRIPTION_ORDER = {
             METADATA_KEY_TITLE,
@@ -326,6 +380,9 @@ public final class MediaMetadata implements Parcelable {
         METADATA_KEYS_TYPE.put(METADATA_KEY_DISPLAY_DESCRIPTION, METADATA_TYPE_TEXT);
         METADATA_KEYS_TYPE.put(METADATA_KEY_DISPLAY_ICON, METADATA_TYPE_BITMAP);
         METADATA_KEYS_TYPE.put(METADATA_KEY_DISPLAY_ICON_URI, METADATA_TYPE_TEXT);
+        METADATA_KEYS_TYPE.put(METADATA_KEY_BT_FOLDER_TYPE, METADATA_TYPE_LONG);
+        METADATA_KEYS_TYPE.put(METADATA_KEY_MEDIA_ID, METADATA_TYPE_TEXT);
+        METADATA_KEYS_TYPE.put(METADATA_KEY_MEDIA_URI, METADATA_TYPE_TEXT);
     }
 
     private static final SparseArray<String> EDITOR_KEY_MAPPING;
@@ -365,7 +422,7 @@ public final class MediaMetadata implements Parcelable {
     }
 
     private MediaMetadata(Parcel in) {
-        mBundle = Bundle.setDefusable(in.readBundle(), true);
+        mBundle = in.readBundle();
     }
 
     /**
@@ -537,6 +594,12 @@ public final class MediaMetadata implements Parcelable {
             }
         }
 
+        Uri mediaUri = null;
+        String mediaUriStr = getString(METADATA_KEY_MEDIA_URI);
+        if (!TextUtils.isEmpty(mediaUriStr)) {
+            mediaUri = Uri.parse(mediaUriStr);
+        }
+
         MediaDescription.Builder bob = new MediaDescription.Builder();
         bob.setMediaId(mediaId);
         bob.setTitle(text[0]);
@@ -544,6 +607,13 @@ public final class MediaMetadata implements Parcelable {
         bob.setDescription(text[2]);
         bob.setIconBitmap(icon);
         bob.setIconUri(iconUri);
+        bob.setMediaUri(mediaUri);
+        if (mBundle.containsKey(METADATA_KEY_BT_FOLDER_TYPE)) {
+            Bundle bundle = new Bundle();
+            bundle.putLong(MediaDescription.EXTRA_BT_FOLDER_TYPE,
+                    getLong(METADATA_KEY_BT_FOLDER_TYPE));
+            bob.setExtras(bundle);
+        }
         mDescription = bob.build();
 
         return mDescription;
@@ -557,11 +627,12 @@ public final class MediaMetadata implements Parcelable {
      * @return The key used by this class or null if no mapping exists
      * @hide
      */
+    @UnsupportedAppUsage
     public static String getKeyFromMetadataEditorKey(int editorKey) {
         return EDITOR_KEY_MAPPING.get(editorKey, null);
     }
 
-    public static final Parcelable.Creator<MediaMetadata> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<MediaMetadata> CREATOR =
             new Parcelable.Creator<MediaMetadata>() {
                 @Override
                 public MediaMetadata createFromParcel(Parcel in) {
@@ -573,6 +644,71 @@ public final class MediaMetadata implements Parcelable {
                     return new MediaMetadata[size];
                 }
             };
+
+    /**
+     * Compares the contents of this object to another MediaMetadata object. It
+     * does not compare Bitmaps and Ratings as the media player can choose to
+     * forgo these fields depending on how you retrieve the MediaMetadata.
+     *
+     * @param o The Metadata object to compare this object against
+     * @return Whether or not the two objects have matching fields (excluding
+     * Bitmaps and Ratings)
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (o == this) {
+            return true;
+        }
+
+        if (!(o instanceof MediaMetadata)) {
+            return false;
+        }
+
+        final MediaMetadata m = (MediaMetadata) o;
+
+        for (int i = 0; i < METADATA_KEYS_TYPE.size(); i++) {
+            String key = METADATA_KEYS_TYPE.keyAt(i);
+            switch (METADATA_KEYS_TYPE.valueAt(i)) {
+                case METADATA_TYPE_TEXT:
+                    if (!Objects.equals(getString(key), m.getString(key))) {
+                        return false;
+                    }
+                    break;
+                case METADATA_TYPE_LONG:
+                    if (getLong(key) != m.getLong(key)) {
+                        return false;
+                    }
+                    break;
+                default:
+                    // Ignore ratings and bitmaps when comparing
+                    break;
+            }
+        }
+
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        int hashCode = 17;
+
+        for (int i = 0; i < METADATA_KEYS_TYPE.size(); i++) {
+            String key = METADATA_KEYS_TYPE.keyAt(i);
+            switch (METADATA_KEYS_TYPE.valueAt(i)) {
+                case METADATA_TYPE_TEXT:
+                    hashCode = 31 * hashCode + Objects.hash(getString(key));
+                    break;
+                case METADATA_TYPE_LONG:
+                    hashCode = 31 * hashCode + Long.hashCode(getLong(key));
+                    break;
+                default:
+                    // Ignore ratings and bitmaps when comparing
+                    break;
+            }
+        }
+
+        return hashCode;
+    }
 
     /**
      * Use to build MediaMetadata objects. The system defined metadata keys must
@@ -763,8 +899,9 @@ public final class MediaMetadata implements Parcelable {
          * <li>{@link #METADATA_KEY_DISPLAY_ICON}</li>
          * </ul>
          * <p>
-         * Large bitmaps may be scaled down by the system. To pass full
-         * resolution images {@link Uri Uris} should be used with
+         * Large bitmaps may be scaled down by the system when
+         * {@link android.media.session.MediaSession#setMetadata} is called.
+         * To pass full resolution images {@link Uri Uris} should be used with
          * {@link #putString}.
          *
          * @param key The key for referencing this value

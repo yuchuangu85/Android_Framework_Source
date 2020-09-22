@@ -16,6 +16,7 @@
 
 package android.view;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.os.Parcel;
@@ -26,7 +27,7 @@ import com.android.internal.view.IDragAndDropPermissions;
 //TODO: Improve Javadoc
 /**
  * Represents an event that is sent out by the system at various times during a drag and drop
- * operation. It is a complex data structure that contains several important pieces of data about
+ * operation. It is a data structure that contains several important pieces of data about
  * the operation and the underlying data.
  * <p>
  *  View objects that receive a DragEvent call {@link #getAction()}, which returns
@@ -103,7 +104,7 @@ import com.android.internal.view.IDragAndDropPermissions;
  *  <tr>
  *      <td>ACTION_DRAG_ENDED</td>
  *      <td style="text-align: center;">&nbsp;</td>
- *      <td style="text-align: center;">&nbsp;</td>
+ *      <td style="text-align: center;">X</td>
  *      <td style="text-align: center;">&nbsp;</td>
  *      <td style="text-align: center;">&nbsp;</td>
  *      <td style="text-align: center;">&nbsp;</td>
@@ -112,6 +113,7 @@ import com.android.internal.view.IDragAndDropPermissions;
  * </table>
  * <p>
  *  The {@link android.view.DragEvent#getAction()},
+ *  {@link android.view.DragEvent#getLocalState()}
  *  {@link android.view.DragEvent#describeContents()},
  *  {@link android.view.DragEvent#writeToParcel(Parcel,int)}, and
  *  {@link android.view.DragEvent#toString()} methods always return valid data.
@@ -128,7 +130,9 @@ public class DragEvent implements Parcelable {
 
     int mAction;
     float mX, mY;
+    @UnsupportedAppUsage
     ClipDescription mClipDescription;
+    @UnsupportedAppUsage
     ClipData mClipData;
     IDragAndDropPermissions mDragAndDropPermissions;
 
@@ -161,8 +165,8 @@ public class DragEvent implements Parcelable {
      *  event when they are added or becoming visible.
      * </p>
      * <p>
-     *  A View only receives further drag events if it returns {@code true} in response to
-     *  ACTION_DRAG_STARTED.
+     *  A View only receives further drag events for the drag operation if it returns {@code true}
+     *  in response to ACTION_DRAG_STARTED.
      * </p>
      * @see #ACTION_DRAG_ENDED
      * @see #getX()
@@ -172,8 +176,9 @@ public class DragEvent implements Parcelable {
 
     /**
      * Action constant returned by {@link #getAction()}: Sent to a View after
-     * {@link #ACTION_DRAG_ENTERED} if the drag shadow is still within the View object's bounding
-     * box. The {@link #getX()} and {@link #getY()} methods supply
+     * {@link #ACTION_DRAG_ENTERED} while the drag shadow is still within the View object's bounding
+     * box, but not within a descendant view that can accept the data. The {@link #getX()} and
+     * {@link #getY()} methods supply
      * the X and Y position of of the drag point within the View object's bounding box.
      * <p>
      * A View receives an {@link #ACTION_DRAG_ENTERED} event before receiving any
@@ -311,6 +316,7 @@ public class DragEvent implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public static DragEvent obtain(DragEvent source) {
         return obtain(source.mAction, source.mX, source.mY, source.mLocalState,
                 source.mClipDescription, source.mClipData, source.mDragAndDropPermissions,
@@ -355,9 +361,10 @@ public class DragEvent implements Parcelable {
     /**
      * Returns the {@link android.content.ClipData} object sent to the system as part of the call
      * to
-     * {@link android.view.View#startDrag(ClipData,View.DragShadowBuilder,Object,int) startDrag()}.
+     * {@link android.view.View#startDragAndDrop(ClipData,View.DragShadowBuilder,Object,int)
+     * startDragAndDrop()}.
      * This method only returns valid data if the event action is {@link #ACTION_DROP}.
-     * @return The ClipData sent to the system by startDrag().
+     * @return The ClipData sent to the system by startDragAndDrop().
      */
     public ClipData getClipData() {
         return mClipData;
@@ -366,12 +373,14 @@ public class DragEvent implements Parcelable {
     /**
      * Returns the {@link android.content.ClipDescription} object contained in the
      * {@link android.content.ClipData} object sent to the system as part of the call to
-     * {@link android.view.View#startDrag(ClipData,View.DragShadowBuilder,Object,int) startDrag()}.
+     * {@link android.view.View#startDragAndDrop(ClipData,View.DragShadowBuilder,Object,int)
+     * startDragAndDrop()}.
      * The drag handler or listener for a View can use the metadata in this object to decide if the
      * View can accept the dragged View object's data.
      * <p>
      * This method returns valid data for all event actions except for {@link #ACTION_DRAG_ENDED}.
-     * @return The ClipDescription that was part of the ClipData sent to the system by startDrag().
+     * @return The ClipDescription that was part of the ClipData sent to the system by
+     *     startDragAndDrop().
      */
     public ClipDescription getClipDescription() {
         return mClipDescription;
@@ -384,7 +393,8 @@ public class DragEvent implements Parcelable {
 
     /**
      * Returns the local state object sent to the system as part of the call to
-     * {@link android.view.View#startDrag(ClipData,View.DragShadowBuilder,Object,int) startDrag()}.
+     * {@link android.view.View#startDragAndDrop(ClipData,View.DragShadowBuilder,Object,int)
+     * startDragAndDrop()}.
      * The object is intended to provide local information about the drag and drop operation. For
      * example, it can indicate whether the drag and drop operation is a copy or a move.
      * <p>
@@ -392,9 +402,9 @@ public class DragEvent implements Parcelable {
      * operation. In all other activities this method will return null
      * </p>
      * <p>
-     *  This method returns valid data for all event actions except for {@link #ACTION_DRAG_ENDED}.
+     *  This method returns valid data for all event actions.
      * </p>
-     * @return The local state object sent to the system by startDrag().
+     * @return The local state object sent to the system by startDragAndDrop().
      */
     public Object getLocalState() {
         return mLocalState;
@@ -518,7 +528,7 @@ public class DragEvent implements Parcelable {
     /**
      * A container for creating a DragEvent from a Parcel.
      */
-    public static final Parcelable.Creator<DragEvent> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<DragEvent> CREATOR =
         new Parcelable.Creator<DragEvent>() {
         public DragEvent createFromParcel(Parcel in) {
             DragEvent event = DragEvent.obtain();

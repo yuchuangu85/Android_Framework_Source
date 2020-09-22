@@ -16,205 +16,80 @@
 
 package com.android.systemui.statusbar.tv;
 
-import android.content.ComponentName;
-import android.graphics.Rect;
-import android.os.IBinder;
-import android.service.notification.NotificationListenerService.RankingMap;
-import android.service.notification.StatusBarNotification;
-import android.view.View;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.os.Bundle;
+import android.os.RemoteException;
+import android.os.ServiceManager;
+import android.os.UserHandle;
 
-import com.android.internal.statusbar.StatusBarIcon;
-import com.android.systemui.statusbar.ActivatableNotificationView;
-import com.android.systemui.statusbar.BaseStatusBar;
-import com.android.systemui.statusbar.NotificationData;
-import com.android.systemui.tv.pip.PipManager;
+import com.android.internal.statusbar.IStatusBarService;
+import com.android.systemui.SystemUI;
+import com.android.systemui.assist.AssistManager;
+import com.android.systemui.statusbar.CommandQueue;
+import com.android.systemui.statusbar.tv.micdisclosure.AudioRecordingDisclosureBar;
+
+import javax.inject.Inject;
+import javax.inject.Singleton;
+
+import dagger.Lazy;
 
 /**
- * Status bar implementation for "large screen" products that mostly present no on-screen nav
+ * Status bar implementation for "large screen" products that mostly present no on-screen nav.
+ * Serves as a collection of UI components, rather than showing its own UI.
+ * The following is the list of elements that constitute the TV-specific status bar:
+ * <ul>
+ * <li> {@link AudioRecordingDisclosureBar} - shown whenever applications are conducting audio
+ * recording, discloses the responsible applications </li>
+ * </ul>
  */
+@Singleton
+public class TvStatusBar extends SystemUI implements CommandQueue.Callbacks {
 
-public class TvStatusBar extends BaseStatusBar {
+    private static final String ACTION_OPEN_TV_NOTIFICATIONS_PANEL =
+            "com.android.tv.action.OPEN_NOTIFICATIONS_PANEL";
 
-    @Override
-    public void setIcon(String slot, StatusBarIcon icon) {
-    }
+    private final CommandQueue mCommandQueue;
+    private final Lazy<AssistManager> mAssistManagerLazy;
 
-    @Override
-    public void removeIcon(String slot) {
-    }
-
-    @Override
-    public void addNotification(StatusBarNotification notification, RankingMap ranking,
-            NotificationData.Entry entry) {
-    }
-
-    @Override
-    protected void updateNotificationRanking(RankingMap ranking) {
-    }
-
-    @Override
-    public void removeNotification(String key, RankingMap ranking) {
-    }
-
-    @Override
-    public void disable(int state1, int state2, boolean animate) {
-    }
-
-    @Override
-    public void animateExpandNotificationsPanel() {
-    }
-
-    @Override
-    public void animateCollapsePanels(int flags) {
-    }
-
-    @Override
-    public void setSystemUiVisibility(int vis, int fullscreenStackVis, int dockedStackVis,
-            int mask, Rect fullscreenStackBounds, Rect dockedStackBounds) {
-    }
-
-    @Override
-    public void topAppWindowChanged(boolean visible) {
-    }
-
-    @Override
-    public void setImeWindowStatus(IBinder token, int vis, int backDisposition,
-            boolean showImeSwitcher) {
-    }
-
-    @Override // CommandQueue
-    public void setWindowState(int window, int state) {
-    }
-
-    @Override // CommandQueue
-    public void buzzBeepBlinked() {
-    }
-
-    @Override // CommandQueue
-    public void notificationLightOff() {
-    }
-
-    @Override // CommandQueue
-    public void notificationLightPulse(int argb, int onMillis, int offMillis) {
-    }
-
-    @Override
-    protected void setAreThereNotifications() {
-    }
-
-    @Override
-    protected void updateNotifications() {
-    }
-
-    @Override
-    public boolean shouldDisableNavbarGestures() {
-        return true;
-    }
-
-    public View getStatusBarView() {
-        return null;
-    }
-
-    @Override
-    protected void toggleSplitScreenMode(int metricsDockAction, int metricsUndockAction) {
-    }
-
-    @Override
-    public void maybeEscalateHeadsUp() {
-    }
-
-    @Override
-    public boolean isPanelFullyCollapsed() {
-        return false;
-    }
-
-    @Override
-    protected int getMaxKeyguardNotifications(boolean recompute) {
-        return 0;
-    }
-
-    @Override
-    public void animateExpandSettingsPanel(String subPanel) {
-    }
-
-    @Override
-    protected void createAndAddWindows() {
-    }
-
-    @Override
-    protected void refreshLayout(int layoutDirection) {
-    }
-
-    @Override
-    public void onActivated(ActivatableNotificationView view) {
-    }
-
-    @Override
-    public void onActivationReset(ActivatableNotificationView view) {
-    }
-
-    @Override
-    public void showScreenPinningRequest(int taskId) {
-    }
-
-    @Override
-    public void appTransitionPending() {
-    }
-
-    @Override
-    public void appTransitionCancelled() {
-    }
-
-    @Override
-    public void appTransitionStarting(long startTime, long duration) {
-    }
-
-    @Override
-    public void appTransitionFinished() {
-    }
-
-    @Override
-    public void onCameraLaunchGestureDetected(int source) {
-    }
-
-    @Override
-    public void showTvPictureInPictureMenu() {
-        PipManager.getInstance().showTvPictureInPictureMenu();
-    }
-
-    @Override
-    protected void updateHeadsUp(String key, NotificationData.Entry entry, boolean shouldPeek,
-            boolean alertAgain) {
-    }
-
-    @Override
-    protected void setHeadsUpUser(int newUserId) {
-    }
-
-    protected boolean isSnoozedPackage(StatusBarNotification sbn) {
-        return false;
-    }
-
-    @Override
-    public void addQsTile(ComponentName tile) {
-    }
-
-    @Override
-    public void remQsTile(ComponentName tile) {
-    }
-
-    @Override
-    public void clickTile(ComponentName tile) {
+    @Inject
+    public TvStatusBar(Context context, CommandQueue commandQueue,
+            Lazy<AssistManager> assistManagerLazy) {
+        super(context);
+        mCommandQueue = commandQueue;
+        mAssistManagerLazy = assistManagerLazy;
     }
 
     @Override
     public void start() {
-        super.start();
-        putComponent(TvStatusBar.class, this);
+        final IStatusBarService barService = IStatusBarService.Stub.asInterface(
+                ServiceManager.getService(Context.STATUS_BAR_SERVICE));
+        mCommandQueue.addCallback(this);
+        try {
+            barService.registerStatusBar(mCommandQueue);
+        } catch (RemoteException ex) {
+            // If the system process isn't there we're doomed anyway.
+        }
     }
 
     @Override
-    public void handleSystemNavigationKey(int arg1) {
-        // Not implemented
+    public void animateExpandNotificationsPanel() {
+        startSystemActivity(new Intent(ACTION_OPEN_TV_NOTIFICATIONS_PANEL));
+    }
+
+    private void startSystemActivity(Intent intent) {
+        PackageManager pm = mContext.getPackageManager();
+        ResolveInfo ri = pm.resolveActivity(intent, PackageManager.MATCH_SYSTEM_ONLY);
+        if (ri != null && ri.activityInfo != null) {
+            intent.setPackage(ri.activityInfo.packageName);
+            mContext.startActivityAsUser(intent, UserHandle.CURRENT);
+        }
+    }
+
+    @Override
+    public void startAssist(Bundle args) {
+        mAssistManagerLazy.get().startAssist(args);
     }
 }

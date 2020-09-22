@@ -16,11 +16,15 @@
 
 package java.nio;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
- * This class is used via JNI by code in frameworks/base/.
+ * This class is used via JNI by code in frameworks/base/ and
+ * by the JniConstants cache in libnativehelper/.
  * @hide
  */
 // @VisibleForTesting : was default
+@libcore.api.CorePlatformApi
 public final class NIOAccess {
 
     /**
@@ -30,6 +34,7 @@ public final class NIOAccess {
      * @hide
      */
     // @VisibleForTesting : was default
+    @UnsupportedAppUsage
     public static long getBasePointer(Buffer b) {
         long address = b.address;
         if (address == 0L) {
@@ -42,7 +47,9 @@ public final class NIOAccess {
      * Returns the underlying Java array containing the data of the
      * given Buffer, or null if the Buffer is not backed by a Java array.
      */
-    static Object getBaseArray(Buffer b) {
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static Object getBaseArray(Buffer b) {
         return b.hasArray() ? b.array() : null;
     }
 
@@ -53,7 +60,9 @@ public final class NIOAccess {
      * account the Buffer's current position. This method is only
      * meaningful if getBaseArray() returns non-null.
      */
-    static int getBaseArrayOffset(Buffer b) {
+    @UnsupportedAppUsage
+    @libcore.api.CorePlatformApi
+    public static int getBaseArrayOffset(Buffer b) {
         return b.hasArray() ? ((b.arrayOffset() + b.position) << b._elementSizeShift) : 0;
     }
 }

@@ -39,13 +39,34 @@ public abstract class KeyProperties {
      * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(flag = true,
-            value = {
-                PURPOSE_ENCRYPT,
-                PURPOSE_DECRYPT,
-                PURPOSE_SIGN,
-                PURPOSE_VERIFY,
-                })
+    @IntDef(flag = true, prefix = { "AUTH_" }, value = {
+            AUTH_BIOMETRIC_STRONG,
+            AUTH_DEVICE_CREDENTIAL,
+    })
+    public @interface AuthEnum {}
+
+    /**
+     * The non-biometric credential used to secure the device (i.e., PIN, pattern, or password)
+     */
+    public static final int AUTH_DEVICE_CREDENTIAL = 1 << 0;
+
+    /**
+     * Any biometric (e.g. fingerprint, iris, or face) on the device that meets or exceeds the
+     * requirements for <strong>Strong</strong>, as defined by the Android CDD.
+     */
+    public static final int AUTH_BIOMETRIC_STRONG = 1 << 1;
+
+    /**
+     * @hide
+     */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(flag = true, prefix = { "PURPOSE_" }, value = {
+            PURPOSE_ENCRYPT,
+            PURPOSE_DECRYPT,
+            PURPOSE_SIGN,
+            PURPOSE_VERIFY,
+            PURPOSE_WRAP_KEY,
+    })
     public @interface PurposeEnum {}
 
     /**
@@ -69,6 +90,11 @@ public abstract class KeyProperties {
     public static final int PURPOSE_VERIFY = 1 << 3;
 
     /**
+     * Purpose of key: wrapping and unwrapping wrapped keys for secure import.
+     */
+    public static final int PURPOSE_WRAP_KEY = 1 << 5;
+
+    /**
      * @hide
      */
     public static abstract class Purpose {
@@ -84,6 +110,8 @@ public abstract class KeyProperties {
                     return KeymasterDefs.KM_PURPOSE_SIGN;
                 case PURPOSE_VERIFY:
                     return KeymasterDefs.KM_PURPOSE_VERIFY;
+                case PURPOSE_WRAP_KEY:
+                    return KeymasterDefs.KM_PURPOSE_WRAP;
                 default:
                     throw new IllegalArgumentException("Unknown purpose: " + purpose);
             }
@@ -99,6 +127,8 @@ public abstract class KeyProperties {
                     return PURPOSE_SIGN;
                 case KeymasterDefs.KM_PURPOSE_VERIFY:
                     return PURPOSE_VERIFY;
+                case KeymasterDefs.KM_PURPOSE_WRAP:
+                    return PURPOSE_WRAP_KEY;
                 default:
                     throw new IllegalArgumentException("Unknown purpose: " + purpose);
             }
@@ -126,7 +156,7 @@ public abstract class KeyProperties {
      * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @StringDef({
+    @StringDef(prefix = { "KEY_" }, value = {
         KEY_ALGORITHM_RSA,
         KEY_ALGORITHM_EC,
         KEY_ALGORITHM_AES,
@@ -146,6 +176,15 @@ public abstract class KeyProperties {
 
     /** Advanced Encryption Standard (AES) key. */
     public static final String KEY_ALGORITHM_AES = "AES";
+
+    /**
+     * Triple Data Encryption Algorithm (3DES) key.
+     *
+     * @deprecated Included for interoperability with legacy systems. Prefer {@link
+     * KeyProperties#KEY_ALGORITHM_AES} for new development.
+     */
+    @Deprecated
+    public static final String KEY_ALGORITHM_3DES = "DESede";
 
     /** Keyed-Hash Message Authentication Code (HMAC) key using SHA-1 as the hash. */
     public static final String KEY_ALGORITHM_HMAC_SHA1 = "HmacSHA1";
@@ -197,6 +236,8 @@ public abstract class KeyProperties {
                 @NonNull @KeyAlgorithmEnum String algorithm) {
             if (KEY_ALGORITHM_AES.equalsIgnoreCase(algorithm)) {
                 return KeymasterDefs.KM_ALGORITHM_AES;
+            } else if (KEY_ALGORITHM_3DES.equalsIgnoreCase(algorithm)) {
+                return KeymasterDefs.KM_ALGORITHM_3DES;
             } else if (algorithm.toUpperCase(Locale.US).startsWith("HMAC")) {
                 return KeymasterDefs.KM_ALGORITHM_HMAC;
             } else {
@@ -211,6 +252,8 @@ public abstract class KeyProperties {
             switch (keymasterAlgorithm) {
                 case KeymasterDefs.KM_ALGORITHM_AES:
                     return KEY_ALGORITHM_AES;
+                case KeymasterDefs.KM_ALGORITHM_3DES:
+                    return KEY_ALGORITHM_3DES;
                 case KeymasterDefs.KM_ALGORITHM_HMAC:
                     switch (keymasterDigest) {
                         case KeymasterDefs.KM_DIGEST_SHA1:
@@ -267,7 +310,7 @@ public abstract class KeyProperties {
      * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @StringDef({
+    @StringDef(prefix = { "BLOCK_MODE_" }, value = {
         BLOCK_MODE_ECB,
         BLOCK_MODE_CBC,
         BLOCK_MODE_CTR,
@@ -354,7 +397,7 @@ public abstract class KeyProperties {
      * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @StringDef({
+    @StringDef(prefix = { "ENCRYPTION_PADDING_" }, value = {
         ENCRYPTION_PADDING_NONE,
         ENCRYPTION_PADDING_PKCS7,
         ENCRYPTION_PADDING_RSA_PKCS1,
@@ -437,7 +480,7 @@ public abstract class KeyProperties {
      * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @StringDef({
+    @StringDef(prefix = { "SIGNATURE_PADDING_" }, value = {
         SIGNATURE_PADDING_RSA_PKCS1,
         SIGNATURE_PADDING_RSA_PSS,
         })
@@ -497,7 +540,7 @@ public abstract class KeyProperties {
      * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @StringDef({
+    @StringDef(prefix = { "DIGEST_" }, value = {
         DIGEST_NONE,
         DIGEST_MD5,
         DIGEST_SHA1,
@@ -647,11 +690,12 @@ public abstract class KeyProperties {
      * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef({
-        ORIGIN_GENERATED,
-        ORIGIN_IMPORTED,
-        ORIGIN_UNKNOWN,
-        })
+    @IntDef(prefix = { "ORIGIN_" }, value = {
+            ORIGIN_GENERATED,
+            ORIGIN_IMPORTED,
+            ORIGIN_UNKNOWN,
+    })
+
     public @interface OriginEnum {}
 
     /** Key was generated inside AndroidKeyStore. */
@@ -667,6 +711,14 @@ public abstract class KeyProperties {
     public static final int ORIGIN_UNKNOWN = 1 << 2;
 
     /**
+     * Key was imported into the AndroidKeyStore in an encrypted wrapper. Unlike imported keys,
+     * securely imported keys can be imported without appearing as plaintext in the device's host
+     * memory.
+     */
+    public static final int ORIGIN_SECURELY_IMPORTED = 1 << 3;
+
+
+    /**
      * @hide
      */
     public static abstract class Origin {
@@ -680,6 +732,8 @@ public abstract class KeyProperties {
                     return ORIGIN_IMPORTED;
                 case KeymasterDefs.KM_ORIGIN_UNKNOWN:
                     return ORIGIN_UNKNOWN;
+                case KeymasterDefs.KM_ORIGIN_SECURELY_IMPORTED:
+                    return ORIGIN_SECURELY_IMPORTED;
                 default:
                     throw new IllegalArgumentException("Unknown origin: " + origin);
             }

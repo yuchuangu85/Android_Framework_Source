@@ -16,11 +16,13 @@
 
 package android.view;
 
-import dalvik.system.CloseGuard;
-
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Looper;
 import android.os.MessageQueue;
 import android.util.Log;
+
+import dalvik.annotation.optimization.FastNative;
+import dalvik.system.CloseGuard;
 
 import java.lang.ref.WeakReference;
 
@@ -34,10 +36,42 @@ import java.lang.ref.WeakReference;
  * @hide
  */
 public abstract class DisplayEventReceiver {
+
+    /**
+     * When retrieving vsync events, this specifies that the vsync event should happen at the normal
+     * vsync-app tick.
+     * <p>
+     * Needs to be kept in sync with frameworks/native/include/gui/ISurfaceComposer.h
+     */
+    public static final int VSYNC_SOURCE_APP = 0;
+
+    /**
+     * When retrieving vsync events, this specifies that the vsync event should happen whenever
+     * Surface Flinger is processing a frame.
+     * <p>
+     * Needs to be kept in sync with frameworks/native/include/gui/ISurfaceComposer.h
+     */
+    public static final int VSYNC_SOURCE_SURFACE_FLINGER = 1;
+
+    /**
+     * Specifies to suppress config changed events from being generated from Surface Flinger.
+     * <p>
+     * Needs to be kept in sync with frameworks/native/include/gui/ISurfaceComposer.h
+     */
+    public static final int CONFIG_CHANGED_EVENT_SUPPRESS = 0;
+
+    /**
+     * Specifies to generate config changed events from Surface Flinger.
+     * <p>
+     * Needs to be kept in sync with frameworks/native/include/gui/ISurfaceComposer.h
+     */
+    public static final int CONFIG_CHANGED_EVENT_DISPATCH = 1;
+
     private static final String TAG = "DisplayEventReceiver";
 
     private final CloseGuard mCloseGuard = CloseGuard.get();
 
+    @UnsupportedAppUsage
     private long mReceiverPtr;
 
     // We keep a reference message queue object here so that it is not
@@ -45,8 +79,9 @@ public abstract class DisplayEventReceiver {
     private MessageQueue mMessageQueue;
 
     private static native long nativeInit(WeakReference<DisplayEventReceiver> receiver,
-            MessageQueue messageQueue);
+            MessageQueue messageQueue, int vsyncSource, int configChanged);
     private static native void nativeDispose(long receiverPtr);
+    @FastNative
     private static native void nativeScheduleVsync(long receiverPtr);
 
     /**
@@ -54,13 +89,27 @@ public abstract class DisplayEventReceiver {
      *
      * @param looper The looper to use when invoking callbacks.
      */
+    @UnsupportedAppUsage
     public DisplayEventReceiver(Looper looper) {
+        this(looper, VSYNC_SOURCE_APP, CONFIG_CHANGED_EVENT_SUPPRESS);
+    }
+
+    /**
+     * Creates a display event receiver.
+     *
+     * @param looper The looper to use when invoking callbacks.
+     * @param vsyncSource The source of the vsync tick. Must be on of the VSYNC_SOURCE_* values.
+     * @param configChanged Whether to dispatch config changed events. Must be one of the
+     * CONFIG_CHANGED_EVENT_* values.
+     */
+    public DisplayEventReceiver(Looper looper, int vsyncSource, int configChanged) {
         if (looper == null) {
             throw new IllegalArgumentException("looper must not be null");
         }
 
         mMessageQueue = looper.getQueue();
-        mReceiverPtr = nativeInit(new WeakReference<DisplayEventReceiver>(this), mMessageQueue);
+        mReceiverPtr = nativeInit(new WeakReference<DisplayEventReceiver>(this), mMessageQueue,
+                vsyncSource, configChanged);
 
         mCloseGuard.open("dispose");
     }
@@ -103,11 +152,11 @@ public abstract class DisplayEventReceiver {
      *
      * @param timestampNanos The timestamp of the pulse, in the {@link System#nanoTime()}
      * timebase.
-     * @param builtInDisplayId The surface flinger built-in display id such as
-     * {@link SurfaceControl#BUILT_IN_DISPLAY_ID_MAIN}.
+     * @param physicalDisplayId Stable display ID that uniquely describes a (display, port) pair.
      * @param frame The frame number.  Increases by one for each vertical sync interval.
      */
-    public void onVsync(long timestampNanos, int builtInDisplayId, int frame) {
+    @UnsupportedAppUsage
+    public void onVsync(long timestampNanos, long physicalDisplayId, int frame) {
     }
 
     /**
@@ -115,17 +164,29 @@ public abstract class DisplayEventReceiver {
      *
      * @param timestampNanos The timestamp of the event, in the {@link System#nanoTime()}
      * timebase.
-     * @param builtInDisplayId The surface flinger built-in display id such as
-     * {@link SurfaceControl#BUILT_IN_DISPLAY_ID_HDMI}.
+     * @param physicalDisplayId Stable display ID that uniquely describes a (display, port) pair.
      * @param connected True if the display is connected, false if it disconnected.
      */
-    public void onHotplug(long timestampNanos, int builtInDisplayId, boolean connected) {
+    @UnsupportedAppUsage
+    public void onHotplug(long timestampNanos, long physicalDisplayId, boolean connected) {
+    }
+
+    /**
+     * Called when a display config changed event is received.
+     *
+     * @param timestampNanos The timestamp of the event, in the {@link System#nanoTime()}
+     * timebase.
+     * @param physicalDisplayId Stable display ID that uniquely describes a (display, port) pair.
+     * @param configId The new config Id
+     */
+    public void onConfigChanged(long timestampNanos, long physicalDisplayId, int configId) {
     }
 
     /**
      * Schedules a single vertical sync pulse to be delivered when the next
      * display frame begins.
      */
+    @UnsupportedAppUsage
     public void scheduleVsync() {
         if (mReceiverPtr == 0) {
             Log.w(TAG, "Attempted to schedule a vertical sync pulse but the display event "
@@ -137,13 +198,22 @@ public abstract class DisplayEventReceiver {
 
     // Called from native code.
     @SuppressWarnings("unused")
-    private void dispatchVsync(long timestampNanos, int builtInDisplayId, int frame) {
-        onVsync(timestampNanos, builtInDisplayId, frame);
+    @UnsupportedAppUsage
+    private void dispatchVsync(long timestampNanos, long physicalDisplayId, int frame) {
+        onVsync(timestampNanos, physicalDisplayId, frame);
     }
 
     // Called from native code.
     @SuppressWarnings("unused")
-    private void dispatchHotplug(long timestampNanos, int builtInDisplayId, boolean connected) {
-        onHotplug(timestampNanos, builtInDisplayId, connected);
+    @UnsupportedAppUsage
+    private void dispatchHotplug(long timestampNanos, long physicalDisplayId, boolean connected) {
+        onHotplug(timestampNanos, physicalDisplayId, connected);
     }
+
+    // Called from native code.
+    @SuppressWarnings("unused")
+    private void dispatchConfigChanged(long timestampNanos, long physicalDisplayId, int configId) {
+        onConfigChanged(timestampNanos, physicalDisplayId, configId);
+    }
+
 }

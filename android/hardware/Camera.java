@@ -16,39 +16,54 @@
 
 package android.hardware;
 
-import android.app.ActivityThread;
+import static android.system.OsConstants.EACCES;
+import static android.system.OsConstants.EBUSY;
+import static android.system.OsConstants.EINVAL;
+import static android.system.OsConstants.ENODEV;
+import static android.system.OsConstants.ENOSYS;
+import static android.system.OsConstants.EOPNOTSUPP;
+import static android.system.OsConstants.EUSERS;
+
+import android.annotation.Nullable;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
-import android.app.job.JobInfo;
+import android.app.ActivityThread;
+import android.app.AppOpsManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.graphics.ImageFormat;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
+import android.media.AudioAttributes;
 import android.media.IAudioService;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.renderscript.Allocation;
 import android.renderscript.Element;
-import android.renderscript.RenderScript;
 import android.renderscript.RSIllegalArgumentException;
+import android.renderscript.RenderScript;
 import android.renderscript.Type;
-import android.util.Log;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
+
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.app.IAppOpsCallback;
+import com.android.internal.app.IAppOpsService;
 
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-
-import static android.system.OsConstants.*;
 
 /**
  * The Camera class is used to set image capture settings, start/stop preview,
@@ -157,6 +172,7 @@ public class Camera {
     private static final int CAMERA_MSG_PREVIEW_METADATA = 0x400;
     private static final int CAMERA_MSG_FOCUS_MOVE       = 0x800;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private long mNativeContext; // accessed by native methods
     private EventHandler mEventHandler;
     private ShutterCallback mShutterCallback;
@@ -170,41 +186,66 @@ public class Camera {
     private OnZoomChangeListener mZoomListener;
     private FaceDetectionListener mFaceListener;
     private ErrorCallback mErrorCallback;
+    private ErrorCallback mDetailedErrorCallback;
     private boolean mOneShot;
     private boolean mWithBuffer;
     private boolean mFaceDetectionRunning = false;
     private final Object mAutoFocusCallbackLock = new Object();
 
+    private final Object mShutterSoundLock = new Object();
+    // for AppOps
+    private @Nullable IAppOpsService mAppOps;
+    private IAppOpsCallback mAppOpsCallback;
+    @GuardedBy("mShutterSoundLock")
+    private boolean mHasAppOpsPlayAudio = true;
+    @GuardedBy("mShutterSoundLock")
+    private boolean mShutterSoundEnabledFromApp = true;
+
     private static final int NO_ERROR = 0;
 
     /**
-     * @deprecated This broadcast is no longer delivered by the system; use
-     * {@link android.app.job.JobInfo.Builder JobInfo.Builder}.{@link android.app.job.JobInfo.Builder#addTriggerContentUri}
-     * instead.
      * Broadcast Action:  A new picture is taken by the camera, and the entry of
      * the picture has been added to the media store.
      * {@link android.content.Intent#getData} is URI of the picture.
+     *
+     * <p>In {@link android.os.Build.VERSION_CODES#N Android N} this broadcast was removed, and
+     * applications are recommended to use
+     * {@link android.app.job.JobInfo.Builder JobInfo.Builder}.{@link android.app.job.JobInfo.Builder#addTriggerContentUri}
+     * instead.</p>
+     *
+     * <p>In {@link android.os.Build.VERSION_CODES#O Android O} this broadcast has been brought
+     * back, but only for <em>registered</em> receivers.  Apps that are actively running can
+     * again listen to the broadcast if they want an immediate clear signal about a picture
+     * being taken, however anything doing heavy work (or needing to be launched) as a result of
+     * this should still use JobScheduler.</p>
      */
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @Deprecated
     public static final String ACTION_NEW_PICTURE = "android.hardware.action.NEW_PICTURE";
 
     /**
-     * @deprecated This broadcast is no longer delivered by the system; use
-     * {@link android.app.job.JobInfo.Builder JobInfo.Builder}.{@link android.app.job.JobInfo.Builder#addTriggerContentUri}
-     * instead.
      * Broadcast Action:  A new video is recorded by the camera, and the entry
      * of the video has been added to the media store.
      * {@link android.content.Intent#getData} is URI of the video.
+     *
+     * <p>In {@link android.os.Build.VERSION_CODES#N Android N} this broadcast was removed, and
+     * applications are recommended to use
+     * {@link android.app.job.JobInfo.Builder JobInfo.Builder}.{@link android.app.job.JobInfo.Builder#addTriggerContentUri}
+     * instead.</p>
+     *
+     * <p>In {@link android.os.Build.VERSION_CODES#O Android O} this broadcast has been brought
+     * back, but only for <em>registered</em> receivers.  Apps that are actively running can
+     * again listen to the broadcast if they want an immediate clear signal about a video
+     * being taken, however anything doing heavy work (or needing to be launched) as a result of
+     * this should still use JobScheduler.</p>
      */
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    @Deprecated
     public static final String ACTION_NEW_VIDEO = "android.hardware.action.NEW_VIDEO";
 
     /**
      * Camera HAL device API version 1.0
      * @hide
      */
+    @UnsupportedAppUsage
     public static final int CAMERA_HAL_API_VERSION_1_0 = 0x100;
 
     /**
@@ -229,12 +270,28 @@ public class Camera {
 
     /**
      * Returns the number of physical cameras available on this device.
+     * The return value of this method might change dynamically if the device
+     * supports external cameras and an external camera is connected or
+     * disconnected.
+     *
+     * If there is a
+     * {@link android.hardware.camera2.CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA
+     * logical multi-camera} in the system, to maintain app backward compatibility, this method will
+     * only expose one camera per facing for all logical camera and physical camera groups.
+     * Use camera2 API to see all cameras.
+     *
+     * @return total number of accessible camera devices, or 0 if there are no
+     *   cameras or an error was encountered enumerating them.
      */
     public native static int getNumberOfCameras();
 
     /**
      * Returns the information about a particular camera.
      * If {@link #getNumberOfCameras()} returns N, the valid id is 0 to N-1.
+     *
+     * @throws RuntimeException if an invalid ID is provided, or if there is an
+     *    error retrieving the information (generally due to a hardware or other
+     *    low-level failure).
      */
     public static void getCameraInfo(int cameraId, CameraInfo cameraInfo) {
         _getCameraInfo(cameraId, cameraInfo);
@@ -348,7 +405,10 @@ public class Camera {
     /**
      * Creates a new Camera object to access the first back-facing camera on the
      * device. If the device does not have a back-facing camera, this returns
-     * null.
+     * null. Otherwise acts like the {@link #open(int)} call.
+     *
+     * @return a new Camera object for the first back-facing camera, or null if there is no
+     *  backfacing camera
      * @see #open(int)
      */
     public static Camera open() {
@@ -401,6 +461,7 @@ public class Camera {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static Camera openLegacy(int cameraId, int halVersion) {
         if (halVersion < CAMERA_HAL_API_VERSION_1_0) {
             throw new IllegalArgumentException("Invalid HAL version " + halVersion);
@@ -500,6 +561,7 @@ public class Camera {
             // Should never hit this.
             throw new RuntimeException("Unknown camera error");
         }
+        initAppOps();
     }
 
 
@@ -520,7 +582,32 @@ public class Camera {
     /**
      * An empty Camera for testing purpose.
      */
-    Camera() {
+    Camera() {}
+
+    private void initAppOps() {
+        IBinder b = ServiceManager.getService(Context.APP_OPS_SERVICE);
+        mAppOps = IAppOpsService.Stub.asInterface(b);
+        // initialize mHasAppOpsPlayAudio
+        updateAppOpsPlayAudio();
+        // register a callback to monitor whether the OP_PLAY_AUDIO is still allowed
+        mAppOpsCallback = new IAppOpsCallbackWrapper(this);
+        try {
+            mAppOps.startWatchingMode(AppOpsManager.OP_PLAY_AUDIO,
+                    ActivityThread.currentPackageName(), mAppOpsCallback);
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error registering appOps callback", e);
+            mHasAppOpsPlayAudio = false;
+        }
+    }
+
+    private void releaseAppOps() {
+        try {
+            if (mAppOps != null) {
+                mAppOps.stopWatchingMode(mAppOpsCallback);
+            }
+        } catch (Exception e) {
+            // nothing to do here, the object is supposed to be released anyway
+        }
     }
 
     @Override
@@ -528,6 +615,7 @@ public class Camera {
         release();
     }
 
+    @UnsupportedAppUsage
     private native final int native_setup(Object camera_this, int cameraId, int halVersion,
                                            String packageName);
 
@@ -542,6 +630,7 @@ public class Camera {
     public final void release() {
         native_release();
         mFaceDetectionRunning = false;
+        releaseAppOps();
     }
 
     /**
@@ -595,6 +684,8 @@ public class Camera {
      *
      * @throws IOException if a connection cannot be re-established (for
      *     example, if the camera is still in use by another process).
+     * @throws RuntimeException if release() has been called on this Camera
+     *     instance.
      */
     public native final void reconnect() throws IOException;
 
@@ -623,6 +714,8 @@ public class Camera {
      *     or null to remove the preview surface
      * @throws IOException if the method fails (for example, if the surface
      *     is unavailable or unsuitable).
+     * @throws RuntimeException if release() has been called on this Camera
+     *    instance.
      */
     public final void setPreviewDisplay(SurfaceHolder holder) throws IOException {
         if (holder != null) {
@@ -635,6 +728,7 @@ public class Camera {
     /**
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public native final void setPreviewSurface(Surface surface) throws IOException;
 
     /**
@@ -670,6 +764,8 @@ public class Camera {
      *     texture
      * @throws IOException if the method fails (for example, if the surface
      *     texture is unavailable or unsuitable).
+     * @throws RuntimeException if release() has been called on this Camera
+     *    instance.
      */
     public native final void setPreviewTexture(SurfaceTexture surfaceTexture) throws IOException;
 
@@ -719,12 +815,23 @@ public class Camera {
      * {@link #setPreviewCallbackWithBuffer(Camera.PreviewCallback)} were
      * called, {@link Camera.PreviewCallback#onPreviewFrame(byte[], Camera)}
      * will be called when preview data becomes available.
+     *
+     * @throws RuntimeException if starting preview fails; usually this would be
+     *    because of a hardware or other low-level error, or because release()
+     *    has been called on this Camera instance. The QCIF (176x144) exception
+     *    mentioned in {@link Parameters#setPreviewSize setPreviewSize} and
+     *    {@link Parameters#setPictureSize setPictureSize} can also cause this
+     *    exception be thrown.
      */
     public native final void startPreview();
 
     /**
      * Stops capturing and drawing preview frames to the surface, and
      * resets the camera for a future call to {@link #startPreview()}.
+     *
+     * @throws RuntimeException if stopping preview fails; usually this would be
+     *    because of a hardware or other low-level error, or because release()
+     *    has been called on this Camera instance.
      */
     public final void stopPreview() {
         _stopPreview();
@@ -748,6 +855,7 @@ public class Camera {
      * FIXME: Unhide before release
      * @hide
      */
+    @UnsupportedAppUsage
     public native final boolean previewEnabled();
 
     /**
@@ -763,6 +871,8 @@ public class Camera {
      *
      * @param cb a callback object that receives a copy of each preview frame,
      *     or null to stop receiving callbacks.
+     * @throws RuntimeException if release() has been called on this Camera
+     *     instance.
      * @see android.media.MediaActionSound
      */
     public final void setPreviewCallback(PreviewCallback cb) {
@@ -789,6 +899,8 @@ public class Camera {
      *
      * @param cb a callback object that receives a copy of the next preview frame,
      *     or null to stop receiving callbacks.
+     * @throws RuntimeException if release() has been called on this Camera
+     *     instance.
      * @see android.media.MediaActionSound
      */
     public final void setOneShotPreviewCallback(PreviewCallback cb) {
@@ -826,6 +938,8 @@ public class Camera {
      *
      * @param cb a callback object that receives a copy of the preview frame,
      *     or null to stop receiving callbacks and clear the buffer queue.
+     * @throws RuntimeException if release() has been called on this Camera
+     *     instance.
      * @see #addCallbackBuffer(byte[])
      * @see android.media.MediaActionSound
      */
@@ -915,11 +1029,13 @@ public class Camera {
      *
      * {@hide}
      */
+    @UnsupportedAppUsage
     public final void addRawImageCallbackBuffer(byte[] callbackBuffer)
     {
         addCallbackBuffer(callbackBuffer, CAMERA_MSG_RAW_IMAGE);
     }
 
+    @UnsupportedAppUsage
     private final void addCallbackBuffer(byte[] callbackBuffer, int msgType)
     {
         // CAMERA_MSG_VIDEO_FRAME may be allowed in the future.
@@ -1067,6 +1183,7 @@ public class Camera {
     {
         private final Camera mCamera;
 
+        @UnsupportedAppUsage
         public EventHandler(Camera c, Looper looper) {
             super(looper);
             mCamera = c;
@@ -1142,8 +1259,14 @@ public class Camera {
 
             case CAMERA_MSG_ERROR :
                 Log.e(TAG, "Error " + msg.arg1);
-                if (mErrorCallback != null) {
-                    mErrorCallback.onError(msg.arg1, mCamera);
+                if (mDetailedErrorCallback != null) {
+                    mDetailedErrorCallback.onError(msg.arg1, mCamera);
+                } else if (mErrorCallback != null) {
+                    if (msg.arg1 == CAMERA_ERROR_DISABLED) {
+                        mErrorCallback.onError(CAMERA_ERROR_EVICTED, mCamera);
+                    } else {
+                        mErrorCallback.onError(msg.arg1, mCamera);
+                    }
                 }
                 return;
 
@@ -1160,6 +1283,7 @@ public class Camera {
         }
     }
 
+    @UnsupportedAppUsage
     private static void postEventFromNative(Object camera_ref,
                                             int what, int arg1, int arg2, Object obj)
     {
@@ -1245,6 +1369,9 @@ public class Camera {
      * success sound to the user.</p>
      *
      * @param cb the callback to run
+     * @throws RuntimeException if starting autofocus fails; usually this would
+     *    be because of a hardware or other low-level error, or because
+     *    release() has been called on this Camera instance.
      * @see #cancelAutoFocus()
      * @see android.hardware.Camera.Parameters#setAutoExposureLock(boolean)
      * @see android.hardware.Camera.Parameters#setAutoWhiteBalanceLock(boolean)
@@ -1265,6 +1392,9 @@ public class Camera {
      * this function will return the focus position to the default.
      * If the camera does not support auto-focus, this is a no-op.
      *
+     * @throws RuntimeException if canceling autofocus fails; usually this would
+     *    be because of a hardware or other low-level error, or because
+     *    release() has been called on this Camera instance.
      * @see #autoFocus(Camera.AutoFocusCallback)
      */
     public final void cancelAutoFocus()
@@ -1319,6 +1449,9 @@ public class Camera {
      * Sets camera auto-focus move callback.
      *
      * @param cb the callback to run
+     * @throws RuntimeException if enabling the focus move callback fails;
+     *    usually this would be because of a hardware or other low-level error,
+     *    or because release() has been called on this Camera instance.
      */
     public void setAutoFocusMoveCallback(AutoFocusMoveCallback cb) {
         mAutoFocusMoveCallback = cb;
@@ -1370,7 +1503,7 @@ public class Camera {
     };
 
     /**
-     * Equivalent to takePicture(shutter, raw, null, jpeg).
+     * Equivalent to <pre>takePicture(Shutter, raw, null, jpeg)</pre>.
      *
      * @see #takePicture(ShutterCallback, PictureCallback, PictureCallback, PictureCallback)
      */
@@ -1408,6 +1541,9 @@ public class Camera {
      * @param raw       the callback for raw (uncompressed) image data, or null
      * @param postview  callback with postview image data, may be null
      * @param jpeg      the callback for JPEG image data, or null
+     * @throws RuntimeException if starting picture capture fails; usually this
+     *    would be because of a hardware or other low-level error, or because
+     *    release() has been called on this Camera instance.
      */
     public final void takePicture(ShutterCallback shutter, PictureCallback raw,
             PictureCallback postview, PictureCallback jpeg) {
@@ -1520,6 +1656,9 @@ public class Camera {
      *
      * @param degrees the angle that the picture will be rotated clockwise.
      *                Valid values are 0, 90, 180, and 270.
+     * @throws RuntimeException if setting orientation fails; usually this would
+     *    be because of a hardware or other low-level error, or because
+     *    release() has been called on this Camera instance.
      * @see #setPreviewDisplay(SurfaceHolder)
      */
     public native final void setDisplayOrientation(int degrees);
@@ -1545,21 +1684,40 @@ public class Camera {
      *         changed. {@code false} if the shutter sound state could not be
      *         changed. {@code true} is also returned if shutter sound playback
      *         is already set to the requested state.
+     * @throws RuntimeException if the call fails; usually this would be because
+     *    of a hardware or other low-level error, or because release() has been
+     *    called on this Camera instance.
      * @see #takePicture
      * @see CameraInfo#canDisableShutterSound
      * @see ShutterCallback
      */
     public final boolean enableShutterSound(boolean enabled) {
-        if (!enabled) {
-            IBinder b = ServiceManager.getService(Context.AUDIO_SERVICE);
-            IAudioService audioService = IAudioService.Stub.asInterface(b);
-            try {
-                if (audioService.isCameraSoundForced()) return false;
-            } catch (RemoteException e) {
-                Log.e(TAG, "Audio service is unavailable for queries");
+        boolean canDisableShutterSound = true;
+        IBinder b = ServiceManager.getService(Context.AUDIO_SERVICE);
+        IAudioService audioService = IAudioService.Stub.asInterface(b);
+        try {
+            if (audioService.isCameraSoundForced()) {
+                canDisableShutterSound = false;
             }
+        } catch (RemoteException e) {
+            Log.e(TAG, "Audio service is unavailable for queries");
         }
-        return _enableShutterSound(enabled);
+        if (!enabled && !canDisableShutterSound) {
+            return false;
+        }
+        synchronized (mShutterSoundLock) {
+            mShutterSoundEnabledFromApp = enabled;
+            // Return the result of _enableShutterSound(enabled) in all cases.
+            // If the shutter sound can be disabled, disable it when the device is in DnD mode.
+            boolean ret = _enableShutterSound(enabled);
+            if (enabled && !mHasAppOpsPlayAudio) {
+                Log.i(TAG, "Shutter sound is not allowed by AppOpsManager");
+                if (canDisableShutterSound) {
+                    _enableShutterSound(false);
+                }
+            }
+            return ret;
+        }
     }
 
     /**
@@ -1583,6 +1741,58 @@ public class Camera {
     }
 
     private native final boolean _enableShutterSound(boolean enabled);
+
+    private static class IAppOpsCallbackWrapper extends IAppOpsCallback.Stub {
+        private final WeakReference<Camera> mWeakCamera;
+
+        IAppOpsCallbackWrapper(Camera camera) {
+            mWeakCamera = new WeakReference<Camera>(camera);
+        }
+
+        @Override
+        public void opChanged(int op, int uid, String packageName) {
+            if (op == AppOpsManager.OP_PLAY_AUDIO) {
+                final Camera camera = mWeakCamera.get();
+                if (camera != null) {
+                    camera.updateAppOpsPlayAudio();
+                }
+            }
+        }
+    }
+
+    private void updateAppOpsPlayAudio() {
+        synchronized (mShutterSoundLock) {
+            boolean oldHasAppOpsPlayAudio = mHasAppOpsPlayAudio;
+            try {
+                int mode = AppOpsManager.MODE_IGNORED;
+                if (mAppOps != null) {
+                    mode = mAppOps.checkAudioOperation(AppOpsManager.OP_PLAY_AUDIO,
+                            AudioAttributes.USAGE_ASSISTANCE_SONIFICATION,
+                            Process.myUid(), ActivityThread.currentPackageName());
+                }
+                mHasAppOpsPlayAudio = mode == AppOpsManager.MODE_ALLOWED;
+            } catch (RemoteException e) {
+                Log.e(TAG, "AppOpsService check audio operation failed");
+                mHasAppOpsPlayAudio = false;
+            }
+            if (oldHasAppOpsPlayAudio != mHasAppOpsPlayAudio) {
+                if (!mHasAppOpsPlayAudio) {
+                    IBinder b = ServiceManager.getService(Context.AUDIO_SERVICE);
+                    IAudioService audioService = IAudioService.Stub.asInterface(b);
+                    try {
+                        if (audioService.isCameraSoundForced()) {
+                            return;
+                        }
+                    } catch (RemoteException e) {
+                        Log.e(TAG, "Audio service is unavailable for queries");
+                    }
+                    _enableShutterSound(false);
+                } else {
+                    enableShutterSound(mShutterSoundEnabledFromApp);
+                }
+            }
+        }
+    }
 
     /**
      * Callback interface for zoom changes during a smooth zoom operation.
@@ -1821,6 +2031,15 @@ public class Camera {
     public static final int CAMERA_ERROR_EVICTED = 2;
 
     /**
+     * Camera was disconnected due to device policy change or client
+     * application going to background.
+     * @see Camera.ErrorCallback
+     *
+     * @hide
+     */
+    public static final int CAMERA_ERROR_DISABLED = 3;
+
+    /**
      * Media server died. In this case, the application must release the
      * Camera object and instantiate a new one.
      * @see Camera.ErrorCallback
@@ -1859,7 +2078,27 @@ public class Camera {
         mErrorCallback = cb;
     }
 
+    /**
+     * Registers a callback to be invoked when an error occurs.
+     * The detailed error callback may contain error code that
+     * gives more detailed information about the error.
+     *
+     * When a detailed callback is set, the callback set via
+     * #setErrorCallback(ErrorCallback) will stop receiving
+     * onError call.
+     *
+     * @param cb The callback to run
+     *
+     * @hide
+     */
+    public final void setDetailedErrorCallback(ErrorCallback cb)
+    {
+        mDetailedErrorCallback = cb;
+    }
+
+    @UnsupportedAppUsage
     private native final void native_setParameters(String params);
+    @UnsupportedAppUsage
     private native final String native_getParameters();
 
     /**
@@ -1889,6 +2128,9 @@ public class Camera {
      * If modifications are made to the returned Parameters, they must be passed
      * to {@link #setParameters(Camera.Parameters)} to take effect.
      *
+     * @throws RuntimeException if reading parameters fails; usually this would
+     *    be because of a hardware or other low-level error, or because
+     *    release() has been called on this Camera instance.
      * @see #setParameters(Camera.Parameters)
      */
     public Parameters getParameters() {
@@ -1905,6 +2147,7 @@ public class Camera {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static Parameters getEmptyParameters() {
         Camera camera = new Camera();
         return camera.new Parameters();
@@ -1930,6 +2173,20 @@ public class Camera {
 
         return p;
     }
+
+    /**
+     * Set camera audio restriction mode.
+     *
+     * @hide
+     */
+    public native final void setAudioRestriction(int mode);
+
+    /**
+     * Get currently applied camera audio restriction mode.
+     *
+     * @hide
+     */
+    public native final int getAudioRestriction();
 
     /**
      * Image size (width and height dimensions).
@@ -2439,6 +2696,7 @@ public class Camera {
          *
          * @hide
          */
+        @UnsupportedAppUsage
         public void copyFrom(Parameters other) {
             if (other == null) {
                 throw new NullPointerException("other must not be null");
@@ -2470,6 +2728,7 @@ public class Camera {
          * @deprecated
          */
         @Deprecated
+        @UnsupportedAppUsage
         public void dump() {
             Log.e(TAG, "dump: size=" + mMap.size());
             for (String k : mMap.keySet()) {
@@ -2627,6 +2886,16 @@ public class Camera {
          * orientation should also be considered while setting picture size and
          * thumbnail size.
          *
+         * Exception on 176x144 (QCIF) resolution:
+         * Camera devices usually have a fixed capability for downscaling from
+         * larger resolution to smaller, and the QCIF resolution sometimes
+         * is not fully supported due to this limitation on devices with
+         * high-resolution image sensors. Therefore, trying to configure a QCIF
+         * preview size with any picture or video size larger than 1920x1080
+         * (either width or height) might not be supported, and
+         * {@link #setParameters(Camera.Parameters)} might throw a
+         * RuntimeException if it is not.
+         *
          * @param width  the width of the pictures, in pixels
          * @param height the height of the pictures, in pixels
          * @see #setDisplayOrientation(int)
@@ -2671,6 +2940,16 @@ public class Camera {
          * camera is used as the video source. In this case, the size of the
          * preview can be different from the resolution of the recorded video
          * during video recording.</p>
+         *
+         * <p>Exception on 176x144 (QCIF) resolution:
+         * Camera devices usually have a fixed capability for downscaling from
+         * larger resolution to smaller, and the QCIF resolution sometimes
+         * is not fully supported due to this limitation on devices with
+         * high-resolution image sensors. Therefore, trying to configure a QCIF
+         * video resolution with any preview or picture size larger than
+         * 1920x1080  (either width or height) might not be supported, and
+         * {@link #setParameters(Camera.Parameters)} will throw a
+         * RuntimeException if it is not.</p>
          *
          * @return a list of Size object if camera has separate preview and
          *         video output; otherwise, null is returned.
@@ -2965,6 +3244,16 @@ public class Camera {
          *
          * <p>Applications need to consider the display orientation. See {@link
          * #setPreviewSize(int,int)} for reference.</p>
+         *
+         * <p>Exception on 176x144 (QCIF) resolution:
+         * Camera devices usually have a fixed capability for downscaling from
+         * larger resolution to smaller, and the QCIF resolution sometimes
+         * is not fully supported due to this limitation on devices with
+         * high-resolution image sensors. Therefore, trying to configure a QCIF
+         * picture size with any preview or video size larger than 1920x1080
+         * (either width or height) might not be supported, and
+         * {@link #setParameters(Camera.Parameters)} might throw a
+         * RuntimeException if it is not.</p>
          *
          * @param width  the width for pictures, in pixels
          * @param height the height for pictures, in pixels
@@ -3468,8 +3757,8 @@ public class Camera {
         /**
          * Gets the focal length (in millimeter) of the camera.
          *
-         * @return the focal length. This method will always return a valid
-         *         value.
+         * @return the focal length. Returns -1.0 when the device
+         *         doesn't report focal length information.
          */
         public float getFocalLength() {
             return Float.parseFloat(get(KEY_FOCAL_LENGTH));
@@ -3478,8 +3767,8 @@ public class Camera {
         /**
          * Gets the horizontal angle of view in degrees.
          *
-         * @return horizontal angle of view. This method will always return a
-         *         valid value.
+         * @return horizontal angle of view. Returns -1.0 when the device
+         *         doesn't report view angle information.
          */
         public float getHorizontalViewAngle() {
             return Float.parseFloat(get(KEY_HORIZONTAL_VIEW_ANGLE));
@@ -3488,8 +3777,8 @@ public class Camera {
         /**
          * Gets the vertical angle of view in degrees.
          *
-         * @return vertical angle of view. This method will always return a
-         *         valid value.
+         * @return vertical angle of view. Returns -1.0 when the device
+         *         doesn't report view angle information.
          */
         public float getVerticalViewAngle() {
             return Float.parseFloat(get(KEY_VERTICAL_VIEW_ANGLE));
@@ -4188,6 +4477,7 @@ public class Camera {
         // Splits a comma delimited string to an ArrayList of Area objects.
         // Example string: "(-10,-10,0,0,300),(0,0,10,10,700)". Return null if
         // the passing string is null or the size is 0 or (0,0,0,0,0).
+        @UnsupportedAppUsage
         private ArrayList<Area> splitArea(String str) {
             if (str == null || str.charAt(0) != '('
                     || str.charAt(str.length() - 1) != ')') {

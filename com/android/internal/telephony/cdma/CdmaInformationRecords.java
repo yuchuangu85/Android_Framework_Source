@@ -36,6 +36,34 @@ public final class CdmaInformationRecords {
     public static final int RIL_CDMA_T53_RELEASE_INFO_REC = 9;
     public static final int RIL_CDMA_T53_AUDIO_CONTROL_INFO_REC = 10;
 
+    public CdmaInformationRecords(CdmaDisplayInfoRec obj) {
+        record = obj;
+    }
+
+    public CdmaInformationRecords(CdmaNumberInfoRec obj) {
+        record = obj;
+    }
+
+    public CdmaInformationRecords(CdmaSignalInfoRec obj) {
+        record = obj;
+    }
+
+    public CdmaInformationRecords(CdmaRedirectingNumberInfoRec obj) {
+        record = obj;
+    }
+
+    public CdmaInformationRecords(CdmaLineControlInfoRec obj) {
+        record = obj;
+    }
+
+    public CdmaInformationRecords(CdmaT53ClirInfoRec obj) {
+        record = obj;
+    }
+
+    public CdmaInformationRecords(CdmaT53AudioControlInfoRec obj) {
+        record = obj;
+    }
+
     public CdmaInformationRecords(Parcel p) {
         int id = p.readInt();
         switch (id) {
@@ -156,6 +184,7 @@ public final class CdmaInformationRecords {
 
         public CdmaNumberInfoRec(int id, String number, int numberType, int numberPlan, int pi,
                 int si) {
+            this.id = id;
             this.number = number;
             this.numberType = (byte)numberType;
             this.numberPlan = (byte)numberPlan;

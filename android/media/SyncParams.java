@@ -86,7 +86,7 @@ public final class SyncParams {
     /**
      * Use audio track for sync source. This requires audio data and an audio track.
      *
-     * @see AudioTrack#getTimeStamp
+     * @see android.media.AudioTrack#getTimestamp(android.media.AudioTimestamp)
      */
     public static final int SYNC_SOURCE_AUDIO = 2;
 
@@ -137,9 +137,6 @@ public final class SyncParams {
      * This will make audio play faster or slower as required by the sync source
      * without changing its pitch, as long as it is supported for the playback
      * rate.
-     *
-     * @see MediaSync#PLAYBACK_RATE_AUDIO_MODE_STRETCH
-     * @see MediaPlayer#PLAYBACK_RATE_AUDIO_MODE_STRETCH
      */
     public static final int AUDIO_ADJUST_MODE_STRETCH = 1;
 
@@ -149,9 +146,6 @@ public final class SyncParams {
      * This will make audio play faster or slower as required by the sync source
      * by changing its pitch (making it lower to play slower, and higher to play
      * faster.)
-     *
-     * @see MediaSync#PLAYBACK_RATE_AUDIO_MODE_RESAMPLE
-     * @see MediaPlayer#PLAYBACK_RATE_AUDIO_MODE_RESAMPLE
      */
     public static final int AUDIO_ADJUST_MODE_RESAMPLE = 2;
 
@@ -232,7 +226,7 @@ public final class SyncParams {
      *     the maximum deviation of the playback rate from the playback rate
      *     set. ({@code abs(actual_rate - set_rate) / set_rate})
      * @return this <code>SyncParams</code> instance.
-     * @throws InvalidArgumentException if the tolerance is negative, or not less than one
+     * @throws IllegalArgumentException if the tolerance is negative, or not less than one.
      */
     public SyncParams setTolerance(float tolerance) {
         if (tolerance < 0.f || tolerance >= 1.f) {

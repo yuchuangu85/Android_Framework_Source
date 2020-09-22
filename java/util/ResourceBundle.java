@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,7 +41,6 @@
 
 package java.util;
 
-import dalvik.system.VMStack;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -61,10 +60,15 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.jar.JarEntry;
 
 import sun.reflect.CallerSensitive;
+import sun.reflect.Reflection;
 import sun.util.locale.BaseLocale;
 import sun.util.locale.LocaleObjectCache;
 
 
+// Android-removed: Support for ResourceBundleControlProvider.
+// Removed references to ResourceBundleControlProvider from the documentation.
+// The service provider interface ResourceBundleControlProvider is not
+// available on Android.
 /**
  *
  * Resource bundles contain locale-specific objects.  When your program needs a
@@ -76,7 +80,7 @@ import sun.util.locale.LocaleObjectCache;
  *
  * <p>
  * This allows you to write programs that can:
- * <UL type=SQUARE>
+ * <UL>
  * <LI> be easily localized, or translated, into different languages
  * <LI> handle multiple locales at once
  * <LI> be easily modified later to support even more locales
@@ -186,7 +190,14 @@ import sun.util.locale.LocaleObjectCache;
  * subclass.  Your subclasses must override two methods: <code>handleGetObject</code>
  * and <code>getKeys()</code>.
  *
- * <h4>ResourceBundle.Control</h4>
+ * <p>
+ * The implementation of a {@code ResourceBundle} subclass must be thread-safe
+ * if it's simultaneously used by multiple threads. The default implementations
+ * of the non-abstract methods in this class, and the methods in the direct
+ * known concrete subclasses {@code ListResourceBundle} and
+ * {@code PropertyResourceBundle} are thread-safe.
+ *
+ * <h3>ResourceBundle.Control</h3>
  *
  * The {@link ResourceBundle.Control} class provides information necessary
  * to perform the bundle loading process by the <code>getBundle</code>
@@ -197,7 +208,7 @@ import sun.util.locale.LocaleObjectCache;
  * {@link #getBundle(String, Locale, ClassLoader, Control) getBundle}
  * factory method for details.
  *
- * <h4>Cache Management</h4>
+ * <h3>Cache Management</h3>
  *
  * Resource bundle instances created by the <code>getBundle</code> factory
  * methods are cached by default, and the factory methods return the same
@@ -213,7 +224,7 @@ import sun.util.locale.LocaleObjectCache;
  * Control#needsReload(String, Locale, String, ClassLoader, ResourceBundle,
  * long) ResourceBundle.Control.needsReload} for details.
  *
- * <h4>Example</h4>
+ * <h3>Example</h3>
  *
  * The following is a very simple example of a <code>ResourceBundle</code>
  * subclass, <code>MyResources</code>, that manages two resources (for a larger number of
@@ -299,7 +310,25 @@ public abstract class ResourceBundle {
     /**
      * Queue for reference objects referring to class loaders or bundles.
      */
-    private static final ReferenceQueue referenceQueue = new ReferenceQueue();
+    private static final ReferenceQueue<Object> referenceQueue = new ReferenceQueue<>();
+
+    /**
+     * Returns the base name of this bundle, if known, or {@code null} if unknown.
+     *
+     * If not null, then this is the value of the {@code baseName} parameter
+     * that was passed to the {@code ResourceBundle.getBundle(...)} method
+     * when the resource bundle was loaded.
+     *
+     * @return The base name of the resource bundle, as provided to and expected
+     * by the {@code ResourceBundle.getBundle(...)} methods.
+     *
+     * @see #getBundle(java.lang.String, java.util.Locale, java.lang.ClassLoader)
+     *
+     * @since 1.8
+     */
+    public String getBaseBundleName() {
+        return name;
+    }
 
     /**
      * The parent bundle of this bundle.
@@ -333,6 +362,24 @@ public abstract class ResourceBundle {
      * A Set of the keys contained only in this ResourceBundle.
      */
     private volatile Set<String> keySet;
+
+    // Android-removed: Support for ResourceBundleControlProvider.
+    /*
+    private static final List<ResourceBundleControlProvider> providers;
+
+    static {
+        List<ResourceBundleControlProvider> list = null;
+        ServiceLoader<ResourceBundleControlProvider> serviceLoaders
+                = ServiceLoader.loadInstalled(ResourceBundleControlProvider.class);
+        for (ResourceBundleControlProvider provider : serviceLoaders) {
+            if (list == null) {
+                list = new ArrayList<>();
+            }
+            list.add(provider);
+        }
+        providers = list;
+    }
+    */
 
     /**
      * Sole constructor.  (For invocation by subclass constructors, typically
@@ -394,12 +441,13 @@ public abstract class ResourceBundle {
             if (parent != null) {
                 obj = parent.getObject(key);
             }
-            if (obj == null)
+            if (obj == null) {
                 throw new MissingResourceException("Can't find resource for bundle "
                                                    +this.getClass().getName()
                                                    +", key "+key,
                                                    this.getClass().getName(),
                                                    key);
+            }
         }
         return obj;
     }
@@ -419,7 +467,8 @@ public abstract class ResourceBundle {
      * Automatic determination of the ClassLoader to be used to load
      * resources on behalf of the client.
      */
-    private static ClassLoader getLoader(ClassLoader cl) {
+    private static ClassLoader getLoader(Class<?> caller) {
+        ClassLoader cl = caller == null ? null : caller.getClassLoader();
         if (cl == null) {
             // When the caller's loader is the boot class loader, cl is null
             // here. In that case, ClassLoader.getSystemClassLoader() may
@@ -486,7 +535,7 @@ public abstract class ResourceBundle {
      * null, but the base name and the locale must have a non-null
      * value.
      */
-    private static final class CacheKey implements Cloneable {
+    private static class CacheKey implements Cloneable {
         // These three are the actual keys for lookup in Map.
         private String name;
         private Locale locale;
@@ -581,8 +630,7 @@ public abstract class ResourceBundle {
                         // treat it as unequal
                         && (loader != null)
                         && (loader == otherEntry.loaderRef.get());
-            } catch (NullPointerException e) {
-            } catch (ClassCastException e) {
+            } catch (    NullPointerException | ClassCastException e) {
             }
             return false;
         }
@@ -612,7 +660,7 @@ public abstract class ResourceBundle {
                 return clone;
             } catch (CloneNotSupportedException e) {
                 //this should never happen
-                throw new InternalError();
+                throw new InternalError(e);
             }
         }
 
@@ -667,11 +715,11 @@ public abstract class ResourceBundle {
      * garbage collected when nobody else is using them. The ResourceBundle
      * class has no reason to keep class loaders alive.
      */
-    private static final class LoaderReference extends WeakReference<ClassLoader>
-                                               implements CacheKeyReference {
+    private static class LoaderReference extends WeakReference<ClassLoader>
+                                         implements CacheKeyReference {
         private CacheKey cacheKey;
 
-        LoaderReference(ClassLoader referent, ReferenceQueue q, CacheKey key) {
+        LoaderReference(ClassLoader referent, ReferenceQueue<Object> q, CacheKey key) {
             super(referent, q);
             cacheKey = key;
         }
@@ -685,11 +733,11 @@ public abstract class ResourceBundle {
      * References to bundles are soft references so that they can be garbage
      * collected when they have no hard references.
      */
-    private static final class BundleReference extends SoftReference<ResourceBundle>
-                                               implements CacheKeyReference {
+    private static class BundleReference extends SoftReference<ResourceBundle>
+                                         implements CacheKeyReference {
         private CacheKey cacheKey;
 
-        BundleReference(ResourceBundle referent, ReferenceQueue q, CacheKey key) {
+        BundleReference(ResourceBundle referent, ReferenceQueue<Object> q, CacheKey key) {
             super(referent, q);
             cacheKey = key;
         }
@@ -721,9 +769,8 @@ public abstract class ResourceBundle {
     public static final ResourceBundle getBundle(String baseName)
     {
         return getBundleImpl(baseName, Locale.getDefault(),
-                             /* must determine loader here, else we break stack invariant */
-                             getLoader(VMStack.getCallingClassLoader()),
-                             Control.INSTANCE);
+                             getLoader(Reflection.getCallerClass()),
+                             getDefaultControl(baseName));
     }
 
     /**
@@ -764,8 +811,7 @@ public abstract class ResourceBundle {
     public static final ResourceBundle getBundle(String baseName,
                                                  Control control) {
         return getBundleImpl(baseName, Locale.getDefault(),
-                             /* must determine loader here, else we break stack invariant */
-                             getLoader(VMStack.getCallingClassLoader()),
+                             getLoader(Reflection.getCallerClass()),
                              control);
     }
 
@@ -795,9 +841,8 @@ public abstract class ResourceBundle {
                                                  Locale locale)
     {
         return getBundleImpl(baseName, locale,
-                             /* must determine loader here, else we break stack invariant */
-                             getLoader(VMStack.getCallingClassLoader()),
-                             Control.INSTANCE);
+                             getLoader(Reflection.getCallerClass()),
+                             getDefaultControl(baseName));
     }
 
     /**
@@ -841,18 +886,19 @@ public abstract class ResourceBundle {
     public static final ResourceBundle getBundle(String baseName, Locale targetLocale,
                                                  Control control) {
         return getBundleImpl(baseName, targetLocale,
-                             /* must determine loader here, else we break stack invariant */
-                             getLoader(VMStack.getCallingClassLoader()),
+                             getLoader(Reflection.getCallerClass()),
                              control);
     }
 
+    // Android-removed: Support for ResourceBundleControlProvider.
+    // Removed documentation referring to that SPI.
     /**
      * Gets a resource bundle using the specified base name, locale, and class
      * loader.
      *
-     * <p><a name="default_behavior"></a>This method behaves the same as calling
+     * <p>This method behaves the same as calling
      * {@link #getBundle(String, Locale, ClassLoader, Control)} passing a
-     * default instance of {@link Control}. The following describes this behavior.
+     * default instance of {@link Control}.
      *
      * <p><code>getBundle</code> uses the base name, the specified locale, and
      * the default locale (obtained from {@link java.util.Locale#getDefault()
@@ -947,8 +993,8 @@ public abstract class ResourceBundle {
      * <p>If still no result bundle is found, the base name alone is looked up. If
      * this still fails, a <code>MissingResourceException</code> is thrown.
      *
-     * <p><a name="parent_chain"></a> Once a result resource bundle has been found,
-     * its <em>parent chain</em> is instantiated.  If the result bundle already
+     * <p><a name="parent_chain"> Once a result resource bundle has been found,
+     * its <em>parent chain</em> is instantiated</a>.  If the result bundle already
      * has a parent (perhaps because it was returned from a cache) the chain is
      * complete.
      *
@@ -977,8 +1023,8 @@ public abstract class ResourceBundle {
      * path name (using "/") instead of a fully qualified class name (using
      * ".").
      *
-     * <p><a name="default_behavior_example"></a>
-     * <strong>Example:</strong>
+     * <p><a name="default_behavior_example">
+     * <strong>Example:</strong></a>
      * <p>
      * The following class and property files are provided:
      * <pre>
@@ -999,7 +1045,7 @@ public abstract class ResourceBundle {
      * <p>Calling <code>getBundle</code> with the locale arguments below will
      * instantiate resource bundles as follows:
      *
-     * <table>
+     * <table summary="getBundle() locale to resource bundle mapping">
      * <tr><td>Locale("fr", "CH")</td><td>MyResources_fr_CH.class, parent MyResources_fr.properties, parent MyResources.class</td></tr>
      * <tr><td>Locale("fr", "FR")</td><td>MyResources_fr.properties, parent MyResources.class</td></tr>
      * <tr><td>Locale("de", "DE")</td><td>MyResources_en.properties, parent MyResources.class</td></tr>
@@ -1027,7 +1073,7 @@ public abstract class ResourceBundle {
         if (loader == null) {
             throw new NullPointerException();
         }
-        return getBundleImpl(baseName, locale, loader, Control.INSTANCE);
+        return getBundleImpl(baseName, locale, loader, getDefaultControl(baseName));
     }
 
     /**
@@ -1039,7 +1085,6 @@ public abstract class ResourceBundle {
      * bundles. Conceptually, the bundle loading process with the given
      * <code>control</code> is performed in the following steps.
      *
-     * <p>
      * <ol>
      * <li>This factory method looks up the resource bundle in the cache for
      * the specified <code>baseName</code>, <code>targetLocale</code> and
@@ -1079,45 +1124,45 @@ public abstract class ResourceBundle {
      * <code>control.newBundle</code>.
      *
      * <table style="width: 50%; text-align: left; margin-left: 40px;"
-     *  border="0" cellpadding="2" cellspacing="2">
-     * <tbody><code>
+     *  border="0" cellpadding="2" cellspacing="2" summary="locale-format combinations for newBundle">
+     * <tbody>
      * <tr>
      * <td
-     * style="vertical-align: top; text-align: left; font-weight: bold; width: 50%;">Locale<br>
+     * style="vertical-align: top; text-align: left; font-weight: bold; width: 50%;"><code>Locale</code><br>
      * </td>
      * <td
-     * style="vertical-align: top; text-align: left; font-weight: bold; width: 50%;">format<br>
+     * style="vertical-align: top; text-align: left; font-weight: bold; width: 50%;"><code>format</code><br>
      * </td>
      * </tr>
      * <tr>
-     * <td style="vertical-align: top; width: 50%;">Locale("de", "DE")<br>
+     * <td style="vertical-align: top; width: 50%;"><code>Locale("de", "DE")</code><br>
      * </td>
-     * <td style="vertical-align: top; width: 50%;">java.class<br>
-     * </td>
-     * </tr>
-     * <tr>
-     * <td style="vertical-align: top; width: 50%;">Locale("de", "DE")</td>
-     * <td style="vertical-align: top; width: 50%;">java.properties<br>
+     * <td style="vertical-align: top; width: 50%;"><code>java.class</code><br>
      * </td>
      * </tr>
      * <tr>
-     * <td style="vertical-align: top; width: 50%;">Locale("de")</td>
-     * <td style="vertical-align: top; width: 50%;">java.class</td>
-     * </tr>
-     * <tr>
-     * <td style="vertical-align: top; width: 50%;">Locale("de")</td>
-     * <td style="vertical-align: top; width: 50%;">java.properties</td>
-     * </tr>
-     * <tr>
-     * <td style="vertical-align: top; width: 50%;">Locale("")<br>
+     * <td style="vertical-align: top; width: 50%;"><code>Locale("de", "DE")</code></td>
+     * <td style="vertical-align: top; width: 50%;"><code>java.properties</code><br>
      * </td>
-     * <td style="vertical-align: top; width: 50%;">java.class</td>
      * </tr>
      * <tr>
-     * <td style="vertical-align: top; width: 50%;">Locale("")</td>
-     * <td style="vertical-align: top; width: 50%;">java.properties</td>
+     * <td style="vertical-align: top; width: 50%;"><code>Locale("de")</code></td>
+     * <td style="vertical-align: top; width: 50%;"><code>java.class</code></td>
      * </tr>
-     * </code></tbody>
+     * <tr>
+     * <td style="vertical-align: top; width: 50%;"><code>Locale("de")</code></td>
+     * <td style="vertical-align: top; width: 50%;"><code>java.properties</code></td>
+     * </tr>
+     * <tr>
+     * <td style="vertical-align: top; width: 50%;"><code>Locale("")</code><br>
+     * </td>
+     * <td style="vertical-align: top; width: 50%;"><code>java.class</code></td>
+     * </tr>
+     * <tr>
+     * <td style="vertical-align: top; width: 50%;"><code>Locale("")</code></td>
+     * <td style="vertical-align: top; width: 50%;"><code>java.properties</code></td>
+     * </tr>
+     * </tbody>
      * </table>
      * </li>
      *
@@ -1210,7 +1255,7 @@ public abstract class ResourceBundle {
      * <p><code>getBundle</code> finds
      * <code>foo/bar/Messages_fr.properties</code> and creates a
      * <code>ResourceBundle</code> instance. Then, <code>getBundle</code>
-     * sets up its parent chain from the list of the candiate locales.  Only
+     * sets up its parent chain from the list of the candidate locales.  Only
      * <code>foo/bar/Messages.properties</code> is found in the list and
      * <code>getBundle</code> creates a <code>ResourceBundle</code> instance
      * that becomes the parent of the instance for
@@ -1246,6 +1291,21 @@ public abstract class ResourceBundle {
             throw new NullPointerException();
         }
         return getBundleImpl(baseName, targetLocale, loader, control);
+    }
+
+    private static Control getDefaultControl(String baseName) {
+        // Android-removed: Support for ResourceBundleControlProvider.
+        /*
+        if (providers != null) {
+            for (ResourceBundleControlProvider provider : providers) {
+                Control control = provider.getControl(baseName);
+                if (control != null) {
+                    return control;
+                }
+            }
+        }
+        */
+        return Control.INSTANCE;
     }
 
     private static ResourceBundle getBundleImpl(String baseName, Locale locale,
@@ -1333,8 +1393,8 @@ public abstract class ResourceBundle {
      * Checks if the given <code>List</code> is not null, not empty,
      * not having null in its elements.
      */
-    private static final boolean checkList(List a) {
-        boolean valid = (a != null && a.size() != 0);
+    private static boolean checkList(List<?> a) {
+        boolean valid = (a != null && !a.isEmpty());
         if (valid) {
             int size = a.size();
             for (int i = 0; valid && i < size; i++) {
@@ -1344,12 +1404,12 @@ public abstract class ResourceBundle {
         return valid;
     }
 
-    private static final ResourceBundle findBundle(CacheKey cacheKey,
-                                                   List<Locale> candidateLocales,
-                                                   List<String> formats,
-                                                   int index,
-                                                   Control control,
-                                                   ResourceBundle baseBundle) {
+    private static ResourceBundle findBundle(CacheKey cacheKey,
+                                             List<Locale> candidateLocales,
+                                             List<String> formats,
+                                             int index,
+                                             Control control,
+                                             ResourceBundle baseBundle) {
         Locale targetLocale = candidateLocales.get(index);
         ResourceBundle parent = null;
         if (index != candidateLocales.size() - 1) {
@@ -1421,10 +1481,10 @@ public abstract class ResourceBundle {
         return parent;
     }
 
-    private static final ResourceBundle loadBundle(CacheKey cacheKey,
-                                                   List<String> formats,
-                                                   Control control,
-                                                   boolean reload) {
+    private static ResourceBundle loadBundle(CacheKey cacheKey,
+                                             List<String> formats,
+                                             Control control,
+                                             boolean reload) {
 
         // Here we actually load the bundle in the order of formats
         // specified by the getFormats() value.
@@ -1461,7 +1521,7 @@ public abstract class ResourceBundle {
         return bundle;
     }
 
-    private static final boolean isValidBundle(ResourceBundle bundle) {
+    private static boolean isValidBundle(ResourceBundle bundle) {
         return bundle != null && bundle != NONEXISTENT_BUNDLE;
     }
 
@@ -1469,7 +1529,7 @@ public abstract class ResourceBundle {
      * Determines whether any of resource bundles in the parent chain,
      * including the leaf, have expired.
      */
-    private static final boolean hasValidParentChain(ResourceBundle bundle) {
+    private static boolean hasValidParentChain(ResourceBundle bundle) {
         long now = System.currentTimeMillis();
         while (bundle != null) {
             if (bundle.expired) {
@@ -1490,9 +1550,9 @@ public abstract class ResourceBundle {
     /**
      * Throw a MissingResourceException with proper message
      */
-    private static final void throwMissingResourceException(String baseName,
-                                                            Locale locale,
-                                                            Throwable cause) {
+    private static void throwMissingResourceException(String baseName,
+                                                      Locale locale,
+                                                      Throwable cause) {
         // If the cause is a MissingResourceException, avoid creating
         // a long chain. (6355009)
         if (cause instanceof MissingResourceException) {
@@ -1515,8 +1575,8 @@ public abstract class ResourceBundle {
      * cache or its parent has expired. <code>bundle.expire</code> is true
      * upon return if the bundle in the cache has expired.
      */
-    private static final ResourceBundle findBundleInCache(CacheKey cacheKey,
-                                                          Control control) {
+    private static ResourceBundle findBundleInCache(CacheKey cacheKey,
+                                                    Control control) {
         BundleReference bundleRef = cacheList.get(cacheKey);
         if (bundleRef == null) {
             return null;
@@ -1622,9 +1682,9 @@ public abstract class ResourceBundle {
      * the bundle before this call, the one found in the cache is
      * returned.
      */
-    private static final ResourceBundle putBundleInCache(CacheKey cacheKey,
-                                                         ResourceBundle bundle,
-                                                         Control control) {
+    private static ResourceBundle putBundleInCache(CacheKey cacheKey,
+                                                   ResourceBundle bundle,
+                                                   Control control) {
         setExpirationTime(cacheKey, control);
         if (cacheKey.expirationTime != Control.TTL_DONT_CACHE) {
             CacheKey key = (CacheKey) cacheKey.clone();
@@ -1655,7 +1715,7 @@ public abstract class ResourceBundle {
         return bundle;
     }
 
-    private static final void setExpirationTime(CacheKey cacheKey, Control control) {
+    private static void setExpirationTime(CacheKey cacheKey, Control control) {
         long ttl = control.getTimeToLive(cacheKey.getName(),
                                          cacheKey.getLocale());
         if (ttl >= 0) {
@@ -1680,7 +1740,7 @@ public abstract class ResourceBundle {
      */
     @CallerSensitive
     public static final void clearCache() {
-        clearCache(getLoader(VMStack.getCallingClassLoader()));
+        clearCache(getLoader(Reflection.getCallerClass()));
     }
 
     /**
@@ -2160,11 +2220,11 @@ public abstract class ResourceBundle {
          * one by one as below:
          *
          * <ul>
-         * <li> [<em>L</em>, <em>C</em>, <em>V</em>]
-         * <li> [<em>L</em>, <em>C</em>]
-         * <li> [<em>L</em>]
-         * <li> <code>Locale.ROOT</code>
-         * </ul>
+         * <li> [<em>L</em>, <em>C</em>, <em>V</em>] </li>
+         * <li> [<em>L</em>, <em>C</em>] </li>
+         * <li> [<em>L</em>] </li>
+         * <li> <code>Locale.ROOT</code> </li>
+         * </ul></li>
          *
          * <li>For an input <code>Locale</code> with a non-empty script value,
          * append candidate <code>Locale</code>s by omitting the final component
@@ -2172,33 +2232,33 @@ public abstract class ResourceBundle {
          * <code>Locale</code> with country and variant restored:
          *
          * <ul>
-         * <li> [<em>L</em>, <em>S</em>, <em>C</em>, <em>V</em>]
-         * <li> [<em>L</em>, <em>S</em>, <em>C</em>]
-         * <li> [<em>L</em>, <em>S</em>]
-         * <li> [<em>L</em>, <em>C</em>, <em>V</em>]
-         * <li> [<em>L</em>, <em>C</em>]
-         * <li> [<em>L</em>]
-         * <li> <code>Locale.ROOT</code>
-         * </ul>
+         * <li> [<em>L</em>, <em>S</em>, <em>C</em>, <em>V</em>]</li>
+         * <li> [<em>L</em>, <em>S</em>, <em>C</em>]</li>
+         * <li> [<em>L</em>, <em>S</em>]</li>
+         * <li> [<em>L</em>, <em>C</em>, <em>V</em>]</li>
+         * <li> [<em>L</em>, <em>C</em>]</li>
+         * <li> [<em>L</em>]</li>
+         * <li> <code>Locale.ROOT</code></li>
+         * </ul></li>
          *
          * <li>For an input <code>Locale</code> with a variant value consisting
          * of multiple subtags separated by underscore, generate candidate
          * <code>Locale</code>s by omitting the variant subtags one by one, then
-         * insert them after every occurence of <code> Locale</code>s with the
+         * insert them after every occurrence of <code> Locale</code>s with the
          * full variant value in the original list.  For example, if the
          * the variant consists of two subtags <em>V1</em> and <em>V2</em>:
          *
          * <ul>
-         * <li> [<em>L</em>, <em>S</em>, <em>C</em>, <em>V1</em>, <em>V2</em>]
-         * <li> [<em>L</em>, <em>S</em>, <em>C</em>, <em>V1</em>]
-         * <li> [<em>L</em>, <em>S</em>, <em>C</em>]
-         * <li> [<em>L</em>, <em>S</em>]
-         * <li> [<em>L</em>, <em>C</em>, <em>V1</em>, <em>V2</em>]
-         * <li> [<em>L</em>, <em>C</em>, <em>V1</em>]
-         * <li> [<em>L</em>, <em>C</em>]
-         * <li> [<em>L</em>]
-         * <li> <code>Locale.ROOT</code>
-         * </ul>
+         * <li> [<em>L</em>, <em>S</em>, <em>C</em>, <em>V1</em>, <em>V2</em>]</li>
+         * <li> [<em>L</em>, <em>S</em>, <em>C</em>, <em>V1</em>]</li>
+         * <li> [<em>L</em>, <em>S</em>, <em>C</em>]</li>
+         * <li> [<em>L</em>, <em>S</em>]</li>
+         * <li> [<em>L</em>, <em>C</em>, <em>V1</em>, <em>V2</em>]</li>
+         * <li> [<em>L</em>, <em>C</em>, <em>V1</em>]</li>
+         * <li> [<em>L</em>, <em>C</em>]</li>
+         * <li> [<em>L</em>]</li>
+         * <li> <code>Locale.ROOT</code></li>
+         * </ul></li>
          *
          * <li>Special cases for Chinese.  When an input <code>Locale</code> has the
          * language "zh" (Chinese) and an empty script value, either "Hans" (Simplified) or
@@ -2209,21 +2269,21 @@ public abstract class ResourceBundle {
          * is empty, no script is supplied.  For example, for <code>Locale("zh", "CN")
          * </code>, the candidate list will be:
          * <ul>
-         * <li> [<em>L</em>("zh"), <em>S</em>("Hans"), <em>C</em>("CN")]
-         * <li> [<em>L</em>("zh"), <em>S</em>("Hans")]
-         * <li> [<em>L</em>("zh"), <em>C</em>("CN")]
-         * <li> [<em>L</em>("zh")]
-         * <li> <code>Locale.ROOT</code>
+         * <li> [<em>L</em>("zh"), <em>S</em>("Hans"), <em>C</em>("CN")]</li>
+         * <li> [<em>L</em>("zh"), <em>S</em>("Hans")]</li>
+         * <li> [<em>L</em>("zh"), <em>C</em>("CN")]</li>
+         * <li> [<em>L</em>("zh")]</li>
+         * <li> <code>Locale.ROOT</code></li>
          * </ul>
          *
          * For <code>Locale("zh", "TW")</code>, the candidate list will be:
          * <ul>
-         * <li> [<em>L</em>("zh"), <em>S</em>("Hant"), <em>C</em>("TW")]
-         * <li> [<em>L</em>("zh"), <em>S</em>("Hant")]
-         * <li> [<em>L</em>("zh"), <em>C</em>("TW")]
-         * <li> [<em>L</em>("zh")]
-         * <li> <code>Locale.ROOT</code>
-         * </ul>
+         * <li> [<em>L</em>("zh"), <em>S</em>("Hant"), <em>C</em>("TW")]</li>
+         * <li> [<em>L</em>("zh"), <em>S</em>("Hant")]</li>
+         * <li> [<em>L</em>("zh"), <em>C</em>("TW")]</li>
+         * <li> [<em>L</em>("zh")]</li>
+         * <li> <code>Locale.ROOT</code></li>
+         * </ul></li>
          *
          * <li>Special cases for Norwegian.  Both <code>Locale("no", "NO",
          * "NY")</code> and <code>Locale("nn", "NO")</code> represent Norwegian
@@ -2231,10 +2291,10 @@ public abstract class ResourceBundle {
          * list is generated up to [<em>L</em>("nn")], and then the following
          * candidates are added:
          *
-         * <ul><li> [<em>L</em>("no"), <em>C</em>("NO"), <em>V</em>("NY")]
-         * <li> [<em>L</em>("no"), <em>C</em>("NO")]
-         * <li> [<em>L</em>("no")]
-         * <li> <code>Locale.ROOT</code>
+         * <ul><li> [<em>L</em>("no"), <em>C</em>("NO"), <em>V</em>("NY")]</li>
+         * <li> [<em>L</em>("no"), <em>C</em>("NO")]</li>
+         * <li> [<em>L</em>("no")]</li>
+         * <li> <code>Locale.ROOT</code></li>
          * </ul>
          *
          * If the locale is exactly <code>Locale("no", "NO", "NY")</code>, it is first
@@ -2251,20 +2311,18 @@ public abstract class ResourceBundle {
          * candidate list:
          *
          * <ul>
-         * <li> [<em>L</em>("nb"), <em>C</em>("NO"), <em>V</em>("POSIX")]
-         * <li> [<em>L</em>("no"), <em>C</em>("NO"), <em>V</em>("POSIX")]
-         * <li> [<em>L</em>("nb"), <em>C</em>("NO")]
-         * <li> [<em>L</em>("no"), <em>C</em>("NO")]
-         * <li> [<em>L</em>("nb")]
-         * <li> [<em>L</em>("no")]
-         * <li> <code>Locale.ROOT</code>
+         * <li> [<em>L</em>("nb"), <em>C</em>("NO"), <em>V</em>("POSIX")]</li>
+         * <li> [<em>L</em>("no"), <em>C</em>("NO"), <em>V</em>("POSIX")]</li>
+         * <li> [<em>L</em>("nb"), <em>C</em>("NO")]</li>
+         * <li> [<em>L</em>("no"), <em>C</em>("NO")]</li>
+         * <li> [<em>L</em>("nb")]</li>
+         * <li> [<em>L</em>("no")]</li>
+         * <li> <code>Locale.ROOT</code></li>
          * </ul>
          *
          * <code>Locale("no", "NO", "POSIX")</code> would generate the same list
          * except that locales with "no" would appear before the corresponding
          * locales with "nb".</li>
-         *
-         * </li>
          * </ol>
          *
          * <p>The default implementation uses an {@link ArrayList} that
@@ -2284,9 +2342,9 @@ public abstract class ResourceBundle {
          * is returned. And if the resource bundles for the "ja" and
          * "" <code>Locale</code>s are found, then the runtime resource
          * lookup path (parent chain) is:
-         * <pre>
+         * <pre>{@code
          *     Messages_ja -> Messages
-         * </pre>
+         * }</pre>
          *
          * @param baseName
          *        the base name of the resource bundle, a fully
@@ -2353,18 +2411,27 @@ public abstract class ResourceBundle {
                     if (script.length() == 0 && region.length() > 0) {
                         // Supply script for users who want to use zh_Hans/zh_Hant
                         // as bundle names (recommended for Java7+)
-                        if (region.equals("TW") || region.equals("HK") || region.equals("MO")) {
+                        switch (region) {
+                        case "TW":
+                        case "HK":
+                        case "MO":
                             script = "Hant";
-                        } else if (region.equals("CN") || region.equals("SG")) {
+                            break;
+                        case "CN":
+                        case "SG":
                             script = "Hans";
+                            break;
                         }
                     } else if (script.length() > 0 && region.length() == 0) {
                         // Supply region(country) for users who still package Chinese
                         // bundles using old convension.
-                        if (script.equals("Hans")) {
+                        switch (script) {
+                        case "Hans":
                             region = "CN";
-                        } else if (script.equals("Hant")) {
+                            break;
+                        case "Hant":
                             region = "TW";
+                            break;
                         }
                     }
                 }
@@ -2565,6 +2632,7 @@ public abstract class ResourceBundle {
             ResourceBundle bundle = null;
             if (format.equals("java.class")) {
                 try {
+                    @SuppressWarnings("unchecked")
                     Class<? extends ResourceBundle> bundleClass
                         = (Class<? extends ResourceBundle>)loader.loadClass(bundleName);
 
@@ -2579,7 +2647,10 @@ public abstract class ResourceBundle {
                 } catch (ClassNotFoundException e) {
                 }
             } else if (format.equals("java.properties")) {
-                final String resourceName = toResourceName(bundleName, "properties");
+                final String resourceName = toResourceName0(bundleName, "properties");
+                if (resourceName == null) {
+                    return bundle;
+                }
                 final ClassLoader classLoader = loader;
                 final boolean reloadFlag = reload;
                 InputStream stream = null;
@@ -2610,6 +2681,8 @@ public abstract class ResourceBundle {
                 }
                 if (stream != null) {
                     try {
+                        // Android-changed: Use UTF-8 for property based resources. b/26879578
+                        // bundle = new PropertyResourceBundle(stream);
                         bundle = new PropertyResourceBundle(
                                 new InputStreamReader(stream, StandardCharsets.UTF_8));
                     } finally {
@@ -2734,7 +2807,10 @@ public abstract class ResourceBundle {
             }
             boolean result = false;
             try {
-                String resourceName = toResourceName(toBundleName(baseName, locale), format);
+                String resourceName = toResourceName0(toBundleName(baseName, locale), format);
+                if (resourceName == null) {
+                    return result;
+                }
                 URL url = loader.getResource(resourceName);
                 if (url != null) {
                     long lastModified = 0;
@@ -2780,7 +2856,7 @@ public abstract class ResourceBundle {
          * and <code>variant</code> are the language, script, country, and variant
          * values of <code>locale</code>, respectively. Final component values that
          * are empty Strings are omitted along with the preceding '_'.  When the
-         * script is empty, the script value is ommitted along with the preceding '_'.
+         * script is empty, the script value is omitted along with the preceding '_'.
          * If all of the values are empty strings, then <code>baseName</code>
          * is returned.
          *
@@ -2867,6 +2943,15 @@ public abstract class ResourceBundle {
             StringBuilder sb = new StringBuilder(bundleName.length() + 1 + suffix.length());
             sb.append(bundleName.replace('.', '/')).append('.').append(suffix);
             return sb.toString();
+        }
+
+        private String toResourceName0(String bundleName, String suffix) {
+            // application protocol check
+            if (bundleName.contains("://")) {
+                return null;
+            } else {
+                return toResourceName(bundleName, suffix);
+            }
         }
     }
 

@@ -17,10 +17,11 @@
 
 package android.filterfw;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.filterfw.core.AsyncRunner;
-import android.filterfw.core.FilterGraph;
 import android.filterfw.core.FilterContext;
+import android.filterfw.core.FilterGraph;
 import android.filterfw.core.FrameManager;
 import android.filterfw.core.GraphRunner;
 import android.filterfw.core.RoundRobinScheduler;
@@ -83,6 +84,7 @@ public class GraphEnvironment extends MffEnvironment {
     /**
      * Create a new GraphEnvironment with default components.
      */
+    @UnsupportedAppUsage
     public GraphEnvironment() {
         super(null);
     }
@@ -117,6 +119,7 @@ public class GraphEnvironment extends MffEnvironment {
      *
      * @param references An alternating argument list of keys (Strings) and values.
      */
+    @UnsupportedAppUsage
     public void addReferences(Object... references) {
         getGraphReader().addReferencesByKeysAndValues(references);
     }
@@ -128,6 +131,7 @@ public class GraphEnvironment extends MffEnvironment {
      * @param resourceId    The ID of the graph resource to load.
      * @return              A unique ID for the graph.
      */
+    @UnsupportedAppUsage
     public int loadGraph(Context context, int resourceId) {
         // Read the file into a graph
         FilterGraph graph = null;
@@ -180,6 +184,7 @@ public class GraphEnvironment extends MffEnvironment {
                             MODE_SYNCHRONOUS or MODE_ASYNCHRONOUS.
      * @return              A GraphRunner instance for this graph.
      */
+    @UnsupportedAppUsage
     public GraphRunner getRunner(int graphId, int executionMode) {
         switch (executionMode) {
             case MODE_ASYNCHRONOUS:

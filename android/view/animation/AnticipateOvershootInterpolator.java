@@ -16,19 +16,19 @@
 
 package android.view.animation;
 
+import static com.android.internal.R.styleable.AnticipateOvershootInterpolator;
+import static com.android.internal.R.styleable.AnticipateOvershootInterpolator_extraTension;
+import static com.android.internal.R.styleable.AnticipateOvershootInterpolator_tension;
+
 import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
+import android.graphics.animation.HasNativeInterpolator;
+import android.graphics.animation.NativeInterpolator;
+import android.graphics.animation.NativeInterpolatorFactory;
 import android.util.AttributeSet;
 
-import com.android.internal.view.animation.HasNativeInterpolator;
-import com.android.internal.view.animation.NativeInterpolatorFactory;
-import com.android.internal.view.animation.NativeInterpolatorFactoryHelper;
-
-import static com.android.internal.R.styleable.AnticipateOvershootInterpolator_extraTension;
-import static com.android.internal.R.styleable.AnticipateOvershootInterpolator_tension;
-import static com.android.internal.R.styleable.AnticipateOvershootInterpolator;
 
 /**
  * An interpolator where the change starts backward then flings forward and overshoots
@@ -36,7 +36,7 @@ import static com.android.internal.R.styleable.AnticipateOvershootInterpolator;
  */
 @HasNativeInterpolator
 public class AnticipateOvershootInterpolator extends BaseInterpolator
-        implements NativeInterpolatorFactory {
+        implements NativeInterpolator {
     private final float mTension;
 
     public AnticipateOvershootInterpolator() {
@@ -103,6 +103,6 @@ public class AnticipateOvershootInterpolator extends BaseInterpolator
     /** @hide */
     @Override
     public long createNativeInterpolator() {
-        return NativeInterpolatorFactoryHelper.createAnticipateOvershootInterpolator(mTension);
+        return NativeInterpolatorFactory.createAnticipateOvershootInterpolator(mTension);
     }
 }

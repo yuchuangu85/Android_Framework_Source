@@ -16,11 +16,14 @@
 
 package android.content.res;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ApplicationInfo;
 import android.graphics.Canvas;
 import android.graphics.PointF;
 import android.graphics.Rect;
 import android.graphics.Region;
+import android.os.Build;
+import android.os.Build.VERSION_CODES;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.DisplayMetrics;
@@ -29,13 +32,14 @@ import android.view.WindowManager;
 import android.view.WindowManager.LayoutParams;
 
 /**
- * CompatibilityInfo class keeps the information about compatibility mode that the application is
- * running under.
+ * CompatibilityInfo class keeps the information about the screen compatibility mode that the
+ * application is running under.
  * 
  *  {@hide} 
  */
 public class CompatibilityInfo implements Parcelable {
     /** default compatibility info object for compatible applications */
+    @UnsupportedAppUsage
     public static final CompatibilityInfo DEFAULT_COMPATIBILITY_INFO = new CompatibilityInfo() {
     };
 
@@ -78,6 +82,11 @@ public class CompatibilityInfo implements Parcelable {
     private static final int NEEDS_SCREEN_COMPAT = 8;
 
     /**
+     * Set if the application needs to run in with compat resources.
+     */
+    private static final int NEEDS_COMPAT_RES = 16;
+
+    /**
      * The effective screen density we have selected for this application.
      */
     public final int applicationDensity;
@@ -85,6 +94,7 @@ public class CompatibilityInfo implements Parcelable {
     /**
      * Application's scale.
      */
+    @UnsupportedAppUsage
     public final float applicationScale;
 
     /**
@@ -92,10 +102,14 @@ public class CompatibilityInfo implements Parcelable {
      */
     public final float applicationInvertedScale;
 
+    @UnsupportedAppUsage
     public CompatibilityInfo(ApplicationInfo appInfo, int screenLayout, int sw,
             boolean forceCompat) {
         int compatFlags = 0;
 
+        if (appInfo.targetSdkVersion < VERSION_CODES.O) {
+            compatFlags |= NEEDS_COMPAT_RES;
+        }
         if (appInfo.requiresSmallestWidthDp != 0 || appInfo.compatibleWidthLimitDp != 0
                 || appInfo.largestWidthLimitDp != 0) {
             // New style screen requirements spec.
@@ -249,6 +263,7 @@ public class CompatibilityInfo implements Parcelable {
         applicationInvertedScale = invertedScale;
     }
 
+    @UnsupportedAppUsage
     private CompatibilityInfo() {
         this(NEVER_NEEDS_COMPAT, DisplayMetrics.DENSITY_DEVICE,
                 1.0f,
@@ -258,10 +273,12 @@ public class CompatibilityInfo implements Parcelable {
     /**
      * @return true if the scaling is required
      */
+    @UnsupportedAppUsage
     public boolean isScalingRequired() {
         return (mCompatibilityFlags&SCALING_REQUIRED) != 0;
     }
     
+    @UnsupportedAppUsage
     public boolean supportsScreen() {
         return (mCompatibilityFlags&NEEDS_SCREEN_COMPAT) == 0;
     }
@@ -274,10 +291,15 @@ public class CompatibilityInfo implements Parcelable {
         return (mCompatibilityFlags&NEVER_NEEDS_COMPAT) != 0;
     }
 
+    public boolean needsCompatResources() {
+        return (mCompatibilityFlags&NEEDS_COMPAT_RES) != 0;
+    }
+
     /**
      * Returns the translator which translates the coordinates in compatibility mode.
      * @param params the window's parameter
      */
+    @UnsupportedAppUsage
     public Translator getTranslator() {
         return isScalingRequired() ? new Translator() : null;
     }
@@ -287,7 +309,9 @@ public class CompatibilityInfo implements Parcelable {
      * @hide
      */
     public class Translator {
+        @UnsupportedAppUsage
         final public float applicationScale;
+        @UnsupportedAppUsage
         final public float applicationInvertedScale;
         
         private Rect mContentInsetsBuffer = null;
@@ -307,6 +331,7 @@ public class CompatibilityInfo implements Parcelable {
         /**
          * Translate the screen rect to the application frame.
          */
+        @UnsupportedAppUsage
         public void translateRectInScreenToAppWinFrame(Rect rect) {
             rect.scale(applicationInvertedScale);
         }
@@ -314,6 +339,7 @@ public class CompatibilityInfo implements Parcelable {
         /**
          * Translate the region in window to screen. 
          */
+        @UnsupportedAppUsage
         public void translateRegionInWindowToScreen(Region transparentRegion) {
             transparentRegion.scale(applicationScale);
         }
@@ -321,6 +347,7 @@ public class CompatibilityInfo implements Parcelable {
         /**
          * Apply translation to the canvas that is necessary to draw the content.
          */
+        @UnsupportedAppUsage
         public void translateCanvas(Canvas canvas) {
             if (applicationScale == 1.5f) {
                 /*  When we scale for compatibility, we can put our stretched
@@ -347,6 +374,7 @@ public class CompatibilityInfo implements Parcelable {
         /**
          * Translate the motion event captured on screen to the application's window.
          */
+        @UnsupportedAppUsage
         public void translateEventInScreenToAppWindow(MotionEvent event) {
             event.scale(applicationInvertedScale);
         }
@@ -355,6 +383,7 @@ public class CompatibilityInfo implements Parcelable {
          * Translate the window's layout parameter, from application's view to
          * Screen's view.
          */
+        @UnsupportedAppUsage
         public void translateWindowLayout(WindowManager.LayoutParams params) {
             params.scale(applicationScale);
         }
@@ -362,6 +391,7 @@ public class CompatibilityInfo implements Parcelable {
         /**
          * Translate a Rect in application's window to screen.
          */
+        @UnsupportedAppUsage
         public void translateRectInAppWindowToScreen(Rect rect) {
             rect.scale(applicationScale);
         }
@@ -369,6 +399,7 @@ public class CompatibilityInfo implements Parcelable {
         /**
          * Translate a Rect in screen coordinates into the app window's coordinates.
          */
+        @UnsupportedAppUsage
         public void translateRectInScreenToAppWindow(Rect rect) {
             rect.scale(applicationInvertedScale);
         }
@@ -396,6 +427,7 @@ public class CompatibilityInfo implements Parcelable {
          * Translate the content insets in application window to Screen. This uses
          * the internal buffer for content insets to avoid extra object allocation.
          */
+        @UnsupportedAppUsage
         public Rect getTranslatedContentInsets(Rect contentInsets) {
             if (mContentInsetsBuffer == null) mContentInsetsBuffer = new Rect();
             mContentInsetsBuffer.set(contentInsets);
@@ -474,6 +506,7 @@ public class CompatibilityInfo implements Parcelable {
      * @param outDm If non-null the width and height will be set to their scaled values.
      * @return Returns the scaling factor for the window.
      */
+    @UnsupportedAppUsage
     public static float computeCompatibleScaling(DisplayMetrics dm, DisplayMetrics outDm) {
         final int width = dm.noncompatWidthPixels;
         final int height = dm.noncompatHeightPixels;
@@ -579,7 +612,8 @@ public class CompatibilityInfo implements Parcelable {
         dest.writeFloat(applicationInvertedScale);
     }
 
-    public static final Parcelable.Creator<CompatibilityInfo> CREATOR
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+    public static final @android.annotation.NonNull Parcelable.Creator<CompatibilityInfo> CREATOR
             = new Parcelable.Creator<CompatibilityInfo>() {
         @Override
         public CompatibilityInfo createFromParcel(Parcel source) {

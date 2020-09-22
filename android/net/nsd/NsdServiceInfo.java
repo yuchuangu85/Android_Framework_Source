@@ -17,19 +17,19 @@
 package android.net.nsd;
 
 import android.annotation.NonNull;
-import android.os.Parcelable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
+import android.os.Parcelable;
 import android.text.TextUtils;
+import android.util.ArrayMap;
 import android.util.Base64;
 import android.util.Log;
-import android.util.ArrayMap;
 
 import java.io.UnsupportedEncodingException;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
-
 
 /**
  * A class representing service information for network service discovery
@@ -43,7 +43,7 @@ public final class NsdServiceInfo implements Parcelable {
 
     private String mServiceType;
 
-    private final ArrayMap<String, byte[]> mTxtRecord = new ArrayMap<String, byte[]>();
+    private final ArrayMap<String, byte[]> mTxtRecord = new ArrayMap<>();
 
     private InetAddress mHost;
 
@@ -186,6 +186,7 @@ public final class NsdServiceInfo implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setAttribute(String key, byte[] value) {
         if (TextUtils.isEmpty(key)) {
             throw new IllegalArgumentException("Key cannot be empty");
@@ -250,7 +251,8 @@ public final class NsdServiceInfo implements Parcelable {
     }
 
     /**
-     * Retrive attributes as a map of String keys to byte[] values.
+     * Retrieve attributes as a map of String keys to byte[] values. The attributes map is only
+     * valid for a resolved service.
      *
      * <p> The returned map is unmodifiable; changes must be made through {@link #setAttribute} and
      * {@link #removeAttribute}.
@@ -353,7 +355,7 @@ public final class NsdServiceInfo implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<NsdServiceInfo> CREATOR =
+    public static final @android.annotation.NonNull Creator<NsdServiceInfo> CREATOR =
         new Creator<NsdServiceInfo>() {
             public NsdServiceInfo createFromParcel(Parcel in) {
                 NsdServiceInfo info = new NsdServiceInfo();

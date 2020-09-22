@@ -16,9 +16,11 @@
 
 package android.bluetooth;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
-import android.os.Parcelable;
 import android.os.ParcelUuid;
+import android.os.Parcelable;
+
 import java.util.UUID;
 
 /**
@@ -89,30 +91,37 @@ public class BluetoothGattDescriptor implements Parcelable {
 
     /**
      * The UUID of this descriptor.
+     *
      * @hide
      */
     protected UUID mUuid;
 
     /**
      * Instance ID for this descriptor.
+     *
      * @hide
      */
+    @UnsupportedAppUsage
     protected int mInstance;
 
     /**
      * Permissions for this descriptor
+     *
      * @hide
      */
     protected int mPermissions;
 
     /**
      * Back-reference to the characteristic this descriptor belongs to.
+     *
      * @hide
      */
+    @UnsupportedAppUsage
     protected BluetoothGattCharacteristic mCharacteristic;
 
     /**
      * The value for this descriptor.
+     *
      * @hide
      */
     protected byte[] mValue;
@@ -137,7 +146,7 @@ public class BluetoothGattDescriptor implements Parcelable {
      * @param permissions Permissions for this descriptor
      */
     /*package*/ BluetoothGattDescriptor(BluetoothGattCharacteristic characteristic, UUID uuid,
-                                    int instance, int permissions) {
+            int instance, int permissions) {
         initDescriptor(characteristic, uuid, instance, permissions);
     }
 
@@ -149,28 +158,27 @@ public class BluetoothGattDescriptor implements Parcelable {
     }
 
     private void initDescriptor(BluetoothGattCharacteristic characteristic, UUID uuid,
-                                int instance, int permissions) {
+            int instance, int permissions) {
         mCharacteristic = characteristic;
         mUuid = uuid;
         mInstance = instance;
         mPermissions = permissions;
     }
 
-    /**
-     * @hide
-     */
+    @Override
     public int describeContents() {
         return 0;
     }
 
+    @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeParcelable(new ParcelUuid(mUuid), 0);
         out.writeInt(mInstance);
         out.writeInt(mPermissions);
     }
 
-    public static final Parcelable.Creator<BluetoothGattDescriptor> CREATOR
-            = new Parcelable.Creator<BluetoothGattDescriptor>() {
+    public static final @android.annotation.NonNull Parcelable.Creator<BluetoothGattDescriptor> CREATOR =
+            new Parcelable.Creator<BluetoothGattDescriptor>() {
         public BluetoothGattDescriptor createFromParcel(Parcel in) {
             return new BluetoothGattDescriptor(in);
         }
@@ -181,13 +189,14 @@ public class BluetoothGattDescriptor implements Parcelable {
     };
 
     private BluetoothGattDescriptor(Parcel in) {
-        mUuid = ((ParcelUuid)in.readParcelable(null)).getUuid();
+        mUuid = ((ParcelUuid) in.readParcelable(null)).getUuid();
         mInstance = in.readInt();
         mPermissions = in.readInt();
     }
 
     /**
      * Returns the characteristic this descriptor belongs to.
+     *
      * @return The characteristic.
      */
     public BluetoothGattCharacteristic getCharacteristic() {
@@ -196,8 +205,10 @@ public class BluetoothGattDescriptor implements Parcelable {
 
     /**
      * Set the back-reference to the associated characteristic
+     *
      * @hide
      */
+    @UnsupportedAppUsage
     /*package*/ void setCharacteristic(BluetoothGattCharacteristic characteristic) {
         mCharacteristic = characteristic;
     }
@@ -224,6 +235,15 @@ public class BluetoothGattDescriptor implements Parcelable {
      */
     public int getInstanceId() {
         return mInstance;
+    }
+
+    /**
+     * Force the instance ID.
+     *
+     * @hide
+     */
+    public void setInstanceId(int instanceId) {
+        mInstance = instanceId;
     }
 
     /**
@@ -258,8 +278,8 @@ public class BluetoothGattDescriptor implements Parcelable {
      * remote device.
      *
      * @param value New value for this descriptor
-     * @return true if the locally stored value has been set, false if the
-     *              requested value could not be stored locally.
+     * @return true if the locally stored value has been set, false if the requested value could not
+     * be stored locally.
      */
     public boolean setValue(byte[] value) {
         mValue = value;

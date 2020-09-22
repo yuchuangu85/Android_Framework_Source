@@ -18,7 +18,7 @@ package com.android.server;
 
 import java.util.Calendar;
 
-import android.app.ActivityManagerNative;
+import android.app.ActivityManager;
 import android.app.job.JobInfo;
 import android.app.job.JobParameters;
 import android.app.job.JobScheduler;
@@ -27,6 +27,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.os.RemoteException;
 import android.util.Slog;
+import java.util.concurrent.TimeUnit;
 
 public class MountServiceIdler extends JobService {
     private static final String TAG = "MountServiceIdler";
@@ -48,7 +49,7 @@ public class MountServiceIdler extends JobService {
                     mStarted = false;
                 }
             }
-            // ... and try again tomorrow
+            // ... and try again right away or tomorrow
             scheduleIdlePass(MountServiceIdler.this);
         }
     };
@@ -59,7 +60,7 @@ public class MountServiceIdler extends JobService {
         // is really more than just mount, some day it should be renamed to be system
         // idleer).
         try {
-            ActivityManagerNative.getDefault().performIdleMaintenance();
+            ActivityManager.getService().performIdleMaintenance();
         } catch (RemoteException e) {
         }
         // The mount service will run an fstrim operation asynchronously
@@ -67,12 +68,12 @@ public class MountServiceIdler extends JobService {
         // that lets us cleanly end our idle timeslice.  It's safe to call
         // finishIdle() from any thread.
         mJobParams = params;
-        MountService ms = MountService.sSelf;
+        StorageManagerService ms = StorageManagerService.sSelf;
         if (ms != null) {
             synchronized (mFinishCallback) {
                 mStarted = true;
             }
-            ms.runIdleMaintenance(mFinishCallback);
+            ms.runIdleMaint(mFinishCallback);
         }
         return ms != null;
     }
@@ -82,8 +83,12 @@ public class MountServiceIdler extends JobService {
         // Once we kick off the fstrim we aren't actually interruptible; just note
         // that we don't need to call jobFinished(), and let everything happen in
         // the callback from the mount service.
-        synchronized (mFinishCallback) {
-            mStarted = false;
+        StorageManagerService ms = StorageManagerService.sSelf;
+        if (ms != null) {
+            ms.abortIdleMaint(mFinishCallback);
+            synchronized (mFinishCallback) {
+                mStarted = false;
+            }
         }
         return false;
     }
@@ -94,24 +99,32 @@ public class MountServiceIdler extends JobService {
     public static void scheduleIdlePass(Context context) {
         JobScheduler tm = (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
 
-        Calendar calendar = tomorrowMidnight();
-        final long timeToMidnight = calendar.getTimeInMillis() - System.currentTimeMillis();
+        final long today3AM = offsetFromTodayMidnight(0, 3).getTimeInMillis();
+        final long today4AM = offsetFromTodayMidnight(0, 4).getTimeInMillis();
+        final long tomorrow3AM = offsetFromTodayMidnight(1, 3).getTimeInMillis();
+
+        long nextScheduleTime;
+        if (System.currentTimeMillis() > today3AM && System.currentTimeMillis() < today4AM) {
+            nextScheduleTime = TimeUnit.SECONDS.toMillis(10);
+        } else {
+            nextScheduleTime = tomorrow3AM - System.currentTimeMillis(); // 3AM tomorrow
+        }
 
         JobInfo.Builder builder = new JobInfo.Builder(MOUNT_JOB_ID, sIdleService);
         builder.setRequiresDeviceIdle(true);
-        builder.setRequiresCharging(true);
-        builder.setMinimumLatency(timeToMidnight);
+        builder.setRequiresBatteryNotLow(true);
+        builder.setMinimumLatency(nextScheduleTime);
         tm.schedule(builder.build());
     }
 
-    private static Calendar tomorrowMidnight() {
+    private static Calendar offsetFromTodayMidnight(int nDays, int nHours) {
         Calendar calendar = Calendar.getInstance();
         calendar.setTimeInMillis(System.currentTimeMillis());
-        calendar.set(Calendar.HOUR_OF_DAY, 3);
+        calendar.set(Calendar.HOUR_OF_DAY, nHours);
         calendar.set(Calendar.MINUTE, 0);
         calendar.set(Calendar.SECOND, 0);
         calendar.set(Calendar.MILLISECOND, 0);
-        calendar.add(Calendar.DAY_OF_MONTH, 1);
+        calendar.add(Calendar.DAY_OF_MONTH, nDays);
         return calendar;
     }
 }

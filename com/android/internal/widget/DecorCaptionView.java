@@ -17,7 +17,6 @@
 package com.android.internal.widget;
 
 import android.content.Context;
-import android.graphics.Color;
 import android.graphics.Rect;
 import android.os.RemoteException;
 import android.util.AttributeSet;
@@ -31,6 +30,7 @@ import android.view.ViewOutlineProvider;
 import android.view.Window;
 
 import com.android.internal.R;
+import com.android.internal.policy.DecorView;
 import com.android.internal.policy.PhoneWindow;
 
 import java.util.ArrayList;
@@ -46,15 +46,14 @@ import java.util.ArrayList;
  * After creating the view, the function {@link #setPhoneWindow} needs to be called to make
  * the connection to it's owning PhoneWindow.
  * Note: At this time the application can change various attributes of the DecorView which
- * will break things (in settle/unexpected ways):
+ * will break things (in subtle/unexpected ways):
  * <ul>
  * <li>setOutlineProvider</li>
  * <li>setSurfaceFormat</li>
  * <li>..</li>
  * </ul>
  *
- * Although this ViewGroup has only two direct sub-Views, its behavior is more complex due to
- * overlaying caption on the content and drawing.
+ * Here describe the behavior of overlaying caption on the content and drawing.
  *
  * First, no matter where the content View gets added, it will always be the first child and the
  * caption will be the second. This way the caption will always be drawn on top of the content when
@@ -66,11 +65,9 @@ import java.util.ArrayList;
  * <li>DecorCaptionView.onInterceptTouchEvent() will try intercepting the touch events if the
  * down action is performed on top close or maximize buttons; the reason for that is we want these
  * buttons to always work.</li>
- * <li>The content View will receive the touch event. Mind that content is actually underneath the
- * caption, so we need to introduce our own dispatch ordering. We achieve this by overriding
- * {@link #buildTouchDispatchChildList()}.</li>
- * <li>If the touch event is not consumed by the content View, it will go to the caption View
- * and the dragging logic will be executed.</li>
+ * <li>The caption view will try to consume the event to apply the dragging logic.</li>
+ * <li>If the touch event is not consumed by the caption, the content View will receive the touch
+ * event</li>
  * </ul>
  */
 public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
@@ -81,9 +78,6 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
 
     // True if the window is being dragged.
     private boolean mDragging = false;
-
-    // True when the left mouse button got released while dragging.
-    private boolean mLeftMouseButtonReleased;
 
     private boolean mOverlayWithAppContent = false;
 
@@ -106,6 +100,7 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
     private final Rect mCloseRect = new Rect();
     private final Rect mMaximizeRect = new Rect();
     private View mClickTarget;
+    private int mRootScrollY;
 
     public DecorCaptionView(Context context) {
         super(context);
@@ -125,6 +120,8 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
     private void init(Context context) {
         mDragSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         mGestureDetector = new GestureDetector(context, this);
+        setContentDescription(context.getString(R.string.accessibility_freeform_caption,
+                context.getPackageManager().getApplicationLabel(context.getApplicationInfo())));
     }
 
     @Override
@@ -137,11 +134,6 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
         mOwner = owner;
         mShow = show;
         mOverlayWithAppContent = owner.isOverlayWithDecorCaptionEnabled();
-        if (mOverlayWithAppContent) {
-            // The caption is covering the content, so we make its background transparent to make
-            // the content visible.
-            mCaption.setBackgroundColor(Color.TRANSPARENT);
-        }
         updateCaptionVisibility();
         // By changing the outline provider to BOUNDS, the window can remove its
         // background without removing the shadow.
@@ -157,10 +149,11 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
         if (ev.getAction() == MotionEvent.ACTION_DOWN) {
             final int x = (int) ev.getX();
             final int y = (int) ev.getY();
-            if (mMaximizeRect.contains(x, y)) {
+            // Only offset y for containment tests because the actual views are already translated.
+            if (mMaximizeRect.contains(x, y - mRootScrollY)) {
                 mClickTarget = mMaximize;
             }
-            if (mCloseRect.contains(x, y)) {
+            if (mCloseRect.contains(x, y - mRootScrollY)) {
                 mClickTarget = mClose;
             }
         }
@@ -187,7 +180,10 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
         // input device we are listening to.
         final int x = (int) e.getX();
         final int y = (int) e.getY();
-        switch (e.getActionMasked()) {
+        final boolean fromMouse = e.getToolType(e.getActionIndex()) == MotionEvent.TOOL_TYPE_MOUSE;
+        final boolean primaryButton = (e.getButtonState() & MotionEvent.BUTTON_PRIMARY) != 0;
+        final int actionMasked = e.getActionMasked();
+        switch (actionMasked) {
             case MotionEvent.ACTION_DOWN:
                 if (!mShow) {
                     // When there is no caption we should not react to anything.
@@ -195,8 +191,7 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
                 }
                 // Checking for a drag action is started if we aren't dragging already and the
                 // starting event is either a left mouse button or any other input device.
-                if (((e.getToolType(e.getActionIndex()) != MotionEvent.TOOL_TYPE_MOUSE ||
-                        (e.getButtonState() & MotionEvent.BUTTON_PRIMARY) != 0))) {
+                if (!fromMouse || primaryButton) {
                     mCheckForDragging = true;
                     mTouchDownX = x;
                     mTouchDownY = y;
@@ -204,19 +199,13 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
                 break;
 
             case MotionEvent.ACTION_MOVE:
-                if (!mDragging && mCheckForDragging && passedSlop(x, y)) {
+                if (!mDragging && mCheckForDragging && (fromMouse || passedSlop(x, y))) {
                     mCheckForDragging = false;
                     mDragging = true;
-                    mLeftMouseButtonReleased = false;
                     startMovingTask(e.getRawX(), e.getRawY());
-                } else if (mDragging && !mLeftMouseButtonReleased) {
-                    if (e.getToolType(e.getActionIndex()) == MotionEvent.TOOL_TYPE_MOUSE &&
-                            (e.getButtonState() & MotionEvent.BUTTON_PRIMARY) == 0) {
-                        // There is no separate mouse button up call and if the user mixes mouse
-                        // button drag actions, we stop dragging once he releases the button.
-                        mLeftMouseButtonReleased = true;
-                        break;
-                    }
+                    // After the above call the framework will take over the input.
+                    // This handler will receive ACTION_CANCEL soon (possible after a few spurious
+                    // ACTION_MOVE events which are safe to ignore).
                 }
                 break;
 
@@ -226,22 +215,16 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
                     break;
                 }
                 // Abort the ongoing dragging.
+                if (actionMasked == MotionEvent.ACTION_UP) {
+                    // If it receives ACTION_UP event, the dragging is already finished and also
+                    // the system can not end drag on ACTION_UP event. So request to finish
+                    // dragging.
+                    finishMovingTask();
+                }
                 mDragging = false;
                 return !mCheckForDragging;
         }
         return mDragging || mCheckForDragging;
-    }
-
-    @Override
-    public ArrayList<View> buildTouchDispatchChildList() {
-        mTouchDispatchList.ensureCapacity(3);
-        if (mCaption != null) {
-            mTouchDispatchList.add(mCaption);
-        }
-        if (mContent != null) {
-            mTouchDispatchList.add(mContent);
-        }
-        return mTouchDispatchList;
     }
 
     @Override
@@ -323,38 +306,29 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
             }
         }
 
+        ((DecorView) mOwner.getDecorView()).notifyCaptionHeightChanged();
+
         // This assumes that the caption bar is at the top.
         mOwner.notifyRestrictedCaptionAreaCallback(mMaximize.getLeft(), mMaximize.getTop(),
                 mClose.getRight(), mClose.getBottom());
-    }
-    /**
-     * Determine if the workspace is entirely covered by the window.
-     * @return Returns true when the window is filling the entire screen/workspace.
-     **/
-    private boolean isFillingScreen() {
-        return (0 != ((getWindowSystemUiVisibility() | getSystemUiVisibility()) &
-                (View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
-                        View.SYSTEM_UI_FLAG_IMMERSIVE | View.SYSTEM_UI_FLAG_LOW_PROFILE)));
     }
 
     /**
      * Updates the visibility of the caption.
      **/
     private void updateCaptionVisibility() {
-        // Don't show the caption if the window has e.g. entered full screen.
-        boolean invisible = isFillingScreen() || !mShow;
-        mCaption.setVisibility(invisible ? GONE : VISIBLE);
+        mCaption.setVisibility(mShow ? VISIBLE : GONE);
         mCaption.setOnTouchListener(this);
     }
 
     /**
-     * Maximize the window by moving it to the maximized workspace stack.
+     * Maximize or restore the window by moving it to the maximized or freeform workspace stack.
      **/
-    private void maximizeWindow() {
+    private void toggleFreeformWindowingMode() {
         Window.WindowControllerCallback callback = mOwner.getWindowControllerCallback();
         if (callback != null) {
             try {
-                callback.exitFreeformMode();
+                callback.toggleFreeformWindowingMode();
             } catch (RemoteException ex) {
                 Log.e(TAG, "Cannot change task workspace.");
             }
@@ -414,9 +388,10 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
     @Override
     public boolean onSingleTapUp(MotionEvent e) {
         if (mClickTarget == mMaximize) {
-            maximizeWindow();
+            toggleFreeformWindowingMode();
         } else if (mClickTarget == mClose) {
-            mOwner.dispatchOnWindowDismissed(true /*finishTask*/);
+            mOwner.dispatchOnWindowDismissed(
+                    true /*finishTask*/, false /*suppressWindowTransition*/);
         }
         return true;
     }
@@ -434,5 +409,17 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
     @Override
     public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
         return false;
+    }
+
+    /**
+     * Called when {@link android.view.ViewRootImpl} scrolls for adjustPan.
+     */
+    public void onRootViewScrollYChanged(int scrollY) {
+        // Offset the caption opposite the root scroll. This keeps the caption at the
+        // top of the window during adjustPan.
+        if (mCaption != null) {
+            mRootScrollY = scrollY;
+            mCaption.setTranslationY(scrollY);
+        }
     }
 }

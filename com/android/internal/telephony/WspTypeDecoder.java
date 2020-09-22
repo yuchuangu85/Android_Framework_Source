@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 import java.util.HashMap;
 
 /**
@@ -196,6 +198,7 @@ public class WspTypeDecoder {
     public static final String CONTENT_TYPE_B_MMS = "application/vnd.wap.mms-message";
     public static final String CONTENT_TYPE_B_PUSH_SYNCML_NOTI = "application/vnd.syncml.notification";
 
+    @UnsupportedAppUsage
     byte[] mWspData;
     int    mDataLength;
     long   mUnsigned32bit;
@@ -203,6 +206,7 @@ public class WspTypeDecoder {
 
     HashMap<String, String> mContentParameters;
 
+    @UnsupportedAppUsage
     public WspTypeDecoder(byte[] pdu) {
         mWspData = pdu;
     }
@@ -216,6 +220,7 @@ public class WspTypeDecoder {
      *         return value can be retrieved by getValueString() method length of data in pdu can be
      *         retrieved by getDecodedDataLength() method
      */
+    @UnsupportedAppUsage
     public boolean decodeTextString(int startIndex) {
         int index = startIndex;
         while (mWspData[index] != 0) {
@@ -259,6 +264,7 @@ public class WspTypeDecoder {
      *         return value can be retrieved by getValue32() method
      *         length of data in pdu can be retrieved by getDecodedDataLength() method
      */
+    @UnsupportedAppUsage
     public boolean decodeShortInteger(int startIndex) {
         if ((mWspData[startIndex] & 0x80) == 0) {
             return false;
@@ -300,6 +306,7 @@ public class WspTypeDecoder {
      *         return value can be retrieved by getValue32() method
      *         length of data in pdu can be retrieved by getDecodedDataLength() method
      */
+    @UnsupportedAppUsage
     public boolean decodeIntegerValue(int startIndex) {
         if (decodeShortInteger(startIndex) == true) {
             return true;
@@ -316,6 +323,7 @@ public class WspTypeDecoder {
      *         return value can be retrieved by getValue32() method
      *         length of data in pdu can be retrieved by getDecodedDataLength() method
      */
+    @UnsupportedAppUsage
     public boolean decodeUintvarInteger(int startIndex) {
         int index = startIndex;
 
@@ -341,6 +349,7 @@ public class WspTypeDecoder {
      *         return value can be retrieved by getValue32() method
      *         length of data in pdu can be retrieved by getDecodedDataLength() method
      */
+    @UnsupportedAppUsage
     public boolean decodeValueLength(int startIndex) {
         if ((mWspData[startIndex] & 0xff) > WAP_PDU_LENGTH_QUOTE) {
             return false;
@@ -412,6 +421,7 @@ public class WspTypeDecoder {
      *         length of data in pdu can be retrieved by getDecodedDataLength() method
      *         Any content type parameters will be accessible via getContentParameters()
      */
+    @UnsupportedAppUsage
     public boolean decodeContentType(int startIndex) {
         int mediaPrefixLength;
         mContentParameters = new HashMap<String, String>();
@@ -592,6 +602,7 @@ public class WspTypeDecoder {
      *         method
      *         length of data in pdu can be retrieved by getDecodedDataLength() method
      */
+    @UnsupportedAppUsage
     public boolean decodeXWapApplicationId(int startIndex) {
         if (decodeIntegerValue(startIndex) == true) {
             mStringValue = null;
@@ -609,6 +620,7 @@ public class WspTypeDecoder {
      * @return false when error(not a X-Wap-Application-Id) occur
      *         return value can be retrieved by getValue32()
      */
+    @UnsupportedAppUsage
     public boolean seekXWapApplicationId(int startIndex, int endIndex) {
         int index = startIndex;
 
@@ -693,6 +705,7 @@ public class WspTypeDecoder {
     /**
      * The data length of latest operation.
      */
+    @UnsupportedAppUsage
     public int getDecodedDataLength() {
         return mDataLength;
     }
@@ -700,6 +713,7 @@ public class WspTypeDecoder {
     /**
      * The 32-bits result of latest operation.
      */
+    @UnsupportedAppUsage
     public long getValue32() {
         return mUnsigned32bit;
     }
@@ -707,6 +721,7 @@ public class WspTypeDecoder {
     /**
      * The String result of latest operation.
      */
+    @UnsupportedAppUsage
     public String getValueString() {
         return mStringValue;
     }
@@ -721,6 +736,7 @@ public class WspTypeDecoder {
      *         unassigned parameter.  If a parameter has No-Value the value will be null.
      *
      */
+    @UnsupportedAppUsage
     public HashMap<String, String> getContentParameters() {
         return mContentParameters;
     }

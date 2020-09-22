@@ -16,13 +16,16 @@
 
 package android.view;
 
-import dalvik.system.CloseGuard;
-
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.MessageQueue;
 import android.util.Log;
 import android.util.SparseIntArray;
 
+import dalvik.system.CloseGuard;
+
+import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
 
 /**
@@ -84,6 +87,7 @@ public abstract class InputEventReceiver {
 
     /**
      * Disposes the receiver.
+     * Must be called on the same Looper thread to which the receiver is attached.
      */
     public void dispose() {
         dispose(false);
@@ -101,8 +105,13 @@ public abstract class InputEventReceiver {
             nativeDispose(mReceiverPtr);
             mReceiverPtr = 0;
         }
-        mInputChannel = null;
+
+        if (mInputChannel != null) {
+            mInputChannel.dispose();
+            mInputChannel = null;
+        }
         mMessageQueue = null;
+        Reference.reachabilityFence(this);
     }
 
     /**
@@ -113,8 +122,22 @@ public abstract class InputEventReceiver {
      *
      * @param event The input event that was received.
      */
+    @UnsupportedAppUsage
     public void onInputEvent(InputEvent event) {
         finishInputEvent(event, false);
+    }
+
+    /**
+     * Called when a focus event is received.
+     *
+     * @param hasFocus if true, the window associated with this input channel has just received
+     *                 focus
+     *                 if false, the window associated with this input channel has just lost focus
+     * @param inTouchMode if true, the device is in touch mode
+     *                    if false, the device is not in touch mode
+     */
+    // Called from native code.
+    public void onFocusEvent(boolean hasFocus, boolean inTouchMode) {
     }
 
     /**
@@ -124,8 +147,9 @@ public abstract class InputEventReceiver {
      * samples until the recipient calls {@link #consumeBatchedInputEvents} or
      * an event is received that ends the batch and causes it to be consumed
      * immediately (such as a pointer up event).
+     * @param source The source of the batched event.
      */
-    public void onBatchedInputEventPending() {
+    public void onBatchedInputEventPending(int source) {
         consumeBatchedInputEvents(-1);
     }
 
@@ -178,21 +202,31 @@ public abstract class InputEventReceiver {
         return false;
     }
 
+    /**
+     * @return Returns a token to identify the input channel.
+     */
+    public IBinder getToken() {
+        if (mInputChannel == null) {
+            return null;
+        }
+        return mInputChannel.getToken();
+    }
+
     // Called from native code.
     @SuppressWarnings("unused")
+    @UnsupportedAppUsage
     private void dispatchInputEvent(int seq, InputEvent event) {
         mSeqMap.put(event.getSequenceNumber(), seq);
         onInputEvent(event);
     }
 
-    // Called from native code.
-    @SuppressWarnings("unused")
-    private void dispatchBatchedInputEventPending() {
-        onBatchedInputEventPending();
-    }
-
-    public static interface Factory {
-        public InputEventReceiver createInputEventReceiver(
-                InputChannel inputChannel, Looper looper);
+    /**
+     * Factory for InputEventReceiver
+     */
+    public interface Factory {
+        /**
+         * Create a new InputReceiver for a given inputChannel
+         */
+        InputEventReceiver createInputEventReceiver(InputChannel inputChannel, Looper looper);
     }
 }

@@ -16,26 +16,32 @@
 
 package android.hardware.display;
 
+import android.Manifest;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
+import android.annotation.SystemService;
+import android.annotation.TestApi;
+import android.app.KeyguardManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
+import android.content.res.Resources;
+import android.graphics.Point;
 import android.media.projection.MediaProjection;
 import android.os.Handler;
+import android.util.Pair;
 import android.util.SparseArray;
 import android.view.Display;
 import android.view.Surface;
 
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Manages the properties of attached displays.
- * <p>
- * Get an instance of this class by calling
- * {@link android.content.Context#getSystemService(java.lang.String)
- * Context.getSystemService()} with the argument
- * {@link android.content.Context#DISPLAY_SERVICE}.
- * </p>
  */
+@SystemService(Context.DISPLAY_SERVICE)
 public final class DisplayManager {
     private static final String TAG = "DisplayManager";
     private static final boolean DEBUG = false;
@@ -58,6 +64,7 @@ public final class DisplayManager {
      * </p>
      * @hide
      */
+    @UnsupportedAppUsage
     public static final String ACTION_WIFI_DISPLAY_STATUS_CHANGED =
             "android.hardware.display.action.WIFI_DISPLAY_STATUS_CHANGED";
 
@@ -65,6 +72,7 @@ public final class DisplayManager {
      * Contains a {@link WifiDisplayStatus} object.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final String EXTRA_WIFI_DISPLAY_STATUS =
             "android.hardware.display.extra.WIFI_DISPLAY_STATUS";
 
@@ -72,7 +80,7 @@ public final class DisplayManager {
      * Display category: Presentation displays.
      * <p>
      * This category can be used to identify secondary displays that are suitable for
-     * use as presentation displays such as HDMI or Wireless displays.  Applications
+     * use as presentation displays such as external or wireless displays.  Applications
      * may automatically project their content to presentation displays to provide
      * richer second screen experiences.
      * </p>
@@ -92,7 +100,7 @@ public final class DisplayManager {
      * When this flag is set, the virtual display is public.
      * </p><p>
      * A public virtual display behaves just like most any other display that is connected
-     * to the system such as an HDMI or Wireless display.  Applications can open
+     * to the system such as an external or wireless display.  Applications can open
      * windows on the display and the system may mirror the contents of other displays
      * onto it.
      * </p><p>
@@ -108,13 +116,14 @@ public final class DisplayManager {
      * </p>
      *
      * <p>
-     * A private virtual display belongs to the application that created it.
-     * Only the a owner of a private virtual display is allowed to place windows upon it.
-     * The private virtual display also does not participate in display mirroring: it will
-     * neither receive mirrored content from another display nor allow its own content to
-     * be mirrored elsewhere.  More precisely, the only processes that are allowed to
-     * enumerate or interact with the private display are those that have the same UID as the
-     * application that originally created the private virtual display.
+     * A private virtual display belongs to the application that created it.  Only the a owner of a
+     * private virtual display and the apps that are already on that display are allowed to place
+     * windows upon it.  The private virtual display also does not participate in display mirroring:
+     * it will neither receive mirrored content from another display nor allow its own content to be
+     * mirrored elsewhere.  More precisely, the only processes that are allowed to enumerate or
+     * interact with the private display are those that have the same UID as the application that
+     * originally created the private virtual display or as the activities that are already on that
+     * display.
      * </p>
      *
      * @see #createVirtualDisplay
@@ -159,8 +168,7 @@ public final class DisplayManager {
      * reasonable measures, such as over-the-air encryption, to prevent the contents
      * of the display from being intercepted or recorded on a persistent medium.
      * </p><p>
-     * Creating a secure virtual display requires the
-     * {@link android.Manifest.permission#CAPTURE_SECURE_VIDEO_OUTPUT} permission.
+     * Creating a secure virtual display requires the CAPTURE_SECURE_VIDEO_OUTPUT permission.
      * This permission is reserved for use by system components and is not available to
      * third-party applications.
      * </p>
@@ -220,9 +228,8 @@ public final class DisplayManager {
      * </p>
      *
      * <p>
-     * Creating an auto-mirroing virtual display requires the
-     * {@link android.Manifest.permission#CAPTURE_VIDEO_OUTPUT}
-     * or {@link android.Manifest.permission#CAPTURE_SECURE_VIDEO_OUTPUT} permission.
+     * Creating an auto-mirroing virtual display requires the CAPTURE_VIDEO_OUTPUT
+     * or CAPTURE_SECURE_VIDEO_OUTPUT permission.
      * These permissions are reserved for use by system components and are not available to
      * third-party applications.
      *
@@ -233,6 +240,87 @@ public final class DisplayManager {
      * @see #createVirtualDisplay
      */
     public static final int VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR = 1 << 4;
+
+    /**
+     * Virtual display flag: Allows content to be displayed on private virtual displays when
+     * keyguard is shown but is insecure.
+     *
+     * <p>
+     * This might be used in a case when the content of a virtual display is captured and sent to an
+     * external hardware display that is not visible to the system directly. This flag will allow
+     * the continued display of content while other displays will be covered by a keyguard which
+     * doesn't require providing credentials to unlock. This means that there is either no password
+     * or other authentication method set, or the device is in a trusted state -
+     * {@link android.service.trust.TrustAgentService} has available and active trust agent.
+     * </p><p>
+     * This flag can only be applied to private displays as defined by the
+     * {@link Display#FLAG_PRIVATE} display flag. It is mutually exclusive with
+     * {@link #VIRTUAL_DISPLAY_FLAG_PUBLIC}. If both flags are specified then this flag's behavior
+     * will not be applied.
+     * </p>
+     *
+     * @see #createVirtualDisplay
+     * @see KeyguardManager#isDeviceSecure()
+     * @see KeyguardManager#isDeviceLocked()
+     * @hide
+     */
+    // TODO (b/114338689): Remove the flag and use IWindowManager#shouldShowWithInsecureKeyguard
+    // TODO: Update name and documentation and un-hide the flag. Don't change the value before that.
+    public static final int VIRTUAL_DISPLAY_FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD = 1 << 5;
+
+    /**
+     * Virtual display flag: Specifies that the virtual display can be associated with a
+     * touchpad device that matches its uniqueId.
+     *
+     * @see #createVirtualDisplay
+     * @hide
+     */
+    public static final int VIRTUAL_DISPLAY_FLAG_SUPPORTS_TOUCH = 1 << 6;
+
+    /**
+     * Virtual display flag: Indicates that the orientation of this display device is coupled to
+     * the rotation of its associated logical display.
+     *
+     * @see #createVirtualDisplay
+     * @hide
+     */
+    public static final int VIRTUAL_DISPLAY_FLAG_ROTATES_WITH_CONTENT = 1 << 7;
+
+    /**
+     * Virtual display flag: Indicates that the contents will be destroyed once
+     * the display is removed.
+     *
+     * Public virtual displays without this flag will move their content to main display
+     * stack once they're removed. Private vistual displays will always destroy their
+     * content on removal even without this flag.
+     *
+     * @see #createVirtualDisplay
+     * @hide
+     */
+    // TODO (b/114338689): Remove the flag and use WindowManager#REMOVE_CONTENT_MODE_DESTROY
+    public static final int VIRTUAL_DISPLAY_FLAG_DESTROY_CONTENT_ON_REMOVAL = 1 << 8;
+
+    /**
+     * Virtual display flag: Indicates that the display should support system decorations. Virtual
+     * displays without this flag shouldn't show home, IME or any other system decorations.
+     * <p>This flag doesn't work without {@link #VIRTUAL_DISPLAY_FLAG_TRUSTED}</p>
+     *
+     * @see #createVirtualDisplay
+     * @see #VIRTUAL_DISPLAY_FLAG_TRUSTED
+     * @hide
+     */
+    // TODO (b/114338689): Remove the flag and use IWindowManager#setShouldShowSystemDecors
+    public static final int VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS = 1 << 9;
+
+    /**
+     * Virtual display flags: Indicates that the display is trusted to show system decorations and
+     * receive inputs without users' touch.
+     *
+     * @see #createVirtualDisplay
+     * @see #VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS
+     * @hide
+     */
+    public static final int VIRTUAL_DISPLAY_FLAG_TRUSTED = 1 << 10;
 
     /** @hide */
     public DisplayManager(Context context) {
@@ -288,7 +376,7 @@ public final class DisplayManager {
                     addAllDisplaysLocked(mTempDisplays, displayIds);
                 } else if (category.equals(DISPLAY_CATEGORY_PRESENTATION)) {
                     addPresentationDisplaysLocked(mTempDisplays, displayIds, Display.TYPE_WIFI);
-                    addPresentationDisplaysLocked(mTempDisplays, displayIds, Display.TYPE_HDMI);
+                    addPresentationDisplaysLocked(mTempDisplays, displayIds, Display.TYPE_EXTERNAL);
                     addPresentationDisplaysLocked(mTempDisplays, displayIds, Display.TYPE_OVERLAY);
                     addPresentationDisplaysLocked(mTempDisplays, displayIds, Display.TYPE_VIRTUAL);
                 }
@@ -323,8 +411,12 @@ public final class DisplayManager {
     private Display getOrCreateDisplayLocked(int displayId, boolean assumeValid) {
         Display display = mDisplays.get(displayId);
         if (display == null) {
-            display = mGlobal.getCompatibleDisplay(displayId,
-                    mContext.getDisplayAdjustments(displayId));
+            // TODO: We cannot currently provide any override configurations for metrics on displays
+            // other than the display the context is associated with.
+            final Resources resources = mContext.getDisplayId() == displayId
+                    ? mContext.getResources() : null;
+
+            display = mGlobal.getCompatibleDisplay(displayId, resources);
             if (display != null) {
                 mDisplays.put(displayId, display);
             }
@@ -371,6 +463,7 @@ public final class DisplayManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void startWifiDisplayScan() {
         mGlobal.startWifiDisplayScan();
     }
@@ -383,6 +476,7 @@ public final class DisplayManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void stopWifiDisplayScan() {
         mGlobal.stopWifiDisplayScan();
     }
@@ -400,16 +494,19 @@ public final class DisplayManager {
      * @param deviceAddress The MAC address of the device to which we should connect.
      * @hide
      */
+    @UnsupportedAppUsage
     public void connectWifiDisplay(String deviceAddress) {
         mGlobal.connectWifiDisplay(deviceAddress);
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void pauseWifiDisplay() {
         mGlobal.pauseWifiDisplay();
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void resumeWifiDisplay() {
         mGlobal.resumeWifiDisplay();
     }
@@ -419,6 +516,7 @@ public final class DisplayManager {
      * The results are sent as a {@link #ACTION_WIFI_DISPLAY_STATUS_CHANGED} broadcast.
      * @hide
      */
+    @UnsupportedAppUsage
     public void disconnectWifiDisplay() {
         mGlobal.disconnectWifiDisplay();
     }
@@ -438,6 +536,7 @@ public final class DisplayManager {
      * or empty if no alias should be used.
      * @hide
      */
+    @UnsupportedAppUsage
     public void renameWifiDisplay(String deviceAddress, String alias) {
         mGlobal.renameWifiDisplay(deviceAddress, alias);
     }
@@ -453,6 +552,7 @@ public final class DisplayManager {
      * @param deviceAddress The MAC address of the device to forget.
      * @hide
      */
+    @UnsupportedAppUsage
     public void forgetWifiDisplay(String deviceAddress) {
         mGlobal.forgetWifiDisplay(deviceAddress);
     }
@@ -465,8 +565,28 @@ public final class DisplayManager {
      * @return The current Wifi display status.
      * @hide
      */
+    @UnsupportedAppUsage
     public WifiDisplayStatus getWifiDisplayStatus() {
         return mGlobal.getWifiDisplayStatus();
+    }
+
+    /**
+     * Set the level of color saturation to apply to the display.
+     * @param level The amount of saturation to apply, between 0 and 1 inclusive.
+     * 0 produces a grayscale image, 1 is normal.
+     *
+     * @hide
+     * @deprecated use {@link ColorDisplayManager#setSaturationLevel(int)} instead. The level passed
+     * as a parameter here will be rounded to the nearest hundredth.
+     */
+    @SystemApi
+    @RequiresPermission(Manifest.permission.CONTROL_DISPLAY_SATURATION)
+    public void setSaturationLevel(float level) {
+        if (level < 0f || level > 1f) {
+            throw new IllegalArgumentException("Saturation level must be between 0 and 1");
+        }
+        final ColorDisplayManager cdm = mContext.getSystemService(ColorDisplayManager.class);
+        cdm.setSaturationLevel(Math.round(level * 100f));
     }
 
     /**
@@ -526,16 +646,196 @@ public final class DisplayManager {
     public VirtualDisplay createVirtualDisplay(@NonNull String name,
             int width, int height, int densityDpi, @Nullable Surface surface, int flags,
             @Nullable VirtualDisplay.Callback callback, @Nullable Handler handler) {
-        return createVirtualDisplay(null,
-                name, width, height, densityDpi, surface, flags, callback, handler);
+        final VirtualDisplayConfig.Builder builder = new VirtualDisplayConfig.Builder(name, width,
+                height, densityDpi);
+        builder.setFlags(flags);
+        if (surface != null) {
+            builder.setSurface(surface);
+        }
+        return createVirtualDisplay(null /* projection */, builder.build(), callback, handler);
+    }
+
+    // TODO : Remove this hidden API after remove all callers. (Refer to MultiDisplayService)
+    /** @hide */
+    public VirtualDisplay createVirtualDisplay(@Nullable MediaProjection projection,
+            @NonNull String name, int width, int height, int densityDpi, @Nullable Surface surface,
+            int flags, @Nullable VirtualDisplay.Callback callback, @Nullable Handler handler,
+            @Nullable String uniqueId) {
+        final VirtualDisplayConfig.Builder builder = new VirtualDisplayConfig.Builder(name, width,
+                height, densityDpi);
+        builder.setFlags(flags);
+        if (uniqueId != null) {
+            builder.setUniqueId(uniqueId);
+        }
+        if (surface != null) {
+            builder.setSurface(surface);
+        }
+        return createVirtualDisplay(projection, builder.build(), callback, handler);
     }
 
     /** @hide */
     public VirtualDisplay createVirtualDisplay(@Nullable MediaProjection projection,
-            @NonNull String name, int width, int height, int densityDpi, @Nullable Surface surface,
-            int flags, @Nullable VirtualDisplay.Callback callback, @Nullable Handler handler) {
-        return mGlobal.createVirtualDisplay(mContext, projection,
-                name, width, height, densityDpi, surface, flags, callback, handler);
+            @NonNull VirtualDisplayConfig virtualDisplayConfig,
+            @Nullable VirtualDisplay.Callback callback, @Nullable Handler handler) {
+        return mGlobal.createVirtualDisplay(mContext, projection, virtualDisplayConfig, callback,
+                handler);
+    }
+
+    /**
+     * Gets the stable device display size, in pixels.
+     *
+     * This should really only be used for things like server-side filtering of available
+     * applications. Most applications don't need the level of stability guaranteed by this and
+     * should instead query either the size of the display they're currently running on or the
+     * size of the default display.
+     * @hide
+     */
+    @SystemApi
+    @TestApi
+    public Point getStableDisplaySize() {
+        return mGlobal.getStableDisplaySize();
+    }
+
+    /**
+     * Fetch {@link BrightnessChangeEvent}s.
+     * @hide until we make it a system api.
+     */
+    @SystemApi
+    @TestApi
+    @RequiresPermission(Manifest.permission.BRIGHTNESS_SLIDER_USAGE)
+    public List<BrightnessChangeEvent> getBrightnessEvents() {
+        return mGlobal.getBrightnessEvents(mContext.getOpPackageName());
+    }
+
+    /**
+     * Fetch {@link AmbientBrightnessDayStats}s.
+     *
+     * @hide until we make it a system api
+     */
+    @SystemApi
+    @TestApi
+    @RequiresPermission(Manifest.permission.ACCESS_AMBIENT_LIGHT_STATS)
+    public List<AmbientBrightnessDayStats> getAmbientBrightnessStats() {
+        return mGlobal.getAmbientBrightnessStats();
+    }
+
+    /**
+     * Sets the global display brightness configuration.
+     *
+     * @hide
+     */
+    @SystemApi
+    @TestApi
+    @RequiresPermission(Manifest.permission.CONFIGURE_DISPLAY_BRIGHTNESS)
+    public void setBrightnessConfiguration(BrightnessConfiguration c) {
+        setBrightnessConfigurationForUser(c, mContext.getUserId(), mContext.getPackageName());
+    }
+
+    /**
+     * Sets the global display brightness configuration for a specific user.
+     *
+     * Note this requires the INTERACT_ACROSS_USERS permission if setting the configuration for a
+     * user other than the one you're currently running as.
+     *
+     * @hide
+     */
+    public void setBrightnessConfigurationForUser(BrightnessConfiguration c, int userId,
+            String packageName) {
+        mGlobal.setBrightnessConfigurationForUser(c, userId, packageName);
+    }
+
+    /**
+     * Gets the global display brightness configuration or the default curve if one hasn't been set.
+     *
+     * @hide
+     */
+    @SystemApi
+    @TestApi
+    @RequiresPermission(Manifest.permission.CONFIGURE_DISPLAY_BRIGHTNESS)
+    public BrightnessConfiguration getBrightnessConfiguration() {
+        return getBrightnessConfigurationForUser(mContext.getUserId());
+    }
+
+    /**
+     * Gets the global display brightness configuration or the default curve if one hasn't been set
+     * for a specific user.
+     *
+     * Note this requires the INTERACT_ACROSS_USERS permission if getting the configuration for a
+     * user other than the one you're currently running as.
+     *
+     * @hide
+     */
+    public BrightnessConfiguration getBrightnessConfigurationForUser(int userId) {
+        return mGlobal.getBrightnessConfigurationForUser(userId);
+    }
+
+    /**
+     * Gets the default global display brightness configuration or null one hasn't
+     * been configured.
+     *
+     * @hide
+     */
+    @SystemApi
+    @TestApi
+    @RequiresPermission(Manifest.permission.CONFIGURE_DISPLAY_BRIGHTNESS)
+    @Nullable
+    public BrightnessConfiguration getDefaultBrightnessConfiguration() {
+        return mGlobal.getDefaultBrightnessConfiguration();
+    }
+
+
+    /**
+     * Gets the last requested minimal post processing setting for the display with displayId.
+     *
+     * @hide
+     */
+    @TestApi
+    public boolean isMinimalPostProcessingRequested(int displayId) {
+        return mGlobal.isMinimalPostProcessingRequested(displayId);
+    }
+
+    /**
+     * Temporarily sets the brightness of the display.
+     * <p>
+     * Requires the {@link android.Manifest.permission#CONTROL_DISPLAY_BRIGHTNESS} permission.
+     * </p>
+     *
+     * @param brightness The brightness value from 0.0f to 1.0f.
+     *
+     * @hide Requires signature permission.
+     */
+    public void setTemporaryBrightness(float brightness) {
+        mGlobal.setTemporaryBrightness(brightness);
+    }
+
+    /**
+     * Temporarily sets the auto brightness adjustment factor.
+     * <p>
+     * Requires the {@link android.Manifest.permission#CONTROL_DISPLAY_BRIGHTNESS} permission.
+     * </p>
+     *
+     * @param adjustment The adjustment factor from -1.0 to 1.0.
+     *
+     * @hide Requires signature permission.
+     */
+    public void setTemporaryAutoBrightnessAdjustment(float adjustment) {
+        mGlobal.setTemporaryAutoBrightnessAdjustment(adjustment);
+    }
+
+    /**
+     * Returns the minimum brightness curve, which guarantess that any brightness curve that dips
+     * below it is rejected by the system.
+     * This prevent auto-brightness from setting the screen so dark as to prevent the user from
+     * resetting or disabling it, and maps lux to the absolute minimum nits that are still readable
+     * in that ambient brightness.
+     *
+     * @return The minimum brightness curve (as lux values and their corresponding nits values).
+     *
+     * @hide
+     */
+    @SystemApi
+    public Pair<float[], float[]> getMinimumBrightnessCurve() {
+        return mGlobal.getMinimumBrightnessCurve();
     }
 
     /**
@@ -559,10 +859,71 @@ public final class DisplayManager {
         void onDisplayRemoved(int displayId);
 
         /**
-         * Called whenever the properties of a logical display have changed.
+         * Called whenever the properties of a logical {@link android.view.Display},
+         * such as size and density, have changed.
          *
          * @param displayId The id of the logical display that changed.
          */
         void onDisplayChanged(int displayId);
+    }
+
+    /**
+     * Interface for accessing keys belonging to {@link
+     * android.provider.DeviceConfig#NAMESPACE_DISPLAY_MANAGER}.
+     * @hide
+     */
+    public interface DeviceConfig {
+
+        /**
+         * Key for refresh rate in the zone defined by thresholds.
+         *
+         * @see android.provider.DeviceConfig#NAMESPACE_DISPLAY_MANAGER
+         * @see android.R.integer#config_defaultZoneBehavior
+         */
+        String KEY_REFRESH_RATE_IN_ZONE = "refresh_rate_in_zone";
+
+        /**
+         * Key for accessing the display brightness thresholds for the configured refresh rate zone.
+         * The value will be a pair of comma separated integers representing the minimum and maximum
+         * thresholds of the zone, respectively, in display backlight units (i.e. [0, 255]).
+         *
+         * @see android.provider.DeviceConfig#NAMESPACE_DISPLAY_MANAGER
+         * @see android.R.array#config_brightnessThresholdsOfPeakRefreshRate
+         * @hide
+         */
+        String KEY_PEAK_REFRESH_RATE_DISPLAY_BRIGHTNESS_THRESHOLDS =
+                "peak_refresh_rate_brightness_thresholds";
+
+        /**
+         * Key for accessing the ambient brightness thresholds for the configured refresh rate zone.
+         * The value will be a pair of comma separated integers representing the minimum and maximum
+         * thresholds of the zone, respectively, in lux.
+         *
+         * @see android.provider.DeviceConfig#NAMESPACE_DISPLAY_MANAGER
+         * @see android.R.array#config_ambientThresholdsOfPeakRefreshRate
+         * @hide
+         */
+        String KEY_PEAK_REFRESH_RATE_AMBIENT_BRIGHTNESS_THRESHOLDS =
+                "peak_refresh_rate_ambient_thresholds";
+
+        /**
+         * Key for default peak refresh rate
+         *
+         * @see android.provider.DeviceConfig#NAMESPACE_DISPLAY_MANAGER
+         * @see android.R.integer#config_defaultPeakRefreshRate
+         * @hide
+         */
+        String KEY_PEAK_REFRESH_RATE_DEFAULT = "peak_refresh_rate_default";
+
+        /**
+         * Key for controlling which packages are explicitly blocked from running at refresh rates
+         * higher than 60hz. An app may be added to this list if they exhibit performance issues at
+         * higher refresh rates.
+         *
+         * @see android.provider.DeviceConfig#NAMESPACE_DISPLAY_MANAGER
+         * @see android.R.array#config_highRefreshRateBlacklist
+         * @hide
+         */
+        String KEY_HIGH_REFRESH_RATE_BLACKLIST = "high_refresh_rate_blacklist";
     }
 }

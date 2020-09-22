@@ -1,4 +1,33 @@
 /*
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ *
+ * This code is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License version 2 only, as
+ * published by the Free Software Foundation.  Oracle designates this
+ * particular file as subject to the "Classpath" exception as provided
+ * by Oracle in the LICENSE file that accompanied this code.
+ *
+ * This code is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * version 2 for more details (a copy is included in the LICENSE file that
+ * accompanied this code).
+ *
+ * You should have received a copy of the GNU General Public License version
+ * 2 along with this work; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
+ *
+ * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
+ * or visit www.oracle.com if you need additional information or have any
+ * questions.
+ */
+
+/*
+ * This file is available under and governed by the GNU General Public
+ * License version 2 only, as published by the Free Software Foundation.
+ * However, the following notice accompanied the original version of this
+ * file:
+ *
  * Written by Doug Lea with assistance from members of JCP JSR-166
  * Expert Group and released to the public domain, as explained at
  * http://creativecommons.org/publicdomain/zero/1.0/
@@ -12,6 +41,8 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+
+// Android-note: Class javadoc changed to remove references to hidden OpenJDK 9 methods.
 
 /**
  * A {@link Future} that may be explicitly completed (setting its
@@ -2376,9 +2407,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * @param <U> the type of the value
      * @return a new CompletableFuture
      * @since 9
-     * @hide
+     * @hide API from OpenJDK 9, not yet exposed on Android.
      */
-    // android-changed - hidden
     public <U> CompletableFuture<U> newIncompleteFuture() {
         return new CompletableFuture<U>();
     }
@@ -2393,9 +2423,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      *
      * @return the executor
      * @since 9
-     * @hide
+     * @hide API from OpenJDK 9, not yet exposed on Android.
      */
-    // android-changed - hidden
     public Executor defaultExecutor() {
         return ASYNC_POOL;
     }
@@ -2413,9 +2442,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      *
      * @return the new CompletableFuture
      * @since 9
-     * @hide
+     * @hide API from OpenJDK 9, not yet exposed on Android.
      */
-    // android-changed - hidden
     public CompletableFuture<T> copy() {
         return uniCopyStage();
     }
@@ -2432,9 +2460,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      *
      * @return the new CompletionStage
      * @since 9
-     * @hide
+     * @hide API from OpenJDK 9, not yet exposed on Android.
      */
-    // android-changed - hidden
     public CompletionStage<T> minimalCompletionStage() {
         return uniAsMinimalStage();
     }
@@ -2449,9 +2476,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * @param executor the executor to use for asynchronous execution
      * @return this CompletableFuture
      * @since 9
-     * @hide
+     * @hide API from OpenJDK 9, not yet exposed on Android.
      */
-    // android-changed - hidden
     public CompletableFuture<T> completeAsync(Supplier<? extends T> supplier,
                                               Executor executor) {
         if (supplier == null || executor == null)
@@ -2469,9 +2495,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * to complete this CompletableFuture
      * @return this CompletableFuture
      * @since 9
-     * @hide
+     * @hide API from OpenJDK 9, not yet exposed on Android.
      */
-    // android-changed - hidden
     public CompletableFuture<T> completeAsync(Supplier<? extends T> supplier) {
         return completeAsync(supplier, defaultExecutor());
     }
@@ -2487,9 +2512,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      *        {@code timeout} parameter
      * @return this CompletableFuture
      * @since 9
-     * @hide
+     * @hide API from OpenJDK 9, not yet exposed on Android.
      */
-    // android-changed - hidden
     public CompletableFuture<T> orTimeout(long timeout, TimeUnit unit) {
         if (unit == null)
             throw new NullPointerException();
@@ -2510,9 +2534,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      *        {@code timeout} parameter
      * @return this CompletableFuture
      * @since 9
-     * @hide
+     * @hide API from OpenJDK 9, not yet exposed on Android.
      */
-    // android-changed - hidden
     public CompletableFuture<T> completeOnTimeout(T value, long timeout,
                                                   TimeUnit unit) {
         if (unit == null)
@@ -2536,9 +2559,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * @param executor the base executor
      * @return the new delayed executor
      * @since 9
-     * @hide
+     * @hide API from OpenJDK 9, not yet exposed on Android.
      */
-    // android-changed - hidden
     public static Executor delayedExecutor(long delay, TimeUnit unit,
                                            Executor executor) {
         if (unit == null || executor == null)
@@ -2557,9 +2579,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      *        {@code delay} parameter
      * @return the new delayed executor
      * @since 9
-     * @hide
+     * @hide API from OpenJDK 9, not yet exposed on Android.
      */
-    // android-changed - hidden
     public static Executor delayedExecutor(long delay, TimeUnit unit) {
         if (unit == null)
             throw new NullPointerException();
@@ -2575,9 +2596,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * @param <U> the type of the value
      * @return the completed CompletionStage
      * @since 9
-     * @hide
+     * @hide API from OpenJDK 9, not yet exposed on Android.
      */
-    // android-changed - hidden
     public static <U> CompletionStage<U> completedStage(U value) {
         return new MinimalStage<U>((value == null) ? NIL : value);
     }
@@ -2590,9 +2610,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * @param <U> the type of the value
      * @return the exceptionally completed CompletableFuture
      * @since 9
-     * @hide
+     * @hide API from OpenJDK 9, not yet exposed on Android.
      */
-    // android-changed - hidden
     public static <U> CompletableFuture<U> failedFuture(Throwable ex) {
         if (ex == null) throw new NullPointerException();
         return new CompletableFuture<U>(new AltResult(ex));
@@ -2607,9 +2626,8 @@ public class CompletableFuture<T> implements Future<T>, CompletionStage<T> {
      * @param <U> the type of the value
      * @return the exceptionally completed CompletionStage
      * @since 9
-     * @hide
+     * @hide API from OpenJDK 9, not yet exposed on Android.
      */
-    // android-changed - hidden
     public static <U> CompletionStage<U> failedStage(Throwable ex) {
         if (ex == null) throw new NullPointerException();
         return new MinimalStage<U>(new AltResult(ex));

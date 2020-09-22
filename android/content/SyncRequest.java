@@ -17,6 +17,8 @@
 package android.content;
 
 import android.accounts.Account;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -29,10 +31,13 @@ import android.os.Parcelable;
 public class SyncRequest implements Parcelable {
     private static final String TAG = "SyncRequest";
     /** Account to pass to the sync adapter. Can be null. */
+    @UnsupportedAppUsage
     private final Account mAccountToSync;
     /** Authority string that corresponds to a ContentProvider. */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final String mAuthority;
     /** Bundle containing user info as well as sync settings. */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final Bundle mExtras;
     /** Don't allow this sync request on metered networks. */
     private final boolean mDisallowMetered;
@@ -44,8 +49,10 @@ public class SyncRequest implements Parcelable {
     /**
      * Specifies a point in the future at which the sync must have been scheduled to run.
      */
+    @UnsupportedAppUsage
     private final long mSyncRunTimeSecs;
     /** Periodic versus one-off. */
+    @UnsupportedAppUsage
     private final boolean mIsPeriodic;
     /** Service versus provider. */
     private final boolean mIsAuthority;
@@ -115,7 +122,7 @@ public class SyncRequest implements Parcelable {
         return mSyncRunTimeSecs;
     }
 
-    public static final Creator<SyncRequest> CREATOR = new Creator<SyncRequest>() {
+    public static final @android.annotation.NonNull Creator<SyncRequest> CREATOR = new Creator<SyncRequest>() {
 
         @Override
         public SyncRequest createFromParcel(Parcel in) {
@@ -175,7 +182,7 @@ public class SyncRequest implements Parcelable {
     }
 
     /**
-     * Builder class for a @link SyncRequest. As you build your SyncRequest this class will also
+     * Builder class for a {@link SyncRequest}. As you build your SyncRequest this class will also
      * perform validation.
      */
     public static class Builder {
@@ -351,7 +358,7 @@ public class SyncRequest implements Parcelable {
          * @param requiresCharging true if sync requires the phone to be plugged in. Default false.
          */
         public Builder setRequiresCharging(boolean requiresCharging) {
-            mRequiresCharging = true;
+            mRequiresCharging = requiresCharging;
             return this;
         }
 

@@ -17,26 +17,32 @@
 package com.android.server.wifi.scanner;
 
 import android.content.Context;
+import android.os.BatteryStatsManager;
 import android.os.HandlerThread;
 import android.util.Log;
 
 import com.android.server.SystemService;
-import com.android.server.am.BatteryStatsService;
+import com.android.server.wifi.WifiContext;
 import com.android.server.wifi.WifiInjector;
 
+/**
+ * Service implementing Wi-Fi scanning functionality. Delegates actual interface
+ * implementation to WifiScanningServiceImpl.
+ */
 public class WifiScanningService extends SystemService {
 
     static final String TAG = "WifiScanningService";
     private final WifiScanningServiceImpl mImpl;
     private final HandlerThread mHandlerThread;
 
-    public WifiScanningService(Context context) {
-        super(context);
+    public WifiScanningService(Context contextBase) {
+        super(new WifiContext(contextBase));
         Log.i(TAG, "Creating " + Context.WIFI_SCANNING_SERVICE);
         mHandlerThread = new HandlerThread("WifiScanningService");
         mHandlerThread.start();
         mImpl = new WifiScanningServiceImpl(getContext(), mHandlerThread.getLooper(),
-                WifiScannerImpl.DEFAULT_FACTORY, BatteryStatsService.getService(),
+                WifiScannerImpl.DEFAULT_FACTORY,
+                getContext().getSystemService(BatteryStatsManager.class),
                 WifiInjector.getInstance());
     }
 

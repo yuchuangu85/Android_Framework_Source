@@ -15,12 +15,11 @@
  */
 package com.android.internal.widget;
 
-import com.android.internal.view.ActionBarPolicy;
-
 import android.animation.Animator;
 import android.animation.ObjectAnimator;
 import android.animation.TimeInterpolator;
 import android.app.ActionBar;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.drawable.Drawable;
@@ -40,7 +39,8 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.Spinner;
 import android.widget.TextView;
-import android.widget.Toast;
+
+import com.android.internal.view.ActionBarPolicy;
 
 /**
  * This widget implements the dynamic action bar tab behavior that can change
@@ -68,6 +68,7 @@ public class ScrollingTabContainerView extends HorizontalScrollView
 
     private static final int FADE_DURATION = 200;
 
+    @UnsupportedAppUsage
     public ScrollingTabContainerView(Context context) {
         super(context);
         setHorizontalScrollBarEnabled(false);
@@ -135,6 +136,7 @@ public class ScrollingTabContainerView extends HorizontalScrollView
         return mTabSpinner != null && mTabSpinner.getParent() == this;
     }
 
+    @UnsupportedAppUsage
     public void setAllowCollapse(boolean allowCollapse) {
         mAllowCollapse = allowCollapse;
     }
@@ -170,6 +172,7 @@ public class ScrollingTabContainerView extends HorizontalScrollView
         return false;
     }
 
+    @UnsupportedAppUsage
     public void setTabSelected(int position) {
         mSelectedTabIndex = position;
         final int tabCount = mTabLayout.getChildCount();
@@ -221,6 +224,7 @@ public class ScrollingTabContainerView extends HorizontalScrollView
         mStackedTabMaxWidth = abp.getStackedTabMaxWidth();
     }
 
+    @UnsupportedAppUsage
     public void animateToVisibility(int visibility) {
         if (mVisibilityAnim != null) {
             mVisibilityAnim.cancel();
@@ -245,6 +249,7 @@ public class ScrollingTabContainerView extends HorizontalScrollView
         }
     }
 
+    @UnsupportedAppUsage
     public void animateToTab(final int position) {
         final View tabView = mTabLayout.getChildAt(position);
         if (mTabSelector != null) {
@@ -294,6 +299,7 @@ public class ScrollingTabContainerView extends HorizontalScrollView
         return tabView;
     }
 
+    @UnsupportedAppUsage
     public void addTab(ActionBar.Tab tab, boolean setSelected) {
         TabView tabView = createTabView(mContext, tab, false);
         mTabLayout.addView(tabView, new LinearLayout.LayoutParams(0,
@@ -309,6 +315,7 @@ public class ScrollingTabContainerView extends HorizontalScrollView
         }
     }
 
+    @UnsupportedAppUsage
     public void addTab(ActionBar.Tab tab, int position, boolean setSelected) {
         final TabView tabView = createTabView(mContext, tab, false);
         mTabLayout.addView(tabView, position, new LinearLayout.LayoutParams(
@@ -324,6 +331,7 @@ public class ScrollingTabContainerView extends HorizontalScrollView
         }
     }
 
+    @UnsupportedAppUsage
     public void updateTab(int position) {
         ((TabView) mTabLayout.getChildAt(position)).update();
         if (mTabSpinner != null) {
@@ -334,6 +342,7 @@ public class ScrollingTabContainerView extends HorizontalScrollView
         }
     }
 
+    @UnsupportedAppUsage
     public void removeTabAt(int position) {
         mTabLayout.removeViewAt(position);
         if (mTabSpinner != null) {
@@ -344,6 +353,7 @@ public class ScrollingTabContainerView extends HorizontalScrollView
         }
     }
 
+    @UnsupportedAppUsage
     public void removeAllTabs() {
         mTabLayout.removeAllViews();
         if (mTabSpinner != null) {
@@ -360,7 +370,7 @@ public class ScrollingTabContainerView extends HorizontalScrollView
         tabView.getTab().select();
     }
 
-    private class TabView extends LinearLayout implements OnLongClickListener {
+    private class TabView extends LinearLayout {
         private ActionBar.Tab mTab;
         private TextView mTextView;
         private ImageView mIconView;
@@ -472,33 +482,8 @@ public class ScrollingTabContainerView extends HorizontalScrollView
                 if (mIconView != null) {
                     mIconView.setContentDescription(tab.getContentDescription());
                 }
-
-                if (!hasText && !TextUtils.isEmpty(tab.getContentDescription())) {
-                    setOnLongClickListener(this);
-                } else {
-                    setOnLongClickListener(null);
-                    setLongClickable(false);
-                }
+                setTooltipText(hasText? null : tab.getContentDescription());
             }
-        }
-
-        public boolean onLongClick(View v) {
-            final int[] screenPos = new int[2];
-            getLocationOnScreen(screenPos);
-
-            final Context context = getContext();
-            final int width = getWidth();
-            final int height = getHeight();
-            final int screenWidth = context.getResources().getDisplayMetrics().widthPixels;
-
-            Toast cheatSheet = Toast.makeText(context, mTab.getContentDescription(),
-                    Toast.LENGTH_SHORT);
-            // Show under the tab
-            cheatSheet.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL,
-                    (screenPos[0] + width / 2) - screenWidth / 2, height);
-
-            cheatSheet.show();
-            return true;
         }
 
         public ActionBar.Tab getTab() {

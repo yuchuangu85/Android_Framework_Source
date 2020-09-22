@@ -16,8 +16,20 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.telephony.Annotation.DataFailureCause;
+import android.telephony.Annotation.RadioPowerState;
+import android.telephony.Annotation.SrvccState;
+import android.telephony.BarringInfo;
+import android.telephony.CallQuality;
+import android.telephony.CellIdentity;
 import android.telephony.CellInfo;
-import android.telephony.VoLteServiceState;
+import android.telephony.PhoneCapability;
+import android.telephony.PreciseDataConnectionState;
+import android.telephony.TelephonyDisplayInfo;
+import android.telephony.emergency.EmergencyNumber;
+import android.telephony.ims.ImsReasonInfo;
 
 import java.util.List;
 
@@ -26,38 +38,79 @@ import java.util.List;
  */
 public interface PhoneNotifier {
 
-    public void notifyPhoneState(Phone sender);
+    void notifyPhoneState(Phone sender);
 
-    public void notifyServiceState(Phone sender);
+    void notifyServiceState(Phone sender);
 
-    public void notifyCellLocation(Phone sender);
+    /**
+     * Notify registrants of the current CellLocation.
+     *
+     * <p>Use CellIdentity that is Parcellable to pass AIDL; convert to CellLocation in client code.
+     */
+    void notifyCellLocation(Phone sender, CellIdentity cellIdentity);
 
-    public void notifySignalStrength(Phone sender);
+    @UnsupportedAppUsage
+    void notifySignalStrength(Phone sender);
 
-    public void notifyMessageWaitingChanged(Phone sender);
+    @UnsupportedAppUsage
+    void notifyMessageWaitingChanged(Phone sender);
 
-    public void notifyCallForwardingChanged(Phone sender);
+    void notifyCallForwardingChanged(Phone sender);
 
-    /** TODO - reason should never be null */
-    public void notifyDataConnection(Phone sender, String reason, String apnType,
-            PhoneConstants.DataState state);
+    /** Send a notification that the Data Connection for a particular apnType has changed */
+    void notifyDataConnection(
+            Phone sender, String apnType, PreciseDataConnectionState preciseState);
 
-    public void notifyDataConnectionFailed(Phone sender, String reason, String apnType);
+    void notifyDataActivity(Phone sender);
 
-    public void notifyDataActivity(Phone sender);
+    void notifyCellInfo(Phone sender, List<CellInfo> cellInfo);
 
-    public void notifyOtaspChanged(Phone sender, int otaspMode);
+    void notifyPreciseCallState(Phone sender);
 
-    public void notifyCellInfo(Phone sender, List<CellInfo> cellInfo);
+    void notifyDisconnectCause(Phone sender, int cause, int preciseCause);
 
-    public void notifyPreciseCallState(Phone sender);
+    void notifyImsDisconnectCause(Phone sender, ImsReasonInfo imsReasonInfo);
 
-    public void notifyDisconnectCause(int cause, int preciseCause);
+    /** Send a notification that a particular data connection has failed with specified cause. */
+    void notifyDataConnectionFailed(Phone sender, String apnType, String apn,
+                                                  @DataFailureCause int failCause);
 
-    public void notifyPreciseDataConnectionFailed(Phone sender, String reason, String apnType,
-            String apn, String failCause);
+    /** Send a notification that the SRVCC state has changed.*/
+    void notifySrvccStateChanged(Phone sender, @SrvccState int state);
 
-    public void notifyVoLteServiceStateChanged(Phone sender, VoLteServiceState lteState);
+    /** Send a notification that the voice activation state has changed */
+    void notifyVoiceActivationStateChanged(Phone sender, int activationState);
 
-    public void notifyOemHookRawEventForSubscriber(int subId, byte[] rawData);
+    /** Send a notification that the data activation state has changed */
+    void notifyDataActivationStateChanged(Phone sender, int activationState);
+
+    /** Send a notification that the users mobile data setting has changed */
+    void notifyUserMobileDataStateChanged(Phone sender, boolean state);
+
+    /** Send a notification that the display info has changed */
+    void notifyDisplayInfoChanged(Phone sender, TelephonyDisplayInfo telephonyDisplayInfo);
+
+    /** Send a notification that the phone capability has changed */
+    void notifyPhoneCapabilityChanged(PhoneCapability capability);
+
+    void notifyRadioPowerStateChanged(Phone sender, @RadioPowerState int state);
+
+    /** Notify of change to EmergencyNumberList. */
+    void notifyEmergencyNumberList(Phone sender);
+
+    /** Notify of a change for Outgoing Emergency Call. */
+    void notifyOutgoingEmergencyCall(Phone sender, EmergencyNumber emergencyNumber);
+
+    /** Notify of a change for Outgoing Emergency Sms. */
+    void notifyOutgoingEmergencySms(Phone sender, EmergencyNumber emergencyNumber);
+
+    /** Notify of a change to the call quality of an active foreground call. */
+    void notifyCallQualityChanged(Phone sender, CallQuality callQuality, int callNetworkType);
+
+    /** Notify registration failed */
+    void notifyRegistrationFailed(Phone sender, @NonNull CellIdentity cellIdentity,
+            @NonNull String chosenPlmn, int domain, int causeCode, int additionalCauseCode);
+
+    /** Notify barring info has changed */
+    void notifyBarringInfoChanged(Phone sender, @NonNull BarringInfo barringInfo);
 }

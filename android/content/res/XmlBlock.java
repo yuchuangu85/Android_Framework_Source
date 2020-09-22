@@ -16,9 +16,16 @@
 
 package android.content.res;
 
+import static android.content.res.Resources.ID_NULL;
+
+import android.annotation.AnyRes;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.util.TypedValue;
 
 import com.android.internal.util.XmlUtils;
+
+import dalvik.annotation.optimization.FastNative;
 
 import org.xmlpull.v1.XmlPullParserException;
 
@@ -31,9 +38,10 @@ import java.io.Reader;
  * 
  * {@hide}
  */
-final class XmlBlock {
+final class XmlBlock implements AutoCloseable {
     private static final boolean DEBUG=false;
 
+    @UnsupportedAppUsage
     public XmlBlock(byte[] data) {
         mAssets = null;
         mNative = nativeCreate(data, 0, data.length);
@@ -46,6 +54,7 @@ final class XmlBlock {
         mStrings = new StringBlock(nativeGetStringBlock(mNative), false);
     }
 
+    @Override
     public void close() {
         synchronized (this) {
             if (mOpen) {
@@ -65,10 +74,15 @@ final class XmlBlock {
         }
     }
 
+    @UnsupportedAppUsage
     public XmlResourceParser newParser() {
+        return newParser(ID_NULL);
+    }
+
+    public XmlResourceParser newParser(@AnyRes int resId) {
         synchronized (this) {
             if (mNative != 0) {
-                return new Parser(nativeCreateParseState(mNative), this);
+                return new Parser(nativeCreateParseState(mNative, resId), this);
             }
             return null;
         }
@@ -79,6 +93,11 @@ final class XmlBlock {
             mParseState = parseState;
             mBlock = block;
             block.mOpenCount++;
+        }
+
+        @AnyRes
+        public int getSourceResId() {
+            return nativeGetSourceResId(mParseState);
         }
 
         public void setFeature(String name, boolean state) throws XmlPullParserException {
@@ -458,7 +477,9 @@ final class XmlBlock {
             return mStrings.get(id);
         }
 
+        @UnsupportedAppUsage
         /*package*/ long mParseState;
+        @UnsupportedAppUsage
         private final XmlBlock mBlock;
         private boolean mStarted = false;
         private boolean mDecNextDepth = false;
@@ -476,13 +497,13 @@ final class XmlBlock {
      *  are doing!  The given native object must exist for the entire lifetime
      *  of this newly creating XmlBlock.
      */
-    XmlBlock(AssetManager assets, long xmlBlock) {
+    XmlBlock(@Nullable AssetManager assets, long xmlBlock) {
         mAssets = assets;
         mNative = xmlBlock;
         mStrings = new StringBlock(nativeGetStringBlock(xmlBlock), false);
     }
 
-    private final AssetManager mAssets;
+    private @Nullable final AssetManager mAssets;
     private final long mNative;
     /*package*/ final StringBlock mStrings;
     private boolean mOpen = true;
@@ -492,25 +513,44 @@ final class XmlBlock {
                                                  int offset,
                                                  int size);
     private static final native long nativeGetStringBlock(long obj);
-
-    private static final native long nativeCreateParseState(long obj);
-    /*package*/ static final native int nativeNext(long state);
-    private static final native int nativeGetNamespace(long state);
-    /*package*/ static final native int nativeGetName(long state);
-    private static final native int nativeGetText(long state);
-    private static final native int nativeGetLineNumber(long state);
-    private static final native int nativeGetAttributeCount(long state);
-    private static final native int nativeGetAttributeNamespace(long state, int idx);
-    private static final native int nativeGetAttributeName(long state, int idx);
-    private static final native int nativeGetAttributeResource(long state, int idx);
-    private static final native int nativeGetAttributeDataType(long state, int idx);
-    private static final native int nativeGetAttributeData(long state, int idx);
-    private static final native int nativeGetAttributeStringValue(long state, int idx);
-    private static final native int nativeGetIdAttribute(long state);
-    private static final native int nativeGetClassAttribute(long state);
-    private static final native int nativeGetStyleAttribute(long state);
-    private static final native int nativeGetAttributeIndex(long state, String namespace, String name);
+    private static final native long nativeCreateParseState(long obj, int resId);
     private static final native void nativeDestroyParseState(long state);
-
     private static final native void nativeDestroy(long obj);
+
+    // ----------- @FastNative ------------------
+
+    @FastNative
+    /*package*/ static final native int nativeNext(long state);
+    @FastNative
+    private static final native int nativeGetNamespace(long state);
+    @FastNative
+    /*package*/ static final native int nativeGetName(long state);
+    @FastNative
+    private static final native int nativeGetText(long state);
+    @FastNative
+    private static final native int nativeGetLineNumber(long state);
+    @FastNative
+    private static final native int nativeGetAttributeCount(long state);
+    @FastNative
+    private static final native int nativeGetAttributeNamespace(long state, int idx);
+    @FastNative
+    private static final native int nativeGetAttributeName(long state, int idx);
+    @FastNative
+    private static final native int nativeGetAttributeResource(long state, int idx);
+    @FastNative
+    private static final native int nativeGetAttributeDataType(long state, int idx);
+    @FastNative
+    private static final native int nativeGetAttributeData(long state, int idx);
+    @FastNative
+    private static final native int nativeGetAttributeStringValue(long state, int idx);
+    @FastNative
+    private static final native int nativeGetIdAttribute(long state);
+    @FastNative
+    private static final native int nativeGetClassAttribute(long state);
+    @FastNative
+    private static final native int nativeGetStyleAttribute(long state);
+    @FastNative
+    private static final native int nativeGetAttributeIndex(long state, String namespace, String name);
+    @FastNative
+    private static final native int nativeGetSourceResId(long state);
 }

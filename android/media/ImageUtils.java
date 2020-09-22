@@ -36,8 +36,8 @@ class ImageUtils {
      * {@link android.graphics.PixelFormat PixelFormat} are supported by
      * ImageReader. When reading RGB data from a surface, the formats defined in
      * {@link android.graphics.PixelFormat PixelFormat} can be used; when
-     * reading YUV, JPEG or raw sensor data (for example, from the camera or video
-     * decoder), formats from {@link android.graphics.ImageFormat ImageFormat}
+     * reading YUV, JPEG, HEIC or raw sensor data (for example, from the camera
+     * or video decoder), formats from {@link android.graphics.ImageFormat ImageFormat}
      * are used.
      */
     public static int getNumPlanesForFormat(int format) {
@@ -62,6 +62,9 @@ class ImageUtils {
             case ImageFormat.RAW12:
             case ImageFormat.DEPTH16:
             case ImageFormat.DEPTH_POINT_CLOUD:
+            case ImageFormat.RAW_DEPTH:
+            case ImageFormat.DEPTH_JPEG:
+            case ImageFormat.HEIC:
                 return 1;
             case ImageFormat.PRIVATE:
                 return 0;
@@ -102,6 +105,10 @@ class ImageUtils {
         if (src.getFormat() == ImageFormat.RAW_PRIVATE) {
             throw new IllegalArgumentException(
                     "Copy of RAW_OPAQUE format has not been implemented");
+        }
+        if (src.getFormat() == ImageFormat.RAW_DEPTH) {
+            throw new IllegalArgumentException(
+                    "Copy of RAW_DEPTH format has not been implemented");
         }
         if (!(dst.getOwner() instanceof ImageWriter)) {
             throw new IllegalArgumentException("Destination image is not from ImageWriter. Only"
@@ -187,6 +194,8 @@ class ImageUtils {
             // 10x compression from RGB_888
             case ImageFormat.JPEG:
             case ImageFormat.DEPTH_POINT_CLOUD:
+            case ImageFormat.DEPTH_JPEG:
+            case ImageFormat.HEIC:
                 estimatedBytePerPixel = 0.3;
                 break;
             case ImageFormat.Y8:
@@ -206,6 +215,7 @@ class ImageUtils {
             case PixelFormat.RGB_565:
             case ImageFormat.YUY2:
             case ImageFormat.Y16:
+            case ImageFormat.RAW_DEPTH:
             case ImageFormat.RAW_SENSOR:
             case ImageFormat.RAW_PRIVATE: // round estimate, real size is unknown
             case ImageFormat.DEPTH16:
@@ -253,6 +263,8 @@ class ImageUtils {
             case ImageFormat.RAW_SENSOR:
             case ImageFormat.RAW10:
             case ImageFormat.RAW12:
+            case ImageFormat.RAW_DEPTH:
+            case ImageFormat.HEIC:
                 return new Size(image.getWidth(), image.getHeight());
             case ImageFormat.PRIVATE:
                 return new Size(0, 0);

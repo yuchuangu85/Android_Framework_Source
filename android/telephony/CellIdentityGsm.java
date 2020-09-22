@@ -16,24 +16,31 @@
 
 package android.telephony;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
-import android.os.Parcelable;
-import android.telephony.Rlog;
+import android.telephony.gsm.GsmCellLocation;
+import android.text.TextUtils;
+import android.util.ArraySet;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * CellIdentity to represent a unique GSM cell
  */
-public final class CellIdentityGsm implements Parcelable {
-
-    private static final String LOG_TAG = "CellIdentityGsm";
+public final class CellIdentityGsm extends CellIdentity {
+    private static final String TAG = CellIdentityGsm.class.getSimpleName();
     private static final boolean DBG = false;
 
-    // 3-digit Mobile Country Code, 0..999
-    private final int mMcc;
-    // 2 or 3-digit Mobile Network Code, 0..999
-    private final int mMnc;
+    private static final int MAX_LAC = 65535;
+    private static final int MAX_CID = 65535;
+    private static final int MAX_ARFCN = 65535;
+    private static final int MAX_BSIC = 63;
+
     // 16-bit Location Area Code, 0..65535
     private final int mLac;
     // 16-bit GSM Cell Identity described in TS 27.007, 0..65535
@@ -43,119 +50,220 @@ public final class CellIdentityGsm implements Parcelable {
     // 6-bit Base Station Identity Code
     private final int mBsic;
 
+    // a list of additional PLMN-IDs reported for this cell
+    private final ArraySet<String> mAdditionalPlmns;
+
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public CellIdentityGsm() {
-        mMcc = Integer.MAX_VALUE;
-        mMnc = Integer.MAX_VALUE;
-        mLac = Integer.MAX_VALUE;
-        mCid = Integer.MAX_VALUE;
-        mArfcn = Integer.MAX_VALUE;
-        mBsic = Integer.MAX_VALUE;
-    }
-    /**
-     * public constructor
-     * @param mcc 3-digit Mobile Country Code, 0..999
-     * @param mnc 2 or 3-digit Mobile Network Code, 0..999
-     * @param lac 16-bit Location Area Code, 0..65535
-     * @param cid 16-bit GSM Cell Identity or 28-bit UMTS Cell Identity
-     *
-     * @hide
-     */
-    public CellIdentityGsm (int mcc, int mnc, int lac, int cid) {
-        this(mcc, mnc, lac, cid, Integer.MAX_VALUE, Integer.MAX_VALUE);
+        super(TAG, CellInfo.TYPE_GSM, null, null, null, null);
+        mLac = CellInfo.UNAVAILABLE;
+        mCid = CellInfo.UNAVAILABLE;
+        mArfcn = CellInfo.UNAVAILABLE;
+        mBsic = CellInfo.UNAVAILABLE;
+        mAdditionalPlmns = new ArraySet<>();
+        mGlobalCellId = null;
     }
 
     /**
      * public constructor
-     * @param mcc 3-digit Mobile Country Code, 0..999
-     * @param mnc 2 or 3-digit Mobile Network Code, 0..999
      * @param lac 16-bit Location Area Code, 0..65535
      * @param cid 16-bit GSM Cell Identity or 28-bit UMTS Cell Identity
      * @param arfcn 16-bit GSM Absolute RF Channel Number
      * @param bsic 6-bit Base Station Identity Code
+     * @param mccStr 3-digit Mobile Country Code in string format
+     * @param mncStr 2 or 3-digit Mobile Network Code in string format
+     * @param alphal long alpha Operator Name String or Enhanced Operator Name String
+     * @param alphas short alpha Operator Name String or Enhanced Operator Name String
+     * @param additionalPlmns a list of additional PLMN IDs broadcast by the cell
      *
      * @hide
      */
-    public CellIdentityGsm (int mcc, int mnc, int lac, int cid, int arfcn, int bsic) {
-        mMcc = mcc;
-        mMnc = mnc;
-        mLac = lac;
-        mCid = cid;
-        mArfcn = arfcn;
-        mBsic = bsic;
+    public CellIdentityGsm(int lac, int cid, int arfcn, int bsic, @Nullable String mccStr,
+            @Nullable String mncStr, @Nullable String alphal, @Nullable String alphas,
+            @NonNull Collection<String> additionalPlmns) {
+        super(TAG, CellInfo.TYPE_GSM, mccStr, mncStr, alphal, alphas);
+        mLac = inRangeOrUnavailable(lac, 0, MAX_LAC);
+        mCid = inRangeOrUnavailable(cid, 0, MAX_CID);
+        mArfcn = inRangeOrUnavailable(arfcn, 0, MAX_ARFCN);
+        mBsic = inRangeOrUnavailable(bsic, 0, MAX_BSIC);
+        mAdditionalPlmns = new ArraySet<>(additionalPlmns.size());
+        for (String plmn : additionalPlmns) {
+            if (isValidPlmn(plmn)) {
+                mAdditionalPlmns.add(plmn);
+            }
+        }
+        updateGlobalCellId();
     }
 
-    private CellIdentityGsm(CellIdentityGsm cid) {
-        mMcc = cid.mMcc;
-        mMnc = cid.mMnc;
-        mLac = cid.mLac;
-        mCid = cid.mCid;
-        mArfcn = cid.mArfcn;
-        mBsic = cid.mBsic;
+    /** @hide */
+    public CellIdentityGsm(@NonNull android.hardware.radio.V1_0.CellIdentityGsm cid) {
+        this(cid.lac, cid.cid, cid.arfcn,
+                cid.bsic == (byte) 0xFF ? CellInfo.UNAVAILABLE : cid.bsic,
+                cid.mcc, cid.mnc, "", "", new ArraySet<>());
     }
 
-    CellIdentityGsm copy() {
-       return new CellIdentityGsm(this);
+    /** @hide */
+    public CellIdentityGsm(@NonNull android.hardware.radio.V1_2.CellIdentityGsm cid) {
+        this(cid.base.lac, cid.base.cid, cid.base.arfcn,
+                cid.base.bsic == (byte) 0xFF ? CellInfo.UNAVAILABLE : cid.base.bsic, cid.base.mcc,
+                cid.base.mnc, cid.operatorNames.alphaLong, cid.operatorNames.alphaShort,
+                new ArraySet<>());
+    }
+
+    /** @hide */
+    public CellIdentityGsm(@NonNull android.hardware.radio.V1_5.CellIdentityGsm cid) {
+        this(cid.base.base.lac, cid.base.base.cid, cid.base.base.arfcn,
+                cid.base.base.bsic == (byte) 0xFF ? CellInfo.UNAVAILABLE
+                        : cid.base.base.bsic, cid.base.base.mcc,
+                cid.base.base.mnc, cid.base.operatorNames.alphaLong,
+                cid.base.operatorNames.alphaShort, cid.additionalPlmns);
+    }
+
+    private CellIdentityGsm(@NonNull CellIdentityGsm cid) {
+        this(cid.mLac, cid.mCid, cid.mArfcn, cid.mBsic, cid.mMccStr,
+                cid.mMncStr, cid.mAlphaLong, cid.mAlphaShort, cid.mAdditionalPlmns);
+    }
+
+    @NonNull CellIdentityGsm copy() {
+        return new CellIdentityGsm(this);
+    }
+
+    /** @hide */
+    @Override
+    public @NonNull CellIdentityGsm sanitizeLocationInfo() {
+        return new CellIdentityGsm(CellInfo.UNAVAILABLE, CellInfo.UNAVAILABLE, CellInfo.UNAVAILABLE,
+                CellInfo.UNAVAILABLE, mMccStr, mMncStr, mAlphaLong, mAlphaShort, mAdditionalPlmns);
+    }
+
+    /** @hide */
+    @Override
+    protected void updateGlobalCellId() {
+        mGlobalCellId = null;
+        String plmn = getPlmn();
+        if (plmn == null) return;
+
+        if (mLac == CellInfo.UNAVAILABLE || mCid == CellInfo.UNAVAILABLE) return;
+
+        mGlobalCellId = plmn + String.format("%04x%04x", mLac, mCid);
     }
 
     /**
-     * @return 3-digit Mobile Country Code, 0..999, Integer.MAX_VALUE if unknown
+     * @return 3-digit Mobile Country Code, 0..999,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
+     * @deprecated Use {@link #getMccString} instead.
      */
+    @Deprecated
     public int getMcc() {
-        return mMcc;
+        return (mMccStr != null) ? Integer.valueOf(mMccStr) : CellInfo.UNAVAILABLE;
     }
 
     /**
-     * @return 2 or 3-digit Mobile Network Code, 0..999, Integer.MAX_VALUE if unknown
+     * @return 2 or 3-digit Mobile Network Code, 0..999,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
+     * @deprecated Use {@link #getMncString} instead.
      */
+    @Deprecated
     public int getMnc() {
-        return mMnc;
+        return (mMncStr != null) ? Integer.valueOf(mMncStr) : CellInfo.UNAVAILABLE;
     }
 
     /**
-     * @return 16-bit Location Area Code, 0..65535, Integer.MAX_VALUE if unknown
+     * @return 16-bit Location Area Code, 0..65535,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getLac() {
         return mLac;
     }
 
     /**
-     * @return CID
-     * Either 16-bit GSM Cell Identity described
-     * in TS 27.007, 0..65535, Integer.MAX_VALUE if unknown
+     * @return 16-bit GSM Cell Identity described in TS 27.007, 0..65535,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getCid() {
         return mCid;
     }
 
     /**
-     * @return 16-bit GSM Absolute RF Channel Number, Integer.MAX_VALUE if unknown
+     * @return 16-bit GSM Absolute RF Channel Number,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getArfcn() {
         return mArfcn;
     }
 
     /**
-     * @return 6-bit Base Station Identity Code, Integer.MAX_VALUE if unknown
+     * @return 6-bit Base Station Identity Code,
+     *         {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} if unavailable.
      */
     public int getBsic() {
         return mBsic;
     }
 
+    /**
+     * @return a 5 or 6 character string (MCC+MNC), null if any field is unknown.
+     */
+    @Nullable
+    public String getMobileNetworkOperator() {
+        return (mMccStr == null || mMncStr == null) ? null : mMccStr + mMncStr;
+    }
 
     /**
-     * @return Integer.MAX_VALUE, undefined for GSM
+     * @return Mobile Country Code in string format, null if unavailable.
+     */
+    @Nullable
+    public String getMccString() {
+        return mMccStr;
+    }
+
+    /**
+     * @return Mobile Network Code in string format, null if unavailable.
+     */
+    @Nullable
+    public String getMncString() {
+        return mMncStr;
+    }
+
+    /** @hide */
+    @Override
+    public int getChannelNumber() {
+        return mArfcn;
+    }
+
+    /**
+     * @return a list of additional PLMN IDs supported by this cell.
+     */
+    @NonNull
+    public Set<String> getAdditionalPlmns() {
+        return Collections.unmodifiableSet(mAdditionalPlmns);
+    }
+
+    /**
+     * @deprecated Primary Scrambling Code is not applicable to GSM.
+     * @return {@link android.telephony.CellInfo#UNAVAILABLE UNAVAILABLE} - undefined for GSM
      */
     @Deprecated
     public int getPsc() {
-        return Integer.MAX_VALUE;
+        return CellInfo.UNAVAILABLE;
+    }
+
+    /** @hide */
+    @NonNull
+    @Override
+    public GsmCellLocation asCellLocation() {
+        GsmCellLocation cl = new GsmCellLocation();
+        int lac = mLac != CellInfo.UNAVAILABLE ? mLac : -1;
+        int cid = mCid != CellInfo.UNAVAILABLE ? mCid : -1;
+        cl.setLacAndCid(lac, cid);
+        cl.setPsc(-1);
+        return cl;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mMcc, mMnc, mLac, mCid);
+        return Objects.hash(mLac, mCid, mAdditionalPlmns.hashCode(), super.hashCode());
     }
 
     @Override
@@ -169,81 +277,74 @@ public final class CellIdentityGsm implements Parcelable {
         }
 
         CellIdentityGsm o = (CellIdentityGsm) other;
-        return mMcc == o.mMcc &&
-                mMnc == o.mMnc &&
-                mLac == o.mLac &&
-                mCid == o.mCid &&
-                mArfcn == o.mArfcn &&
-                mBsic == o.mBsic;
+        return mLac == o.mLac
+                && mCid == o.mCid
+                && mArfcn == o.mArfcn
+                && mBsic == o.mBsic
+                && TextUtils.equals(mMccStr, o.mMccStr)
+                && TextUtils.equals(mMncStr, o.mMncStr)
+                && mAdditionalPlmns.equals(o.mAdditionalPlmns)
+                && super.equals(other);
     }
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("CellIdentityGsm:{");
-        sb.append(" mMcc=").append(mMcc);
-        sb.append(" mMnc=").append(mMnc);
-        sb.append(" mLac=").append(mLac);
-        sb.append(" mCid=").append(mCid);
-        sb.append(" mArfcn=").append(mArfcn);
-        sb.append(" mBsic=").append("0x").append(Integer.toHexString(mBsic));
-        sb.append("}");
-
-        return sb.toString();
-    }
-
-    /** Implement the Parcelable interface */
-    @Override
-    public int describeContents() {
-        return 0;
+        return new StringBuilder(TAG)
+        .append(":{ mLac=").append(mLac)
+        .append(" mCid=").append(mCid)
+        .append(" mArfcn=").append(mArfcn)
+        .append(" mBsic=").append("0x").append(Integer.toHexString(mBsic))
+        .append(" mMcc=").append(mMccStr)
+        .append(" mMnc=").append(mMncStr)
+        .append(" mAlphaLong=").append(mAlphaLong)
+        .append(" mAlphaShort=").append(mAlphaShort)
+        .append(" mAdditionalPlmns=").append(mAdditionalPlmns)
+        .append("}").toString();
     }
 
     /** Implement the Parcelable interface */
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         if (DBG) log("writeToParcel(Parcel, int): " + toString());
-        dest.writeInt(mMcc);
-        dest.writeInt(mMnc);
+        super.writeToParcel(dest, CellInfo.TYPE_GSM);
         dest.writeInt(mLac);
         dest.writeInt(mCid);
         dest.writeInt(mArfcn);
         dest.writeInt(mBsic);
+        dest.writeArraySet(mAdditionalPlmns);
     }
 
     /** Construct from Parcel, type has already been processed */
     private CellIdentityGsm(Parcel in) {
-        mMcc = in.readInt();
-        mMnc = in.readInt();
+        super(TAG, CellInfo.TYPE_GSM, in);
         mLac = in.readInt();
         mCid = in.readInt();
         mArfcn = in.readInt();
-        int bsic = in.readInt();
-        // In RIL BSIC is a UINT8, so 0xFF is the 'INVALID' designator
-        // for inbound parcels
-        if (bsic == 0xFF) bsic = Integer.MAX_VALUE;
-        mBsic = bsic;
+        mBsic = in.readInt();
+        mAdditionalPlmns = (ArraySet<String>) in.readArraySet(null);
 
-        if (DBG) log("CellIdentityGsm(Parcel): " + toString());
+        updateGlobalCellId();
+        if (DBG) log(toString());
     }
 
     /** Implement the Parcelable interface */
     @SuppressWarnings("hiding")
-    public static final Creator<CellIdentityGsm> CREATOR =
+    public static final @android.annotation.NonNull Creator<CellIdentityGsm> CREATOR =
             new Creator<CellIdentityGsm>() {
-        @Override
-        public CellIdentityGsm createFromParcel(Parcel in) {
-            return new CellIdentityGsm(in);
-        }
+                @Override
+                public CellIdentityGsm createFromParcel(Parcel in) {
+                    in.readInt();   // skip
+                    return createFromParcelBody(in);
+                }
 
-        @Override
-        public CellIdentityGsm[] newArray(int size) {
-            return new CellIdentityGsm[size];
-        }
-    };
+                @Override
+                public CellIdentityGsm[] newArray(int size) {
+                    return new CellIdentityGsm[size];
+                }
+            };
 
-    /**
-     * log
-     */
-    private static void log(String s) {
-        Rlog.w(LOG_TAG, s);
+    /** @hide */
+    protected static CellIdentityGsm createFromParcelBody(Parcel in) {
+        return new CellIdentityGsm(in);
     }
 }

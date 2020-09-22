@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1994, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,8 @@
 
 package java.lang;
 
+import dalvik.annotation.optimization.FastNative;
+
 /**
  * Class {@code Object} is the root of the class hierarchy.
  * Every class has {@code Object} as a superclass. All objects,
@@ -37,6 +39,13 @@ package java.lang;
  */
 public class Object {
 
+    // Android-removed: registerNatives() not used on Android
+    // private static native void registerNatives();
+    // static {
+    //     registerNatives();
+    // }
+
+    // Android-added: Use Android specific fields for Class and monitor.
     private transient Class<?> shadow$_klass_;
     private transient int shadow$_monitor_;
 
@@ -57,9 +66,10 @@ public class Object {
      *
      * @return The {@code Class} object that represents the runtime
      *         class of this object.
-     * @see    Class Literals, section 15.8.2 of
-     *         <cite>The Java&trade; Language Specification</cite>.
+     * @jls 15.8.2 Class Literals
      */
+    // Android-changed: Use Android specific fields for Class and monitor.
+    // public final native Class<?> getClass();
     public final Class<?> getClass() {
       return shadow$_klass_;
     }
@@ -93,22 +103,39 @@ public class Object {
      * objects. (This is typically implemented by converting the internal
      * address of the object into an integer, but this implementation
      * technique is not required by the
-     * Java<font size="-2"><sup>TM</sup></font> programming language.)
+     * Java&trade; programming language.)
      *
      * @return  a hash code value for this object.
      * @see     java.lang.Object#equals(java.lang.Object)
      * @see     java.lang.System#identityHashCode
      */
+    // BEGIN Android-changed: Added a local helper for identityHashCode.
+    // public native int hashCode();
     public int hashCode() {
-        int lockWord = shadow$_monitor_;
+        return identityHashCode(this);
+    }
+
+    // Package-private to be used by j.l.System. We do the implementation here
+    // to avoid Object.hashCode doing a clinit check on j.l.System, and also
+    // to avoid leaking shadow$_monitor_ outside of this class.
+    /* package-private */ static int identityHashCode(Object obj) {
+        int lockWord = obj.shadow$_monitor_;
         final int lockWordStateMask = 0xC0000000;  // Top 2 bits.
         final int lockWordStateHash = 0x80000000;  // Top 2 bits are value 2 (kStateHash).
         final int lockWordHashMask = 0x0FFFFFFF;  // Low 28 bits.
         if ((lockWord & lockWordStateMask) == lockWordStateHash) {
             return lockWord & lockWordHashMask;
         }
-        return System.identityHashCode(this);
+        return identityHashCodeNative(obj);
     }
+
+    /**
+     * Return the identity hash code when the information in the monitor field
+     * is not sufficient.
+     */
+    @FastNative
+    private static native int identityHashCodeNative(Object obj);
+    // END Android-changed: Added a local helper for identityHashCode.
 
     /**
      * Indicates whether some other object is "equal to" this one.
@@ -213,13 +240,16 @@ public class Object {
      * exception at run time.
      *
      * @return     a clone of this instance.
-     * @exception  CloneNotSupportedException  if the object's class does not
+     * @throws  CloneNotSupportedException  if the object's class does not
      *               support the {@code Cloneable} interface. Subclasses
      *               that override the {@code clone} method can also
      *               throw this exception to indicate that an instance cannot
      *               be cloned.
      * @see java.lang.Cloneable
      */
+    // BEGIN Android-changed: Use native local helper for clone()
+    // Checks whether cloning is allowed before calling native local helper.
+    // protected native Object clone() throws CloneNotSupportedException;
     protected Object clone() throws CloneNotSupportedException {
         if (!(this instanceof Cloneable)) {
             throw new CloneNotSupportedException("Class " + getClass().getName() +
@@ -232,8 +262,9 @@ public class Object {
     /*
      * Native helper method for cloning.
      */
+    @FastNative
     private native Object internalClone();
-
+    // END Android-changed: Use native local helper for clone()
 
     /**
      * Returns a string representation of the object. In general, the
@@ -287,11 +318,12 @@ public class Object {
      * <p>
      * Only one thread at a time can own an object's monitor.
      *
-     * @exception  IllegalMonitorStateException  if the current thread is not
+     * @throws  IllegalMonitorStateException  if the current thread is not
      *               the owner of this object's monitor.
      * @see        java.lang.Object#notifyAll()
      * @see        java.lang.Object#wait()
      */
+    @FastNative
     public final native void notify();
 
     /**
@@ -311,11 +343,12 @@ public class Object {
      * description of the ways in which a thread can become the owner of
      * a monitor.
      *
-     * @exception  IllegalMonitorStateException  if the current thread is not
+     * @throws  IllegalMonitorStateException  if the current thread is not
      *               the owner of this object's monitor.
      * @see        java.lang.Object#notify()
      * @see        java.lang.Object#wait()
      */
+    @FastNative
     public final native void notifyAll();
 
     /**
@@ -390,12 +423,12 @@ public class Object {
      * description of the ways in which a thread can become the owner of
      * a monitor.
      *
-     * @param      millis   the maximum time to wait in milliseconds.
-     * @exception  IllegalArgumentException      if the value of timeout is
+     * @param      timeout   the maximum time to wait in milliseconds.
+     * @throws  IllegalArgumentException      if the value of timeout is
      *               negative.
-     * @exception  IllegalMonitorStateException  if the current thread is not
+     * @throws  IllegalMonitorStateException  if the current thread is not
      *               the owner of the object's monitor.
-     * @exception  InterruptedException if any thread interrupted the
+     * @throws  InterruptedException if any thread interrupted the
      *             current thread before or while the current thread
      *             was waiting for a notification.  The <i>interrupted
      *             status</i> of the current thread is cleared when
@@ -403,8 +436,10 @@ public class Object {
      * @see        java.lang.Object#notify()
      * @see        java.lang.Object#notifyAll()
      */
-    public final void wait(long millis) throws InterruptedException {
-        wait(millis, 0);
+    // Android-changed: Implement wait(long) non-natively.
+    // public final native void wait(long timeout) throws InterruptedException;
+    public final void wait(long timeout) throws InterruptedException {
+        wait(timeout, 0);
     }
 
     /**
@@ -455,21 +490,41 @@ public class Object {
      * description of the ways in which a thread can become the owner of
      * a monitor.
      *
-     * @param      millis   the maximum time to wait in milliseconds.
+     * @param      timeout   the maximum time to wait in milliseconds.
      * @param      nanos      additional time, in nanoseconds range
      *                       0-999999.
-     * @exception  IllegalArgumentException      if the value of timeout is
+     * @throws  IllegalArgumentException      if the value of timeout is
      *                      negative or the value of nanos is
      *                      not in the range 0-999999.
-     * @exception  IllegalMonitorStateException  if the current thread is not
+     * @throws  IllegalMonitorStateException  if the current thread is not
      *               the owner of this object's monitor.
-     * @exception  InterruptedException if any thread interrupted the
+     * @throws  InterruptedException if any thread interrupted the
      *             current thread before or while the current thread
      *             was waiting for a notification.  The <i>interrupted
      *             status</i> of the current thread is cleared when
      *             this exception is thrown.
      */
-    public final native void wait(long millis, int nanos) throws InterruptedException;
+    // Android-changed: Implement wait(long, int) natively.
+    /*
+    public final void wait(long timeout, int nanos) throws InterruptedException {
+        if (timeout < 0) {
+            throw new IllegalArgumentException("timeout value is negative");
+        }
+
+        if (nanos < 0 || nanos > 999999) {
+            throw new IllegalArgumentException(
+                                "nanosecond timeout value out of range");
+        }
+
+        if (nanos > 0) {
+            timeout++;
+        }
+
+        wait(timeout);
+    }
+    */
+    @FastNative
+    public final native void wait(long timeout, int nanos) throws InterruptedException;
 
     /**
      * Causes the current thread to wait until another thread invokes the
@@ -499,9 +554,9 @@ public class Object {
      * description of the ways in which a thread can become the owner of
      * a monitor.
      *
-     * @exception  IllegalMonitorStateException  if the current thread is not
+     * @throws  IllegalMonitorStateException  if the current thread is not
      *               the owner of the object's monitor.
-     * @exception  InterruptedException if any thread interrupted the
+     * @throws  InterruptedException if any thread interrupted the
      *             current thread before or while the current thread
      *             was waiting for a notification.  The <i>interrupted
      *             status</i> of the current thread is cleared when
@@ -509,7 +564,9 @@ public class Object {
      * @see        java.lang.Object#notify()
      * @see        java.lang.Object#notifyAll()
      */
-    public final native void wait() throws InterruptedException;
+    public final void wait() throws InterruptedException {
+        wait(0);
+    }
 
     /**
      * Called by the garbage collector on an object when garbage collection
@@ -518,7 +575,7 @@ public class Object {
      * system resources or to perform other cleanup.
      * <p>
      * The general contract of {@code finalize} is that it is invoked
-     * if and when the Java<font size="-2"><sup>TM</sup></font> virtual
+     * if and when the Java&trade; virtual
      * machine has determined that there is no longer any
      * means by which this object can be accessed by any thread that has
      * not yet died, except as a result of an action taken by the
@@ -557,6 +614,9 @@ public class Object {
      * ignored.
      *
      * @throws Throwable the {@code Exception} raised by this method
+     * @see java.lang.ref.WeakReference
+     * @see java.lang.ref.PhantomReference
+     * @jls 12.6 Finalization of Class Instances
      */
     protected void finalize() throws Throwable { }
 }

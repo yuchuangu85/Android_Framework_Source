@@ -16,8 +16,7 @@
 
 package android.widget;
 
-import com.android.internal.R;
-
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.AsyncQueryHandler;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -38,6 +37,8 @@ import android.util.AttributeSet;
 import android.view.View;
 import android.view.View.OnClickListener;
 
+import com.android.internal.R;
+
 /**
  * Widget used to show an image with the standard QuickContact badge
  * and on-click behavior.
@@ -46,6 +47,7 @@ public class QuickContactBadge extends ImageView implements OnClickListener {
     private Uri mContactUri;
     private String mContactEmail;
     private String mContactPhone;
+    @UnsupportedAppUsage
     private Drawable mOverlay;
     private QueryHandler mQueryHandler;
     private Drawable mDefaultAvatar;

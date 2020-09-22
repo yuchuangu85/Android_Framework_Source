@@ -16,13 +16,13 @@
 
 package android.telephony;
 
-import com.android.i18n.phonenumbers.AsYouTypeFormatter;
-import com.android.i18n.phonenumbers.PhoneNumberUtil;
-
-import android.telephony.PhoneNumberUtils;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.text.Editable;
 import android.text.Selection;
 import android.text.TextWatcher;
+
+import com.android.i18n.phonenumbers.AsYouTypeFormatter;
+import com.android.i18n.phonenumbers.PhoneNumberUtil;
 
 import java.util.Locale;
 
@@ -50,6 +50,7 @@ public class PhoneNumberFormattingTextWatcher implements TextWatcher {
      */
     private boolean mStopFormatting;
 
+    @UnsupportedAppUsage
     private AsYouTypeFormatter mFormatter;
 
     /**

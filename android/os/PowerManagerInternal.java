@@ -18,6 +18,8 @@ package android.os;
 
 import android.view.Display;
 
+import java.util.function.Consumer;
+
 /**
  * Power manager local system service interface.
  *
@@ -53,24 +55,6 @@ public abstract class PowerManagerInternal {
      */
     public static final int WAKEFULNESS_DOZING = 3;
 
-
-    /**
-     * Power hint:
-     * Interaction: The user is interacting with the device. The corresponding data field must be
-     * the expected duration of the interaction, or 0 if unknown.
-     *
-     * Sustained Performance Mode: The corresponding data field must be Enable/Disable
-     * Sustained Performance Mode.
-     *
-     * Launch: This is specific for activity launching. The corresponding data field must be
-     * the expected duration of the required boost, or 0 if unknown.
-     *
-     * These must be kept in sync with the values in hardware/libhardware/include/hardware/power.h
-     */
-    public static final int POWER_HINT_INTERACTION = 2;
-    public static final int POWER_HINT_SUSTAINED_PERFORMANCE_MODE = 6;
-    public static final int POWER_HINT_LAUNCH = 8;
-
     public static String wakefulnessToString(int wakefulness) {
         switch (wakefulness) {
             case WAKEFULNESS_ASLEEP:
@@ -83,6 +67,24 @@ public abstract class PowerManagerInternal {
                 return "Dozing";
             default:
                 return Integer.toString(wakefulness);
+        }
+    }
+
+    /**
+     * Converts platform constants to proto enums.
+     */
+    public static int wakefulnessToProtoEnum(int wakefulness) {
+        switch (wakefulness) {
+            case WAKEFULNESS_ASLEEP:
+                return PowerManagerInternalProto.WAKEFULNESS_ASLEEP;
+            case WAKEFULNESS_AWAKE:
+                return PowerManagerInternalProto.WAKEFULNESS_AWAKE;
+            case WAKEFULNESS_DREAMING:
+                return PowerManagerInternalProto.WAKEFULNESS_DREAMING;
+            case WAKEFULNESS_DOZING:
+                return PowerManagerInternalProto.WAKEFULNESS_DOZING;
+            default:
+                return wakefulness;
         }
     }
 
@@ -100,19 +102,9 @@ public abstract class PowerManagerInternal {
      *
      * This method must only be called by the window manager.
      *
-     * @param brightness The overridden brightness, or -1 to disable the override.
+     * @param brightness The overridden brightness, or Float.NaN to disable the override.
      */
-    public abstract void setScreenBrightnessOverrideFromWindowManager(int brightness);
-
-    /**
-     * Used by the window manager to override the button brightness based on the
-     * current foreground activity.
-     *
-     * This method must only be called by the window manager.
-     *
-     * @param brightness The overridden brightness, or -1 to disable the override.
-     */
-    public abstract void setButtonBrightnessOverrideFromWindowManager(int brightness);
+    public abstract void setScreenBrightnessOverrideFromWindowManager(float brightness);
 
     /**
      * Used by the window manager to override the user activity timeout based on the
@@ -136,7 +128,7 @@ public abstract class PowerManagerInternal {
      *
      * This method must only be called by the device administration policy manager.
      */
-    public abstract void setMaximumScreenOffTimeoutFromDeviceAdmin(int timeMs);
+    public abstract void setMaximumScreenOffTimeoutFromDeviceAdmin(int userId, long timeMs);
 
     /**
      * Used by the dream manager to override certain properties while dozing.
@@ -149,12 +141,38 @@ public abstract class PowerManagerInternal {
     public abstract void setDozeOverrideFromDreamManager(
             int screenState, int screenBrightness);
 
-    public abstract boolean getLowPowerModeEnabled();
+    /**
+     * Used by sidekick manager to tell the power manager if it shouldn't change the display state
+     * when a draw wake lock is acquired. Some processes may grab such a wake lock to do some work
+     * in a powered-up state, but we shouldn't give up sidekick control over the display until this
+     * override is lifted.
+     */
+    public abstract void setDrawWakeLockOverrideFromSidekick(boolean keepState);
+
+    public abstract PowerSaveState getLowPowerState(int serviceType);
 
     public abstract void registerLowPowerModeObserver(LowPowerModeListener listener);
 
+    /**
+     * Same as {@link #registerLowPowerModeObserver} but can take a lambda.
+     */
+    public void registerLowPowerModeObserver(int serviceType, Consumer<PowerSaveState> listener) {
+        registerLowPowerModeObserver(new LowPowerModeListener() {
+            @Override
+            public int getServiceType() {
+                return serviceType;
+            }
+
+            @Override
+            public void onLowPowerModeChanged(PowerSaveState state) {
+                listener.accept(state);
+            }
+        });
+    }
+
     public interface LowPowerModeListener {
-        public void onLowPowerModeChanged(boolean enabled);
+        int getServiceType();
+        void onLowPowerModeChanged(PowerSaveState state);
     }
 
     public abstract boolean setDeviceIdleMode(boolean enabled);
@@ -165,9 +183,140 @@ public abstract class PowerManagerInternal {
 
     public abstract void setDeviceIdleTempWhitelist(int[] appids);
 
+    public abstract void startUidChanges();
+
+    public abstract void finishUidChanges();
+
     public abstract void updateUidProcState(int uid, int procState);
 
     public abstract void uidGone(int uid);
 
+    public abstract void uidActive(int uid);
+
+    public abstract void uidIdle(int uid);
+
+    /**
+     * The hintId sent through this method should be in-line with the
+     * PowerHint defined in android/hardware/power/<version 1.0 & up>/IPower.h
+     */
     public abstract void powerHint(int hintId, int data);
+
+    /**
+     * Boost: It is sent when user interacting with the device, for example,
+     * touchscreen events are incoming.
+     * Defined in hardware/interfaces/power/aidl/android/hardware/power/Boost.aidl
+     */
+    public static final int BOOST_INTERACTION = 0;
+
+    /**
+     * Boost: It indicates that the framework is likely to provide a new display
+     * frame soon. This implies that the device should ensure that the display
+     * processing path is powered up and ready to receive that update.
+     * Defined in hardware/interfaces/power/aidl/android/hardware/power/Boost.aidl
+     */
+    public static final int BOOST_DISPLAY_UPDATE_IMMINENT = 1;
+
+    /**
+     * SetPowerBoost() indicates the device may need to boost some resources, as
+     * the load is likely to increase before the kernel governors can react.
+     * Depending on the boost, it may be appropriate to raise the frequencies of
+     * CPU, GPU, memory subsystem, or stop CPU from going into deep sleep state.
+     *
+     * @param boost Boost which is to be set with a timeout.
+     * @param durationMs The expected duration of the user's interaction, if
+     *        known, or 0 if the expected duration is unknown.
+     *        a negative value indicates canceling previous boost.
+     *        A given platform can choose to boost some time based on durationMs,
+     *        and may also pick an appropriate timeout for 0 case.
+     */
+    public abstract void setPowerBoost(int boost, int durationMs);
+
+    /**
+     * Mode: It indicates that the device is to allow wake up when the screen
+     * is tapped twice.
+     * Defined in hardware/interfaces/power/aidl/android/hardware/power/Mode.aidl
+     */
+    public static final int MODE_DOUBLE_TAP_TO_WAKE = 0;
+
+    /**
+     * Mode: It indicates Low power mode is activated or not. Low power mode
+     * is intended to save battery at the cost of performance.
+     * Defined in hardware/interfaces/power/aidl/android/hardware/power/Mode.aidl
+     */
+    public static final int MODE_LOW_POWER = 1;
+
+    /**
+     * Mode: It indicates Sustained Performance mode is activated or not.
+     * Sustained performance mode is intended to provide a consistent level of
+     * performance for a prolonged amount of time.
+     * Defined in hardware/interfaces/power/aidl/android/hardware/power/Mode.aidl
+     */
+    public static final int MODE_SUSTAINED_PERFORMANCE = 2;
+
+    /**
+     * Mode: It sets the device to a fixed performance level which can be sustained
+     * under normal indoor conditions for at least 10 minutes.
+     * Fixed performance mode puts both upper and lower bounds on performance such
+     * that any workload run while in a fixed performance mode should complete in
+     * a repeatable amount of time.
+     * Defined in hardware/interfaces/power/aidl/android/hardware/power/Mode.aidl
+     */
+    public static final int MODE_FIXED_PERFORMANCE = 3;
+
+    /**
+     * Mode: It indicates VR Mode is activated or not. VR mode is intended to
+     * provide minimum guarantee for performance for the amount of time the device
+     * can sustain it.
+     * Defined in hardware/interfaces/power/aidl/android/hardware/power/Mode.aidl
+     */
+    public static final int MODE_VR = 4;
+
+    /**
+     * Mode: It indicates that an application has been launched.
+     * Defined in hardware/interfaces/power/aidl/android/hardware/power/Mode.aidl
+     */
+    public static final int MODE_LAUNCH = 5;
+
+    /**
+     * Mode: It indicates that the device is about to enter a period of expensive
+     * rendering.
+     * Defined in hardware/interfaces/power/aidl/android/hardware/power/Mode.aidl
+     */
+    public static final int MODE_EXPENSIVE_RENDERING = 6;
+
+    /**
+     * Mode: It indicates that the device is about entering/leaving interactive
+     * state or on-interactive state.
+     * Defined in hardware/interfaces/power/aidl/android/hardware/power/Mode.aidl
+     */
+    public static final int MODE_INTERACTIVE = 7;
+
+    /**
+     * Mode: It indicates the device is in device idle, externally known as doze.
+     * Defined in hardware/interfaces/power/aidl/android/hardware/power/Mode.aidl
+     */
+    public static final int MODE_DEVICE_IDLE = 8;
+
+    /**
+     * Mode: It indicates that display is either off or still on but is optimized
+     * for low power.
+     * Defined in hardware/interfaces/power/aidl/android/hardware/power/Mode.aidl
+     */
+    public static final int MODE_DISPLAY_INACTIVE = 9;
+
+    /**
+     * SetPowerMode() is called to enable/disable specific hint mode, which
+     * may result in adjustment of power/performance parameters of the
+     * cpufreq governor and other controls on device side.
+     *
+     * @param mode Mode which is to be enable/disable.
+     * @param enabled true to enable, false to disable the mode.
+     */
+    public abstract void setPowerMode(int mode, boolean enabled);
+
+    /** Returns whether there hasn't been a user activity event for the given number of ms. */
+    public abstract boolean wasDeviceIdleFor(long ms);
+
+    /** Returns information about the last wakeup event. */
+    public abstract PowerManager.WakeData getLastWakeup();
 }

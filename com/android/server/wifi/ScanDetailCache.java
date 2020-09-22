@@ -16,21 +16,17 @@
 
 package com.android.server.wifi;
 
+import android.annotation.NonNull;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
-import android.os.SystemClock;
-import android.util.Log;
 
-import com.android.server.wifi.hotspot2.PasspointMatch;
-import com.android.server.wifi.hotspot2.PasspointMatchInfo;
-import com.android.server.wifi.hotspot2.pps.HomeSP;
+import com.android.server.wifi.hotspot2.NetworkDetail;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Iterator;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.HashMap;
 
 /**
  * Maps BSSIDs to their individual ScanDetails for a given WifiConfiguration.
@@ -40,40 +36,60 @@ public class ScanDetailCache {
     private static final String TAG = "ScanDetailCache";
     private static final boolean DBG = false;
 
-    private WifiConfiguration mConfig;
-    private ConcurrentHashMap<String, ScanDetail> mMap;
-    private ConcurrentHashMap<String, PasspointMatchInfo> mPasspointMatches;
+    private final WifiConfiguration mConfig;
+    private final int mMaxSize;
+    private final int mTrimSize;
+    private final HashMap<String, ScanDetail> mMap;
 
-    ScanDetailCache(WifiConfiguration config) {
+    /**
+     * Scan Detail cache associated with each configured network.
+     *
+     * The cache size is trimmed down to |trimSize| once it crosses the provided |maxSize|.
+     * Since this operation is relatively expensive, ensure that |maxSize| and |trimSize| are not
+     * too close to each other. |trimSize| should always be <= |maxSize|.
+     *
+     * @param config   WifiConfiguration object corresponding to the network.
+     * @param maxSize  Max size desired for the cache.
+     * @param trimSize Size to trim the cache down to once it reaches |maxSize|.
+     */
+    ScanDetailCache(WifiConfiguration config, int maxSize, int trimSize) {
         mConfig = config;
-        mMap = new ConcurrentHashMap(16, 0.75f, 2);
-        mPasspointMatches = new ConcurrentHashMap(16, 0.75f, 2);
+        mMaxSize = maxSize;
+        mTrimSize = trimSize;
+        mMap = new HashMap(16, 0.75f);
     }
 
     void put(ScanDetail scanDetail) {
-        put(scanDetail, null, null);
-    }
-
-    void put(ScanDetail scanDetail, PasspointMatch match, HomeSP homeSp) {
+        // First check if we have reached |maxSize|. if yes, trim it down to |trimSize|.
+        if (mMap.size() >= mMaxSize) {
+            trim();
+        }
 
         mMap.put(scanDetail.getBSSIDString(), scanDetail);
-
-        if (match != null && homeSp != null) {
-            mPasspointMatches.put(scanDetail.getBSSIDString(),
-                    new PasspointMatchInfo(match, scanDetail, homeSp));
-        }
     }
 
-    ScanResult get(String bssid) {
+    /**
+     * Get ScanResult object corresponding to the provided BSSID.
+     *
+     * @param bssid provided BSSID
+     * @return {@code null} if no match ScanResult is found.
+     */
+    public ScanResult getScanResult(String bssid) {
         ScanDetail scanDetail = getScanDetail(bssid);
         return scanDetail == null ? null : scanDetail.getScanResult();
     }
 
-    ScanDetail getScanDetail(String bssid) {
+    /**
+     * Get ScanDetail object corresponding to the provided BSSID.
+     *
+     * @param bssid provided BSSID
+     * @return {@code null} if no match ScanDetail is found.
+     */
+    public ScanDetail getScanDetail(@NonNull String bssid) {
         return mMap.get(bssid);
     }
 
-    void remove(String bssid) {
+    void remove(@NonNull String bssid) {
         mMap.remove(bssid);
     }
 
@@ -94,13 +110,12 @@ public class ScanDetailCache {
     }
 
     /**
-     * Method to reduce the cache to the given size by removing the oldest entries.
-     *
-     * @param num int target cache size
+     * Method to reduce the cache to |mTrimSize| size by removing the oldest entries.
+     * TODO: Investigate if this method can be further optimized.
      */
-    public void trim(int num) {
+    private void trim() {
         int currentSize = mMap.size();
-        if (currentSize <= num) {
+        if (currentSize < mTrimSize) {
             return; // Nothing to trim
         }
         ArrayList<ScanDetail> list = new ArrayList<ScanDetail>(mMap.values());
@@ -120,11 +135,10 @@ public class ScanDetailCache {
                 }
             });
         }
-        for (int i = 0; i < currentSize - num; i++) {
+        for (int i = 0; i < currentSize - mTrimSize; i++) {
             // Remove oldest results from scan cache
             ScanDetail result = list.get(i);
             mMap.remove(result.getBSSIDString());
-            mPasspointMatches.remove(result.getBSSIDString());
         }
     }
 
@@ -136,12 +150,6 @@ public class ScanDetailCache {
                 public int compare(Object o1, Object o2) {
                     ScanResult a = ((ScanDetail) o1).getScanResult();
                     ScanResult b = ((ScanDetail) o2).getScanResult();
-                    if (a.numIpConfigFailures > b.numIpConfigFailures) {
-                        return 1;
-                    }
-                    if (a.numIpConfigFailures < b.numIpConfigFailures) {
-                        return -1;
-                    }
                     if (a.seen > b.seen) {
                         return -1;
                     }
@@ -160,134 +168,6 @@ public class ScanDetailCache {
         }
         return list;
     }
-
-    /**
-     * Method to get cached scan results that are less than 'age' old.
-     *
-     * @param age long Time window of desired results.
-     * @return WifiConfiguration.Visibility matches in the given visibility
-     */
-    public WifiConfiguration.Visibility getVisibilityByRssi(long age) {
-        WifiConfiguration.Visibility status = new WifiConfiguration.Visibility();
-
-        long now_ms = System.currentTimeMillis();
-        long now_elapsed_ms = SystemClock.elapsedRealtime();
-        for (ScanDetail scanDetail : values()) {
-            ScanResult result = scanDetail.getScanResult();
-            if (scanDetail.getSeen() == 0) {
-                continue;
-            }
-
-            if (result.is5GHz()) {
-                //strictly speaking: [4915, 5825]
-                //number of known BSSID on 5GHz band
-                status.num5 = status.num5 + 1;
-            } else if (result.is24GHz()) {
-                //strictly speaking: [2412, 2482]
-                //number of known BSSID on 2.4Ghz band
-                status.num24 = status.num24 + 1;
-            }
-
-            if (result.timestamp != 0) {
-                if (DBG) {
-                    Log.e("getVisibilityByRssi", " considering " + result.SSID + " " + result.BSSID
-                            + " elapsed=" + now_elapsed_ms + " timestamp=" + result.timestamp
-                            + " age = " + age);
-                }
-                if ((now_elapsed_ms - (result.timestamp / 1000)) > age) continue;
-            } else {
-                // This checks the time at which we have received the scan result from supplicant
-                if ((now_ms - result.seen) > age) continue;
-            }
-
-            if (result.is5GHz()) {
-                if (result.level > status.rssi5) {
-                    status.rssi5 = result.level;
-                    status.age5 = result.seen;
-                    status.BSSID5 = result.BSSID;
-                }
-            } else if (result.is24GHz()) {
-                if (result.level > status.rssi24) {
-                    status.rssi24 = result.level;
-                    status.age24 = result.seen;
-                    status.BSSID24 = result.BSSID;
-                }
-            }
-        }
-
-        return status;
-    }
-
-    /**
-     * Method returning the Visibility based on passpoint match time.
-     *
-     * @param age long Desired time window for matches.
-     * @return WifiConfiguration.Visibility matches in the given visibility
-     */
-    public WifiConfiguration.Visibility getVisibilityByPasspointMatch(long age) {
-
-        long now_ms = System.currentTimeMillis();
-        PasspointMatchInfo pmiBest24 = null, pmiBest5 = null;
-
-        for (PasspointMatchInfo pmi : mPasspointMatches.values()) {
-            ScanDetail scanDetail = pmi.getScanDetail();
-            if (scanDetail == null) continue;
-            ScanResult result = scanDetail.getScanResult();
-            if (result == null) continue;
-
-            if (scanDetail.getSeen() == 0) continue;
-
-            if ((now_ms - result.seen) > age) continue;
-
-            if (result.is5GHz()) {
-                if (pmiBest5 == null || pmiBest5.compareTo(pmi) < 0) {
-                    pmiBest5 = pmi;
-                }
-            } else if (result.is24GHz()) {
-                if (pmiBest24 == null || pmiBest24.compareTo(pmi) < 0) {
-                    pmiBest24 = pmi;
-                }
-            }
-        }
-
-        WifiConfiguration.Visibility status = new WifiConfiguration.Visibility();
-        String logMsg = "Visiblity by passpoint match returned ";
-        if (pmiBest5 != null) {
-            ScanResult result = pmiBest5.getScanDetail().getScanResult();
-            status.rssi5 = result.level;
-            status.age5 = result.seen;
-            status.BSSID5 = result.BSSID;
-            logMsg += "5 GHz BSSID of " + result.BSSID;
-        }
-        if (pmiBest24 != null) {
-            ScanResult result = pmiBest24.getScanDetail().getScanResult();
-            status.rssi24 = result.level;
-            status.age24 = result.seen;
-            status.BSSID24 = result.BSSID;
-            logMsg += "2.4 GHz BSSID of " + result.BSSID;
-        }
-
-        Log.d(TAG, logMsg);
-
-        return status;
-    }
-
-    /**
-     * Method to get scan matches for the desired time window.  Returns matches by passpoint time if
-     * the WifiConfiguration is passpoint.
-     *
-     * @param age long desired time for matches.
-     * @return WifiConfiguration.Visibility matches in the given visibility
-     */
-    public WifiConfiguration.Visibility getVisibility(long age) {
-        if (mConfig.isPasspoint()) {
-            return getVisibilityByPasspointMatch(age);
-        } else {
-            return getVisibilityByRssi(age);
-        }
-    }
-
-
 
     @Override
     public String toString() {
@@ -318,9 +198,10 @@ public class ScanDetailCache {
                     sbuf.append(String.format(",%4d.%02d.%02d.%02d.%03dms", ageDay,
                             ageHour, ageMin, ageSec, ageMilli));
                 }
-                if (result.numIpConfigFailures > 0) {
-                    sbuf.append(",ipfail=");
-                    sbuf.append(result.numIpConfigFailures);
+                NetworkDetail networkDetail = scanDetail.getNetworkDetail();
+                if (networkDetail != null && networkDetail.isInterworking()) {
+                    sbuf.append(",Ant=").append(networkDetail.getAnt()).append(",Internet=")
+                            .append(networkDetail.isInternet());
                 }
                 sbuf.append("} ");
             }

@@ -39,28 +39,17 @@ public class WifiSettingsStore {
     /* Tracks current airplane mode state */
     private boolean mAirplaneModeOn = false;
 
-    /* Tracks the setting of scan being available even when wi-fi is turned off
-     */
-    private boolean mScanAlwaysAvailable;
-
     private final Context mContext;
+    private final WifiSettingsConfigStore mSettingsConfigStore;
 
-    /* Tracks if we have checked the saved wi-fi state after boot */
-    private boolean mCheckSavedStateAtBoot = false;
-
-    WifiSettingsStore(Context context) {
+    WifiSettingsStore(Context context, WifiSettingsConfigStore sharedPreferences) {
         mContext = context;
+        mSettingsConfigStore = sharedPreferences;
         mAirplaneModeOn = getPersistedAirplaneModeOn();
         mPersistWifiState = getPersistedWifiState();
-        mScanAlwaysAvailable = getPersistedScanAlwaysAvailable();
     }
 
     public synchronized boolean isWifiToggleEnabled() {
-        if (!mCheckSavedStateAtBoot) {
-            mCheckSavedStateAtBoot = true;
-            if (testAndClearWifiSavedState()) return true;
-        }
-
         if (mAirplaneModeOn) {
             return mPersistWifiState == WIFI_ENABLED_AIRPLANE_OVERRIDE;
         } else {
@@ -73,11 +62,11 @@ public class WifiSettingsStore {
      * @return {@code true} if airplane mode is on.
      */
     public synchronized boolean isAirplaneModeOn() {
-       return mAirplaneModeOn;
+        return mAirplaneModeOn;
     }
 
     public synchronized boolean isScanAlwaysAvailable() {
-        return !mAirplaneModeOn && mScanAlwaysAvailable;
+        return !mAirplaneModeOn && getPersistedScanAlwaysAvailable();
     }
 
     public synchronized boolean handleWifiToggled(boolean wifiEnabled) {
@@ -116,16 +105,16 @@ public class WifiSettingsStore {
             }
         } else {
             /* On airplane mode disable, restore wifi state if necessary */
-            if (testAndClearWifiSavedState() ||
-                    mPersistWifiState == WIFI_ENABLED_AIRPLANE_OVERRIDE) {
+            if (mPersistWifiState == WIFI_ENABLED_AIRPLANE_OVERRIDE
+                    || mPersistWifiState == WIFI_DISABLED_AIRPLANE_ON) {
                 persistWifiState(WIFI_ENABLED);
             }
         }
         return true;
     }
 
-    synchronized void handleWifiScanAlwaysAvailableToggled() {
-        mScanAlwaysAvailable = getPersistedScanAlwaysAvailable();
+    synchronized void handleWifiScanAlwaysAvailableToggled(boolean isAvailable) {
+        persistScanAlwaysAvailableState(isAvailable);
     }
 
     void dump(FileDescriptor fd, PrintWriter pw, String[] args) {
@@ -137,6 +126,11 @@ public class WifiSettingsStore {
         final ContentResolver cr = mContext.getContentResolver();
         mPersistWifiState = state;
         Settings.Global.putInt(cr, Settings.Global.WIFI_ON, state);
+    }
+
+    private void persistScanAlwaysAvailableState(boolean isAvailable) {
+        mSettingsConfigStore.put(
+                WifiSettingsConfigStore.WIFI_SCAN_ALWAYS_AVAILABLE, isAvailable);
     }
 
     /* Does Wi-Fi need to be disabled when airplane mode is on ? */
@@ -155,55 +149,6 @@ public class WifiSettingsStore {
                 && toggleableRadios.contains(Settings.Global.RADIO_WIFI);
     }
 
-    /**
-     * After a reboot, we restore wi-fi to be on if it was turned off temporarily for tethering.
-     * The settings app tracks the saved state, but the framework has to check it at boot to
-     * make sure the wi-fi is turned on in case it was turned off for the purpose of tethering.
-     *
-     * Note that this is not part of the regular WIFI_ON setting because this only needs to
-     * be controlled through the settings app and not the Wi-Fi public API.
-     */
-    private boolean testAndClearWifiSavedState() {
-        int wifiSavedState = getWifiSavedState();
-        if (wifiSavedState == WIFI_ENABLED) {
-            setWifiSavedState(WIFI_DISABLED);
-        }
-        return (wifiSavedState == WIFI_ENABLED);
-    }
-
-    /**
-     * Allow callers to set the Settings.Global.WIFI_SAVED_STATE property.
-     *
-     * When changing states, we need to remember what the wifi state was before switching.  An
-     * example of this is when WiFiController switches to APEnabledState.  Before swtiching to the
-     * new state, WifiController sets the current WiFi enabled/disabled state.  When the AP is
-     * turned off, the WIFI_SAVED_STATE setting is used to restore the previous wifi state.
-     *
-     * @param state WiFi state to store with the Settings.Global.WIFI_SAVED_STATE property.
-     */
-    public void setWifiSavedState(int state) {
-        Settings.Global.putInt(mContext.getContentResolver(),
-                Settings.Global.WIFI_SAVED_STATE, state);
-    }
-
-    /**
-     * Allow callers to get the Settings.Global.WIFI_SAVED_STATE property.
-     *
-     * When changing states we remember what the wifi state was before switching.  This function is
-     * used to get the saved state.
-     *
-     * @return int Value for the previously saved state.
-     */
-    public int getWifiSavedState() {
-        try {
-            return Settings.Global.getInt(mContext.getContentResolver(),
-                    Settings.Global.WIFI_SAVED_STATE);
-        } catch (Settings.SettingNotFoundException e) {
-            // If we have an error, return wifiSavedState off.
-            return WIFI_DISABLED;
-        }
-    }
-
     private int getPersistedWifiState() {
         final ContentResolver cr = mContext.getContentResolver();
         try {
@@ -220,8 +165,7 @@ public class WifiSettingsStore {
     }
 
     private boolean getPersistedScanAlwaysAvailable() {
-        return Settings.Global.getInt(mContext.getContentResolver(),
-                Settings.Global.WIFI_SCAN_ALWAYS_AVAILABLE,
-                0) == 1;
+        return mSettingsConfigStore.get(
+                WifiSettingsConfigStore.WIFI_SCAN_ALWAYS_AVAILABLE);
     }
 }

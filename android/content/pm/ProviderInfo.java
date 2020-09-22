@@ -47,7 +47,13 @@ public final class ProviderInfo extends ComponentInfo
      * grantUriPermissions} attribute.
      */
     public boolean grantUriPermissions = false;
-    
+
+    /** If true, always apply URI permission grants, as per the
+     * {@link android.R.styleable#AndroidManifestProvider_forceUriPermissions
+     * forceUriPermissions} attribute.
+     */
+    public boolean forceUriPermissions = false;
+
     /**
      * If non-null, these are the patterns that are allowed for granting URI
      * permissions.  Any URI that does not match one of these patterns will not
@@ -74,6 +80,12 @@ public final class ProviderInfo extends ComponentInfo
     /** Used to control initialization order of single-process providers
      *  running in the same process.  Higher goes first. */
     public int initOrder = 0;
+
+    /**
+     * Bit in {@link #flags} indicating if the provider is visible to ephemeral applications.
+     * @hide
+     */
+    public static final int FLAG_VISIBLE_TO_INSTANT_APP = 0x100000;
 
     /**
      * Bit in {@link #flags}: If set, a single instance of the provider will
@@ -106,6 +118,7 @@ public final class ProviderInfo extends ComponentInfo
         readPermission = orig.readPermission;
         writePermission = orig.writePermission;
         grantUriPermissions = orig.grantUriPermissions;
+        forceUriPermissions = orig.forceUriPermissions;
         uriPermissionPatterns = orig.uriPermissionPatterns;
         pathPermissions = orig.pathPermissions;
         multiprocess = orig.multiprocess;
@@ -119,11 +132,11 @@ public final class ProviderInfo extends ComponentInfo
     }
 
     /** @hide */
-    public void dump(Printer pw, String prefix, int flags) {
+    public void dump(Printer pw, String prefix, int dumpFlags) {
         super.dumpFront(pw, prefix);
         pw.println(prefix + "authority=" + authority);
         pw.println(prefix + "flags=0x" + Integer.toHexString(flags));
-        super.dumpBack(pw, prefix, flags);
+        super.dumpBack(pw, prefix, dumpFlags);
     }
 
     public int describeContents() {
@@ -132,10 +145,11 @@ public final class ProviderInfo extends ComponentInfo
 
     @Override public void writeToParcel(Parcel out, int parcelableFlags) {
         super.writeToParcel(out, parcelableFlags);
-        out.writeString(authority);
-        out.writeString(readPermission);
-        out.writeString(writePermission);
+        out.writeString8(authority);
+        out.writeString8(readPermission);
+        out.writeString8(writePermission);
         out.writeInt(grantUriPermissions ? 1 : 0);
+        out.writeInt(forceUriPermissions ? 1 : 0);
         out.writeTypedArray(uriPermissionPatterns, parcelableFlags);
         out.writeTypedArray(pathPermissions, parcelableFlags);
         out.writeInt(multiprocess ? 1 : 0);
@@ -144,7 +158,7 @@ public final class ProviderInfo extends ComponentInfo
         out.writeInt(isSyncable ? 1 : 0);
     }
 
-    public static final Parcelable.Creator<ProviderInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<ProviderInfo> CREATOR
             = new Parcelable.Creator<ProviderInfo>() {
         public ProviderInfo createFromParcel(Parcel in) {
             return new ProviderInfo(in);
@@ -161,10 +175,11 @@ public final class ProviderInfo extends ComponentInfo
 
     private ProviderInfo(Parcel in) {
         super(in);
-        authority = in.readString();
-        readPermission = in.readString();
-        writePermission = in.readString();
+        authority = in.readString8();
+        readPermission = in.readString8();
+        writePermission = in.readString8();
         grantUriPermissions = in.readInt() != 0;
+        forceUriPermissions = in.readInt() != 0;
         uriPermissionPatterns = in.createTypedArray(PatternMatcher.CREATOR);
         pathPermissions = in.createTypedArray(PathPermission.CREATOR);
         multiprocess = in.readInt() != 0;
