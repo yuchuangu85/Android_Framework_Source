@@ -700,6 +700,7 @@ public final class Choreographer {
                     Log.i(TAG, "Skipped " + skippedFrames + " frames!  "
                             + "The application may be doing too much work on its main thread.");
                 }
+                // 最后一次的屏幕刷是lastFrameOffset之前开始的
                 final long lastFrameOffset = jitterNanos % mFrameIntervalNanos;
                 if (DEBUG_JANK) {
                     Log.d(TAG, "Missed vsync by " + (jitterNanos * 0.000001f) + " ms "
