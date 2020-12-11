@@ -99,7 +99,7 @@ public class Handler {
             handleCallback(msg);
         } else {
             if (mCallback != null) {
-                if (mCallback.handleMessage(msg)) {
+                if (mCallback.handleMessage(msg)) {// 拦截消息
                     return;
                 }
             }

@@ -1924,6 +1924,7 @@ public final class ViewRootImpl implements ViewParent,
         if (!mTraversalScheduled) {
             mTraversalScheduled = true;
             mTraversalBarrier = mHandler.getLooper().getQueue().postSyncBarrier();
+            // 注册窗口刷新，执行measure/layout/draw操作的回调
             mChoreographer.postCallback(
                     Choreographer.CALLBACK_TRAVERSAL, mTraversalRunnable, null);
             notifyRendererOfFramePending();

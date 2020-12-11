@@ -78,6 +78,11 @@ import java.io.PrintWriter;
  * post callbacks to run on the choreographer but they will run on the {@link Looper}
  * to which the choreographer belongs.
  * </p>
+ * <p>
+ * Choreographer原理：http://gityuan.com/2017/02/25/choreographer/
+ * Android Choreographer 源码分析：https://www.jianshu.com/p/996bca12eb1d
+ * Android的16ms和垂直同步以及三重缓存：https://blog.csdn.net/stven_king/article/details/80098798
+ * Android系统的编舞者Choreographer：https://blog.csdn.net/stven_king/article/details/80098845
  */
 public final class Choreographer {
     private static final String TAG = "Choreographer";
@@ -102,21 +107,22 @@ public final class Choreographer {
     private static volatile long sFrameDelay = DEFAULT_FRAME_DELAY;
 
     // Thread local storage for the choreographer.
+    // 每个线程一个Choreographer实例
     private static final ThreadLocal<Choreographer> sThreadInstance =
             new ThreadLocal<Choreographer>() {
-        @Override
-        protected Choreographer initialValue() {
-            Looper looper = Looper.myLooper();
-            if (looper == null) {
-                throw new IllegalStateException("The current thread must have a looper!");
-            }
-            Choreographer choreographer = new Choreographer(looper, VSYNC_SOURCE_APP);
-            if (looper == Looper.getMainLooper()) {
-                mMainInstance = choreographer;
-            }
-            return choreographer;
-        }
-    };
+                @Override
+                protected Choreographer initialValue() {
+                    Looper looper = Looper.myLooper();
+                    if (looper == null) {
+                        throw new IllegalStateException("The current thread must have a looper!");
+                    }
+                    Choreographer choreographer = new Choreographer(looper, VSYNC_SOURCE_APP);
+                    if (looper == Looper.getMainLooper()) {
+                        mMainInstance = choreographer;
+                    }
+                    return choreographer;
+                }
+            };
 
     private static volatile Choreographer mMainInstance;
 
@@ -134,6 +140,7 @@ public final class Choreographer {
             };
 
     // Enable/disable vsync for animations and drawing.
+    // 变量USE_VSYNC用于表示系统是否是用了Vsync同步机制
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 123769497)
     private static final boolean USE_VSYNC = SystemProperties.getBoolean(
             "debug.choreographer.vsync", true);
@@ -153,7 +160,9 @@ public final class Choreographer {
 
     // All frame callbacks posted by applications have this token.
     private static final Object FRAME_CALLBACK_TOKEN = new Object() {
-        public String toString() { return "FRAME_CALLBACK_TOKEN"; }
+        public String toString() {
+            return "FRAME_CALLBACK_TOKEN";
+        }
     };
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
@@ -170,6 +179,7 @@ public final class Choreographer {
 
     private CallbackRecord mCallbackPool;
 
+    // 长度为5（CALLBACK_LAST+1）的CallbackQueue类型的数组
     @UnsupportedAppUsage
     private final CallbackQueue[] mCallbackQueues;
 
@@ -186,18 +196,15 @@ public final class Choreographer {
      * Contains information about the current frame for jank-tracking,
      * mainly timings of key events along with a bit of metadata about
      * view tree state
-     *
+     * <p>
      * TODO: Is there a better home for this? Currently Choreographer
      * is the only one with CALLBACK_ANIMATION start time, hence why this
      * resides here.
-     *
-     * @hide
      */
     FrameInfo mFrameInfo = new FrameInfo();
 
     /**
      * Must be kept in sync with CALLBACK_* ints below, used to index into this array.
-     * @hide
      */
     private static final String[] CALLBACK_TRACE_TITLES = {
             "input", "animation", "insets_animation", "traversal", "commit"
@@ -205,13 +212,13 @@ public final class Choreographer {
 
     /**
      * Callback type: Input callback.  Runs first.
-     * @hide
+     * 输入事件
      */
     public static final int CALLBACK_INPUT = 0;
 
     /**
      * Callback type: Animation callback.  Runs before {@link #CALLBACK_INSETS_ANIMATION}.
-     * @hide
+     * 动画
      */
     @TestApi
     public static final int CALLBACK_ANIMATION = 1;
@@ -228,14 +235,13 @@ public final class Choreographer {
      * before traversals.
      * <p>
      * Runs before traversals.
-     * @hide
      */
     public static final int CALLBACK_INSETS_ANIMATION = 2;
 
     /**
      * Callback type: Traversal callback.  Handles layout and draw.  Runs
      * after all other asynchronous messages have been handled.
-     * @hide
+     * 窗口刷新，执行measure/layout/draw操作
      */
     public static final int CALLBACK_TRAVERSAL = 3;
 
@@ -247,7 +253,7 @@ public final class Choreographer {
      * to be skipped.  The frame time reported during this callback provides a better
      * estimate of the start time of the frame in which animations (and other updates
      * to the view hierarchy state) actually took effect.
-     * @hide
+     * 遍历完成的提交操作，用来修正动画启动时间
      */
     public static final int CALLBACK_COMMIT = 4;
 
@@ -255,14 +261,19 @@ public final class Choreographer {
 
     private Choreographer(Looper looper, int vsyncSource) {
         mLooper = looper;
+        // 创建handler对象，用于处理消息，其looper为当前的线程的消息队列
         mHandler = new FrameHandler(looper);
+        // 创建用于接收VSync信号的对象
         mDisplayEventReceiver = USE_VSYNC
                 ? new FrameDisplayEventReceiver(looper, vsyncSource)
                 : null;
+        // 指上一次帧(frame)绘制时间点
         mLastFrameTimeNanos = Long.MIN_VALUE;
 
-        mFrameIntervalNanos = (long)(1000000000 / getRefreshRate());
+        // 计算帧间时长，一般等于16.7ms
+        mFrameIntervalNanos = (long) (1000000000 / getRefreshRate());
 
+        // 创建回调对象队列
         mCallbackQueues = new CallbackQueue[CALLBACK_LAST + 1];
         for (int i = 0; i <= CALLBACK_LAST; i++) {
             mCallbackQueues[i] = new CallbackQueue();
@@ -282,6 +293,7 @@ public final class Choreographer {
      * a thread that already has a {@link android.os.Looper} associated with it.
      *
      * @return The choreographer for this thread.
+     *
      * @throws IllegalStateException if the thread does not have a looper.
      */
     public static Choreographer getInstance() {
@@ -289,7 +301,7 @@ public final class Choreographer {
     }
 
     /**
-     * @hide
+     *
      */
     @UnsupportedAppUsage
     public static Choreographer getSfInstance() {
@@ -298,14 +310,13 @@ public final class Choreographer {
 
     /**
      * @return The Choreographer of the main thread, if it exists, or {@code null} otherwise.
-     * @hide
      */
     public static Choreographer getMainThreadInstance() {
         return mMainInstance;
     }
 
-    /** Destroys the calling thread's choreographer
-     * @hide
+    /**
+     * Destroys the calling thread's choreographer
      */
     public static void releaseInstance() {
         Choreographer old = sThreadInstance.get();
@@ -330,7 +341,6 @@ public final class Choreographer {
      * </p>
      *
      * @return the requested time between frames, in milliseconds
-     * @hide
      */
     @UnsupportedAppUsage
     @TestApi
@@ -351,7 +361,6 @@ public final class Choreographer {
      * </p>
      *
      * @param frameDelay the requested time between frames, in milliseconds
-     * @hide
      */
     @TestApi
     public static void setFrameDelay(long frameDelay) {
@@ -377,8 +386,8 @@ public final class Choreographer {
      * </p>
      *
      * @param delayMillis The original delay time including an assumed frame delay.
+     *
      * @return The adjusted delay time with the assumed frame delay subtracted out.
-     * @hide
      */
     public static long subtractFrameDelay(long delayMillis) {
         final long frameDelay = sFrameDelay;
@@ -387,7 +396,6 @@ public final class Choreographer {
 
     /**
      * @return The refresh rate as the nanoseconds between frames
-     * @hide
      */
     public long getFrameIntervalNanos() {
         return mFrameIntervalNanos;
@@ -395,11 +403,14 @@ public final class Choreographer {
 
     void dump(String prefix, PrintWriter writer) {
         String innerPrefix = prefix + "  ";
-        writer.print(prefix); writer.println("Choreographer:");
-        writer.print(innerPrefix); writer.print("mFrameScheduled=");
-                writer.println(mFrameScheduled);
-        writer.print(innerPrefix); writer.print("mLastFrameTime=");
-                writer.println(TimeUtils.formatUptime(mLastFrameTimeNanos / 1000000));
+        writer.print(prefix);
+        writer.println("Choreographer:");
+        writer.print(innerPrefix);
+        writer.print("mFrameScheduled=");
+        writer.println(mFrameScheduled);
+        writer.print(innerPrefix);
+        writer.print("mLastFrameTime=");
+        writer.println(TimeUtils.formatUptime(mLastFrameTimeNanos / 1000000));
     }
 
     /**
@@ -407,13 +418,13 @@ public final class Choreographer {
      * <p>
      * The callback runs once then is automatically removed.
      * </p>
+     * 发送回调事件
      *
      * @param callbackType The callback type.
-     * @param action The callback action to run during the next frame.
-     * @param token The callback token, or null if none.
+     * @param action       The callback action to run during the next frame.
+     * @param token        The callback token, or null if none.
      *
      * @see #removeCallbacks
-     * @hide
      */
     @UnsupportedAppUsage
     @TestApi
@@ -428,17 +439,16 @@ public final class Choreographer {
      * </p>
      *
      * @param callbackType The callback type.
-     * @param action The callback action to run during the next frame after the specified delay.
-     * @param token The callback token, or null if none.
-     * @param delayMillis The delay time in milliseconds.
+     * @param action       The callback action to run during the next frame after the specified delay.
+     * @param token        The callback token, or null if none.
+     * @param delayMillis  The delay time in milliseconds.
      *
      * @see #removeCallback
-     * @hide
      */
     @UnsupportedAppUsage
     @TestApi
     public void postCallbackDelayed(int callbackType,
-            Runnable action, Object token, long delayMillis) {
+                                    Runnable action, Object token, long delayMillis) {
         if (action == null) {
             throw new IllegalArgumentException("action must not be null");
         }
@@ -450,7 +460,7 @@ public final class Choreographer {
     }
 
     private void postCallbackDelayedInternal(int callbackType,
-            Object action, Object token, long delayMillis) {
+                                             Object action, Object token, long delayMillis) {
         if (DEBUG_FRAMES) {
             Log.d(TAG, "PostCallback: type=" + callbackType
                     + ", action=" + action + ", token=" + token
@@ -458,13 +468,17 @@ public final class Choreographer {
         }
 
         synchronized (mLock) {
+            // 从开机到现在的毫秒数（手机睡眠的时间不包括在内）
             final long now = SystemClock.uptimeMillis();
             final long dueTime = now + delayMillis;
+            // 添加类型为callbackType的CallbackQueue（将要执行的回调封装而成）
             mCallbackQueues[callbackType].addCallbackLocked(dueTime, action, token);
 
+            // 函数执行时间
             if (dueTime <= now) {
+                // 立即执行
                 scheduleFrameLocked(now);
-            } else {
+            } else {// 异步回调延迟执行
                 Message msg = mHandler.obtainMessage(MSG_DO_SCHEDULE_CALLBACK, action);
                 msg.arg1 = callbackType;
                 msg.setAsynchronous(true);
@@ -477,14 +491,13 @@ public final class Choreographer {
      * Removes callbacks that have the specified action and token.
      *
      * @param callbackType The callback type.
-     * @param action The action property of the callbacks to remove, or null to remove
-     * callbacks with any action.
-     * @param token The token property of the callbacks to remove, or null to remove
-     * callbacks with any token.
+     * @param action       The action property of the callbacks to remove, or null to remove
+     *                     callbacks with any action.
+     * @param token        The token property of the callbacks to remove, or null to remove
+     *                     callbacks with any token.
      *
      * @see #postCallback
      * @see #postCallbackDelayed
-     * @hide
      */
     @UnsupportedAppUsage
     @TestApi
@@ -531,7 +544,7 @@ public final class Choreographer {
      * The callback runs once then is automatically removed.
      * </p>
      *
-     * @param callback The frame callback to run during the next frame.
+     * @param callback    The frame callback to run during the next frame.
      * @param delayMillis The delay time in milliseconds.
      *
      * @see #postFrameCallback
@@ -585,7 +598,6 @@ public final class Choreographer {
      * @return The frame start time, in the {@link SystemClock#uptimeMillis()} time base.
      *
      * @throws IllegalStateException if no frame is in progress.
-     * @hide
      */
     @UnsupportedAppUsage
     public long getFrameTime() {
@@ -598,7 +610,6 @@ public final class Choreographer {
      * @return The frame start time, in the {@link System#nanoTime()} time base.
      *
      * @throws IllegalStateException if no frame is in progress.
-     * @hide
      */
     @UnsupportedAppUsage
     public long getFrameTimeNanos() {
@@ -614,8 +625,8 @@ public final class Choreographer {
     /**
      * Like {@link #getLastFrameTimeNanos}, but always returns the last frame time, not matter
      * whether callbacks are currently running.
+     *
      * @return The frame start time of the last frame, in the {@link System#nanoTime()} time base.
-     * @hide
      */
     public long getLastFrameTimeNanos() {
         synchronized (mLock) {
@@ -625,6 +636,7 @@ public final class Choreographer {
 
     private void scheduleFrameLocked(long now) {
         if (!mFrameScheduled) {
+            // 开始执行设置为true
             mFrameScheduled = true;
             if (USE_VSYNC) {
                 if (DEBUG_FRAMES) {
@@ -674,11 +686,16 @@ public final class Choreographer {
                         + ((frameTimeNanos - mLastFrameTimeNanos) * 0.000001f) + " ms");
             }
 
+            // 原本计划的绘帧时间点
             long intendedFrameTimeNanos = frameTimeNanos;
+            // 当前时间
             startNanos = System.nanoTime();
+            // 抖动间隔
             final long jitterNanos = startNanos - frameTimeNanos;
-            if (jitterNanos >= mFrameIntervalNanos) {
+            // 抖动间隔大于屏幕刷新时间间隔（16ms）
+            if (jitterNanos >= mFrameIntervalNanos) {// mFrameIntervalNanos = 16.7ms
                 final long skippedFrames = jitterNanos / mFrameIntervalNanos;
+                // 当掉帧个数超过30，则输出相应log
                 if (skippedFrames >= SKIPPED_FRAME_WARNING_LIMIT) {
                     Log.i(TAG, "Skipped " + skippedFrames + " frames!  "
                             + "The application may be doing too much work on its main thread.");
@@ -712,6 +729,7 @@ public final class Choreographer {
             }
 
             mFrameInfo.setVsync(intendedFrameTimeNanos, frameTimeNanos);
+            // 执行doFrame设置为false
             mFrameScheduled = false;
             mLastFrameTimeNanos = frameTimeNanos;
         }
@@ -723,8 +741,10 @@ public final class Choreographer {
             mFrameInfo.markInputHandlingStart();
             doCallbacks(Choreographer.CALLBACK_INPUT, frameTimeNanos);
 
+            // 标记动画开始时间
             mFrameInfo.markAnimationsStart();
-            doCallbacks(Choreographer.CALLBACK_ANIMATION, frameTimeNanos);
+            // 执行回调方法
+            doCallbacks(Choreographer.CALLBACK_ANIMATION, frameTimeNanos);// frameTimeNanos是底层VSYNC信号到达的时间戳
             doCallbacks(Choreographer.CALLBACK_INSETS_ANIMATION, frameTimeNanos);
 
             mFrameInfo.markPerformTraversalsStart();
@@ -751,9 +771,10 @@ public final class Choreographer {
             // for earlier processing phases in a frame to post callbacks that should run
             // in a following phase, such as an input event that causes an animation to start.
             final long now = System.nanoTime();
+            // 从队列查找相应类型的CallbackRecord对象
             callbacks = mCallbackQueues[callbackType].extractDueCallbacksLocked(
                     now / TimeUtils.NANOS_PER_MS);
-            if (callbacks == null) {
+            if (callbacks == null) {// 当队列为空，则直接返回
                 return;
             }
             mCallbacksRunning = true;
@@ -769,6 +790,7 @@ public final class Choreographer {
             if (callbackType == Choreographer.CALLBACK_COMMIT) {
                 final long jitterNanos = now - frameTimeNanos;
                 Trace.traceCounter(Trace.TRACE_TAG_VIEW, "jitterNanos", (int) jitterNanos);
+                // 当commit类型回调执行的时间点超过2帧，则更新mLastFrameTimeNanos。
                 if (jitterNanos >= 2 * mFrameIntervalNanos) {
                     final long lastFrameOffset = jitterNanos % mFrameIntervalNanos
                             + mFrameIntervalNanos;
@@ -836,6 +858,13 @@ public final class Choreographer {
         return Looper.myLooper() == mLooper;
     }
 
+    /**
+     * @param dueTime 任务开始时间
+     * @param action  任务
+     * @param token   标识
+     *
+     * @return
+     */
     private CallbackRecord obtainCallbackLocked(long dueTime, Object action, Object token) {
         CallbackRecord callback = mCallbackPool;
         if (callback == null) {
@@ -882,8 +911,8 @@ public final class Choreographer {
          * </p>
          *
          * @param frameTimeNanos The time in nanoseconds when the frame started being rendered,
-         * in the {@link System#nanoTime()} timebase.  Divide this value by {@code 1000000}
-         * to convert it to the {@link SystemClock#uptimeMillis()} time base.
+         *                       in the {@link System#nanoTime()} timebase.  Divide this value by {@code 1000000}
+         *                       to convert it to the {@link SystemClock#uptimeMillis()} time base.
          */
         public void doFrame(long frameTimeNanos);
     }
@@ -897,12 +926,15 @@ public final class Choreographer {
         public void handleMessage(Message msg) {
             switch (msg.what) {
                 case MSG_DO_FRAME:
+                    // 刷新当前这一帧
                     doFrame(System.nanoTime(), 0);
                     break;
                 case MSG_DO_SCHEDULE_VSYNC:
+                    // 做VSYNC的信号同步
                     doScheduleVsync();
                     break;
                 case MSG_DO_SCHEDULE_CALLBACK:
+                    // 将当前任务加入执行队列
                     doScheduleCallback(msg.arg1);
                     break;
             }
@@ -946,8 +978,10 @@ public final class Choreographer {
 
             mTimestampNanos = timestampNanos;
             mFrame = frame;
+            // 该消息的callback为当前对象FrameDisplayEventReceiver
             Message msg = Message.obtain(mHandler, this);
             msg.setAsynchronous(true);
+            // 此处mHandler为FrameHandler
             mHandler.sendMessageAtTime(msg, timestampNanos / TimeUtils.NANOS_PER_MS);
         }
 
@@ -967,14 +1001,16 @@ public final class Choreographer {
         @UnsupportedAppUsage
         public void run(long frameTimeNanos) {
             if (token == FRAME_CALLBACK_TOKEN) {
-                ((FrameCallback)action).doFrame(frameTimeNanos);
+                ((FrameCallback) action).doFrame(frameTimeNanos);
             } else {
-                ((Runnable)action).run();
+                ((Runnable) action).run();
             }
         }
     }
 
     private final class CallbackQueue {
+
+        // 单链表结构
         private CallbackRecord mHead;
 
         public boolean hasDueCallbacksLocked(long now) {
@@ -983,21 +1019,26 @@ public final class Choreographer {
 
         public CallbackRecord extractDueCallbacksLocked(long now) {
             CallbackRecord callbacks = mHead;
+            // 头结点是空或者头节点的执行时间大于现在的时间，没有需要执行的任务
             if (callbacks == null || callbacks.dueTime > now) {
                 return null;
             }
-
+            // 执行到这里，说明链表的头节点执行时间小于等于现在的时间
             CallbackRecord last = callbacks;
             CallbackRecord next = last.next;
             while (next != null) {
+                // 如果下一个节点的执行时间比现在晚，则断开链表
                 if (next.dueTime > now) {
-                    last.next = null;
+                    last.next = null;// 断开链表
                     break;
                 }
+                // 否则继续找下一个CallbackRecord
                 last = next;
                 next = next.next;
             }
+            // 将头节点指向链表的下一个节点
             mHead = next;
+            // 返回需要执行的CallbackRecord
             return callbacks;
         }
 
@@ -1026,7 +1067,7 @@ public final class Choreographer {
 
         public void removeCallbacksLocked(Object action, Object token) {
             CallbackRecord predecessor = null;
-            for (CallbackRecord callback = mHead; callback != null;) {
+            for (CallbackRecord callback = mHead; callback != null; ) {
                 final CallbackRecord next = callback.next;
                 if ((action == null || callback.action == action)
                         && (token == null || callback.token == token)) {
