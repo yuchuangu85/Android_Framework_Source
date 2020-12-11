@@ -647,13 +647,16 @@ public final class Choreographer {
                 // otherwise post a message to schedule the vsync from the UI thread
                 // as soon as possible.
                 if (isRunningOnLooperThreadLocked()) {
+                    // 当运行在Looper线程，则立刻调度vsync
                     scheduleVsyncLocked();
                 } else {
+                    // 切换到主线程，调度vsync
                     Message msg = mHandler.obtainMessage(MSG_DO_SCHEDULE_VSYNC);
                     msg.setAsynchronous(true);
                     mHandler.sendMessageAtFrontOfQueue(msg);
                 }
             } else {
+                // 如果没有VSYNC的同步，则发送消息刷新画面
                 final long nextFrameTime = Math.max(
                         mLastFrameTimeNanos / TimeUtils.NANOS_PER_MS + sFrameDelay, now);
                 if (DEBUG_FRAMES) {
@@ -709,9 +712,11 @@ public final class Choreographer {
                             + "Skipping " + skippedFrames + " frames and setting frame "
                             + "time to " + (lastFrameOffset * 0.000001f) + " ms in the past.");
                 }
+                // 最后一帧的刷新开始时间
                 frameTimeNanos = startNanos - lastFrameOffset;
             }
 
+            // 由于跳帧可能造成了当前展现的是之前的帧，这样需要等待下一个vsync信号
             if (frameTimeNanos < mLastFrameTimeNanos) {
                 if (DEBUG_JANK) {
                     Log.d(TAG, "Frame time appears to be going backwards.  May be due to a "
@@ -732,9 +737,11 @@ public final class Choreographer {
             mFrameInfo.setVsync(intendedFrameTimeNanos, frameTimeNanos);
             // 执行doFrame设置为false
             mFrameScheduled = false;
+            // 更新最后一帧的刷新时间
             mLastFrameTimeNanos = frameTimeNanos;
         }
 
+        // 按照优先级策略进行画面刷新时间处理
         try {
             Trace.traceBegin(Trace.TRACE_TAG_VIEW, "Choreographer#doFrame");
             AnimationUtils.lockAnimationClock(frameTimeNanos / TimeUtils.NANOS_PER_MS);
@@ -816,6 +823,7 @@ public final class Choreographer {
                             + ", action=" + c.action + ", token=" + c.token
                             + ", latencyMillis=" + (SystemClock.uptimeMillis() - c.dueTime));
                 }
+                // 循环遍历，回调所有的任务
                 c.run(frameTimeNanos);
             }
         } finally {
@@ -831,6 +839,7 @@ public final class Choreographer {
         }
     }
 
+    // 等待vsync信号
     void doScheduleVsync() {
         synchronized (mLock) {
             if (mFrameScheduled) {
@@ -839,10 +848,12 @@ public final class Choreographer {
         }
     }
 
+    // 执行任务回调
     void doScheduleCallback(int callbackType) {
         synchronized (mLock) {
             if (!mFrameScheduled) {
                 final long now = SystemClock.uptimeMillis();
+                // 有能执行的任务
                 if (mCallbackQueues[callbackType].hasDueCallbacksLocked(now)) {
                     scheduleFrameLocked(now);
                 }
@@ -850,11 +861,13 @@ public final class Choreographer {
         }
     }
 
+    // 当运行在Looper线程，则立刻调度vsync
     @UnsupportedAppUsage
     private void scheduleVsyncLocked() {
         mDisplayEventReceiver.scheduleVsync();
     }
 
+    // 检测当前的Looper线程是不是主线程
     private boolean isRunningOnLooperThreadLocked() {
         return Looper.myLooper() == mLooper;
     }
@@ -880,6 +893,7 @@ public final class Choreographer {
         return callback;
     }
 
+    // 回收回调任务资源
     private void recycleCallbackLocked(CallbackRecord callback) {
         callback.action = null;
         callback.token = null;
@@ -989,6 +1003,7 @@ public final class Choreographer {
         @Override
         public void run() {
             mHavePendingVsync = false;
+            // DisplayEventReceiver消息处理
             doFrame(mTimestampNanos, mFrame);
         }
     }
