@@ -16,22 +16,17 @@
 
 package android.view;
 
-import static android.view.DisplayEventReceiver.VSYNC_SOURCE_APP;
-import static android.view.DisplayEventReceiver.VSYNC_SOURCE_SURFACE_FLINGER;
-
 import android.annotation.TestApi;
 import android.hardware.display.DisplayManagerGlobal;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.Message;
-import android.os.SystemClock;
-import android.os.SystemProperties;
-import android.os.Trace;
+import android.os.*;
 import android.util.Log;
 import android.util.TimeUtils;
 import android.view.animation.AnimationUtils;
 
 import java.io.PrintWriter;
+
+import static android.view.DisplayEventReceiver.VSYNC_SOURCE_APP;
+import static android.view.DisplayEventReceiver.VSYNC_SOURCE_SURFACE_FLINGER;
 
 /**
  * Coordinates the timing of animations, input and drawing.
@@ -74,6 +69,11 @@ import java.io.PrintWriter;
  * post callbacks to run on the choreographer but they will run on the {@link Looper}
  * to which the choreographer belongs.
  * </p>
+ * <p>
+ * Choreographer原理：http://gityuan.com/2017/02/25/choreographer/
+ * Android Choreographer 源码分析：https://www.jianshu.com/p/996bca12eb1d
+ * Android的16ms和垂直同步以及三重缓存：https://blog.csdn.net/stven_king/article/details/80098798
+ * Android系统的编舞者Choreographer：https://blog.csdn.net/stven_king/article/details/80098845
  */
 public final class Choreographer {
     private static final String TAG = "Choreographer";
@@ -98,6 +98,7 @@ public final class Choreographer {
     private static volatile long sFrameDelay = DEFAULT_FRAME_DELAY;
 
     // Thread local storage for the choreographer.
+    // 每个线程一个Choreographer实例
     private static final ThreadLocal<Choreographer> sThreadInstance =
             new ThreadLocal<Choreographer>() {
         @Override
@@ -130,6 +131,7 @@ public final class Choreographer {
             };
 
     // Enable/disable vsync for animations and drawing.
+    // 变量USE_VSYNC用于表示系统是否是用了Vsync同步机制
     private static final boolean USE_VSYNC = SystemProperties.getBoolean(
             "debug.choreographer.vsync", true);
 
@@ -163,6 +165,7 @@ public final class Choreographer {
 
     private CallbackRecord mCallbackPool;
 
+    // 长度为5（CALLBACK_LAST+1）的CallbackQueue类型的数组
     private final CallbackQueue[] mCallbackQueues;
 
     private boolean mFrameScheduled;
@@ -195,12 +198,14 @@ public final class Choreographer {
 
     /**
      * Callback type: Input callback.  Runs first.
+     * 输入事件
      * @hide
      */
     public static final int CALLBACK_INPUT = 0;
 
     /**
      * Callback type: Animation callback.  Runs before traversals.
+     * 动画
      * @hide
      */
     @TestApi
@@ -209,6 +214,7 @@ public final class Choreographer {
     /**
      * Callback type: Traversal callback.  Handles layout and draw.  Runs
      * after all other asynchronous messages have been handled.
+     * 窗口刷新，执行measure/layout/draw操作
      * @hide
      */
     public static final int CALLBACK_TRAVERSAL = 2;
@@ -221,6 +227,7 @@ public final class Choreographer {
      * to be skipped.  The frame time reported during this callback provides a better
      * estimate of the start time of the frame in which animations (and other updates
      * to the view hierarchy state) actually took effect.
+     * 遍历完成的提交操作，用来修正动画启动时间
      * @hide
      */
     public static final int CALLBACK_COMMIT = 3;
@@ -229,14 +236,19 @@ public final class Choreographer {
 
     private Choreographer(Looper looper, int vsyncSource) {
         mLooper = looper;
+        // 创建handler对象，用于处理消息，其looper为当前的线程的消息队列
         mHandler = new FrameHandler(looper);
+        // 创建用于接收VSync信号的对象
         mDisplayEventReceiver = USE_VSYNC
                 ? new FrameDisplayEventReceiver(looper, vsyncSource)
                 : null;
+        // 指上一次帧(frame)绘制时间点
         mLastFrameTimeNanos = Long.MIN_VALUE;
 
+        // 计算帧间时长，一般等于16.7ms
         mFrameIntervalNanos = (long)(1000000000 / getRefreshRate());
 
+        // 创建回调对象队列
         mCallbackQueues = new CallbackQueue[CALLBACK_LAST + 1];
         for (int i = 0; i <= CALLBACK_LAST; i++) {
             mCallbackQueues[i] = new CallbackQueue();
@@ -379,6 +391,7 @@ public final class Choreographer {
      * <p>
      * The callback runs once then is automatically removed.
      * </p>
+     * 发送回调事件
      *
      * @param callbackType The callback type.
      * @param action The callback action to run during the next frame.
@@ -428,13 +441,17 @@ public final class Choreographer {
         }
 
         synchronized (mLock) {
+            // 从开机到现在的毫秒数（手机睡眠的时间不包括在内）
             final long now = SystemClock.uptimeMillis();
             final long dueTime = now + delayMillis;
+            // 添加类型为callbackType的CallbackQueue（将要执行的回调封装而成）
             mCallbackQueues[callbackType].addCallbackLocked(dueTime, action, token);
 
+            // 函数执行时间
             if (dueTime <= now) {
+                // 立即执行
                 scheduleFrameLocked(now);
-            } else {
+            } else {// 异步回调延迟执行
                 Message msg = mHandler.obtainMessage(MSG_DO_SCHEDULE_CALLBACK, action);
                 msg.arg1 = callbackType;
                 msg.setAsynchronous(true);
@@ -592,6 +609,7 @@ public final class Choreographer {
 
     private void scheduleFrameLocked(long now) {
         if (!mFrameScheduled) {
+            // 开始执行设置为true
             mFrameScheduled = true;
             if (USE_VSYNC) {
                 if (DEBUG_FRAMES) {
@@ -602,13 +620,16 @@ public final class Choreographer {
                 // otherwise post a message to schedule the vsync from the UI thread
                 // as soon as possible.
                 if (isRunningOnLooperThreadLocked()) {
+                    // 当运行在Looper线程，则立刻调度vsync
                     scheduleVsyncLocked();
                 } else {
+                    // 切换到主线程，调度vsync
                     Message msg = mHandler.obtainMessage(MSG_DO_SCHEDULE_VSYNC);
                     msg.setAsynchronous(true);
                     mHandler.sendMessageAtFrontOfQueue(msg);
                 }
             } else {
+                // 如果没有VSYNC的同步，则发送消息刷新画面
                 final long nextFrameTime = Math.max(
                         mLastFrameTimeNanos / TimeUtils.NANOS_PER_MS + sFrameDelay, now);
                 if (DEBUG_FRAMES) {
@@ -640,15 +661,21 @@ public final class Choreographer {
                         + ((frameTimeNanos - mLastFrameTimeNanos) * 0.000001f) + " ms");
             }
 
+            // 原本计划的绘帧时间点
             long intendedFrameTimeNanos = frameTimeNanos;
+            // 当前时间
             startNanos = System.nanoTime();
+            // 抖动间隔
             final long jitterNanos = startNanos - frameTimeNanos;
-            if (jitterNanos >= mFrameIntervalNanos) {
+            // 抖动间隔大于屏幕刷新时间间隔（16ms）
+            if (jitterNanos >= mFrameIntervalNanos) {// mFrameIntervalNanos = 16.7ms
                 final long skippedFrames = jitterNanos / mFrameIntervalNanos;
+                // 当掉帧个数超过30，则输出相应log
                 if (skippedFrames >= SKIPPED_FRAME_WARNING_LIMIT) {
                     Log.i(TAG, "Skipped " + skippedFrames + " frames!  "
                             + "The application may be doing too much work on its main thread.");
                 }
+                // 最后一次的屏幕刷是lastFrameOffset之前开始的
                 final long lastFrameOffset = jitterNanos % mFrameIntervalNanos;
                 if (DEBUG_JANK) {
                     Log.d(TAG, "Missed vsync by " + (jitterNanos * 0.000001f) + " ms "
@@ -657,9 +684,11 @@ public final class Choreographer {
                             + "Skipping " + skippedFrames + " frames and setting frame "
                             + "time to " + (lastFrameOffset * 0.000001f) + " ms in the past.");
                 }
+                // 最后一帧的刷新开始时间
                 frameTimeNanos = startNanos - lastFrameOffset;
             }
 
+            // 由于跳帧可能造成了当前展现的是之前的帧，这样需要等待下一个vsync信号
             if (frameTimeNanos < mLastFrameTimeNanos) {
                 if (DEBUG_JANK) {
                     Log.d(TAG, "Frame time appears to be going backwards.  May be due to a "
@@ -678,10 +707,13 @@ public final class Choreographer {
             }
 
             mFrameInfo.setVsync(intendedFrameTimeNanos, frameTimeNanos);
+            // 执行doFrame设置为false
             mFrameScheduled = false;
+            // 更新最后一帧的刷新时间
             mLastFrameTimeNanos = frameTimeNanos;
         }
 
+        // 按照优先级策略进行画面刷新时间处理
         try {
             Trace.traceBegin(Trace.TRACE_TAG_VIEW, "Choreographer#doFrame");
             AnimationUtils.lockAnimationClock(frameTimeNanos / TimeUtils.NANOS_PER_MS);
@@ -689,7 +721,9 @@ public final class Choreographer {
             mFrameInfo.markInputHandlingStart();
             doCallbacks(Choreographer.CALLBACK_INPUT, frameTimeNanos);
 
+            // 标记动画开始时间
             mFrameInfo.markAnimationsStart();
+            // 执行回调方法
             doCallbacks(Choreographer.CALLBACK_ANIMATION, frameTimeNanos);
 
             mFrameInfo.markPerformTraversalsStart();
@@ -716,9 +750,10 @@ public final class Choreographer {
             // for earlier processing phases in a frame to post callbacks that should run
             // in a following phase, such as an input event that causes an animation to start.
             final long now = System.nanoTime();
+            // 从队列查找相应类型的CallbackRecord对象
             callbacks = mCallbackQueues[callbackType].extractDueCallbacksLocked(
                     now / TimeUtils.NANOS_PER_MS);
-            if (callbacks == null) {
+            if (callbacks == null) {// 当队列为空，则直接返回
                 return;
             }
             mCallbacksRunning = true;
@@ -734,6 +769,7 @@ public final class Choreographer {
             if (callbackType == Choreographer.CALLBACK_COMMIT) {
                 final long jitterNanos = now - frameTimeNanos;
                 Trace.traceCounter(Trace.TRACE_TAG_VIEW, "jitterNanos", (int) jitterNanos);
+                // 当commit类型回调执行的时间点超过2帧，则更新mLastFrameTimeNanos。
                 if (jitterNanos >= 2 * mFrameIntervalNanos) {
                     final long lastFrameOffset = jitterNanos % mFrameIntervalNanos
                             + mFrameIntervalNanos;
@@ -758,6 +794,7 @@ public final class Choreographer {
                             + ", action=" + c.action + ", token=" + c.token
                             + ", latencyMillis=" + (SystemClock.uptimeMillis() - c.dueTime));
                 }
+                // 循环遍历，回调所有的任务
                 c.run(frameTimeNanos);
             }
         } finally {
@@ -773,6 +810,7 @@ public final class Choreographer {
         }
     }
 
+    // 等待vsync信号
     void doScheduleVsync() {
         synchronized (mLock) {
             if (mFrameScheduled) {
@@ -781,10 +819,12 @@ public final class Choreographer {
         }
     }
 
+    // 执行任务回调
     void doScheduleCallback(int callbackType) {
         synchronized (mLock) {
             if (!mFrameScheduled) {
                 final long now = SystemClock.uptimeMillis();
+                // 有能执行的任务
                 if (mCallbackQueues[callbackType].hasDueCallbacksLocked(now)) {
                     scheduleFrameLocked(now);
                 }
@@ -792,14 +832,23 @@ public final class Choreographer {
         }
     }
 
+    // 当运行在Looper线程，则立刻调度vsync
     private void scheduleVsyncLocked() {
         mDisplayEventReceiver.scheduleVsync();
     }
 
+    // 检测当前的Looper线程是不是主线程
     private boolean isRunningOnLooperThreadLocked() {
         return Looper.myLooper() == mLooper;
     }
 
+    /**
+     * @param dueTime 任务开始时间
+     * @param action  任务
+     * @param token   标识
+     *
+     * @return
+     */
     private CallbackRecord obtainCallbackLocked(long dueTime, Object action, Object token) {
         CallbackRecord callback = mCallbackPool;
         if (callback == null) {
@@ -814,6 +863,7 @@ public final class Choreographer {
         return callback;
     }
 
+    // 回收回调任务资源
     private void recycleCallbackLocked(CallbackRecord callback) {
         callback.action = null;
         callback.token = null;
@@ -861,12 +911,15 @@ public final class Choreographer {
         public void handleMessage(Message msg) {
             switch (msg.what) {
                 case MSG_DO_FRAME:
+                    // 刷新当前这一帧
                     doFrame(System.nanoTime(), 0);
                     break;
                 case MSG_DO_SCHEDULE_VSYNC:
+                    // 做VSYNC的信号同步
                     doScheduleVsync();
                     break;
                 case MSG_DO_SCHEDULE_CALLBACK:
+                    // 将当前任务加入执行队列
                     doScheduleCallback(msg.arg1);
                     break;
             }
@@ -924,14 +977,17 @@ public final class Choreographer {
 
             mTimestampNanos = timestampNanos;
             mFrame = frame;
+            // 该消息的callback为当前对象FrameDisplayEventReceiver
             Message msg = Message.obtain(mHandler, this);
             msg.setAsynchronous(true);
+            // 此处mHandler为FrameHandler
             mHandler.sendMessageAtTime(msg, timestampNanos / TimeUtils.NANOS_PER_MS);
         }
 
         @Override
         public void run() {
             mHavePendingVsync = false;
+            // DisplayEventReceiver消息处理
             doFrame(mTimestampNanos, mFrame);
         }
     }
@@ -952,6 +1008,8 @@ public final class Choreographer {
     }
 
     private final class CallbackQueue {
+
+        // 单链表结构
         private CallbackRecord mHead;
 
         public boolean hasDueCallbacksLocked(long now) {
@@ -960,21 +1018,26 @@ public final class Choreographer {
 
         public CallbackRecord extractDueCallbacksLocked(long now) {
             CallbackRecord callbacks = mHead;
+            // 头结点是空或者头节点的执行时间大于现在的时间，没有需要执行的任务
             if (callbacks == null || callbacks.dueTime > now) {
                 return null;
             }
-
+            // 执行到这里，说明链表的头节点执行时间小于等于现在的时间
             CallbackRecord last = callbacks;
             CallbackRecord next = last.next;
             while (next != null) {
+                // 如果下一个节点的执行时间比现在晚，则断开链表
                 if (next.dueTime > now) {
-                    last.next = null;
+                    last.next = null;// 断开链表
                     break;
                 }
+                // 否则继续找下一个CallbackRecord
                 last = next;
                 next = next.next;
             }
+            // 将头节点指向链表的下一个节点
             mHead = next;
+            // 返回需要执行的CallbackRecord
             return callbacks;
         }
 

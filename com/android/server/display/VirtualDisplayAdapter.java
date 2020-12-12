@@ -187,6 +187,7 @@ public class VirtualDisplayAdapter extends DisplayAdapter {
         private static final int PENDING_SURFACE_CHANGE = 0x01;
         private static final int PENDING_RESIZE = 0x02;
 
+        // 刷新频率60帧，每帧16.7ms
         private static final float REFRESH_RATE = 60.0f;
 
         private final IBinder mAppToken;
