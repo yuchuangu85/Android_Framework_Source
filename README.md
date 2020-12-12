@@ -1,6 +1,6 @@
 # Android Framework源码
 
-基于Android 28版本的framework源码，添加了详细注释。
+> 基于Android 29 版本的framework源码，添加了详细注释。
 
 ## 更新时间：
 2019-07-04
@@ -18,6 +18,7 @@
 * [Android系统源码分析--View绘制流程之-inflate](http://codemx.cn/2018/11/20/AndroidOS013-View-inflate/)
 
 ## 参考文章
+
 * [一篇文章看明白 Android 系统启动时都干了什么](https://blog.csdn.net/freekiteyu/article/details/79175010)
 * [一篇文章了解相见恨晚的 Android Binder 进程间通讯机制](https://blog.csdn.net/freekiteyu/article/details/70082302)
 * [一篇文章看明白 Android 从点击应用图标到界面显示的过程](https://blog.csdn.net/freekiteyu/article/details/79318031)
@@ -27,12 +28,5 @@
 * [一篇文章看明白 Android v1 & v2 签名机制](https://blog.csdn.net/freekiteyu/article/details/84849651)
 
 
-## 流程图：
-<img src="/source/images/Android/AndroidOS.png" width="" height="" alt="Android系统结构"/>
-<img src="/source/images/Android/Zygote.jpg" width="" height="" alt="Zygote启动流程"/>
-<img src="/source/images/Android/SystemServer.jpg" width="" height="" alt="System Server启动流程"/>
-<img src="/source/images/Android/Context.jpg" width="" height="" alt="Context结构"/>
-<img src="/source/images/Android/HandlerMsgLooper.jpg" width="" height="" alt="Handler-Msg-Looper"/>
-<img src="/source/images/Android/registerReceiver.jpg" width="" height="" alt="广播"/>
 
 
