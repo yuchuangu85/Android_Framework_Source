@@ -10,8 +10,6 @@
 
 [分支及版本详细信息](./Branch.md)
 
-
-
 ##  博客：
 
 * [Android系统源码分析--消息循环机制](http://codemx.cn/2017/07/13/AndroidOS004-HandleMessageLooper/)

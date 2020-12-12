@@ -24,13 +24,19 @@
 
 ### master(28)
 
-* Choreographer（有关帧率）注释
 * Activity
 * Service
 * Broadcast
 * ContentProvider
 * View
-* 
+* Handler-Message-Looper
+* Process
+* IntentService
+* LocalBroadcastManager
+* AsyncTask
+* WindowManager
+* Inflate
+* Choreographer（有关帧率）注释
 
 ### android_30
 
@@ -49,6 +55,13 @@
 * Broadcast
 * ContentProvider
 * View
+* Handler-Message-Looper
+* Process
+* IntentService
+* LocalBroadcastManager
+* AsyncTask
+* WindowManager
+* Inflate
 
 ### android_24
 
