@@ -1,6 +1,6 @@
-# Android-25 Framework源码
+# Android Framework源码
 
-基于Android 25版本的framework源码，添加了详细注释。
+> 基于Android 26 版本的framework源码，添加了详细注释。
 
 ### 更新时间：
 
@@ -40,11 +40,11 @@
 
 ----
 
-<img src="/source/images/AndroidOS.png" width="" height="" alt="Android系统结构"/>
-<img src="/source/images/Zygote.jpg" width="" height="" alt="Zygote启动流程"/>
-<img src="/source/images/SystemServer.jpg" width="" height="" alt="System Server启动流程"/>
-<img src="/source/images/Context.jpg" width="" height="" alt="Context结构"/>
-<img src="/source/images/HandlerMsgLooper.jpg" width="" height="" alt="Handler-Msg-Looper"/>
-<img src="/source/images/registerReceiver.jpg" width="" height="" alt="广播"/>
+<img src="./source/images/AndroidOS.png" width="" height="" alt="Android系统结构"/>
+<img src="./source/images/Zygote.jpg" width="" height="" alt="Zygote启动流程"/>
+<img src="./source/images/SystemServer.jpg" width="" height="" alt="System Server启动流程"/>
+<img src="./source/images/Context.jpg" width="" height="" alt="Context结构"/>
+<img src="./source/images/HandlerMsgLooper.jpg" width="" height="" alt="Handler-Msg-Looper"/>
+<img src="./source/images/registerReceiver.jpg" width="" height="" alt="广播"/>
 
 
