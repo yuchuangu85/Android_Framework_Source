@@ -1,11 +1,19 @@
 # Android Framework源码
 
-基于Android 28版本的framework源码，添加了详细注释。
+> 基于Android 28版本的framework源码，添加了详细注释。
 
 ## 更新时间：
-2019-07-04
+
+2020-12-12
+
+## 各分支对应版本和注释内容请查看：
+
+[分支及版本详细信息](./Branch.md)
+
+
 
 ##  博客：
+
 * [Android系统源码分析--消息循环机制](http://codemx.cn/2017/07/13/AndroidOS004-HandleMessageLooper/)
 * [Android系统源码分析--Process启动过程](http://codemx.cn/2017/09/13/AndroidOS005-Process/)
 * [Android系统源码分析--Broadcast注册和注销](http://codemx.cn/2017/12/21/AndroidOS006-Broadcast1/)
@@ -28,11 +36,11 @@
 
 
 ## 流程图：
-<img src="/source/images/Android/AndroidOS.png" width="" height="" alt="Android系统结构"/>
-<img src="/source/images/Android/Zygote.jpg" width="" height="" alt="Zygote启动流程"/>
-<img src="/source/images/Android/SystemServer.jpg" width="" height="" alt="System Server启动流程"/>
-<img src="/source/images/Android/Context.jpg" width="" height="" alt="Context结构"/>
-<img src="/source/images/Android/HandlerMsgLooper.jpg" width="" height="" alt="Handler-Msg-Looper"/>
-<img src="/source/images/Android/registerReceiver.jpg" width="" height="" alt="广播"/>
+<img src="./source/images/Android/AndroidOS.png" width="" height="" alt="Android系统结构"/>
+<img src="./source/images/Android/Zygote.jpg" width="" height="" alt="Zygote启动流程"/>
+<img src="./source/images/Android/SystemServer.jpg" width="" height="" alt="System Server启动流程"/>
+<img src="./source/images/Android/Context.jpg" width="" height="" alt="Context结构"/>
+<img src="./source/images/Android/HandlerMsgLooper.jpg" width="" height="" alt="Handler-Msg-Looper"/>
+<img src="./source/images/Android/registerReceiver.jpg" width="" height="" alt="广播"/>
 
 
