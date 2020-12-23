@@ -168,6 +168,7 @@ public final class Looper {
             }
 
             // This must be in a local variable, in case a UI event sets the logger
+            // 可以在Message中设置Printer，用来跟踪Message的执行时间
             final Printer logging = me.mLogging;
             if (logging != null) {
                 logging.println(">>>>> Dispatching to " + msg.target + " " +
