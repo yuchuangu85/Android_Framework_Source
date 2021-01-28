@@ -20888,7 +20888,7 @@ public class ActivityManagerService extends IActivityManager.Stub
             }
 
             // 获取注册广播的用户的userId（UserController是多用户功能的用户管理）
-			
+			instantApp = isInstantApp(callerApp, callerPackage, callingUid);
             userId = mUserController.handleIncomingUser(callingPid, callingUid, userId, true,
                     ALLOW_FULL_ONLY, "registerReceiver", callerPackage);
 
