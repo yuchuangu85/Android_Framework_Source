@@ -2887,7 +2887,8 @@ public final class ActivityThread extends ClientTransactionHandler {
                     r.mPendingRemoveWindowManager = null;
                 }
                 // 使用ContextImpl对象appContext和ActivityClientRecord对象r来初始化Activity对象activity
-                activity.attach(appContext, this, getInstrumentation(), r.token,
+                appContext.setOuterContext(activity);
+				activity.attach(appContext, this, getInstrumentation(), r.token,
                         r.ident, app, r.intent, r.activityInfo, title, r.parent,
                         r.embeddedID, r.lastNonConfigurationInstances, config,
                         r.referrer, r.voiceInteractor, window, r.configCallback);
@@ -3063,6 +3064,7 @@ public final class ActivityThread extends ClientTransactionHandler {
 
         // Initialize before creating the activity
         // 初始化WMS
+		if (!ThreadedRenderer.sRendererDisabled) {
             GraphicsEnvironment.earlyInitEGL();
         }
         WindowManagerGlobal.initialize();
@@ -3145,9 +3147,10 @@ public final class ActivityThread extends ClientTransactionHandler {
             mInstrumentation.callActivityOnPause(r.activity);
         }
         // 调用onNewIntent方法
+		checkAndBlockForNetworkAccess();
         deliverNewIntents(r, intents);
         if (resumed) {// 如果没有暂停再调用onResume方法
-            r.activity.performResume();
+            r.activity.performResume(false, "performNewIntents");
             r.activity.mTemporaryPause = false;
         }
 

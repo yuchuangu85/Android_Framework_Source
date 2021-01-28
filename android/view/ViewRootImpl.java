@@ -2052,6 +2052,7 @@ public final class ViewRootImpl implements ViewParent,
         final int surfaceGenerationId = mSurface.getGenerationId();
 
         final boolean isViewVisible = viewVisibility == View.VISIBLE;
+		final boolean windowRelayoutWasForced = mForceNextWindowRelayout;
         // 这里是需要测量的条件：第一次加载View，需要调整窗口大小，需要适应系统窗口，视图显示状态改变，
         // 视图布局参数不为空，强制窗口重新布局。首先需要满足这个几个条件之一才可能执行测量
         if (mFirst || windowShouldResize || insetsChanged ||
@@ -3228,7 +3229,7 @@ public final class ViewRootImpl implements ViewParent,
         }
 
         // 是否需要完整绘制
-        final boolean fullRedrawNeeded = mFullRedrawNeeded;
+        final boolean fullRedrawNeeded = mFullRedrawNeeded || mReportNextDraw;
         mFullRedrawNeeded = false;
 
         mIsDrawing = true;
@@ -3460,7 +3461,7 @@ public final class ViewRootImpl implements ViewParent,
 
                     try {
                         // 初始化硬件加速可用
-                        mAttachInfo.mHardwareRenderer.initializeIfNeeded(
+                        mAttachInfo.mThreadedRenderer.initializeIfNeeded(
                                 mWidth, mHeight, mAttachInfo, mSurface, surfaceInsets);
                     } catch (OutOfResourcesException e) {
                         handleOutOfResourcesException(e);
@@ -7236,6 +7237,7 @@ public final class ViewRootImpl implements ViewParent,
 
         if (stage != null) {
             // 分发输入事件
+			handleWindowFocusChanged();
             stage.deliver(q);
         } else {
             finishInputEvent(q);
@@ -7338,7 +7340,7 @@ public final class ViewRootImpl implements ViewParent,
         }
 
         @Override
-        public void onInputEvent(InputEvent event) {
+        public void onInputEvent(InputEvent event, int displayId) {
             // 队列处理输入事件
             enqueueInputEvent(event, this, 0, true);
         }

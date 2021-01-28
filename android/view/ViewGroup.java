@@ -4153,7 +4153,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         if (clipToPadding) {
             // 如果设置了CLIP_TO_PADDING_MASK，则子View绘制的区域只能在它控制范围内
             // 如果没有设置，则可以画出超过它范围内的区域，调用setClipChildren就不走这里了
-            clipSaveCount = canvas.save();
+            clipSaveCount = canvas.save(Canvas.CLIP_SAVE_FLAG);
             canvas.clipRect(mScrollX + mPaddingLeft, mScrollY + mPaddingTop,
                     mScrollX + mRight - mLeft - mPaddingRight,
                     mScrollY + mBottom - mTop - mPaddingBottom);

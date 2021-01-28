@@ -951,8 +951,9 @@ public class ActivityManager {
     public static boolean isSmallBatteryDevice() {
         return RoSystemProperties.CONFIG_SMALL_BATTERY;
     }
-     * Gfx:图形核心
+
     /**
+     *  Gfx:图形核心
      * Used by persistent processes to determine if they are running on a
      * higher-end（高端） device so should be okay using hardware drawing acceleration
      * (which tends to consume a lot more RAM).

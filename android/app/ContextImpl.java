@@ -1503,6 +1503,12 @@ class ContextImpl extends Context {
      */
     @Override
     public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter,
+            int flags) {
+        return registerReceiver(receiver, filter, null, null, flags);
+    }
+
+    @Override
+    public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter,
             String broadcastPermission, Handler scheduler) {
         return registerReceiverInternal(receiver, getUserId(),
                 filter, broadcastPermission, scheduler, getOuterContext(), 0);

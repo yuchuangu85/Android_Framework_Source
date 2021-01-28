@@ -7079,7 +7079,7 @@ public class Activity extends ContextThemeWrapper
         mFragments.attachHost(null /*parent*/);
 
         // 初始化PhoneWindow对象（可以看到每一个Activity都有一个PhoneWindow）
-        mWindow = new PhoneWindow(this, window);
+        mWindow = new PhoneWindow(this, window, activityConfigCallback);
         mWindow.setWindowControllerCallback(this);
         mWindow.setCallback(this);
         mWindow.setOnWindowDismissedCallback(this);
