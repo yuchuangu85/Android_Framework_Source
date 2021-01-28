@@ -16,101 +16,27 @@
 
 package com.android.server.am;
 
-import static android.app.Activity.RESULT_CANCELED;
-import static android.app.ActivityManager.START_ABORTED;
-import static android.app.ActivityManager.START_CANCELED;
-import static android.app.ActivityManager.START_CLASS_NOT_FOUND;
-import static android.app.ActivityManager.START_DELIVERED_TO_TOP;
-import static android.app.ActivityManager.START_FLAG_ONLY_IF_NEEDED;
-import static android.app.ActivityManager.START_RETURN_INTENT_TO_CALLER;
-import static android.app.ActivityManager.START_RETURN_LOCK_TASK_MODE_VIOLATION;
-import static android.app.ActivityManager.START_SUCCESS;
-import static android.app.ActivityManager.START_TASK_TO_FRONT;
-import static android.app.WindowConfiguration.WINDOWING_MODE_FREEFORM;
-import static android.app.WindowConfiguration.WINDOWING_MODE_FULLSCREEN;
-import static android.app.WindowConfiguration.WINDOWING_MODE_PINNED;
-import static android.app.WindowConfiguration.WINDOWING_MODE_SPLIT_SCREEN_PRIMARY;
-import static android.app.WindowConfiguration.WINDOWING_MODE_SPLIT_SCREEN_SECONDARY;
-import static android.app.WindowConfiguration.WINDOWING_MODE_UNDEFINED;
-import static android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK;
-import static android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP;
-import static android.content.Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT;
-import static android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK;
-import static android.content.Intent.FLAG_ACTIVITY_NEW_DOCUMENT;
-import static android.content.Intent.FLAG_ACTIVITY_NEW_TASK;
-import static android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION;
-import static android.content.Intent.FLAG_ACTIVITY_NO_USER_ACTION;
-import static android.content.Intent.FLAG_ACTIVITY_PREVIOUS_IS_TOP;
-import static android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT;
-import static android.content.Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED;
-import static android.content.Intent.FLAG_ACTIVITY_RETAIN_IN_RECENTS;
-import static android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP;
-import static android.content.pm.ActivityInfo.DOCUMENT_LAUNCH_ALWAYS;
-import static android.content.pm.ActivityInfo.LAUNCH_MULTIPLE;
-import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_INSTANCE;
-import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TASK;
-import static android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP;
-import static android.view.Display.DEFAULT_DISPLAY;
-import static android.view.Display.INVALID_DISPLAY;
-import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_CONFIGURATION;
-import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_FOCUS;
-import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_PERMISSIONS_REVIEW;
-import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_RESULTS;
-import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_STACK;
-import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_TASKS;
-import static com.android.server.am.ActivityManagerDebugConfig.DEBUG_USER_LEAVING;
-import static com.android.server.am.ActivityManagerDebugConfig.POSTFIX_CONFIGURATION;
-import static com.android.server.am.ActivityManagerDebugConfig.POSTFIX_FOCUS;
-import static com.android.server.am.ActivityManagerDebugConfig.POSTFIX_RESULTS;
-import static com.android.server.am.ActivityManagerDebugConfig.POSTFIX_USER_LEAVING;
-import static com.android.server.am.ActivityManagerDebugConfig.TAG_AM;
-import static com.android.server.am.ActivityManagerDebugConfig.TAG_WITH_CLASS_NAME;
-import static com.android.server.am.ActivityManagerService.ANIMATE;
-import static com.android.server.am.ActivityStack.ActivityState.RESUMED;
-import static com.android.server.am.ActivityStackSupervisor.DEFER_RESUME;
-import static com.android.server.am.ActivityStackSupervisor.ON_TOP;
-import static com.android.server.am.ActivityStackSupervisor.PRESERVE_WINDOWS;
-import static com.android.server.am.ActivityStackSupervisor.TAG_TASKS;
-import static com.android.server.am.EventLogTags.AM_NEW_INTENT;
-import static com.android.server.am.TaskRecord.REPARENT_KEEP_STACK_AT_FRONT;
-import static com.android.server.am.TaskRecord.REPARENT_MOVE_STACK_TO_FRONT;
-
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.app.ActivityManager;
-import android.app.ActivityOptions;
-import android.app.IApplicationThread;
-import android.app.PendingIntent;
-import android.app.ProfilerInfo;
-import android.app.WaitResult;
+import android.app.*;
 import android.content.IIntentSender;
 import android.content.Intent;
 import android.content.IntentSender;
-import android.content.pm.ActivityInfo;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.AuxiliaryResolveInfo;
-import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
-import android.content.pm.UserInfo;
+import android.content.pm.*;
 import android.content.res.Configuration;
 import android.graphics.Rect;
-import android.os.Binder;
-import android.os.Bundle;
-import android.os.IBinder;
-import android.os.RemoteException;
-import android.os.SystemClock;
-import android.os.UserHandle;
-import android.os.UserManager;
+import android.os.*;
 import android.service.voice.IVoiceInteractionSession;
 import android.text.TextUtils;
 import android.util.EventLog;
+import android.util.EventLogTags;
 import android.util.Pools.SynchronizedPool;
 import android.util.Slog;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.HeavyWeightSwitcherActivity;
 import com.android.internal.app.IVoiceInteractor;
-import com.android.server.am.ActivityStackSupervisor.PendingActivityLaunch;
+import com.android.server.am.ActivityStackSupervisor.*;
 import com.android.server.am.LaunchParamsController.LaunchParams;
 import com.android.server.pm.InstantAppResolver;
 
@@ -118,8 +44,23 @@ import java.io.PrintWriter;
 import java.text.DateFormat;
 import java.util.Date;
 
+import static android.app.Activity.RESULT_CANCELED;
+import static android.app.ActivityManager.*;
+import static android.app.WindowConfiguration.*;
+import static android.content.Intent.*;
+import static android.content.pm.ActivityInfo.*;
+import static android.view.Display.DEFAULT_DISPLAY;
+import static android.view.Display.INVALID_DISPLAY;
+import static com.android.server.am.ActivityManagerDebugConfig.*;
+import static com.android.server.am.ActivityManagerService.ANIMATE;
+import static com.android.server.am.ActivityStack.ActivityState.RESUMED;
+import static com.android.server.am.ActivityStackSupervisor.*;
+import static com.android.server.am.EventLogTags.AM_NEW_INTENT;
+import static com.android.server.am.TaskRecord.REPARENT_KEEP_STACK_AT_FRONT;
+import static com.android.server.am.TaskRecord.REPARENT_MOVE_STACK_TO_FRONT;
+
 /**
- * Controller for interpreting how and then launching an activity.
+ * Controller for interpreting（说明） how and then launching an activity.
  *
  * This class collects all the logic for determining how an intent and flags should be turned into
  * an activity and associated task and stack.
@@ -222,6 +163,7 @@ class ActivityStarter {
 
     /**
      * Default implementation of {@link StarterFactory}.
+     * 创建ActivityStarter的工厂
      */
     static class DefaultFactory implements Factory {
         /**

@@ -52,10 +52,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Controller for delegating activity launches.
+ * Controller for delegating(授权) activity launches.
  *
  * This class' main objective is to take external activity start requests and prepare them into
- * a series of discrete activity launches that can be handled by an {@link ActivityStarter}. It is
+ * a series of discrete（分离的） activity launches that can be handled by an {@link ActivityStarter}. It is
  * also responsible for handling logic that happens around an activity launch, but doesn't
  * necessarily influence the activity start. Examples include power hint management, processing
  * through the pending activity list, and recording home activity launches.
