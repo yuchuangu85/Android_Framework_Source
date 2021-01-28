@@ -15158,7 +15158,7 @@ public class ActivityManagerService extends IActivityManager.Stub
                     goingCallback.run();
                 }
                 return;
-            }onNestedPreScroll
+            }
 
             mHasHeavyWeightFeature = mContext.getPackageManager().hasSystemFeature(
                     PackageManager.FEATURE_CANT_SAVE_STATE);
@@ -20888,6 +20888,7 @@ public class ActivityManagerService extends IActivityManager.Stub
             }
 
             // 获取注册广播的用户的userId（UserController是多用户功能的用户管理）
+			
             userId = mUserController.handleIncomingUser(callingPid, callingUid, userId, true,
                     ALLOW_FULL_ONLY, "registerReceiver", callerPackage);
 
@@ -21590,7 +21591,7 @@ public class ActivityManagerService extends IActivityManager.Stub
                             break;
                     }
                     break;
-                case Intent.ACTION_PACKAGE_REPLACED: {// 升级应用
+                case Intent.ACTION_PACKAGE_REPLACED: // 升级应用
                 {
                     final Uri data = intent.getData();
                     final String ssp;
@@ -21866,7 +21867,8 @@ public class ActivityManagerService extends IActivityManager.Stub
                     resultCode, resultData, resultExtras, ordered, sticky, false, userId);
             if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST, "Enqueueing parallel broadcast " + r);
             // 在BroadcastQueue中等待发送广播中搜索是否有相同的BroadcastRecord并且是否替换
-                    && (queue.replaceParallelBroadcastLocked(r) != null);
+            final boolean replaced = replacePending
+			        && (queue.replaceParallelBroadcastLocked(r) != null);
             // Note: We assume resultTo is null for non-ordered broadcasts.
             if (!replaced) {
                 // 如果不需要替换则插入到BroadcastQueue中，并推动一次广播发送

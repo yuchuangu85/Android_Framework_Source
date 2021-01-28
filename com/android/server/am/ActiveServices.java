@@ -552,7 +552,7 @@ public final class ActiveServices {
         final ServiceMap smap = getServiceMapLocked(r.userId);
         boolean addToStarting = false;
         // 如果是非前台（后台）进程调用
-        if (!callerFg && r.app == null
+        if (!callerFg && !fgRequired && r.app == null
                 && mAm.mUserController.hasStartedUserState(r.userId)) {
             // 获取启动服务所在进程
             ProcessRecord proc = mAm.getProcessRecordLocked(r.processName, r.appInfo.uid, false);
