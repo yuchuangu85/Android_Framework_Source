@@ -16,42 +16,23 @@
 
 package com.android.server.am;
 
-import android.content.pm.IPackageManager;
-import android.content.pm.PermissionInfo;
-import android.os.Trace;
+import android.app.*;
+import android.content.*;
+import android.content.pm.*;
+import android.os.Process;
+import android.os.*;
+import android.util.EventLog;
+import android.util.EventLogTags;
+import android.util.Slog;
+import android.util.TimeUtils;
+import android.util.proto.ProtoOutputStream;
+
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Set;
-
-import android.app.ActivityManager;
-import android.app.AppGlobals;
-import android.app.AppOpsManager;
-import android.app.BroadcastOptions;
-import android.app.PendingIntent;
-import android.content.ComponentName;
-import android.content.IIntentReceiver;
-import android.content.IIntentSender;
-import android.content.Intent;
-import android.content.IntentSender;
-import android.content.pm.ActivityInfo;
-import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
-import android.os.Bundle;
-import android.os.Handler;
-import android.os.IBinder;
-import android.os.Looper;
-import android.os.Message;
-import android.os.Process;
-import android.os.RemoteException;
-import android.os.SystemClock;
-import android.os.UserHandle;
-import android.util.EventLog;
-import android.util.Slog;
-import android.util.TimeUtils;
-import android.util.proto.ProtoOutputStream;
 
 import static com.android.server.am.ActivityManagerDebugConfig.*;
 
@@ -949,12 +930,12 @@ public final class BroadcastQueue {
         // If we are waiting for a process to come up to handle the next
         // broadcast, then do nothing at this point.  Just in case, we
         // check that the process we're waiting for still exists.
-            // 接下来处理保存在有序广播调度队列mPendingBroadcast中的广播转发任务。有前面可知，有序广播
-            // 调度队列mOrderedBroadcast描述的目标广播接收者有可能是静态注册的，而这些静态注册的目标广
-            // 播接收者可能还没有启动起来，因此AMS将一个广播发送给它们处理时，首先将它们启动起来。事实上，
-            // AMS只需要将他们所运行在的进程启动起来就可以了，因为当这些进程接收到AMS发送的广播后，就会
-            // 主动将目标广播接收者启动起来
-            // mPendingBroadcast对象是用来描述一个正在等待静态注册的目标广播接收者启动起来的广播转发任务的
+        // 接下来处理保存在有序广播调度队列mPendingBroadcast中的广播转发任务。有前面可知，有序广播
+        // 调度队列mOrderedBroadcast描述的目标广播接收者有可能是静态注册的，而这些静态注册的目标广
+        // 播接收者可能还没有启动起来，因此AMS将一个广播发送给它们处理时，首先将它们启动起来。事实上，
+        // AMS只需要将他们所运行在的进程启动起来就可以了，因为当这些进程接收到AMS发送的广播后，就会
+        // 主动将目标广播接收者启动起来
+        // mPendingBroadcast对象是用来描述一个正在等待静态注册的目标广播接收者启动起来的广播转发任务的
         if (mPendingBroadcast != null) {
             if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST,
                     "processNextBroadcast [" + mQueueName + "]: waiting for "

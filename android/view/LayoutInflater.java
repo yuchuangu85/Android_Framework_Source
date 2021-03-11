@@ -869,7 +869,7 @@ public abstract class LayoutInflater {
                 }
                 parseInclude(parser, context, parent, attrs);
             } else if (TAG_MERGE.equals(name)) { // merge
-		// merge必须是根标签
+		        // merge必须是根标签
                 throw new InflateException("<merge /> must be the root element");
             } else {// 正常View
                 final View view = createViewFromTag(parent, name, context, attrs);
