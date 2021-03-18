@@ -287,6 +287,7 @@ public abstract class Window {
     private Window mActiveChild;
     private boolean mIsActive = false;
     private boolean mHasChildren = false;
+    // 是否设置了触摸视图之外区域关闭该视图
     private boolean mCloseOnTouchOutside = false;
     private boolean mSetCloseOnTouchOutside = false;
     private int mForcedWindowFlags = 0;
@@ -1265,7 +1266,7 @@ public abstract class Window {
         final boolean isOutside =
                 event.getAction() == MotionEvent.ACTION_DOWN && isOutOfBounds(context, event)
                 || event.getAction() == MotionEvent.ACTION_OUTSIDE;// 当前View之外
-        // 设置触摸外面关闭，并且Activity的DecorView存在，并且满足上面的事件，返回true，关闭触摸事件
+        // 设置触摸视图之外区域关闭该视图，并且Activity的DecorView存在，并且满足上面的事件，返回true，关闭触摸事件
         if (mCloseOnTouchOutside && peekDecorView() != null && isOutside) {
             return true;
         }

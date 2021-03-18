@@ -12256,7 +12256,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         }
 
         final int actionMasked = event.getActionMasked();
-        if (actionMasked == MotionEvent.ACTION_DOWN) {
+        if (actionMasked == MotionEvent.ACTION_DOWN) {// down事件停止滚动
             // Defensive cleanup for new gesture
             stopNestedScroll();
         }

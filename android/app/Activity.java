@@ -3146,6 +3146,7 @@ public class Activity extends ContextThemeWrapper
      * The default implementation always returns false.
      */
     public boolean onTouchEvent(MotionEvent event) {
+        // 判断是否触摸视图之外区域关闭视图（Dialog等）
         if (mWindow.shouldCloseOnTouch(this, event)) {
             finish();
             return true;
@@ -3401,17 +3402,19 @@ public class Activity extends ContextThemeWrapper
      * @return boolean Return true if this event was consumed.
 	 *
 	 * 参考
-	 * http://navyblue.top/2018/05/19/从源码角度看Android触摸事件分发/
+	 *
      */
     public boolean dispatchTouchEvent(MotionEvent ev) {
         if (ev.getAction() == MotionEvent.ACTION_DOWN) {
-            onUserInteraction();
+            onUserInteraction();// 空方法，可以复写来获取通过什么方式在和设备进行交互
         }
         // getWindow()获取的是PhoneWindow，如果返回true则不走下面的onTouchEvent事件
         // PhoneWindow.superDispatchTouchEvent会调用ViewGroup的dispatchTouchEvent事件，也就是下发
         if (getWindow().superDispatchTouchEvent(ev)) {
             return true;
         }
+        // 如果没有任何子View消费事件，则返回给Activity(自己)的onTouchEvent
+        // 如果是触摸视图外区域关闭该视图则返回true（消费该事件），否则返回false--Dialog
         return onTouchEvent(ev);
     }
 
