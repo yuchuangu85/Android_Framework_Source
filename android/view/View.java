@@ -13570,6 +13570,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                             setPressed(true, x, y);
                         }
 
+                        // 执行长按后mHasPerformedLongPress置为true
                         // 还没有执行长按事件并且没有忽略下一个up事件
                         if (!mHasPerformedLongPress && !mIgnoreNextUpEvent) {
                             // This is a tap, so remove the longpress check
@@ -13615,7 +13616,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                     }
                     mHasPerformedLongPress = false;
 
-                    if (!clickable) {// 不可点击
+                    if (!clickable) {// 不可点击，检测长按事件
                         checkForLongClick(0, x, y);
                         break;
                     }
@@ -13638,7 +13639,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
                         mPendingCheckForTap.x = event.getX();
                         mPendingCheckForTap.y = event.getY();
                         postDelayed(mPendingCheckForTap, ViewConfiguration.getTapTimeout());
-                    } else {// 不是滚动容器，马上相应按下状态及长按事件的检查
+                    } else {// 不是滚动容器，马上响应按下状态及长按事件的检查
                         // Not inside a scrolling container, so show the feedback right away
                         setPressed(true, x, y);
                         checkForLongClick(0, x, y);
@@ -24267,6 +24268,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
             mPendingCheckForLongPress.setAnchor(x, y);
             mPendingCheckForLongPress.rememberWindowAttachCount();
             mPendingCheckForLongPress.rememberPressedState();
+            // 默认500毫秒
             postDelayed(mPendingCheckForLongPress,
                     ViewConfiguration.getLongPressTimeout() - delayOffset);
         }
@@ -25833,7 +25835,7 @@ public class View implements Drawable.Callback, KeyEvent.Callback,
         public void run() {
             if ((mOriginalPressedState == isPressed()) && (mParent != null)
                     && mOriginalWindowAttachCount == mWindowAttachCount) {
-                if (performLongClick(mX, mY)) {
+                if (performLongClick(mX, mY)) {// 这里执行了长按事件，则将mHasPerformedLongPress赋值为true
                     mHasPerformedLongPress = true;
                 }
             }
