@@ -710,7 +710,7 @@ public final class ThreadedRenderer {
         // mRootNodeNeedsUpdate true表示要更新视图
         // mRootNode.isValid()  表示已经构建了Display List
         if (mRootNodeNeedsUpdate || !mRootNode.isValid()) {
-            // 获取DisplayListCanvas
+            // 获取DisplayListCanvas（画布）
             DisplayListCanvas canvas = mRootNode.start(mSurfaceWidth, mSurfaceHeight);
             try {
                 // 利用canvas缓存Op

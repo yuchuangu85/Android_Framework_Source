@@ -865,7 +865,7 @@ public final class BroadcastQueue {
         return true;
     }
 
-   // 广播的核心部分，参数fromMsg是用来描述AMS类的成员函数processNextBroadcast是否是用来处理类型为
+    // 广播的核心部分，参数fromMsg是用来描述AMS类的成员函数processNextBroadcast是否是用来处理类型为
     // BROADCAST_INTENT_MSG的消息的
     final void processNextBroadcast(boolean fromMsg) {
         synchronized (mService) {
@@ -912,7 +912,7 @@ public final class BroadcastQueue {
             final int N = r.receivers.size();
             if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST, "Processing parallel broadcast ["
                     + mQueueName + "] " + r);
-                // 将它所描述的每一个无序广播发送给每一个广播接收者
+            // 将它所描述的每一个无序广播发送给每一个广播接收者
             for (int i=0; i<N; i++) {
                 Object target = r.receivers.get(i);
                 if (DEBUG_BROADCAST)  Slog.v(TAG_BROADCAST,
@@ -969,9 +969,9 @@ public final class BroadcastQueue {
 
         boolean looped = false;
 
-            // 逐条处理有序广播列表mOrderedBroadcasts中的BroadcastRecord
+        // 逐条处理有序广播列表mOrderedBroadcasts中的BroadcastRecord
         do {
-                // 判断有序广播调度队列mOrderedBroadcasts是否还有需要处理的广播
+            // 判断有序广播调度队列mOrderedBroadcasts是否还有需要处理的广播
             if (mOrderedBroadcasts.size() == 0) {// 没有，说明调度队列中的广播已经处理完成
                 // No more broadcasts pending, so all done!
                 mService.scheduleAppGcsLocked();
@@ -1015,9 +1015,9 @@ public final class BroadcastQueue {
                             + " numReceivers=" + numReceivers
                             + " nextReceiver=" + r.nextReceiver
                             + " state=" + r.state);
-                        // 出现超时，强制结束
+                    // 出现超时，强制结束
                     broadcastTimeoutLocked(false); // forcibly finish this broadcast
-                        // 重置参数，继续处理有序广播调度队列mOrderedBroadcasts的下一个广播转发任务
+                    // 重置参数，继续处理有序广播调度队列mOrderedBroadcasts的下一个广播转发任务
                     forceReceive = true;
                     r.state = BroadcastRecord.IDLE;
                 }
@@ -1090,12 +1090,12 @@ public final class BroadcastQueue {
 
         // Keep track of when this receiver started, and make sure there
         // is a timeout message pending to kill it if need be.
-            // 保存当前时间，
+        // 保存当前时间，
         r.receiverTime = SystemClock.uptimeMillis();
         if (recIdx == 0) {// 表示第一个开始处理的接收者，也就是BroadcastRecord对象r所描述的广播任务刚被处理
-                // 接收者开始处理的时间戳，也就是这个接收者开始处理了，要记录开始时间来计算是否超过超时时间
-                // 也就是说这是BroadcastRecord中第一个接收者开始被处理的时间戳，也就是上面BroadcastRecord
-                // 超时的起点，可以看到上面超时比较的时候用的就是r.dispatchTime
+            // 接收者开始处理的时间戳，也就是这个接收者开始处理了，要记录开始时间来计算是否超过超时时间
+            // 也就是说这是BroadcastRecord中第一个接收者开始被处理的时间戳，也就是上面BroadcastRecord
+            // 超时的起点，可以看到上面超时比较的时候用的就是r.dispatchTime
             r.dispatchTime = r.receiverTime;
             r.dispatchClockTime = System.currentTimeMillis();
             if (Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
@@ -1109,11 +1109,11 @@ public final class BroadcastQueue {
             if (DEBUG_BROADCAST_LIGHT) Slog.v(TAG_BROADCAST, "Processing ordered broadcast ["
                     + mQueueName + "] " + r);
         }
-            // 检查AMS是否已经向它所在的线程的消息队列发送了类型为BROADCAST_TIMEOUT_MSG的消息，如果没有发送，
-            // 那么会调用setBroadcastTimeoutLocked函数向这个线程发送一个类型为setBroadcastTimeoutLocked
-            // 的消息，并且制定在timeoutTime毫秒后处理。上面指定了r.receiverTime为当前时间表示AMS将一个有序
-            // 广播发送给BroadcastRecord对象r所描述的广播转发任务的下一个目标广播接收者处理的时间。如果这个
-            // 广播接收者不能再timeoutTime之内完成这个有序广播，AMS就会任务它超时。
+        // 检查AMS是否已经向它所在的线程的消息队列发送了类型为BROADCAST_TIMEOUT_MSG的消息，如果没有发送，
+        // 那么会调用setBroadcastTimeoutLocked函数向这个线程发送一个类型为setBroadcastTimeoutLocked
+        // 的消息，并且制定在timeoutTime毫秒后处理。上面指定了r.receiverTime为当前时间表示AMS将一个有序
+        // 广播发送给BroadcastRecord对象r所描述的广播转发任务的下一个目标广播接收者处理的时间。如果这个
+        // 广播接收者不能再timeoutTime之内完成这个有序广播，AMS就会任务它超时。
         if (! mPendingBroadcastTimeoutMessage) {
             long timeoutTime = r.receiverTime + mTimeoutPeriod;
             if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST,
