@@ -1619,7 +1619,7 @@ public class ActivityStackSupervisor extends ConfigurationContainer implements D
         }
     }
 
- // 在AMS中每一个Activity组件都有一个用户ID和一个进程名称，其中，用户ID是在安装该Activity组件时
+    // 在AMS中每一个Activity组件都有一个用户ID和一个进程名称，其中，用户ID是在安装该Activity组件时
     // 由PMS分配的，而进程名则是由该Activity组件的android:process属性来决定的。AMS在启动Activity
     // 组件时，首先会以它的用户ID和进程名称来检查系统是否存在一个对应的应用程序进程，如果存在，就会直
     // 接通过这个应用程序进程将该Activity组件启动，佛足额就先以这个用户ID和进程名来创建一个应用程序

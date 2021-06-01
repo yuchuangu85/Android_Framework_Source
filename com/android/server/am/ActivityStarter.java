@@ -961,7 +961,7 @@ class ActivityStarter {
             componentSpecified = false;
         }
 
-// 收集Intent中的信息，如果启动Activity，会收集到Activity的信息，启动服务就会收集到服务的信息，
+        // 收集Intent中的信息，如果启动Activity，会收集到Activity的信息，启动服务就会收集到服务的信息，
         // 还可能包括广播，ContentProvider等，收集到的信息时被调用者的信息。
         ResolveInfo rInfo = mSupervisor.resolveIntent(intent, resolvedType, userId,
                 0 /* matchFlags */,
@@ -1366,7 +1366,7 @@ class ActivityStarter {
                         outActivity[0] = reusedActivity;
                     }
 
- // 需要启动的Activity不需要重启启动，只需要将其放到栈顶即可
+                    // 需要启动的Activity不需要重启启动，只需要将其放到栈顶即可
                     return mMovedToFront ? START_TASK_TO_FRONT : START_DELIVERED_TO_TOP;
                 }
             }
@@ -1494,7 +1494,7 @@ class ActivityStarter {
                         mOptions);
             }
         } else if (mStartActivity != null) {
-// 添加启动的Activity到最近任务
+            // 添加启动的Activity到最近任务
             mSupervisor.mRecentTasks.add(mStartActivity.getTask());
         }
         mSupervisor.updateUserStackLocked(mStartActivity.userId, mTargetStack);

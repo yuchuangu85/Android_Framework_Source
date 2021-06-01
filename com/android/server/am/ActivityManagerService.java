@@ -5114,7 +5114,7 @@ public class ActivityManagerService extends IActivityManager.Stub
                 .setProfilerInfo(profilerInfo)
                 .setActivityOptions(bOptions)
                 .setMayWait(userId)
-                .execute();
+                .execute();// 执行启动Activity
 
     }
 

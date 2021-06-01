@@ -2644,7 +2644,7 @@ class ActivityStack<T extends StackWindowController> extends ConfigurationContai
 
                 if (DEBUG_STATES) Slog.v(TAG_STATES, "Moving to RESUMED: " + next
                         + " (in existing)");
-            // 设置要启动的目标Activity状态为resumed
+                // 设置要启动的目标Activity状态为resumed
                 next.setState(RESUMED, "resumeTopActivityInnerLocked");
 
                 mService.updateLruProcessLocked(next.app, true, null);
@@ -2890,7 +2890,7 @@ class ActivityStack<T extends StackWindowController> extends ConfigurationContai
                 true /* includingParents */);
     }
 
-// 启动Activity（Locked表示线程安全的）
+    // 启动Activity（Locked表示线程安全的）
     void startActivityLocked(ActivityRecord r, ActivityRecord focusedTopActivity,
             boolean newTask, boolean keepCurTransition, ActivityOptions options) {
         TaskRecord rTask = r.getTask();

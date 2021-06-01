@@ -87,8 +87,9 @@ public abstract class DisplayEventReceiver {
         if (looper == null) {
             throw new IllegalArgumentException("looper must not be null");
         }
-
+        // 获取主线程消息队列
         mMessageQueue = looper.getQueue();
+        // 注册VSYNC信号监听者，系统会回调dispatchVsync方法
         mReceiverPtr = nativeInit(new WeakReference<DisplayEventReceiver>(this), mMessageQueue,
                 vsyncSource);
 

@@ -1455,6 +1455,7 @@ public final class ViewRootImpl implements ViewParent,
             // 一旦开始重回此处设置为True，当执行完毕后调用unscheduleTraversals函数，
             // 重新设置为false，避免同时存在多次绘制
             mTraversalScheduled = true;
+            // 添加同步屏障，保证VSync到来立即执行绘制
             mTraversalBarrier = mHandler.getLooper().getQueue().postSyncBarrier();
             // 将消息放入消息处理器中，最终调用doTraversal方法
             mChoreographer.postCallback(
@@ -1471,6 +1472,7 @@ public final class ViewRootImpl implements ViewParent,
     void unscheduleTraversals() {
         if (mTraversalScheduled) {
             mTraversalScheduled = false;
+            // 移除同步屏障
             mHandler.getLooper().getQueue().removeSyncBarrier(mTraversalBarrier);
             mChoreographer.removeCallbacks(
                     Choreographer.CALLBACK_TRAVERSAL, mTraversalRunnable, null);
@@ -1481,6 +1483,7 @@ public final class ViewRootImpl implements ViewParent,
     void doTraversal() {
         if (mTraversalScheduled) {
             mTraversalScheduled = false;
+            // 移除同步屏障
             mHandler.getLooper().getQueue().removeSyncBarrier(mTraversalBarrier);
 
             if (mProfile) {

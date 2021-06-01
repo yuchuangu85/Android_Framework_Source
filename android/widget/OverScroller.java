@@ -549,7 +549,7 @@ public class OverScroller {
         // Final position
         private int mFinal;
 
-        // Initial velocity
+        // Initial velocity(初始速度)
         private int mVelocity;
 
         // Current velocity
@@ -564,7 +564,7 @@ public class OverScroller {
         // Animation duration, in milliseconds
         private int mDuration;
 
-        // Duration to complete spline component of animation
+        // Duration to complete spline component of animation（完成动画的时间）
         private int mSplineDuration;
 
         // Distance to travel along spline animation
@@ -573,7 +573,7 @@ public class OverScroller {
         // Whether the animation is currently in progress
         private boolean mFinished;
 
-        // The allowed overshot distance before boundary is reached.
+        // The allowed overshot（越过） distance before boundary is reached.
         private int mOver;
 
         // Fling friction(摩擦力)：0.015f

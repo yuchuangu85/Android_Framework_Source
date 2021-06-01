@@ -74,6 +74,7 @@ import static android.view.DisplayEventReceiver.VSYNC_SOURCE_SURFACE_FLINGER;
  * Android Choreographer 源码分析：https://www.jianshu.com/p/996bca12eb1d
  * Android的16ms和垂直同步以及三重缓存：https://blog.csdn.net/stven_king/article/details/80098798
  * Android系统的编舞者Choreographer：https://blog.csdn.net/stven_king/article/details/80098845
+ * https://ljd1996.github.io/2020/09/07/Android-Choreographer%E5%8E%9F%E7%90%86/
  */
 public final class Choreographer {
     private static final String TAG = "Choreographer";
@@ -669,6 +670,8 @@ public final class Choreographer {
             final long jitterNanos = startNanos - frameTimeNanos;
             // 抖动间隔大于屏幕刷新时间间隔（16ms）
             if (jitterNanos >= mFrameIntervalNanos) {// mFrameIntervalNanos = 16.7ms
+                // 是否超过一帧的时间，因为虽然添加了同步屏障，但是还是有正在执行的同步任务，导致doFrame延迟执行了
+                // 计算掉帧数
                 final long skippedFrames = jitterNanos / mFrameIntervalNanos;
                 // 当掉帧个数超过30，则输出相应log
                 if (skippedFrames >= SKIPPED_FRAME_WARNING_LIMIT) {
@@ -771,6 +774,7 @@ public final class Choreographer {
                 Trace.traceCounter(Trace.TRACE_TAG_VIEW, "jitterNanos", (int) jitterNanos);
                 // 当commit类型回调执行的时间点超过2帧，则更新mLastFrameTimeNanos。
                 if (jitterNanos >= 2 * mFrameIntervalNanos) {
+                    // 当commit类型回调执行的时间点超过2帧，则更新mLastFrameTimeNanos
                     final long lastFrameOffset = jitterNanos % mFrameIntervalNanos
                             + mFrameIntervalNanos;
                     if (DEBUG_JANK) {
