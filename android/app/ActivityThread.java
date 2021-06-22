@@ -368,6 +368,7 @@ public final class ActivityThread extends ClientTransactionHandler {
     Bundle mCoreSettings = null;
 
     /** Activity client record, used for bookkeeping for the real {@link Activity} instance. */
+    // 封装Activity对象信息的类
     public static final class ActivityClientRecord {
         public IBinder token;
         int ident;
@@ -3047,7 +3048,7 @@ public final class ActivityThread extends ClientTransactionHandler {
             PendingTransactionActions pendingActions, Intent customIntent) {
         // If we are getting ready to gc after going to the background, well
         // we are back active so skip it.
-        unscheduleGcIdler();
+        unscheduleGcIdler();// 跳过GC
         mSomeActivitiesChanged = true;
 
         if (r.profilerInfo != null) {

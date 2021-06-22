@@ -1347,7 +1347,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
                     new Exception());
         }
         mScrollState = state;
-        if (state != SCROLL_STATE_SETTLING) {
+        if (state != SCROLL_STATE_SET/TLING) {
             stopScrollersInternal();
         }
         dispatchOnScrollStateChanged(state);

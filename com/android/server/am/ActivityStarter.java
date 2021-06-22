@@ -961,7 +961,7 @@ class ActivityStarter {
             componentSpecified = false;
         }
 
-        // 收集Intent中的信息，如果启动Activity，会收集到Activity的信息，启动服务就会收集到服务的信息，
+        // (PackageManagerService)收集Intent中的信息，如果启动Activity，会收集到Activity的信息，启动服务就会收集到服务的信息，
         // 还可能包括广播，ContentProvider等，收集到的信息时被调用者的信息。
         ResolveInfo rInfo = mSupervisor.resolveIntent(intent, resolvedType, userId,
                 0 /* matchFlags */,
@@ -1000,7 +1000,8 @@ class ActivityStarter {
         ActivityInfo aInfo = mSupervisor.resolveActivity(intent, rInfo, startFlags, profilerInfo);
 
         synchronized (mService) {
-            final ActivityStack stack = mSupervisor.mFocusedStack;// 获取当前有焦点的栈（有焦点的栈就是正在接受输入事件或者正在启动另外一个Activity的栈）
+            // 获取当前有焦点的栈（有焦点的栈就是正在接受输入事件或者正在启动另外一个Activity的栈）
+            final ActivityStack stack = mSupervisor.mFocusedStack;
             stack.mConfigWillChange = globalConfig != null
                     && mService.getGlobalConfiguration().diff(globalConfig) != 0;
             if (DEBUG_CONFIGURATION) Slog.v(TAG_CONFIGURATION,
@@ -1463,8 +1464,8 @@ class ActivityStarter {
         mTargetStack.startActivityLocked(mStartActivity, topFocused, newTask, mKeepCurTransition,
                 mOptions);
         if (mDoResume) {// 如果复用Activity
-            final ActivityRecord topTaskActivity =
             // 获取顶部ActivityRecord
+            final ActivityRecord topTaskActivity =
                     mStartActivity.getTask().topRunningActivityLocked();
             if (!mTargetStack.isFocusable()
                     || (topTaskActivity != null && topTaskActivity.mTaskOverlay
@@ -1489,7 +1490,7 @@ class ActivityStarter {
                 if (mTargetStack.isFocusable() && !mSupervisor.isFocusedStack(mTargetStack)) {
                     mTargetStack.moveToFront("startActivityUnchecked");
                 }
-				 // 恢复聚焦栈顶Activity
+				 // 恢复聚焦栈顶Activity（这里面如果没有启动进程则会启动进程）
                 mSupervisor.resumeFocusedStackTopActivityLocked(mTargetStack, mStartActivity,
                         mOptions);
             }
@@ -1576,7 +1577,7 @@ class ActivityStarter {
         mLaunchFlags = adjustLaunchFlagsToDocumentMode(
                 r, LAUNCH_SINGLE_INSTANCE == mLaunchMode,
                 LAUNCH_SINGLE_TASK == mLaunchMode, mIntent.getFlags());
-				// 通过ActivityOptions.setLaunchTaskBehind方法被激活，并且被启动完成后就会被清理
+		// 通过ActivityOptions.setLaunchTaskBehind方法被激活，并且被启动完成后就会被清理
         mLaunchTaskBehind = r.mLaunchTaskBehind
                 && !isLaunchModeOneOf(LAUNCH_SINGLE_TASK, LAUNCH_SINGLE_INSTANCE)
                 && (mLaunchFlags & FLAG_ACTIVITY_NEW_DOCUMENT) != 0;
@@ -1620,10 +1621,10 @@ class ActivityStarter {
             if (mOptions.getLaunchTaskId() != -1 && mOptions.getTaskOverlay()) {
                 r.mTaskOverlay = true;
                 if (!mOptions.canTaskOverlayResume()) {
-				// 查找所有的栈是否存在对应的TaskRecord
+				    // 查找所有的栈是否存在对应的TaskRecord
                     final TaskRecord task = mSupervisor.anyTaskForIdLocked(
                             mOptions.getLaunchTaskId());
-							 // 如果存在TaskRecord，那么获取顶部Activity的ActivityRecord对象
+					// 如果存在TaskRecord，那么获取顶部Activity的ActivityRecord对象
                     final ActivityRecord top = task != null ? task.getTopActivity() : null;
                     if (top != null && !top.isState(RESUMED)) {
 

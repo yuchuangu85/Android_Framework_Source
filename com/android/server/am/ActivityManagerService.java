@@ -4175,6 +4175,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         }
 
         checkTime(startTime, "startProcess: stepping in to startProcess");
+        // 启动进程
         final boolean success = startProcessLocked(app, hostingType, hostingNameStr, abiOverride);
         checkTime(startTime, "startProcess: done starting proc!");
         return success ? app : null;
@@ -4424,6 +4425,7 @@ public class ActivityManagerService extends IActivityManager.Stub
                                 || SystemProperties.get("wrap." + app.processName) != null;
                         mPendingStarts.put(startSeq, app);
                     }
+                    // 启动进程
                     final ProcessStartResult startResult = startProcess(app.hostingType, entryPoint,
                             app, app.startUid, gids, runtimeFlags, mountExternal, app.seInfo,
                             requiredAbi, instructionSet, invokeWith, app.startTime);
@@ -4444,6 +4446,7 @@ public class ActivityManagerService extends IActivityManager.Stub
             return true;
         } else {// 同步启动
             try {
+                // 启动进程
                 final ProcessStartResult startResult = startProcess(hostingType, entryPoint, app,
                         uid, gids, runtimeFlags, mountExternal, seInfo, requiredAbi, instructionSet,
                         invokeWith, startTime);
@@ -4476,6 +4479,7 @@ public class ActivityManagerService extends IActivityManager.Stub
                         app.info.dataDir, null,
                         new String[] {PROC_START_SEQ_IDENT + app.startSeq});
             } else {
+                // 启动进程
                 startResult = Process.start(entryPoint,
                         app.processName, uid, uid, gids, runtimeFlags, mountExternal,
                         app.info.targetSdkVersion, seInfo, requiredAbi, instructionSet,

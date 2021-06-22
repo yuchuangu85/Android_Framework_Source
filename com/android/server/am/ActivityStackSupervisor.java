@@ -1412,7 +1412,7 @@ public class ActivityStackSupervisor extends ConfigurationContainer implements D
                         System.identityHashCode(r), task.taskId, r.shortComponentName);
                 if (r.isActivityTypeHome()) {
                     // Home process is the root process of the task.
-                // home进程是该栈的根进程
+                    // home进程是该栈的根进程
                     mService.mHomeProcess = task.mActivities.get(0).app;
                 }
                 mService.notifyPackageUse(r.intent.getComponent().getPackageName(),
@@ -1443,7 +1443,7 @@ public class ActivityStackSupervisor extends ConfigurationContainer implements D
 
                 app.hasShownUi = true;
                 app.pendingUiClean = true;
-            // 将该进程设置为前台进程PROCESS_STATE_TOP
+                // 将该进程设置为前台进程PROCESS_STATE_TOP
                 app.forceProcessStateUpTo(mService.mTopProcessState);
                 // Because we could be starting an Activity in the system process this may not go
                 // across a Binder interface which would create a new Configuration. Consequently
@@ -1480,7 +1480,7 @@ public class ActivityStackSupervisor extends ConfigurationContainer implements D
 
                 // Schedule transaction.
                 mService.getLifecycleManager().scheduleTransaction(clientTransaction);
-            // 首先要判断该进程是不是被设置了PRIVATE_FLAG_CANT_SAVE_STATE标签
+                // 首先要判断该进程是不是被设置了PRIVATE_FLAG_CANT_SAVE_STATE标签
 
                 if ((app.info.privateFlags & ApplicationInfo.PRIVATE_FLAG_CANT_SAVE_STATE) != 0
                         && mService.mHasHeavyWeightFeature) {
@@ -1488,7 +1488,7 @@ public class ActivityStackSupervisor extends ConfigurationContainer implements D
                     // manager will ensure that only activity can run in the main
                     // process of the .apk, which is the only thing that will be
                     // considered heavy-weight.
-                // 处理heavy-weight进程
+                    // 处理heavy-weight进程
                     if (app.processName.equals(app.info.packageName)) {
                         if (mService.mHeavyWeightProcess != null
                                 && mService.mHeavyWeightProcess != app) {
@@ -1496,7 +1496,7 @@ public class ActivityStackSupervisor extends ConfigurationContainer implements D
                                     + " when already running "
                                     + mService.mHeavyWeightProcess);
                         }
-                    // 满足上述条件才能将该进程设置为heavy-weight进程
+                        // 满足上述条件才能将该进程设置为heavy-weight进程
                         mService.mHeavyWeightProcess = app;
                         Message msg = mService.mHandler.obtainMessage(
                                 ActivityManagerService.POST_HEAVY_NOTIFICATION_MSG);
@@ -1622,7 +1622,7 @@ public class ActivityStackSupervisor extends ConfigurationContainer implements D
     // 在AMS中每一个Activity组件都有一个用户ID和一个进程名称，其中，用户ID是在安装该Activity组件时
     // 由PMS分配的，而进程名则是由该Activity组件的android:process属性来决定的。AMS在启动Activity
     // 组件时，首先会以它的用户ID和进程名称来检查系统是否存在一个对应的应用程序进程，如果存在，就会直
-    // 接通过这个应用程序进程将该Activity组件启动，佛足额就先以这个用户ID和进程名来创建一个应用程序
+    // 接通过这个应用程序进程将该Activity组件启动，如果不存在就先以这个用户ID和进程名来创建一个应用程序
     // 进程，然后通过这个进程将该Activity组件启动起来。
     void startSpecificActivityLocked(ActivityRecord r,
             boolean andResume, boolean checkConfig) {

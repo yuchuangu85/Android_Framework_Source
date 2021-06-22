@@ -331,14 +331,15 @@ public final class MessageQueue {
                 final long now = SystemClock.uptimeMillis();
                 Message prevMsg = null;// 缓存前一个消息
                 Message msg = mMessages;// 当前消息
-                // target为空说明该消息是异步的消息，该消息是只能通过Looper的postSyncBarrier传入
-                // 这样的消息被称为：同步分割栏，它就像一个卡子，卡在消息链表中的某个位置，当消息循环不断
-                // 从消息链表中摘取消息并进行处理时，一旦遇到这种“同步分割栏”，那么即使在分割栏之后还有若
+                // target为空说明该消息是消息屏障，该消息是只能通过Looper的postSyncBarrier传入
+                // 这样的消息被称为：消息屏障，它就像一个卡子，卡在消息链表中的某个位置，当消息循环不断
+                // 从消息链表中摘取消息并进行处理时，一旦遇到这种“消息屏障”，那么即使在消息屏障之后还有若
                 // 干已经到时的普通Message，也不会摘取这些消息了。请注意，此时只是不会摘取“普通Message”了，
                 // 如果队列中还设置有“异步Message”，那么还是会摘取已到时的“异步Message”的。
-                // 如果没有同步分隔栏，那么普通消息和异步消息没有区别
+                // 如果没有消息屏障，那么普通消息和异步消息没有区别
                 if (msg != null && msg.target == null) {
                     // Stalled by a barrier.  Find the next asynchronous message in the queue.
+                    // 如果找到了消息屏障，就要查找队列中的异步消息
                     do {
                         prevMsg = msg;
                         msg = msg.next;

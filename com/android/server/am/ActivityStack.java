@@ -2749,6 +2749,7 @@ class ActivityStack<T extends StackWindowController> extends ConfigurationContai
                         next.showStartingWindow(null /* prev */, false /* newTask */,
                                 false /* taskSwitch */);
                     }
+                    // 启动指定Activity（或Process）
                     mStackSupervisor.startSpecificActivityLocked(next, true, false);
                     if (DEBUG_STACK) mStackSupervisor.validateTopActivitiesLocked();
                     return true;
@@ -3739,7 +3740,7 @@ class ActivityStack<T extends StackWindowController> extends ConfigurationContai
 
         mWindowManager.deferSurfaceLayout();
         try {
-		 // 标记开始finish
+            // 标记开始finish
             r.makeFinishingLocked();
             final TaskRecord task = r.getTask();
             EventLog.writeEvent(EventLogTags.AM_FINISH_ACTIVITY,
@@ -3758,17 +3759,17 @@ class ActivityStack<T extends StackWindowController> extends ConfigurationContai
                 }
             }
 
-        // 停止键盘分发事件
+            // 停止键盘分发事件
             r.pauseKeyDispatchingLocked();
 
             adjustFocusedActivityStack(r, "finishActivity");
 
             finishActivityResultsLocked(r, resultCode, resultData);
 
-        // 如果任务中没有了Activity要结束任务
+            // 如果任务中没有了Activity要结束任务
             final boolean endTask = index <= 0 && !task.isClearingToReuseTask();
             final int transit = endTask ? TRANSIT_TASK_CLOSE : TRANSIT_ACTIVITY_CLOSE;
-        if (mResumedActivity == r) {// 如果当前显示的Activity就是要结束的Activity
+            if (mResumedActivity == r) {// 如果当前显示的Activity就是要结束的Activity
                 if (DEBUG_VISIBILITY || DEBUG_TRANSITION) Slog.v(TAG_TRANSITION,
                         "Prepare close transition: finishing " + r);
                 if (endTask) {
@@ -3784,7 +3785,7 @@ class ActivityStack<T extends StackWindowController> extends ConfigurationContai
                     if (DEBUG_PAUSE) Slog.v(TAG_PAUSE, "Finish needs to pause: " + r);
                     if (DEBUG_USER_LEAVING) Slog.v(TAG_USER_LEAVING,
                             "finish() => pause with userLeaving=false");
-                // 开始暂停Activity
+                    // 开始暂停Activity
                     startPausingLocked(false, false, null, pauseImmediately);
                 }
 
@@ -3795,7 +3796,7 @@ class ActivityStack<T extends StackWindowController> extends ConfigurationContai
                 // If the activity is PAUSING, we will complete the finish once
                 // it is done pausing; else we can just directly finish it here.
                 if (DEBUG_PAUSE) Slog.v(TAG_PAUSE, "Finish not pausing: " + r);
-            if (r.visible) {// 如果需要被显示
+                if (r.visible) {// 如果需要被显示
                     prepareActivityHideTransitionAnimation(r, transit);
                 }
 

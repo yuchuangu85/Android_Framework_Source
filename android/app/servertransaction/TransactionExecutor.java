@@ -16,16 +16,6 @@
 
 package android.app.servertransaction;
 
-import static android.app.servertransaction.ActivityLifecycleItem.ON_CREATE;
-import static android.app.servertransaction.ActivityLifecycleItem.ON_DESTROY;
-import static android.app.servertransaction.ActivityLifecycleItem.ON_PAUSE;
-import static android.app.servertransaction.ActivityLifecycleItem.ON_RESTART;
-import static android.app.servertransaction.ActivityLifecycleItem.ON_RESUME;
-import static android.app.servertransaction.ActivityLifecycleItem.ON_START;
-import static android.app.servertransaction.ActivityLifecycleItem.ON_STOP;
-import static android.app.servertransaction.ActivityLifecycleItem.UNDEFINED;
-import static android.app.servertransaction.TransactionExecutorHelper.lastCallbackRequestingState;
-
 import android.app.ActivityThread.ActivityClientRecord;
 import android.app.ClientTransactionHandler;
 import android.os.IBinder;
@@ -36,9 +26,11 @@ import com.android.internal.annotations.VisibleForTesting;
 
 import java.util.List;
 
+import static android.app.servertransaction.ActivityLifecycleItem.*;
+import static android.app.servertransaction.TransactionExecutorHelper.lastCallbackRequestingState;
+
 /**
  * Class that manages transaction execution in the correct order.
- * @hide
  */
 public class TransactionExecutor {
 
@@ -50,6 +42,11 @@ public class TransactionExecutor {
     private TransactionExecutorHelper mHelper = new TransactionExecutorHelper();
 
     /** Initialize an instance with transaction handler, that will execute all requested actions. */
+    /**
+     * 执行生命周期对象的顺序操作（例如activity的生命周期操作）
+     *
+     * @param clientTransactionHandler ActivityThread
+     */
     public TransactionExecutor(ClientTransactionHandler clientTransactionHandler) {
         mTransactionHandler = clientTransactionHandler;
     }
@@ -67,12 +64,15 @@ public class TransactionExecutor {
 
         executeCallbacks(transaction);
 
+        // 执行相应的生命周期状态
         executeLifecycleState(transaction);
         mPendingActions.clear();
         log("End resolving transaction");
     }
 
-    /** Cycle through all states requested by callbacks and execute them at proper times. */
+    /**
+     * Cycle through all states requested by callbacks and execute them at proper times.
+     */
     @VisibleForTesting
     public void executeCallbacks(ClientTransaction transaction) {
         final List<ClientTransactionItem> callbacks = transaction.getCallbacks();
@@ -121,7 +121,9 @@ public class TransactionExecutor {
         }
     }
 
-    /** Transition to the final state if requested by the transaction. */
+    /**
+     * Transition to the final state if requested by the transaction.
+     */
     private void executeLifecycleState(ClientTransaction transaction) {
         final ActivityLifecycleItem lifecycleItem = transaction.getLifecycleStateRequest();
         if (lifecycleItem == null) {
@@ -131,6 +133,7 @@ public class TransactionExecutor {
         log("Resolving lifecycle state: " + lifecycleItem);
 
         final IBinder token = transaction.getActivityToken();
+        // 获取Activity对象封装
         final ActivityClientRecord r = mTransactionHandler.getActivityClient(token);
 
         if (r == null) {
@@ -146,7 +149,9 @@ public class TransactionExecutor {
         lifecycleItem.postExecute(mTransactionHandler, token, mPendingActions);
     }
 
-    /** Transition the client between states. */
+    /**
+     * Transition the client between states.
+     */
     @VisibleForTesting
     public void cycleToPath(ActivityClientRecord r, int finish) {
         cycleToPath(r, finish, false /* excludeLastState */);
@@ -156,16 +161,23 @@ public class TransactionExecutor {
      * Transition the client between states with an option not to perform the last hop in the
      * sequence. This is used when resolving lifecycle state request, when the last transition must
      * be performed with some specific parameters.
+     *
+     * @param finish           活动的最终生命周期状态（要到达的生命周期状态）
+     * @param excludeLastState 是否排除最后的生命周期状态
      */
     private void cycleToPath(ActivityClientRecord r, int finish,
-            boolean excludeLastState) {
+                             boolean excludeLastState) {
+        // 当前的生命周期状态
         final int start = r.getLifecycleState();
         log("Cycle from: " + start + " to: " + finish + " excludeLastState:" + excludeLastState);
         final IntArray path = mHelper.getLifecyclePath(start, finish, excludeLastState);
         performLifecycleSequence(r, path);
     }
 
-    /** Transition the client through previously initialized state sequence. */
+    /**
+     * Transition the client through previously initialized state sequence.
+     * 按照顺序执行生命周期函数
+     */
     private void performLifecycleSequence(ActivityClientRecord r, IntArray path) {
         final int size = path.size();
         for (int i = 0, state; i < size; i++) {
