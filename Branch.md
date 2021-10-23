@@ -4,21 +4,20 @@
 
 ## 一、版本信息
 
-| 分支       | Android版本 |
-| ---------- | ----------- |
-| master     | SDK-28      |
-| android_21 | SDK-21      |
-| android_22 | SDK-22      |
-| android_23 | SDK-23      |
-| android_24 | SDK-24      |
-| android_25 | SDK-25      |
-| android_26 | SDK-26      |
-| android_27 | SDK-27      |
-| android_29 | SDK-29      |
-| android_30 | SDK-30      |
-|            |             |
-|            |             |
-|            |             |
+| 分支        |  SDK版本    | Android 版本 |  
+| ---------- | ----------- |------------ |
+| master     | SDK-28      | Android  9.0   |
+| android_31 | SDK-30      | Android  12    |
+| android_30 | SDK-30      | Android  11    |
+| android_29 | SDK-29      | Android  10    |
+| android_27 | SDK-27      | Android  8.1   |
+| android_26 | SDK-26      | Android  8.0   |
+| android_25 | SDK-25      | Android  7.1.1 |
+| android_24 | SDK-24      | Android  7.0   |
+| android_23 | SDK-23      | Android  6.0   |
+| android_22 | SDK-22      | Android  5.1   |
+| android_21 | SDK-21      | Android  5.0   |
+
 
 ## 二、版本对应注释内容
 
